@@ -333,7 +333,9 @@ import {
   applyVehicleParcelScale,
   migrateParcelVehicleScale,
   walkerMotionSpeedScale,
+  isOwnedParcel,
 } from '@/lib/earth2/parcel-shrink';
+import { lifeFor } from '@/lib/earth2/operators';
 import {
   stepBlockedByParcelLine,
   sanctuaryRentOwed,
@@ -2251,14 +2253,31 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         return bones;
       }
 
-      function makeLabel(text, obj, h, maxDist = 140, owner = null, kind = null) {
+      // A life line rides under the name when a scene animal is
+      // passed as `lifeAnimal`: the label becomes two lines
+      // (name + life line, refreshed ~once a second from
+      // lifeFor in the frame loop — never re-rendered per
+      // frame). Callers without a life animal get the old
+      // single-line pill, unchanged.
+      function makeLabel(text, obj, h, maxDist = 140, owner = null, kind = null, lifeAnimal = null) {
         const el = document.createElement('div');
-        el.textContent = text;
         el.className = 'pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-full border border-black/25 bg-black/45 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-white/90';
         el.style.willChange = 'transform';
         el.style.display = 'none';
+        let lifeEl = null;
+        if (lifeAnimal) {
+          el.classList.add('flex', 'flex-col', 'items-center', 'leading-tight');
+          const nameEl = document.createElement('div');
+          nameEl.textContent = text;
+          el.appendChild(nameEl);
+          lifeEl = document.createElement('div');
+          lifeEl.className = 'text-[9px] font-normal text-white/70';
+          el.appendChild(lifeEl);
+        } else {
+          el.textContent = text;
+        }
         labelsRef.current && labelsRef.current.appendChild(el);
-        const rec = { el, obj, h, maxDist, baseMaxDist: maxDist, owner, kind };
+        const rec = { el, obj, h, maxDist, baseMaxDist: maxDist, owner, kind, lifeAnimal, lifeEl, lastLifeLine: null, lastLifeAt: 0 };
         labels.push(rec);
         return rec;
       }
@@ -2523,6 +2542,18 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           const baseScene = await loadModel(entry);
           for (let i = 0; i < recs.length; i++) {
             const rec = recs[i];
+            // PARCEL SANCTUARY (operators wiring): an operator
+            // extra whose mirrored anchor lands on a titled
+            // parcel is never stood up — owned parcels are
+            // dino-free. The live owners map is the only truth
+            // here (a parcel can be titled after the static
+            // plan is built), so the check runs at placement.
+            // Originals keep their existing law (movement-only
+            // blocking via stepBlockedByParcelLine).
+            if (rec.operatorExtra) {
+              const parcel = parcelAtWorld(rec.x, rec.z);
+              if (parcel && isOwnedParcel(parcel, buildPropsRef.current.owners)) continue;
+            }
             const modelScene = i === 0 ? baseScene : SkeletonUtils.clone(baseScene);
             const resolved = resolveRoles(modelScene);
             const facingYaw = measureFacing(modelScene, resolved);
@@ -2555,6 +2586,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
               // mark pickPreyTarget hunts by; the walker carries
               // no such mark and can never be prey.
               id: animalId,
+              copy: rec.copy != null ? rec.copy : i,
               creature: true,
               caps: behCaps,
               beh: createBehaviour(seedFor(entry.slug, rec.copy != null ? rec.copy : i), entry),
@@ -2579,7 +2611,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             // presence entry, not a species (fossils.js excludes
             // it from drops).
             root.userData.animalRef = animals[animals.length - 1];
-            if (i === 0) makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2, 140, owner);
+            // Every copy wears a two-line label (name + life
+            // line) — the operator extras included, so the
+            // second anchor reads its life exactly like the
+            // first. The line refreshes ~once a second from
+            // lifeFor in the frame loop.
+            makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2, 140, owner, null, animals[animals.length - 1]);
           }
           setStatusFor(entry.slug, 'placed');
           return { roots: added };
@@ -4502,6 +4539,8 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         a.alive = false;
         a.state = 'carcass';
         a.carcass = carcass;
+        // Life-line cause: gunfire is the hunter's kill.
+        a.deathCause = 'hunter';
         // Bones for the taking (Merlin, 2026-10-31): the kill drops
         // a collectible bone pile at the site — tap it or walk up
         // to gather the fossils for Hammond's counter.
@@ -4931,6 +4970,9 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         prey.alive = false;
         prey.state = 'carcass';
         prey.carcass = carcass;
+        // Life-line cause: the guardian's kill is the guardian's;
+        // every other caught chase is predation.
+        prey.deathCause = predator && predator.entry && predator.entry.guardian ? 'guardian' : 'predation';
         prey.deathPos = { x: prey.root.position.x, z: prey.root.position.z };
         prey.huntTarget = null;
         prey.fleeFrom = null;
@@ -4983,6 +5025,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             rec.state = 'alive';
             rec.alive = true;
             rec.carcass = null;
+            rec.deathCause = null;
             rec.dist = 0;
             if (rec.walker) {
               rec.walker.cx = anchor.x;
@@ -8934,6 +8977,36 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           const x = (labelV.x * 0.5 + 0.5) * w;
           const y = (-labelV.y * 0.5 + 0.5) * h + stackLevel * 16;
           l.el.style.transform = `translate(-50%, -100%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+          // Life line: refresh ~once a second from lifeFor, only
+          // while the label is on screen — and write the DOM only
+          // when the line itself moved. The carcass state comes
+          // from the lifecycle by id (the scene does track it:
+          // lifecycle.status + the animal's carcass record, with
+          // the cause stamped at the kill site).
+          if (l.lifeAnimal && l.lifeEl) {
+            const nowMs = performance.now();
+            if (nowMs - (l.lastLifeAt || 0) >= 1000) {
+              l.lastLifeAt = nowMs;
+              const a = l.lifeAnimal;
+              const life = lifeFor(
+                { slug: a.entry.slug, copy: a.copy, id: a.id, x: a.root.position.x, z: a.root.position.z },
+                Date.now(),
+                {
+                  status: lifecycle.status(a.id) || (a.alive ? 'alive' : 'dead'),
+                  cause: a.deathCause || null,
+                  diedAt: a.carcass ? a.carcass.diedAt : 0,
+                  nowS: clock.elapsedTime,
+                  behaviourMode: a.beh ? a.beh.mode : null,
+                  hunger: a.beh ? a.beh.hunger : undefined,
+                  thirst: a.beh ? a.beh.thirst : undefined,
+                },
+              );
+              if (life.line !== l.lastLifeLine) {
+                l.lastLifeLine = life.line;
+                l.lifeEl.textContent = life.line;
+              }
+            }
+          }
         }
         // Phase 2 integrity bars: a hurt machine in view wears
         // her bar under her name — projected like the labels,

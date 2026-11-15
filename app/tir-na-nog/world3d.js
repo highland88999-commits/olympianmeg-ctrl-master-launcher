@@ -138,7 +138,7 @@ function Ground() {
   );
 }
 
-function Pools({ pools }) {
+function Pools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -157,7 +157,7 @@ function Pools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -262,7 +262,7 @@ function Center() {
   );
 }
 
-function WestRegion({ stones, drift, reduced }) {
+function WestRegion({stones, drift, reduced}) {
   const westDrift = useMemo(() => drift.filter((s) => s.id.startsWith('w')), [drift]);
   const driftRefs = useRef([]);
   useFrame((state) => {
@@ -302,7 +302,7 @@ function WestRegion({ stones, drift, reduced }) {
   );
 }
 
-function EastRegion({ pillars }) {
+function EastRegion({pillars, drift}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
@@ -320,6 +320,12 @@ function EastRegion({ pillars }) {
           <meshStandardMaterial color="#ffffff" roughness={0.9} />
         </mesh>
       ))}
+      {drift.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#fffbe8" transparent opacity={0.7} roughness={0.9} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The White Horse Fields
       </Html>
@@ -327,7 +333,7 @@ function EastRegion({ pillars }) {
   );
 }
 
-function NorthRegion({ pits, drift, reduced }) {
+function NorthRegion({pits, drift, reduced}) {
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -477,7 +483,7 @@ function EntryPortal() {
 // budget: 8 light posts + 4 region lights = 12 total). Every post
 // still shows its glowing orb; the lit ones are the pools of light
 // along the way up.
-function Lights({ reduced }) {
+function Lights({reduced}) {
   const lights = useMemo(() => makeLights(), []);
   const lightRefs = useRef([]);
   const orbRefs = useRef([]);
@@ -540,7 +546,7 @@ function Lights({ reduced }) {
   );
 }
 
-function Motes({ reduced }) {
+function Motes({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -581,7 +587,7 @@ function Motes({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -646,7 +652,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function TirNaNogScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function TirNaNogScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -658,7 +664,7 @@ export function TirNaNogScene({ playerRef, inputRef, onPortal, onRegion, reduced
       <Gates />
       <Center />
       <WestRegion stones={world.meadowStones} drift={world.fae} reduced={reduced} />
-      <EastRegion pillars={world.appleTrees} />
+      <EastRegion pillars={world.appleTrees}  drift={world.fae}/>
       <NorthRegion pits={world.orchardRocks} drift={world.fae} reduced={reduced} />
       <PortalArches />
       <EntryPortal />

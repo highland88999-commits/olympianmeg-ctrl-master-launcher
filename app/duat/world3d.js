@@ -139,7 +139,7 @@ function Ground() {
   );
 }
 
-function DarkPools({ pools }) {
+function DarkPools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -158,7 +158,7 @@ function DarkPools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -247,7 +247,7 @@ function Barque() {
   );
 }
 
-function Hall({ columns }) {
+function Hall({columns}) {
   // The Hall of Two Truths: the heart is weighed against the feather
   // of Maat, on the great scales, under the columns.
   const innerColumns = [];
@@ -301,7 +301,7 @@ function Hall({ columns }) {
   );
 }
 
-function TwelveGates({ pillars, shades }) {
+function TwelveGates({pillars, shades}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-160, 0.05, -70]}>
@@ -327,7 +327,7 @@ function TwelveGates({ pillars, shades }) {
   );
 }
 
-function DarkWaters({ coils, shades }) {
+function DarkWaters({coils, shades}) {
   // Apep, the great serpent, coiled in the dark waters — gold eyes
   // watching the barque go by.
   const segments = [];
@@ -512,7 +512,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -577,7 +577,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Embers({ reduced }) {
+function Embers({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -618,7 +618,7 @@ function Embers({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -683,7 +683,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function DuatScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function DuatScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -698,6 +698,12 @@ export function DuatScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
       <TwelveGates pillars={world.gatePillars} shades={world.shades} />
       <DarkWaters coils={world.apepCoils} shades={world.shades} />
       <TwelfthGate />
+      {world.shades.filter((s) => s.id.startsWith('n')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
+        </mesh>
+      ))}
       <PortalArches />
       <DescentPortal />
       <Torches reduced={reduced} />

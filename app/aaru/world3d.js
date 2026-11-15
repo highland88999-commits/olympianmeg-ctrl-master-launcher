@@ -138,7 +138,7 @@ function Ground() {
   );
 }
 
-function LightPools({ pools }) {
+function LightPools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -157,7 +157,7 @@ function LightPools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -268,7 +268,7 @@ function OsirisTemple() {
 }
 
 
-function WestRegion({ stones, shades, reduced }) {
+function WestRegion({stones, shades, reduced}) {
   const westShades = useMemo(() => shades.filter((s) => s.id.startsWith('w')), [shades]);
   const shadeRefs = useRef([]);
   useFrame((state) => {
@@ -308,7 +308,7 @@ function WestRegion({ stones, shades, reduced }) {
   );
 }
 
-function EastRegion({ pillars }) {
+function EastRegion({pillars, shades}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
@@ -326,6 +326,12 @@ function EastRegion({ pillars }) {
           <meshStandardMaterial color="#e8d9b0" roughness={0.9} />
         </mesh>
       ))}
+      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#ffffff" transparent opacity={0.5} roughness={0.6} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Barley Fields
       </Html>
@@ -333,7 +339,7 @@ function EastRegion({ pillars }) {
   );
 }
 
-function NorthRegion({ pits, shades, reduced }) {
+function NorthRegion({pits, shades, reduced}) {
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -481,7 +487,7 @@ function AscentPortal() {
 // budget: 8 post lights + 4 region lights = 12 total). Every post
 // still shows its glow; the lit ones are the pools of light along
 // the way up.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -544,7 +550,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Motes({ reduced }) {
+function Motes({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -585,7 +591,7 @@ function Motes({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -650,7 +656,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function AaruScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function AaruScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -662,7 +668,7 @@ export function AaruScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
       <Gates />
       <OsirisTemple />
       <WestRegion stones={world.westStones} shades={world.shades} reduced={reduced} />
-      <EastRegion pillars={world.eastPillars} />
+      <EastRegion pillars={world.eastPillars}  shades={world.shades}/>
       <NorthRegion pits={world.northPits} shades={world.shades} reduced={reduced} />
       <PortalArches />
       <AscentPortal />

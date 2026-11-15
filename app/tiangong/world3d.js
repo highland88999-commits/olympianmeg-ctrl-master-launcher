@@ -125,7 +125,7 @@ function Ground() {
   );
 }
 
-function Pools({ pools }) {
+function Pools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -144,7 +144,7 @@ function Pools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -255,7 +255,7 @@ function Center() {
 }
 
 
-function WestRegion({ stones, drifters, reduced }) {
+function WestRegion({stones, drifters, reduced}) {
   const westDrifters = useMemo(() => drifters.filter((s) => s.id.startsWith('w')), [drifters]);
   const driftRefs = useRef([]);
   useFrame((state) => {
@@ -295,7 +295,7 @@ function WestRegion({ stones, drifters, reduced }) {
   );
 }
 
-function EastRegion({ pillars }) {
+function EastRegion({pillars, drifters}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
@@ -313,6 +313,12 @@ function EastRegion({ pillars }) {
           <meshStandardMaterial color="#e8e0cc" roughness={0.9} />
         </mesh>
       ))}
+      {drifters.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#ffffff" transparent opacity={0.6} roughness={0.9} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Jade Terraces
       </Html>
@@ -320,7 +326,7 @@ function EastRegion({ pillars }) {
   );
 }
 
-function NorthRegion({ pits, drifters, reduced }) {
+function NorthRegion({pits, drifters, reduced}) {
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -469,7 +475,7 @@ function EntryPortal() {
 // Only the 8 route-marking posts carry a real point light (the mobile
 // budget: 8 lights + 4 region lights = 12 total). Every post still
 // shows its glow; the lit ones are the pools of light along the way in.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -533,7 +539,7 @@ function Torches({ reduced }) {
   );
 }
 
-function CloudMotes({ reduced }) {
+function CloudMotes({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -574,7 +580,7 @@ function CloudMotes({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -639,7 +645,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function TiangongScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -651,7 +657,7 @@ export function TiangongScene({ playerRef, inputRef, onPortal, onRegion, reduced
       <Gates />
       <Center />
       <WestRegion stones={world.westStones} drifters={world.drifters} reduced={reduced} />
-      <EastRegion pillars={world.eastPillars} />
+      <EastRegion pillars={world.eastPillars}  drifters={world.drifters}/>
       <NorthRegion pits={world.northPits} drifters={world.drifters} reduced={reduced} />
       <PortalArches />
       <EntryPortal />

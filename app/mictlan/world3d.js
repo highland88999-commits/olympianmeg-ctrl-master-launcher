@@ -147,7 +147,7 @@ function Ground() {
   );
 }
 
-function ObsidianPools({ pools }) {
+function ObsidianPools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -166,7 +166,7 @@ function ObsidianPools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -288,7 +288,7 @@ function Throne() {
   );
 }
 
-function CrashingMountains({ stones, shades }) {
+function CrashingMountains({stones, shades}) {
   // Two mountains leaning in to crush together, frozen mid-crash.
   return (
     <group>
@@ -323,7 +323,7 @@ function CrashingMountains({ stones, shades }) {
   );
 }
 
-function WindDesert({ spires }) {
+function WindDesert({spires, shades}) {
   // The obsidian wind desert: black glass spires the wind howls through.
   return (
     <group>
@@ -338,6 +338,12 @@ function WindDesert({ spires }) {
           <meshStandardMaterial color="#0d1a1a" roughness={0.7} metalness={0.3} />
         </mesh>
       ))}
+      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Obsidian Wind
       </Html>
@@ -345,7 +351,7 @@ function WindDesert({ spires }) {
   );
 }
 
-function NinthLevel({ pits, shades }) {
+function NinthLevel({pits, shades}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
@@ -486,7 +492,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -551,7 +557,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Embers({ reduced }) {
+function Embers({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -592,7 +598,7 @@ function Embers({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -657,7 +663,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function MictlanScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function MictlanScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -670,7 +676,7 @@ export function MictlanScene({ playerRef, inputRef, onPortal, onRegion, reduced 
       <Dog />
       <Throne />
       <CrashingMountains stones={world.mountainStones} shades={world.shades} />
-      <WindDesert spires={world.windSpires} />
+      <WindDesert spires={world.windSpires}  shades={world.shades}/>
       <NinthLevel pits={world.thronePits} shades={world.shades} />
       <PortalArches />
       <DescentPortal />

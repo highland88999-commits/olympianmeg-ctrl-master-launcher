@@ -38,6 +38,7 @@ import {
   SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster, MONSTER_TYPES,
   monsterColliders,
 } from './spawns.js';
+import { monsterLifeFor, korusLifeFor } from './operators.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { boltKindFor, BOLT_STYLE, BOLT_SPEED, BOLT_MAX_LIFE } from './bolt-visual.js';
 import { updateBackpack, useBackpack, getBackpackRecord } from '../../lib/backpack/store.js';
@@ -382,6 +383,13 @@ export default function HollowEarthPage() {
           try { updateBackpack((rec) => DATA.applyRewardToRecord(rec)); } catch { /* pack unavailable */ }
           setKorusDead(true);
           notice('👑 KORUS FALLS — Stormfang is yours. The Monsterverse remembers.');
+        } else {
+          /* Life line (operators.js): Korus has no figure label
+           * (GLB-only throne figure), so the strike notice is
+           * his surface — the death notice stands on a kill. */
+          notice(korusLifeFor(world.korus, Date.now(), {
+            totalKills: campaignRef.current ? campaignRef.current.kills : 0,
+          }).line);
         }
       }
       if (weaponRef.current !== 'melee') {
@@ -404,15 +412,25 @@ export default function HollowEarthPage() {
         }
         spawnBolt(endpoint);
       }
+      /* Life lines (operators.js) on the strike notice — tap is
+       * still strike, the notice only reports it. Monsters have
+       * no name label (GLB-only figures; only a damage HP bar),
+       * so the notice is their surface. A dead monster's figure
+       * goes invisible (fig.visible = false), so no Remains line
+       * can live on the figure — the killing strike's notice
+       * carries it instead, unless the kill already reports a
+       * shield or a heal. Ghorrum has no surface at all (never
+       * struck, never a record) and stays unwired. */
       for (const m of hits) {
         const died = damageMonster(m, spec.dmg);
-        if (!died) { m.hitFlash = 1; spawnImpact(m, false); continue; }
+        if (!died) { m.hitFlash = 1; spawnImpact(m, false); notice(monsterLifeFor(m, Date.now()).line); continue; }
         spawnImpact(m, true);
         const h = hunterRef.current;
         const res = onMonsterKilled(h);
         missionKillsRef.current += 1;
         if (res.shieldGranted) notice(`🛡️ SHIELD GAINED — 30 kills! It absorbs 50 damage until broken.`);
         else if (res.heal > 0) notice(`❤️ +${res.heal} health for the kill.`);
+        else notice(monsterLifeFor(m, Date.now()).line);
         setCampaign((c) => {
           let nc = DATA.recordKill(c);
           nc = DATA.setShield(nc, h.shield);

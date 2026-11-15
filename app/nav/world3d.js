@@ -141,7 +141,7 @@ function Ground() {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -181,7 +181,7 @@ function Bridge() {
   );
 }
 
-function RootTangles({ tangles }) {
+function RootTangles({tangles}) {
   return (
     <group>
       {tangles.map((p) => (
@@ -256,7 +256,7 @@ function VelesHall() {
   );
 }
 
-function RootsOfTheWorldTree({ pillars }) {
+function RootsOfTheWorldTree({pillars, wisps}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-160, 0.05, -70]}>
@@ -279,6 +279,12 @@ function RootsOfTheWorldTree({ pillars }) {
           <meshStandardMaterial color="#2a2016" roughness={1} />
         </mesh>
       ))}
+      {wisps.filter((s) => s.id.startsWith('w')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#9fd8b8" transparent opacity={0.5} roughness={0.6} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[-160, 17, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Roots of the World Tree
       </Html>
@@ -286,7 +292,7 @@ function RootsOfTheWorldTree({ pillars }) {
   );
 }
 
-function DampMeadows({ stones, wisps, reduced }) {
+function DampMeadows({stones, wisps, reduced}) {
   const meadowWisps = useMemo(() => wisps.filter((s) => s.id.startsWith('m')), [wisps]);
   const wispRefs = useRef([]);
   useFrame((state) => {
@@ -327,7 +333,7 @@ function DampMeadows({ stones, wisps, reduced }) {
   );
 }
 
-function VelesGrounds({ pools, wisps }) {
+function VelesGrounds({pools, wisps}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
@@ -469,7 +475,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -534,7 +540,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Wisps({ reduced }) {
+function Wisps({reduced}) {
   const COUNT = 220;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -575,7 +581,7 @@ function Wisps({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -640,7 +646,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function NavScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function NavScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -651,7 +657,7 @@ export function NavScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
       <Bridge />
       <RiverGate />
       <VelesHall />
-      <RootsOfTheWorldTree pillars={world.rootPillars} />
+      <RootsOfTheWorldTree pillars={world.rootPillars}  wisps={world.wisps}/>
       <DampMeadows stones={world.meadowStones} wisps={world.wisps} reduced={reduced} />
       <VelesGrounds pools={world.dampPools} wisps={world.wisps} />
       <PortalArches />

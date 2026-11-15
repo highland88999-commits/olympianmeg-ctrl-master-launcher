@@ -143,7 +143,7 @@ function Ground() {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -183,7 +183,7 @@ function Bridge() {
   );
 }
 
-function DustDrifts({ drifts }) {
+function DustDrifts({drifts}) {
   return (
     <group>
       {drifts.map((p) => (
@@ -267,7 +267,7 @@ function ThroneHall() {
   );
 }
 
-function HouseOfDust({ stones, shades, reduced }) {
+function HouseOfDust({stones, shades, reduced}) {
   const houseShades = useMemo(() => shades.filter((s) => s.id.startsWith('h')), [shades]);
   const shadeRefs = useRef([]);
   useFrame((state) => {
@@ -308,7 +308,7 @@ function HouseOfDust({ stones, shades, reduced }) {
   );
 }
 
-function ThroneGrounds({ pillars, pits, shades, reduced }) {
+function ThroneGrounds({pillars, pits, shades, reduced}) {
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -470,7 +470,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -535,7 +535,7 @@ function Torches({ reduced }) {
   );
 }
 
-function DustMotes({ reduced }) {
+function DustMotes({reduced}) {
   const COUNT = 200;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -576,7 +576,7 @@ function DustMotes({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -641,7 +641,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function KurScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function KurScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
 
   // DAY / NIGHT STORM (Merlin, 2026-11-14): a strike sometimes sets a
@@ -679,6 +679,12 @@ export function KurScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
       <River reduced={reduced} />
       <Bridge />
       <SevenGates />
+      {world.shades.filter((s) => s.id.startsWith('w')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
+        </mesh>
+      ))}
       <ThroneHall />
       <HouseOfDust stones={world.houseStones} shades={world.shades} reduced={reduced} />
       <ThroneGrounds pillars={world.thronePillars} pits={world.clayPits} shades={world.shades} reduced={reduced} />

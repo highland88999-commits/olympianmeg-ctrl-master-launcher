@@ -148,7 +148,7 @@ function Ground() {
   );
 }
 
-function BloodPools({ pools }) {
+function BloodPools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -167,7 +167,7 @@ function BloodPools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -227,7 +227,7 @@ function Gates() {
   );
 }
 
-function TrialHouses({ stones, shades }) {
+function TrialHouses({stones, shades}) {
   // The five houses of trial: Dark, Razor, Cold, Jaguar, and Bat —
   // each one a test the dead must pass.
   const HOUSES = [
@@ -274,7 +274,7 @@ function TrialHouses({ stones, shades }) {
   );
 }
 
-function BatHouse({ perches }) {
+function BatHouse({perches, shades}) {
   // The Bat House of Camazotz: a dark cave mound, great wings spread
   // over it, jade eyes watching the road.
   return (
@@ -304,6 +304,12 @@ function BatHouse({ perches }) {
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.5, 0.7, p.h, 8]} />
           <meshStandardMaterial color="#1a1a20" roughness={0.9} />
+        </mesh>
+      ))}
+      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
         </mesh>
       ))}
       <Html center distanceFactor={120} position={[160, 20, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
@@ -340,7 +346,7 @@ function Ballcourt() {
   );
 }
 
-function PlaceOfFear({ pits, shades }) {
+function PlaceOfFear({pits, shades}) {
   // The far north: jagged teeth of stone and pools of blood — the
   // place of fear itself.
   const teeth = [];
@@ -493,7 +499,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -558,7 +564,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Embers({ reduced }) {
+function Embers({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -599,7 +605,7 @@ function Embers({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -664,7 +670,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function XibalbaScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function XibalbaScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
 
   // DAY / NIGHT STORM (Merlin, 2026-11-14): a strike sometimes sets a
@@ -703,7 +709,7 @@ export function XibalbaScene({ playerRef, inputRef, onPortal, onRegion, reduced 
       <Bridge />
       <Gates />
       <TrialHouses stones={world.trialStones} shades={world.shades} />
-      <BatHouse perches={world.batPerches} />
+      <BatHouse perches={world.batPerches}  shades={world.shades}/>
       <Ballcourt />
       <PlaceOfFear pits={world.courtPits} shades={world.shades} />
       <PortalArches />

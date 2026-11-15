@@ -55,6 +55,7 @@ import {
   noteLoudHeat, heatLevel, losClear,
 } from './hunt.js';
 import { createSaruman, stepBoss, buildSarumanFigure, BOSS_POS } from './boss.js';
+import { placedCreatureExtras, placedCreatureLifeFor } from './operators.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -422,7 +423,14 @@ export function buildZone(THREE, podDef, T, opts) {
       if (!cd || !Array.isArray(cd.at)) continue;
       if (options.playerKey && cd.model === options.playerKey) continue;
       try {
-        const fig = buildFigure(R, cd, heightAt);
+        /* Placed creatures carry their life line on the tag's
+         * second line (characters.js) — static, because they
+         * never die and never hunt. Heroes and folk keep the
+         * single-line tag. */
+        const figDef = cd.creature
+          ? { ...cd, lifeLine: placedCreatureLifeFor(cd).line }
+          : cd;
+        const fig = buildFigure(R, figDef, heightAt);
         group.add(fig.group);
         colliders.push({ x: cd.at[0], z: cd.at[1], r: cd.creature ? Math.max(0.8, cd.height * 0.3) : 0.45 });
         characters.push({ id: cd.id || cd.model, name: cd.name || '', x: cd.at[0], z: cd.at[1] });
@@ -431,6 +439,29 @@ export function buildZone(THREE, podDef, T, opts) {
         disposers.push(function () { fig.dispose(); });
       } catch (e) { /* a bad figure def never kills the zone */ }
     }
+  }
+
+  /* Operator extras — the population rule (operators.js):
+   * a deterministic second copy of every placed creature,
+   * mirrored across the pod centre ≥ 100 m from the first,
+   * built exactly like a first (figure + collider + character
+   * entry + updater/disposer, life line on its tag). Creatures
+   * only, never heroes — the twin rule cannot collide — and
+   * Saruman / orcs are untouched (singleton by design / the
+   * blanket field already meets the rule). Runs before scatter,
+   * so the extras' colliders join scatter's avoid list. */
+  for (const ex of placedCreatureExtras(def.id)) {
+    try {
+      const fig = buildFigure(R, {
+        id: ex.id, model: ex.model, name: ex.name, at: [ex.x, ex.z],
+        height: ex.height, creature: true, lifeLine: placedCreatureLifeFor(ex).line,
+      }, heightAt);
+      group.add(fig.group);
+      colliders.push({ x: ex.x, z: ex.z, r: Math.max(0.8, ex.height * 0.3) });
+      characters.push({ id: ex.id, name: ex.name, x: ex.x, z: ex.z, operatorExtra: true });
+      updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - ex.x, observer.z - ex.z)); });
+      disposers.push(function () { fig.dispose(); });
+    } catch (e) { /* a bad extra never kills the zone */ }
   }
 
   /* scatter — clear of EVERY mission's gates + spawn */

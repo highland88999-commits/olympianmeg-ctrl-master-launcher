@@ -30,6 +30,7 @@ import {
   mulberry32, PLAYER_MAX_HP, BLADE,
 } from './orcs';
 import { damageBoss, bossSlowFactor, bossPhase } from './boss';
+import { orcLifeFor, bossLifeFor } from './operators.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
@@ -297,7 +298,7 @@ export default function MiddleEarthPage() {
       setBeatOverlay(true);
     };
 
-    const onOrcKilled = (orc, loot) => {
+    const onOrcKilled = (orc, loot, lifeLine) => {
       let nc = recordKill(campaignRef.current, pod.id);
       // the gate may open mid-roam — wake the vale live
       if (zone && zone.hunt.boss && zone.hunt.boss.state === 'dormant' && gateOpen(nc)) {
@@ -310,7 +311,9 @@ export default function MiddleEarthPage() {
       if (Array.isArray(loot) && loot.length) {
         try { updateBackpack((rec) => applyLootToRecord(rec, loot)); } catch { /* pack unavailable */ }
         const names = loot.map((l) => (l.weapon ? l.weapon.name : `${l.name} ×${l.qty}`)).join(', ');
-        showToast(`Loot: ${names}`);
+        showToast(`Loot: ${names}` + (lifeLine ? ` · ${lifeLine}` : ''));
+      } else if (lifeLine) {
+        showToast(lifeLine);
       }
       if (mission && mission.hunt && !missionDone) {
         missionKillsRef.current += 1;
@@ -526,16 +529,34 @@ export default function MiddleEarthPage() {
       const dmg = ranged
         ? (equippedDamageForSlot(equippedRef.current, 'ranged') ?? h.ranged.dmg)
         : (equippedDamageForSlot(equippedRef.current, 'melee') ?? h.meleeDmg);
+      /* Life line (operators.js) on the strike-result toast —
+       * tap is still strike, the toast only reports it. Orcs
+       * and Saruman have no name label to carry it (orcs wear
+       * only the hunt marker, the boss none), so the toast is
+       * their surface; placed creatures carry theirs on the
+       * figure tag instead (zone.js). A killing blow's line is
+       * the Remains line — it rides the loot toast so the loot
+       * names are never lost. A dead boss keeps the finale /
+       * reward toast instead of a line. */
+      const respawnS = (pod.orcs && pod.orcs.respawnS) || 45;
       if (hit.isBoss) {
         const events = damageBoss(hit, dmg);
         for (const ev of events) onBossEvent(ev);
+        if (hit.state !== 'dead') {
+          showToast(bossLifeFor(hit, Date.now(), { totalKills: campaignRef.current.totalKills }).line);
+        }
       } else {
         const loot = damageOrc(hit, dmg, lootRngRef.current);
         alertBand(zone.hunt.orcs, hit);
         if (loot) {
           zone.hunt.noteKill(walker.pos.x, walker.pos.z);
           zone.hunt.markDead(hit);
-          onOrcKilled(hit, loot);
+          const rec = zone.hunt.records.find((r) => r.id === hit.recordId);
+          onOrcKilled(hit, loot, orcLifeFor(hit, Date.now(), {
+            deadAt: rec ? rec.deadAt : -1, respawnS,
+          }).line);
+        } else {
+          showToast(orcLifeFor(hit, Date.now(), { respawnS }).line);
         }
       }
     };

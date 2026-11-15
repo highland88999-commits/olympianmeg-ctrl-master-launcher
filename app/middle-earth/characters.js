@@ -108,28 +108,52 @@ export const PLAYABLE = {
 export const PLAYABLE_ORDER = ['wizard', 'ranger', 'elf-archer', 'dwarf', 'halfling'];
 export const DEFAULT_HERO = 'ranger'; // the balanced pick, until the player chooses
 
-function makeNameLabel(R, text) {
+function makeNameLabel(R, text, subtext) {
   const cv = document.createElement('canvas');
-  cv.width = 512; cv.height = 96;
+  cv.width = 512;
+  /* A life line (operators.js, placed creatures only) rides as a
+   * second, smaller line inside the same tag — one sprite, same
+   * label law, nothing extra to fade or dispose. Figures without
+   * one keep the exact old single-line tag. */
+  const twoLine = !!(subtext && String(subtext).length);
+  cv.height = twoLine ? 160 : 96;
   const ctx = cv.getContext('2d');
   if (ctx) {
-    ctx.fillStyle = 'rgba(10,12,8,0.66)';
     const label = String(text || '');
+    const sub = String(subtext || '');
     ctx.font = '600 40px Georgia, serif';
-    const w = Math.min(500, ctx.measureText(label).width + 44);
+    let w = ctx.measureText(label).width;
+    if (twoLine) {
+      ctx.font = '400 28px Georgia, serif';
+      w = Math.max(w, ctx.measureText(sub).width);
+      ctx.font = '600 40px Georgia, serif';
+    }
+    w = Math.min(500, w + 44);
+    ctx.fillStyle = 'rgba(10,12,8,0.66)';
     ctx.beginPath();
-    ctx.roundRect((512 - w) / 2, 14, w, 62, 14);
-    ctx.fill();
-    ctx.fillStyle = '#e8dcb0';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, 256, 46);
+    if (twoLine) {
+      ctx.roundRect((512 - w) / 2, 10, w, 140, 14);
+      ctx.fill();
+      ctx.fillStyle = '#e8dcb0';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, 256, 44);
+      ctx.fillStyle = '#cbbd8a';
+      ctx.font = '400 28px Georgia, serif';
+      ctx.fillText(sub, 256, 104);
+    } else {
+      ctx.roundRect((512 - w) / 2, 14, w, 62, 14);
+      ctx.fill();
+      ctx.fillStyle = '#e8dcb0';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, 256, 46);
+    }
   }
   const tex = new R.CanvasTexture(cv);
   tex.colorSpace = R.SRGBColorSpace;
   const sp = new R.Sprite(new R.SpriteMaterial({
     map: tex, transparent: true, depthWrite: false, fog: false, opacity: 0,
   }));
-  sp.scale.set(2.0, 0.375, 1); // a small head tag, never a billboard
+  sp.scale.set(2.0, twoLine ? 0.625 : 0.375, 1); // a small head tag, never a billboard
   return sp;
 }
 
@@ -210,8 +234,11 @@ export function buildFigure(R, def, groundHeight) {
   body.add(slot);
 
   /* The label stays hidden until the model arrives — a floating
-   * name with nobody under it reads broken (the SW law). */
-  const label = makeNameLabel(R, d.name || d.id || '');
+   * name with nobody under it reads broken (the SW law). A
+   * def.lifeLine (placed creatures, from the zone) rides as the
+   * tag's second line — the creature's life line, static because
+   * placed creatures never die and never hunt. */
+  const label = makeNameLabel(R, d.name || d.id || '', d.lifeLine || '');
   label.position.y = height + 0.38;
   label.visible = false;
   group.add(label);

@@ -54,6 +54,7 @@ import {
   createDraculaMachine,
   stepDracula,
 } from '@/lib/earth2/creatures';
+import { bayCircuitsFor, lifeFor } from '@/lib/earth2/operators';
 
 // Deterministic layout RNG (mulberry32) — the Bay arranges itself
 // the same way on every visit.
@@ -429,13 +430,31 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
         return bones;
       }
 
-      function makeLabel(text, obj, h) {
+      // A life line rides under the name when a Bay animal is
+      // passed as `lifeAnimal`: the label becomes two lines
+      // (name + life line, refreshed ~once a second from
+      // lifeFor in the frame loop). Callers without one get the
+      // old single-line pill, unchanged.
+      function makeLabel(text, obj, h, lifeAnimal = null) {
         const el = document.createElement('div');
-        el.textContent = text;
         el.className = 'pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-full border border-black/25 bg-black/45 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-white/90';
         el.style.willChange = 'transform';
+        let lifeEl = null;
+        if (lifeAnimal) {
+          el.classList.add('flex', 'flex-col', 'items-center', 'leading-tight');
+          const nameEl = document.createElement('div');
+          nameEl.textContent = text;
+          el.appendChild(nameEl);
+          lifeEl = document.createElement('div');
+          lifeEl.className = 'text-[9px] font-normal text-white/70';
+          el.appendChild(lifeEl);
+        } else {
+          el.textContent = text;
+        }
         labelsRef.current && labelsRef.current.appendChild(el);
-        labels.push({ el, obj, h });
+        const rec = { el, obj, h, lifeAnimal, lifeEl, lastLifeLine: null, lastLifeAt: 0 };
+        labels.push(rec);
+        return rec;
       }
 
       // ── Bone roles, shared by creatures and the compy clones ──
@@ -496,46 +515,73 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       }
 
       // ── Creatures ──────────────────────────────────────────────
+      // Stand one Bay creature up from a loaded scene. The first
+      // circuit and the operator second circuit share this path
+      // (the second is a SkeletonUtils clone of the same load).
+      // `job` is a bayCircuitsFor entry ({ copy, circuit }); for
+      // non-flyers it is { copy: 0, circuit: null }.
+      const FLYER_FALLBACK = { cx: 0, cz: -8, r: 58, h: 30, speed: 0.055, dir: 1, flapHz: 0.38, flapAmp: 0.22, cycle: 14, glideDuty: 0.3, bob: 1.6 };
+      function standCreature(entry, modelScene, job) {
+        const resolved = resolveRoles(modelScene);
+        const facingYaw = measureFacing(modelScene, resolved);
+        const spin = normalize(modelScene, entry);
+        spin.rotation.y = facingYaw;
+        const root = new THREE.Group();
+        root.add(spin);
+        const animal = {
+          entry, root, roles: resolved, bind: bindQuats(resolved),
+          phase: rng() * Math.PI * 2,
+          breathRate: 0.75 + rng() * 0.35,
+          tempo: 1,
+          walker: null, flyer: entry.kind === 'flyer',
+          dist: 0,
+          slug: entry.slug,
+          copy: job.copy,
+          id: `${entry.slug}#${job.copy}`,
+        };
+        const spot = SPOTS[entry.slug];
+        if (entry.kind === 'flyer') {
+          // Per-species circuit (creatures.js FLYERS) — the
+          // Pteranodon's profile is its round-1 circle verbatim
+          // (same centre, radius, height, pace). The fallback
+          // mirrors it for any flyer without a profile. The
+          // second circuit merges the operator record over the
+          // base (mirrored centre, opposite direction; flap
+          // rhythm carries from the base profile).
+          const baseFp = FLYERS[entry.slug] || FLYER_FALLBACK;
+          const fp = job.copy === 0 ? baseFp : { ...baseFp, ...job.circuit };
+          animal.fly = { ...fp, a: rng() * 6.28 };
+          animal.glideOff = rng();
+          root.position.set(animal.fly.cx + animal.fly.r, animal.fly.h, animal.fly.cz);
+        } else if (spot && spot.walk) {
+          animal.walker = { ...spot.walk, theta: spot.walk.a0 };
+          root.position.set(spot.walk.cx + spot.walk.r, 0, spot.walk.cz);
+        } else if (spot && spot.at) {
+          root.position.set(spot.at[0], 0, spot.at[1]);
+          root.rotation.y = spot.head || 0;
+        } else {
+          root.position.set((rng() - 0.5) * 60, 0, (rng() - 0.5) * 60);
+        }
+        scene.add(root);
+        animals.push(animal);
+        makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2, animal);
+      }
+
       async function placeCreature(entry) {
         setStatusFor(entry.slug, 'loading');
         try {
           const modelScene = await loadModel(entry);
-          const resolved = resolveRoles(modelScene);
-          const facingYaw = measureFacing(modelScene, resolved);
-          const spin = normalize(modelScene, entry);
-          spin.rotation.y = facingYaw;
-          const root = new THREE.Group();
-          root.add(spin);
-          const animal = {
-            entry, root, roles: resolved, bind: bindQuats(resolved),
-            phase: rng() * Math.PI * 2,
-            breathRate: 0.75 + rng() * 0.35,
-            tempo: 1,
-            walker: null, flyer: entry.kind === 'flyer',
-            dist: 0,
-          };
-          const spot = SPOTS[entry.slug];
-          if (entry.kind === 'flyer') {
-            // Per-species circuit (creatures.js FLYERS) — the
-            // Pteranodon's profile is its round-1 circle verbatim
-            // (same centre, radius, height, pace). The fallback
-            // mirrors it for any flyer without a profile.
-            const fp = FLYERS[entry.slug] || { cx: 0, cz: -8, r: 58, h: 30, speed: 0.055, dir: 1, flapHz: 0.38, flapAmp: 0.22, cycle: 14, glideDuty: 0.3, bob: 1.6 };
-            animal.fly = { ...fp, a: rng() * 6.28 };
-            animal.glideOff = rng();
-            root.position.set(animal.fly.cx + animal.fly.r, animal.fly.h, animal.fly.cz);
-          } else if (spot && spot.walk) {
-            animal.walker = { ...spot.walk, theta: spot.walk.a0 };
-            root.position.set(spot.walk.cx + spot.walk.r, 0, spot.walk.cz);
-          } else if (spot && spot.at) {
-            root.position.set(spot.at[0], 0, spot.at[1]);
-            root.rotation.y = spot.head || 0;
-          } else {
-            root.position.set((rng() - 0.5) * 60, 0, (rng() - 0.5) * 60);
+          // Flyers fly their first circuit plus the operator
+          // second circuit; land dinos stand once. A flyer with
+          // no creatures.js profile still flies its fallback
+          // circle — bayCircuitsFor yields nothing for it.
+          const jobs = entry.kind === 'flyer'
+            ? bayCircuitsFor('flyer', entry.slug)
+            : [{ copy: 0, circuit: null }];
+          const list = jobs.length ? jobs : [{ copy: 0, circuit: null }];
+          for (let i = 0; i < list.length; i++) {
+            standCreature(entry, i === 0 ? modelScene : SkeletonUtils.clone(modelScene), list[i]);
           }
-          scene.add(root);
-          animals.push(animal);
-          makeLabel(entry.name, root, entry.scaleM * 0.72 + 1.2);
           setStatusFor(entry.slug, 'placed');
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
@@ -549,60 +595,84 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
       // spine chains), then swims the lake on its SWIMMERS
       // profile (creatures.js): an elliptical circuit, a spine
       // wave, flipper paddling, a surfacing rhythm.
+      // Stand one swimmer up from a loaded scene — same path for
+      // the first circuit and the operator second circuit (a
+      // SkeletonUtils clone of the same load). The second circuit
+      // is the same lake ellipse swum the other way: the Bay's
+      // swim driver rides LAKE.center, so the mirrored centre in
+      // the bayExtras record is inert here — only rx / rz /
+      // speed / dir are merged (the record's cx / cz are NaN for
+      // marines, SWIMMERS carries no centre, and are never read).
+      function standSwimmer(entry, modelScene, job, profile) {
+        const jointNames = [];
+        const jointParents = [];
+        modelScene.traverse((o) => {
+          if (!o.isBone) return;
+          jointNames.push(o.name);
+          let p = o.parent;
+          while (p && !p.isBone) p = p.parent;
+          jointParents.push(p ? p.name : null);
+        });
+        const bones = bonesOf(modelScene);
+        const rig = resolveSwimRig(jointNames, jointParents);
+        const boneFor = (name) => (name ? bones.get(normalizeJointName(name)) || null : null);
+        const axial = rig.axial.map(boneFor).filter(Boolean);
+        const flippers = rig.flippers
+          .map((f) => ({ pair: f.pair, side: f.side, chain: f.chain.map(boneFor).filter(Boolean) }))
+          .filter((f) => f.chain.length);
+        const extras = rig.extras
+          .map((ch) => ch.map(boneFor).filter(Boolean))
+          .filter((ch) => ch.length);
+        const bind = new Map();
+        for (const b of [...axial, ...flippers.flatMap((f) => f.chain), ...extras.flat()]) {
+          if (b && !bind.has(b.uuid)) bind.set(b.uuid, b.quaternion.clone());
+        }
+        // Facing off the bind pose like the land creatures:
+        // head against the TAIL end of the measured axis.
+        const facingYaw = measureFacing(modelScene, {
+          head: boneFor(rig.head),
+          spine: axial.length ? [axial[axial.length - 1]] : [],
+        });
+        const spin = normalize(modelScene, entry);
+        spin.rotation.y = facingYaw;
+        const root = new THREE.Group();
+        root.add(spin);
+        const theta0 = rng() * Math.PI * 2;
+        root.position.set(
+          LAKE.center[0] + Math.cos(theta0) * profile.rx,
+          profile.deep,
+          LAKE.center[1] + Math.sin(theta0) * profile.rz,
+        );
+        scene.add(root);
+        const swimmer = {
+          entry, root, profile, axial, flippers, extras, bind,
+          theta: theta0,
+          phase: rng() * Math.PI * 2,
+          phaseOff: rng(),
+          y: profile.deep,
+          slug: entry.slug,
+          copy: job.copy,
+          id: `${entry.slug}#${job.copy}`,
+        };
+        swimmers.push(swimmer);
+        makeLabel(entry.name, root, entry.scaleM * 0.3 + 2.4, swimmer);
+      }
+
       async function placeSwimmer(entry) {
         setStatusFor(entry.slug, 'loading');
         try {
           const modelScene = await loadModel(entry);
-          const profile = SWIMMERS[entry.slug];
-          if (!profile) throw new Error(`No swim profile for ${entry.slug}`);
-          const jointNames = [];
-          const jointParents = [];
-          modelScene.traverse((o) => {
-            if (!o.isBone) return;
-            jointNames.push(o.name);
-            let p = o.parent;
-            while (p && !p.isBone) p = p.parent;
-            jointParents.push(p ? p.name : null);
-          });
-          const bones = bonesOf(modelScene);
-          const rig = resolveSwimRig(jointNames, jointParents);
-          const boneFor = (name) => (name ? bones.get(normalizeJointName(name)) || null : null);
-          const axial = rig.axial.map(boneFor).filter(Boolean);
-          const flippers = rig.flippers
-            .map((f) => ({ pair: f.pair, side: f.side, chain: f.chain.map(boneFor).filter(Boolean) }))
-            .filter((f) => f.chain.length);
-          const extras = rig.extras
-            .map((ch) => ch.map(boneFor).filter(Boolean))
-            .filter((ch) => ch.length);
-          const bind = new Map();
-          for (const b of [...axial, ...flippers.flatMap((f) => f.chain), ...extras.flat()]) {
-            if (b && !bind.has(b.uuid)) bind.set(b.uuid, b.quaternion.clone());
+          const baseProfile = SWIMMERS[entry.slug];
+          if (!baseProfile) throw new Error(`No swim profile for ${entry.slug}`);
+          const jobs = bayCircuitsFor('marine', entry.slug);
+          const list = jobs.length ? jobs : [{ copy: 0, circuit: null }];
+          for (let i = 0; i < list.length; i++) {
+            const job = list[i];
+            const profile = job.copy === 0
+              ? baseProfile
+              : { ...baseProfile, rx: job.circuit.rx, rz: job.circuit.rz, speed: job.circuit.speed, dir: job.circuit.dir };
+            standSwimmer(entry, i === 0 ? modelScene : SkeletonUtils.clone(modelScene), job, profile);
           }
-          // Facing off the bind pose like the land creatures:
-          // head against the TAIL end of the measured axis.
-          const facingYaw = measureFacing(modelScene, {
-            head: boneFor(rig.head),
-            spine: axial.length ? [axial[axial.length - 1]] : [],
-          });
-          const spin = normalize(modelScene, entry);
-          spin.rotation.y = facingYaw;
-          const root = new THREE.Group();
-          root.add(spin);
-          const theta0 = rng() * Math.PI * 2;
-          root.position.set(
-            LAKE.center[0] + Math.cos(theta0) * profile.rx,
-            profile.deep,
-            LAKE.center[1] + Math.sin(theta0) * profile.rz,
-          );
-          scene.add(root);
-          swimmers.push({
-            entry, root, profile, axial, flippers, extras, bind,
-            theta: theta0,
-            phase: rng() * Math.PI * 2,
-            phaseOff: rng(),
-            y: profile.deep,
-          });
-          makeLabel(entry.name, root, entry.scaleM * 0.3 + 2.4);
           setStatusFor(entry.slug, 'placed');
         } catch (err) {
           setStatusFor(entry.slug, 'failed');
@@ -1626,6 +1696,26 @@ export default function DinosaurBay({ bloodSacs, onBloodSac, onOpenExchange, gre
           const x = (labelV.x * 0.5 + 0.5) * w;
           const y = (-labelV.y * 0.5 + 0.5) * h;
           l.el.style.transform = `translate(-50%, -100%) translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+          // Life line: same ~once-a-second refresh as the main
+          // world, only while the label is on screen, DOM write
+          // only when the line moved. Bay animals never die (no
+          // lifecycle here), so the line is the live line only.
+          if (l.lifeAnimal && l.lifeEl) {
+            const nowMs = performance.now();
+            if (nowMs - (l.lastLifeAt || 0) >= 1000) {
+              l.lastLifeAt = nowMs;
+              const a = l.lifeAnimal;
+              const life = lifeFor(
+                { slug: a.slug, copy: a.copy, id: a.id, x: a.root.position.x, z: a.root.position.z },
+                Date.now(),
+                {},
+              );
+              if (life.line !== l.lastLifeLine) {
+                l.lastLifeLine = life.line;
+                l.lifeEl.textContent = life.line;
+              }
+            }
+          }
         }
       }
 

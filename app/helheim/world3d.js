@@ -142,7 +142,7 @@ function Ground() {
   );
 }
 
-function FrostPools({ pools }) {
+function FrostPools({pools}) {
   return (
     <group>
       {pools.map((p) => (
@@ -161,7 +161,7 @@ function FrostPools({ pools }) {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -269,7 +269,7 @@ function Hall() {
   );
 }
 
-function MistFields({ stones, shades, reduced }) {
+function MistFields({stones, shades, reduced}) {
   const mistShades = useMemo(() => shades.filter((s) => s.id.startsWith('m')), [shades]);
   const shadeRefs = useRef([]);
   useFrame((state) => {
@@ -309,7 +309,7 @@ function MistFields({ stones, shades, reduced }) {
   );
 }
 
-function Nastrond({ stones }) {
+function Nastrond({stones, shades}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
@@ -327,6 +327,12 @@ function Nastrond({ stones }) {
           <meshStandardMaterial color="#3a4432" roughness={0.9} />
         </mesh>
       ))}
+      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#8fa8bc" transparent opacity={0.7} roughness={0.9} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Náströnd
       </Html>
@@ -334,7 +340,7 @@ function Nastrond({ stones }) {
   );
 }
 
-function FrozenShore({ pits, shades, reduced }) {
+function FrozenShore({pits, shades, reduced}) {
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -493,7 +499,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -558,7 +564,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Mist({ reduced }) {
+function Mist({reduced}) {
   const COUNT = 260;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -599,7 +605,7 @@ function Mist({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -664,7 +670,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function HelheimScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -676,7 +682,7 @@ export function HelheimScene({ playerRef, inputRef, onPortal, onRegion, reduced 
       <Gates />
       <Hall />
       <MistFields stones={world.mistStones} shades={world.shades} reduced={reduced} />
-      <Nastrond stones={world.nastrondStones} />
+      <Nastrond stones={world.nastrondStones}  shades={world.shades}/>
       <FrozenShore pits={world.frozenPits} shades={world.shades} reduced={reduced} />
       <PortalArches />
       <DescentPortal />

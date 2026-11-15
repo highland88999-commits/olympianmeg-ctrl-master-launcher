@@ -141,7 +141,7 @@ function Ground() {
   );
 }
 
-function River({ reduced }) {
+function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
   useFrame((state, dt) => {
     if (reduced) return;
@@ -181,7 +181,7 @@ function Bridge() {
   );
 }
 
-function GroveTrees({ trees }) {
+function GroveTrees({trees}) {
   return (
     <group>
       {trees.map((p) => (
@@ -262,7 +262,7 @@ function WhiteClothHall() {
   );
 }
 
-function AncestorsVillage({ huts, spirits, reduced }) {
+function AncestorsVillage({huts, spirits, reduced}) {
   const villageSpirits = useMemo(() => spirits.filter((s) => s.id.startsWith('v')), [spirits]);
   const spiritRefs = useRef([]);
   useFrame((state) => {
@@ -309,7 +309,7 @@ function AncestorsVillage({ huts, spirits, reduced }) {
   );
 }
 
-function SpiritMarket({ stalls }) {
+function SpiritMarket({stalls, spirits}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
@@ -333,6 +333,12 @@ function SpiritMarket({ stalls }) {
           </mesh>
         </group>
       ))}
+      {spirits.filter((s) => s.id.startsWith('e')).map((s) => (
+        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
+          <coneGeometry args={[0.7, 2.4, 8]} />
+          <meshStandardMaterial color="#fff3d0" transparent opacity={0.55} roughness={0.6} />
+        </mesh>
+      ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Spirit Market
       </Html>
@@ -340,7 +346,7 @@ function SpiritMarket({ stalls }) {
   );
 }
 
-function WhiteClothGrounds({ cloths, spirits }) {
+function WhiteClothGrounds({cloths, spirits}) {
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
@@ -482,7 +488,7 @@ function DescentPortal() {
 // budget: 8 torch lights + 4 region lights = 12 total). Every torch
 // still shows its flame; the lit ones are the pools of light along
 // the way down.
-function Torches({ reduced }) {
+function Torches({reduced}) {
   const torches = useMemo(() => makeTorches(), []);
   const lightRefs = useRef([]);
   const flameRefs = useRef([]);
@@ -547,7 +553,7 @@ function Torches({ reduced }) {
   );
 }
 
-function Fireflies({ reduced }) {
+function Fireflies({reduced}) {
   const COUNT = 200;
   const ref = useRef();
   const speeds = useMemo(() => {
@@ -588,7 +594,7 @@ function Fireflies({ reduced }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
@@ -653,7 +659,7 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced }) 
 
 // --- the whole scene ---------------------------------------------------------
 
-export function OrunScene({ playerRef, inputRef, onPortal, onRegion, reduced }) {
+export function OrunScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -665,7 +671,7 @@ export function OrunScene({ playerRef, inputRef, onPortal, onRegion, reduced }) 
       <AncestorsGate />
       <WhiteClothHall />
       <AncestorsVillage huts={world.villageHuts} spirits={world.spirits} reduced={reduced} />
-      <SpiritMarket stalls={world.marketStalls} />
+      <SpiritMarket stalls={world.marketStalls}  spirits={world.spirits}/>
       <WhiteClothGrounds cloths={world.whiteCloths} spirits={world.spirits} />
       <PortalArches />
       <DescentPortal />
