@@ -324,8 +324,14 @@ function PrisonCell({ cell }) {
         <boxGeometry args={[PRISON_CELL.widthM, 0.1, PRISON_CELL.depthM]} />
         <meshStandardMaterial color="#0b1220" roughness={0.9} />
       </mesh>
+      {/* back wall: the FAR side of the cell — left cells at -z, right
+          cells at +z. A sign error once built it at the FRONT, which
+          sealed every cell with a solid dark wall: the keeper saw
+          black fronts and no prisoner at all (Merlin's phone video,
+          Nov 15 ~06:33). The front stays open: bars + one-way glass
+          only, so the keeper sees straight in. */}
       <mesh
-        position={[pos.x, pos.floorY + PRISON_CELL.heightM / 2, pos.z + (pos.side === 'left' ? PRISON_CELL.depthM / 2 : -PRISON_CELL.depthM / 2)]}
+        position={[pos.x, pos.floorY + PRISON_CELL.heightM / 2, pos.z + (pos.side === 'left' ? -PRISON_CELL.depthM / 2 : PRISON_CELL.depthM / 2)]}
       >
         <boxGeometry args={[PRISON_CELL.widthM, PRISON_CELL.heightM, 0.15]} />
         <meshStandardMaterial color="#0d1526" roughness={0.9} />
@@ -334,7 +340,7 @@ function PrisonCell({ cell }) {
           The plane faces the walkway on both sides (right cells turn). */}
       {form && (
         <mesh
-          position={[pos.x, pos.floorY + PRISON_CELL.heightM / 2, pos.z + (pos.side === 'left' ? PRISON_CELL.depthM / 2 - 0.1 : -PRISON_CELL.depthM / 2 + 0.1)]}
+          position={[pos.x, pos.floorY + PRISON_CELL.heightM / 2, pos.z + (pos.side === 'left' ? -PRISON_CELL.depthM / 2 + 0.1 : PRISON_CELL.depthM / 2 - 0.1)]}
           rotation={[0, pos.side === 'left' ? 0 : Math.PI, 0]}
         >
           <planeGeometry args={[PRISON_CELL.widthM - 0.2, PRISON_CELL.heightM - 0.2]} />

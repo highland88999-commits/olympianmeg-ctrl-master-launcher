@@ -418,6 +418,49 @@ describe('one-way glass — clear from the aisle, a mirror from inside', () => {
   });
 });
 
+describe('the cell front is open — the back wall is at the back, not the front', () => {
+  // Merlin's phone video (Nov 15 ~06:33): the keeper saw black fronts
+  // and no prisoner at all. Cause: the solid back-wall box was built
+  // at the FRONT of every cell by a sign error, sealing the cell
+  // behind a dark wall — glass, mirror, wash and figure all hidden
+  // behind it. The pane yaws were never wrong; the wall was in the
+  // wrong place. These tests pin the wall (and the wash) at the back
+  // so the mistake cannot come back.
+  it('the back-wall box sits at the far side of the cell, both sides', () => {
+    assert.ok(
+      world3d.includes("pos.z + (pos.side === 'left' ? -PRISON_CELL.depthM / 2 : PRISON_CELL.depthM / 2)"),
+      'back wall: left cells -depth/2, right cells +depth/2'
+    );
+    assert.ok(
+      !world3d.includes("pos.z + (pos.side === 'left' ? PRISON_CELL.depthM / 2 : -PRISON_CELL.depthM / 2)"),
+      'the flipped (front) wall expression is gone'
+    );
+  });
+
+  it('the back wall is farther from the walkway than the front, inside the hall', () => {
+    const frontZ = PRISON_HALL.walkwayHalfM + 0.4; // 3.0
+    for (const index of [0, 1, 11, 12, 23]) {
+      const pos = cellPosition(index);
+      const backZ = pos.z + (pos.side === 'left' ? -PRISON_CELL.depthM / 2 : PRISON_CELL.depthM / 2);
+      assert.ok(Math.abs(backZ) > frontZ, `cell ${index}: back ${backZ} is past front ${frontZ}`);
+      assert.ok(Math.abs(backZ) < PRISON_HALL.widthM / 2, `cell ${index}: back ${backZ} is inside the hall`);
+      // The figure stands at the cell centre, between front and back.
+      assert.ok(Math.abs(pos.z) > frontZ && Math.abs(pos.z) < Math.abs(backZ), `cell ${index}: figure between front and back`);
+    }
+  });
+
+  it('the blue wash sits just inside the back wall, facing the walkway', () => {
+    assert.ok(
+      world3d.includes("pos.z + (pos.side === 'left' ? -PRISON_CELL.depthM / 2 + 0.1 : PRISON_CELL.depthM / 2 - 0.1)"),
+      'wash: left cells -depth/2 + 0.1, right cells +depth/2 - 0.1'
+    );
+    assert.ok(
+      !world3d.includes("pos.z + (pos.side === 'left' ? PRISON_CELL.depthM / 2 - 0.1 : -PRISON_CELL.depthM / 2 + 0.1)"),
+      'the flipped (front) wash expression is gone'
+    );
+  });
+});
+
 describe('entry and exit — the portal lives in ARES, and the keeper can always leave', () => {
   it('the entry lives in the console: one link to /ares/prison, right under the trapped list', () => {
     const attackSources = src('../components/ares/AttackSources.jsx');
