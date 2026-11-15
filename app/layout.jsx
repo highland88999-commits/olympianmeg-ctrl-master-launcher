@@ -11,6 +11,8 @@ import RealmCalloutGuard from '@/components/RealmCalloutGuard';
 import MusePortal from '@/components/MusePortal';
 import Concourse from '@/components/Concourse';
 import JsonLd from '@/components/JsonLd';
+import ThanksgivingOverlay from '@/components/ThanksgivingOverlay';
+import ChristmasOverlay from '@/components/ChristmasOverlay';
 import { LanguageProvider } from '@/lib/i18n';
 
 const inter = Inter({ subsets: ["latin"] });
@@ -97,6 +99,14 @@ export default function RootLayout({ children }) {
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
         <JsonLd />
+        {/* Holiday greeting overlays (Merlin, 2026-11-15): each year's
+            video plays ONCE, fullscreen with sound, on its day only —
+            Thanksgiving Nov 26, Christmas Dec 25 — then the app
+            continues. Each overlay renders null outside its window
+            and re-checks the window every 30s while mounted (lesson
+            of the Nov 1 black screen). */}
+        <ThanksgivingOverlay />
+        <ChristmasOverlay />
         {/* iOS long-press callout + selection kill for realm/game views
             (auto-detects full-viewport game canvases; chat/forms/inputs
             keep working). Mounted once — every realm inherits it. */}
