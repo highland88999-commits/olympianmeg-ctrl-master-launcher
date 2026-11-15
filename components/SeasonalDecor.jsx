@@ -4,7 +4,7 @@
 //
 // Seasonal decoration cycle for the launcher hub. Reads the calendar date
 // once on mount, builds the matching procedural decoration set from
-// lib/seasonal/decorations.js, and — Nov 22 through Twelfth Night — plants
+// lib/seasonal/decorations.js, and — Nov 27 through Twelfth Night — plants
 // Merlin's perfected Christmas tree (lib/seasonal/tree.js, ported from his
 // perfected-tree.html) front-and-center among the satellites.
 //
