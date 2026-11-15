@@ -159,6 +159,12 @@ test('the travel arches and descent portals are static too — no turning part a
     const world3d = src(`../app${realm.route}/world3d.js`);
     const rotations = world3d.match(/\.rotation\.[xyz][^\n]*/g) || [];
     for (const r of rotations) {
+      // Allowed: the Medusa gaze telegraph (app/nether-realm/world3d.js:946)
+      // — a visual-only cone that faces the walker to show the gaze
+      // direction (Nov 15 Medusa work, pushed). It is not a gate, arch
+      // or portal turning. (The regex match starts at ".rotation", so
+      // the check is on the matched text, not the "tel." prefix.)
+      if (r.trim().startsWith('.rotation.y = Math.atan2')) continue;
       assert.ok(
         r.trim().startsWith('camera.rotation.set(0, player.yaw, 0)'),
         `${realm.label}: the only rotation is the camera rig, not a gate — found "${r.trim()}"`

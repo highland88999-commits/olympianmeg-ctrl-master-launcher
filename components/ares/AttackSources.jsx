@@ -49,6 +49,10 @@ export default function AttackSources({ authedFetch, trapped, sources, onRefresh
         ))}
         {(!trapped || trapped.length === 0) && <li className="text-sm text-zinc-500">Nothing trapped right now.</li>}
       </ul>
+      <p className="mt-3 text-[11px] text-zinc-500">
+        <a href="/ares/prison" className="text-sky-300 hover:text-sky-200">Walk the prison →</a>
+        {' '}— see every prisoner in its cell, as it appears. Viewing only; release stays here.
+      </p>
       <h3 className="mt-4 text-[11px] font-bold uppercase tracking-widest text-zinc-400">Reported sources</h3>
       <ul className="mt-2 flex flex-col gap-2">
         {(sources || []).map((s) => (

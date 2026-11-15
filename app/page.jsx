@@ -26,6 +26,7 @@ import EarthMappedTracker from '@/components/EarthMappedTracker';
 import { generateMarsProfile } from '@/lib/mars/engine';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
+import { PLANET_CHOOSERS } from '@/lib/planets/planet-choosers';
 import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
 import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
 import { bikeState } from '@/lib/earth/parachute';
@@ -249,6 +250,8 @@ function NexusHub() {
   const [earthFocus, setEarthFocus] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
   const [showEarthChooser, setShowEarthChooser] = useState(false);
+  const [showJupiterChooser, setShowJupiterChooser] = useState(false);
+  const [showMarsChooser, setShowMarsChooser] = useState(false);
 
   const beginEarthDive = () => {
     if (appState !== 'hub_freeroam') return;
@@ -315,10 +318,12 @@ function NexusHub() {
 
   // Mars realm (Merlin, 2026-10-21): the seeded exobiology surface
   // lives INSIDE the hub's Mars planet — tap the planet in freeroam
-  // and dive in without leaving this page, exactly like Earth. The
-  // standalone /mars page stays as a second door. Realm state is
-  // owned here and passed to both the DOM console (MarsConsole) and
-  // the scene (HomeScene renders MarsRealmContent in the hub Canvas).
+  // and the Mars chooser offers Mars 1 or Mars 2 (Merlin, 2026-11-15,
+  // the same menu Earth got); Mars 1 dives in without leaving this
+  // page, exactly like Earth. The standalone /mars page stays as a
+  // second door. Realm state is owned here and passed to both the DOM
+  // console (MarsConsole) and the scene (HomeScene renders
+  // MarsRealmContent in the hub Canvas).
   const marsInputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
   const [marsSeed, setMarsSeed] = useState('MARS-PRIME');
   const [marsTime, setMarsTime] = useState(0.32);
@@ -327,7 +332,22 @@ function NexusHub() {
   const [marsFocusReq, setMarsFocusReq] = useState(null);
   const marsProfile = useMemo(() => generateMarsProfile(marsSeed), [marsSeed]);
 
+  // Mars chooser (Merlin, 2026-11-15): tapping Mars now offers Mars 1
+  // or Mars 2 — the same menu Earth got (Merlin, 2026-10-31). Mars 1 is
+  // the in-hub realm below; Mars 2 is the standalone /mars-2 route.
+  // The dialog renders from PLANET_CHOOSERS — one source of truth for
+  // both menus — and this handler dispatches the pick.
   const beginMarsDive = () => {
+    if (appState !== 'hub_freeroam') return;
+    setShowMarsChooser(true);
+  };
+
+  const pickMars = (opt) => {
+    setShowMarsChooser(false);
+    if (opt.target.kind === 'route') {
+      window.location.href = opt.target.route;
+      return;
+    }
     if (appState !== 'hub_freeroam') return;
     setAppState('mars_surface');
   };
@@ -383,6 +403,38 @@ function NexusHub() {
     setPlanetFocusReq(null);
     setPlanetMode('orbit');
     setAppState('planet_surface');
+  };
+
+  // Jupiter chooser (Merlin, 2026-11-15): tapping Jupiter now offers
+  // Jupiter 1 or Jupiter 2 — the same menu Earth got (Merlin,
+  // 2026-10-31). Jupiter 1 dives into the hub's gas giant below;
+  // Jupiter 2 is the standalone /jupiter-2 route. The dialog renders
+  // from PLANET_CHOOSERS (lib/planets/planet-choosers.js) — one source
+  // of truth for both menus — and this handler dispatches the pick.
+  const beginJupiterDive = () => {
+    if (appState !== 'hub_freeroam') return;
+    setShowJupiterChooser(true);
+  };
+
+  const pickJupiter = (opt) => {
+    setShowJupiterChooser(false);
+    if (opt.target.kind === 'route') {
+      window.location.href = opt.target.route;
+      return;
+    }
+    beginPlanetDive(opt.target.key);
+  };
+
+  // Planet tap dispatch (Merlin, 2026-11-15): Jupiter opens its chooser
+  // instead of diving straight in; every other outer planet dives
+  // exactly as before. Passed to HomeScene as the beginPlanetDive prop
+  // so the scene itself needs no change.
+  const handlePlanetTap = (key) => {
+    if (key === 'jupiter') {
+      beginJupiterDive();
+      return;
+    }
+    beginPlanetDive(key);
   };
 
   const exitPlanet = () => { setActivePlanet(null); setAppState('hub_freeroam'); };
@@ -1140,7 +1192,7 @@ function NexusHub() {
         marsFocusReq={marsFocusReq}
         onMarsSelect={selectMars}
         marsSelectedId={marsSelected ? marsSelected.id : null}
-        beginPlanetDive={beginPlanetDive}
+        beginPlanetDive={handlePlanetTap}
         planetProfile={planetProfile}
         planetTime={planetTime}
         planetMode={planetMode}
@@ -1286,6 +1338,96 @@ function NexusHub() {
               </button>
               <div className="mt-2 text-xs font-bold tracking-widest text-amber-200/90">Ω OMEGA PORTAL</div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Jupiter chooser (Merlin, 2026-11-15): tapping the Jupiter planet
+          offers Jupiter 1 or Jupiter 2 — the same menu Earth got
+          (Merlin, 2026-10-31). Jupiter 1 dives into the hub's gas giant;
+          Jupiter 2 is the standalone /jupiter-2 route. */}
+      {showJupiterChooser && (
+        <div
+          className="fixed inset-0 flex items-center justify-center p-6"
+          style={{
+            zIndex: 2147483001,
+            backgroundImage: `url(${PLANET_CHOOSERS.jupiter.background})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+          role="dialog"
+          aria-label={PLANET_CHOOSERS.jupiter.title}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm">
+            <div className="mb-1 text-2xl font-extrabold text-white">{PLANET_CHOOSERS.jupiter.title}</div>
+            <div className="mb-5 text-sm text-slate-300">{PLANET_CHOOSERS.jupiter.subtitle}</div>
+            {PLANET_CHOOSERS.jupiter.options.map((opt, i) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => pickJupiter(opt)}
+                className={`${i === 0 ? 'mb-3' : 'mb-4'} block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110`}
+                style={opt.background.startsWith('/')
+                  ? { backgroundImage: `url(${opt.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+                  : { background: opt.background }}
+              >
+                <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
+                  <div className="text-lg font-bold">{opt.label}</div>
+                  <div className="text-sm opacity-90">{opt.description}</div>
+                </div>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setShowJupiterChooser(false)}
+              className="mb-4 text-sm text-slate-300 underline"
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Mars chooser (Merlin, 2026-11-15): tapping the Mars planet
+          offers Mars 1 or Mars 2 — the same menu Earth got
+          (Merlin, 2026-10-31). Mars 1 dives into the in-hub realm;
+          Mars 2 is the standalone /mars-2 route. */}
+      {showMarsChooser && (
+        <div
+          className="fixed inset-0 flex items-center justify-center p-6"
+          style={{
+            zIndex: 2147483001,
+            backgroundImage: `url(${PLANET_CHOOSERS.mars.background})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+          role="dialog"
+          aria-label={PLANET_CHOOSERS.mars.title}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm">
+            <div className="mb-1 text-2xl font-extrabold text-white">{PLANET_CHOOSERS.mars.title}</div>
+            <div className="mb-5 text-sm text-slate-300">{PLANET_CHOOSERS.mars.subtitle}</div>
+            {PLANET_CHOOSERS.mars.options.map((opt, i) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => pickMars(opt)}
+                className={`${i === 0 ? 'mb-3' : 'mb-4'} block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110`}
+                style={opt.background.startsWith('/')
+                  ? { backgroundImage: `url(${opt.background})`, backgroundSize: 'cover', backgroundPosition: 'center' }
+                  : { background: opt.background }}
+              >
+                <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
+                  <div className="text-lg font-bold">{opt.label}</div>
+                  <div className="text-sm opacity-90">{opt.description}</div>
+                </div>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setShowMarsChooser(false)}
+              className="mb-4 text-sm text-slate-300 underline"
+            >
+              Not now
+            </button>
           </div>
         </div>
       )}

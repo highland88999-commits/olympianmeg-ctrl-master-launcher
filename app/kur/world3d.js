@@ -33,9 +33,12 @@ import {
   right,
   stepPosition,
 } from '@/lib/kur/world';
+import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const ROCK = '#141118';
@@ -46,45 +49,6 @@ const FIRE = '#b35a1a';
 const PORTAL_GLOW = '#c2691e';
 
 // --- canvas textures (procedural, seeded) ---------------------------------
-
-function groundTexture() {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 1024;
-  const g = c.getContext('2d');
-  g.fillStyle = '#0d0a07';
-  g.fillRect(0, 0, 1024, 1024);
-  // Speckled ground.
-  for (let i = 0; i < 9000; i += 1) {
-    const v = 8 + Math.floor(Math.random() * 22);
-    g.fillStyle = `rgb(${v},${Math.floor(v * 0.9)},${Math.floor(v * 1.2)})`;
-    g.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
-  }
-  // Glowing veins.
-  g.strokeStyle = FIRE;
-  g.shadowColor = FIRE;
-  g.shadowBlur = 14;
-  for (let i = 0; i < 14; i += 1) {
-    let x = Math.random() * 1024;
-    let y = Math.random() * 1024;
-    g.lineWidth = 1.5 + Math.random() * 2.5;
-    g.beginPath();
-    g.moveTo(x, y);
-    const steps = 4 + Math.floor(Math.random() * 6);
-    for (let s = 0; s < steps; s += 1) {
-      x += (Math.random() - 0.5) * 220;
-      y += (Math.random() - 0.5) * 220;
-      g.lineTo(x, y);
-    }
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 6);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 function riverTexture() {
   const c = document.createElement('canvas');
@@ -136,11 +100,11 @@ const regionLabelStyle = {
 // --- static pieces ----------------------------------------------------------
 
 function Ground() {
-  const tex = useMemo(() => groundTexture(), []);
+  const floor = useMemo(() => floorSurface('kur', 6), []);
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
       <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial map={tex} color="#ffffff" roughness={1} metalness={0} />
+      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
     </mesh>
   );
 }
@@ -172,13 +136,14 @@ function River({reduced}) {
 }
 
 function Bridge() {
+  const stone = useMemo(() => stoneSurface('kur'), []);
   const slabs = [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5];
   return (
     <group>
       {slabs.map((x) => (
         <mesh key={x} position={[x, 0.3, 0]}>
           <boxGeometry args={[3.2, 0.6, 38]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
     </group>
@@ -186,12 +151,13 @@ function Bridge() {
 }
 
 function DustDrifts({drifts}) {
+  const floor = useMemo(() => floorSurface('kur', 2), []);
   return (
     <group>
       {drifts.map((p) => (
         <mesh key={p.id} position={[p.x, 0.6, p.z]} scale={[1, 0.3, 1]}>
           <sphereGeometry args={[p.r, 16, 12]} />
-          <meshStandardMaterial color="#4a3a28" roughness={1} />
+          <meshStandardMaterial {...floor} color="#4a3a28" roughness={1} />
         </mesh>
       ))}
     </group>
@@ -199,6 +165,7 @@ function DustDrifts({drifts}) {
 }
 
 function SevenGates() {
+  const stone = useMemo(() => stoneSurface('kur'), []);
   const xs = [-21, -14, -7, 0, 7, 14, 21];
   return (
     <group position={[GATES.x, 0, GATES.z]}>
@@ -208,12 +175,12 @@ function SevenGates() {
           {[-1.6, 1.6].map((dx) => (
             <mesh key={dx} position={[dx, 3.5, 0]}>
               <boxGeometry args={[0.8, 7, 0.8]} />
-              <meshStandardMaterial color="#241a12" roughness={0.95} />
+              <meshStandardMaterial {...stone} color="#241a12" roughness={0.95} />
             </mesh>
           ))}
           <mesh position={[0, 7.2, 0]}>
             <boxGeometry args={[4.4, 0.8, 0.8]} />
-            <meshStandardMaterial color="#241a12" roughness={0.95} />
+            <meshStandardMaterial {...stone} color="#241a12" roughness={0.95} />
           </mesh>
         </group>
       ))}
@@ -229,32 +196,33 @@ function SevenGates() {
 }
 
 function ThroneHall() {
+  const stone = useMemo(() => stoneSurface('kur'), []);
   return (
     <group position={[PALACE.x, 0, PALACE.z]}>
       <pointLight position={[0, 14, 10]} color="#ff7a2a" intensity={60} distance={110} />
       {/* stepped clay platform, three tiers */}
       <mesh position={[0, 0.6, 0]}>
         <boxGeometry args={[34, 1.2, 34]} />
-        <meshStandardMaterial color="#1c130c" roughness={0.95} />
+        <meshStandardMaterial {...stone} color="#1c130c" roughness={0.95} />
       </mesh>
       <mesh position={[0, 1.8, 0]}>
         <boxGeometry args={[26, 1.2, 26]} />
-        <meshStandardMaterial color="#241a12" roughness={0.95} />
+        <meshStandardMaterial {...stone} color="#241a12" roughness={0.95} />
       </mesh>
       <mesh position={[0, 3, 0]}>
         <boxGeometry args={[18, 1.2, 18]} />
-        <meshStandardMaterial color="#2e2114" roughness={0.95} />
+        <meshStandardMaterial {...stone} color="#2e2114" roughness={0.95} />
       </mesh>
       {/* two thrones: Ereshkigal and Nergal, side by side */}
       {[-4, 4].map((x) => (
         <group key={x} position={[x, 3.6, 2]}>
           <mesh position={[0, 1.5, 0]}>
             <boxGeometry args={[4, 3, 2]} />
-            <meshStandardMaterial color="#120c07" roughness={0.9} />
+            <meshStandardMaterial {...stone} color="#120c07" roughness={0.9} />
           </mesh>
           <mesh position={[0, 3.6, -0.8]}>
             <boxGeometry args={[4, 3.4, 0.8]} />
-            <meshStandardMaterial color="#120c07" roughness={0.9} />
+            <meshStandardMaterial {...stone} color="#120c07" roughness={0.9} />
           </mesh>
           <mesh position={[0, 3.4, -0.3]}>
             <boxGeometry args={[2.4, 0.5, 0.3]} />
@@ -270,6 +238,8 @@ function ThroneHall() {
 }
 
 function HouseOfDust({stones, shades, reduced}) {
+  const stone = useMemo(() => stoneSurface('kur'), []);
+  const floor = useMemo(() => floorSurface('kur', 2), []);
   const houseShades = useMemo(() => shades.filter((s) => s.id.startsWith('h')), [shades]);
   const shadeRefs = useRef([]);
   useFrame((state) => {
@@ -284,13 +254,13 @@ function HouseOfDust({stones, shades, reduced}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#3a2f22" roughness={1} />
+        <meshStandardMaterial {...floor} color="#3a2f22" roughness={1} />
       </mesh>
       <pointLight position={[160, 8, -70]} color="#4a6fa5" intensity={30} distance={80} />
       {stones.map((s) => (
         <mesh key={s.id} position={[s.x, s.h / 2, s.z]} rotation={[0, s.id * 0.7, 0]}>
           <boxGeometry args={[1.4, s.h, 1]} />
-          <meshStandardMaterial color="#5a4630" roughness={1} />
+          <meshStandardMaterial {...stone} color="#5a4630" roughness={1} />
         </mesh>
       ))}
       {houseShades.map((s, i) => (
@@ -311,6 +281,8 @@ function HouseOfDust({stones, shades, reduced}) {
 }
 
 function ThroneGrounds({pillars, pits, shades, reduced}) {
+  const stone = useMemo(() => stoneSurface('kur'), []);
+  const floor = useMemo(() => floorSurface('kur', 2), []);
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -325,13 +297,13 @@ function ThroneGrounds({pillars, pits, shades, reduced}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
         <circleGeometry args={[80, 40]} />
-        <meshStandardMaterial color="#160c06" roughness={1} />
+        <meshStandardMaterial {...floor} color="#160c06" roughness={1} />
       </mesh>
       <pointLight position={[0, 8, -230]} color="#ff7a2a" intensity={45} distance={100} />
       {pillars.map((p) => (
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.9, 1.1, p.h, 10]} />
-          <meshStandardMaterial color="#3a2c1c" roughness={0.95} />
+          <meshStandardMaterial {...stone} color="#3a2c1c" roughness={0.95} />
         </mesh>
       ))}
       {pits.map((p) => (
@@ -363,6 +335,11 @@ function ThroneGrounds({pillars, pits, shades, reduced}) {
 }
 
 function PortalArches() {
+  const stone = useMemo(() => stoneSurface('kur'), []);
+  // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
+  // the illustrated art of the place it leads to; before a texture
+  // loads the arch shows its plain glow disc.
+  const archTex = useArchTextures(PORTALS.map((p) => p.key));
   return (
     <group>
       {PORTALS.map((p) => (
@@ -374,17 +351,23 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />
             <meshBasicMaterial color={PORTAL_GLOW} transparent opacity={0.55} side={THREE.DoubleSide} />
           </mesh>
+          {archTex[p.key] ? (
+            <mesh position={[0, 3.6, 0.12]}>
+              <circleGeometry args={[2.6, 24]} />
+              <meshBasicMaterial map={archTex[p.key]} transparent opacity={0.92} side={THREE.DoubleSide} />
+            </mesh>
+          ) : null}
           <mesh position={[0, 3.6, 0.15]}>
             <circleGeometry args={[1.5, 24]} />
             <meshBasicMaterial color="#e08a3a" transparent opacity={0.4} side={THREE.DoubleSide} />
@@ -407,6 +390,7 @@ function PortalArches() {
 // down through, and the way back up. Walking through it does nothing
 // in this round — the menu comes later.
 function DescentPortal() {
+  const stone = useMemo(() => stoneSurface('kur'), []);
   const stones = [];
   for (let i = 0; i < 8; i += 1) {
     // Offset by 22.5°: without it a stone sits dead-centre on the south
@@ -422,7 +406,7 @@ function DescentPortal() {
       {stones.map((s) => (
         <mesh key={s.key} position={[s.x, 0.8, s.z]}>
           <boxGeometry args={[1.4, 1.6, 1]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
@@ -433,7 +417,7 @@ function DescentPortal() {
           toward the player who just came down */}
       <mesh position={[0, 4.5, 0]}>
         <torusGeometry args={[DESCENT_PORTAL.radius, 0.7, 12, 32]} />
-        <meshStandardMaterial color={STONE} roughness={0.9} />
+        <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
       </mesh>
       {/* the doorway: deep disc + bright core, round and deeper
           than the arch portals */}
@@ -692,6 +676,7 @@ export function KurScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
           seed: 7105,
         }}
       />
+      <RealmSkyDome realmKey="kur" />
       <Ground />
       <DustDrifts drifts={world.dustDrifts} />
       <River reduced={reduced} />

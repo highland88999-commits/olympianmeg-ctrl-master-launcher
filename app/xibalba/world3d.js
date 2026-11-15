@@ -31,9 +31,12 @@ import {
   right,
   stepPosition,
 } from '@/lib/xibalba/world';
+import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import RealmSkyDome from '@/components/RealmSkyDome';
 import { LavaGlowDome } from '@/components/LavaGlow';
 import {
   LAVA_GLOW_PIT_HALO_OPACITY,
@@ -51,45 +54,6 @@ const LAVA = '#ff2a1a';
 const PORTAL_GLOW = '#2ecc71';
 
 // --- canvas textures (procedural, seeded) ---------------------------------
-
-function groundTexture() {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 1024;
-  const g = c.getContext('2d');
-  g.fillStyle = '#080d07';
-  g.fillRect(0, 0, 1024, 1024);
-  // Speckled rock.
-  for (let i = 0; i < 9000; i += 1) {
-    const v = 8 + Math.floor(Math.random() * 22);
-    g.fillStyle = `rgb(${v},${Math.floor(v * 0.9)},${Math.floor(v * 1.2)})`;
-    g.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
-  }
-  // Glowing veins.
-  g.strokeStyle = LAVA;
-  g.shadowColor = LAVA;
-  g.shadowBlur = LAVA_GLOW_VEIN_SHADOW_BLUR;
-  for (let i = 0; i < 26; i += 1) {
-    let x = Math.random() * 1024;
-    let y = Math.random() * 1024;
-    g.lineWidth = 1.5 + Math.random() * 2.5;
-    g.beginPath();
-    g.moveTo(x, y);
-    const steps = 4 + Math.floor(Math.random() * 6);
-    for (let s = 0; s < steps; s += 1) {
-      x += (Math.random() - 0.5) * 220;
-      y += (Math.random() - 0.5) * 220;
-      g.lineTo(x, y);
-    }
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 6);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 function riverTexture() {
   const c = document.createElement('canvas');
@@ -141,11 +105,11 @@ const regionLabelStyle = {
 // --- static pieces ----------------------------------------------------------
 
 function Ground() {
-  const tex = useMemo(() => groundTexture(), []);
+  const floor = useMemo(() => floorSurface('xibalba', 6), []);
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
       <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial map={tex} color="#ffffff" roughness={1} metalness={0} />
+      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
     </mesh>
   );
 }
@@ -191,13 +155,14 @@ function River({reduced}) {
 }
 
 function Bridge() {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
   const slabs = [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5];
   return (
     <group>
       {slabs.map((x) => (
         <mesh key={x} position={[x, 0.3, 0]}>
           <boxGeometry args={[3.2, 0.6, 38]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
     </group>
@@ -205,18 +170,19 @@ function Bridge() {
 }
 
 function Gates() {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
   return (
     <group position={[GATES.x, 0, GATES.z]}>
       <pointLight position={[0, 10, 0]} color="#ff3a1a" intensity={20} distance={45} />
       {[-6, 6].map((x) => (
         <mesh key={x} position={[x, 7, 0]}>
           <boxGeometry args={[3, 14, 3]} />
-          <meshStandardMaterial color="#0f0f14" roughness={0.85} />
+          <meshStandardMaterial {...stone} color="#0f0f14" roughness={0.85} />
         </mesh>
       ))}
       <mesh position={[0, 14.5, 0]}>
         <boxGeometry args={[15, 2, 3]} />
-        <meshStandardMaterial color="#0f0f14" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#0f0f14" roughness={0.85} />
       </mesh>
       <mesh position={[0, 13.2, 0]}>
         <boxGeometry args={[11, 0.5, 0.4]} />
@@ -230,6 +196,8 @@ function Gates() {
 }
 
 function TrialHouses({stones, shades}) {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
+  const floor = useMemo(() => floorSurface('xibalba', 2), []);
   // The five houses of trial: Dark, Razor, Cold, Jaguar, and Bat —
   // each one a test the dead must pass.
   const HOUSES = [
@@ -243,24 +211,24 @@ function TrialHouses({stones, shades}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#14100e" roughness={1} />
+        <meshStandardMaterial {...floor} color="#14100e" roughness={1} />
       </mesh>
       {HOUSES.map((h, i) => (
         <group key={i} position={[h.x, 0, h.z]}>
           <mesh position={[0, 2, 0]}>
             <boxGeometry args={[6, 4, 5]} />
-            <meshStandardMaterial color={h.color} roughness={0.9} />
+            <meshStandardMaterial {...stone} color={h.color} roughness={0.9} />
           </mesh>
           <mesh position={[0, 5.5, 0]}>
             <coneGeometry args={[4.6, 3, 4]} />
-            <meshStandardMaterial color="#1c1812" roughness={0.9} />
+            <meshStandardMaterial {...stone} color="#1c1812" roughness={0.9} />
           </mesh>
         </group>
       ))}
       {stones.map((s) => (
         <mesh key={s.id} position={[s.x, s.h / 2, s.z]} rotation={[0, s.id * 0.7, 0]}>
           <boxGeometry args={[1.2, s.h, 0.8]} />
-          <meshStandardMaterial color={PALE_STONE} roughness={1} />
+          <meshStandardMaterial {...stone} color={PALE_STONE} roughness={1} />
         </mesh>
       ))}
       {shades.filter((s) => s.id.startsWith('a')).map((s) => (
@@ -277,23 +245,25 @@ function TrialHouses({stones, shades}) {
 }
 
 function BatHouse({perches, shades}) {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
+  const floor = useMemo(() => floorSurface('xibalba', 2), []);
   // The Bat House of Camazotz: a dark cave mound, great wings spread
   // over it, jade eyes watching the road.
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#0a120c" roughness={1} />
+        <meshStandardMaterial {...floor} color="#0a120c" roughness={1} />
       </mesh>
       <pointLight position={[160, 8, -70]} color="#2ecc71" intensity={40} distance={95} />
       <mesh position={[160, 4, -70]}>
         <sphereGeometry args={[16, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
-        <meshStandardMaterial color="#0d0d12" roughness={1} />
+        <meshStandardMaterial {...stone} color="#0d0d12" roughness={1} />
       </mesh>
       {[-1, 1].map((s) => (
         <mesh key={s} position={[160 + s * 18, 7, -70]} rotation={[0, 0, s * -0.5]}>
           <coneGeometry args={[5, 14, 4]} />
-          <meshStandardMaterial color="#14101c" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#14101c" roughness={0.9} />
         </mesh>
       ))}
       {[-2.5, 2.5].map((x) => (
@@ -305,7 +275,7 @@ function BatHouse({perches, shades}) {
       {perches.map((p) => (
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.5, 0.7, p.h, 8]} />
-          <meshStandardMaterial color="#1a1a20" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#1a1a20" roughness={0.9} />
         </mesh>
       ))}
       {shades.filter((s) => s.id.startsWith('e')).map((s) => (
@@ -322,6 +292,7 @@ function BatHouse({perches, shades}) {
 }
 
 function Ballcourt() {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
   // The ballcourt of the Hero Twins — two long walls, one stone ring,
   // and a game the dead play for their lives.
   return (
@@ -329,17 +300,17 @@ function Ballcourt() {
       <pointLight position={[0, 12, 0]} color="#ff3a1a" intensity={60} distance={110} />
       <mesh position={[0, 1, 0]}>
         <boxGeometry args={[16, 2, 60]} />
-        <meshStandardMaterial color="#12100c" roughness={0.9} />
+        <meshStandardMaterial {...stone} color="#12100c" roughness={0.9} />
       </mesh>
       {[-10, 10].map((x) => (
         <mesh key={x} position={[x, 4, 0]} rotation={[0, 0, x > 0 ? -0.4 : 0.4]}>
           <boxGeometry args={[1.5, 9, 60]} />
-          <meshStandardMaterial color="#1c1812" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#1c1812" roughness={0.9} />
         </mesh>
       ))}
       <mesh position={[-9, 8, 0]} rotation={[0, Math.PI / 2, 0]}>
         <torusGeometry args={[2.2, 0.5, 10, 24]} />
-        <meshStandardMaterial color="#8a6d2f" roughness={0.8} />
+        <meshStandardMaterial {...stone} color="#8a6d2f" roughness={0.8} />
       </mesh>
       <Html center distanceFactor={140} position={[0, 14, 0]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Ballcourt
@@ -349,6 +320,8 @@ function Ballcourt() {
 }
 
 function PlaceOfFear({pits, shades}) {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
+  const floor = useMemo(() => floorSurface('xibalba', 2), []);
   // The far north: jagged teeth of stone and pools of blood — the
   // place of fear itself.
   const teeth = [];
@@ -360,13 +333,13 @@ function PlaceOfFear({pits, shades}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
         <circleGeometry args={[80, 40]} />
-        <meshStandardMaterial color="#0d0505" roughness={1} />
+        <meshStandardMaterial {...floor} color="#0d0505" roughness={1} />
       </mesh>
       <pointLight position={[0, 8, -230]} color="#ff3a1a" intensity={LAVA_GLOW_PIT_LIGHT_INTENSITY} distance={LAVA_GLOW_PIT_LIGHT_DISTANCE} />
       {teeth.map((t) => (
         <mesh key={t.key} position={[t.x, t.h / 2, t.z]}>
           <coneGeometry args={[3, t.h, 5]} />
-          <meshStandardMaterial color="#1a0d0d" roughness={1} />
+          <meshStandardMaterial {...stone} color="#1a0d0d" roughness={1} />
         </mesh>
       ))}
       {pits.map((p) => (
@@ -396,6 +369,11 @@ function PlaceOfFear({pits, shades}) {
 }
 
 function PortalArches() {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
+  // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
+  // the illustrated art of the place it leads to; before a texture
+  // loads the arch shows its plain glow disc.
+  const archTex = useArchTextures(PORTALS.map((p) => p.key));
   return (
     <group>
       {PORTALS.map((p) => (
@@ -407,17 +385,23 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />
             <meshBasicMaterial color={PORTAL_GLOW} transparent opacity={0.55} side={THREE.DoubleSide} />
           </mesh>
+          {archTex[p.key] ? (
+            <mesh position={[0, 3.6, 0.12]}>
+              <circleGeometry args={[2.6, 24]} />
+              <meshBasicMaterial map={archTex[p.key]} transparent opacity={0.92} side={THREE.DoubleSide} />
+            </mesh>
+          ) : null}
           <mesh position={[0, 3.6, 0.15]}>
             <circleGeometry args={[1.5, 24]} />
             <meshBasicMaterial color="#4ae08a" transparent opacity={0.4} side={THREE.DoubleSide} />
@@ -440,6 +424,7 @@ function PortalArches() {
 // doorway you came down through, and the way back up. Walking through
 // it does nothing in this round — the menu comes later.
 function DescentPortal() {
+  const stone = useMemo(() => stoneSurface('xibalba'), []);
   const stones = [];
   for (let i = 0; i < 8; i += 1) {
     // Offset by 22.5°: without it a stone sits dead-centre on the south
@@ -454,7 +439,7 @@ function DescentPortal() {
       {stones.map((s) => (
         <mesh key={s.key} position={[s.x, 0.8, s.z]}>
           <boxGeometry args={[1.4, 1.6, 1]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
@@ -463,7 +448,7 @@ function DescentPortal() {
       </mesh>
       <mesh position={[0, 4.5, 0]}>
         <torusGeometry args={[DESCENT_PORTAL.radius, 0.7, 12, 32]} />
-        <meshStandardMaterial color={STONE} roughness={0.9} />
+        <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
       </mesh>
       <mesh position={[0, 4.5, 0]}>
         <circleGeometry args={[3.6, 32]} />
@@ -721,6 +706,7 @@ export function XibalbaScene({playerRef, inputRef, onPortal, onRegion, reduced, 
           seed: 7106,
         }}
       />
+      <RealmSkyDome realmKey="xibalba" />
       <Ground />
       <BloodPools pools={world.bloodPools} />
       <River reduced={reduced} />

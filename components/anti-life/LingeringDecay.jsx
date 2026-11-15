@@ -41,6 +41,21 @@ import { createDecaySpotsClient } from '@/lib/anti-life/decay-spots';
 
 const ASH_COUNT = 42;
 
+// The heartbeat's layer (Merlin, 2026-11-15 — the Earth 2
+// follow-through fix): the overlays + pill must sit above EVERY
+// persistent world root, or the decay stops following the carrier
+// the moment they enter that world. Earth 2's world root is the
+// highest persistent layer on the platform — the "Earth Console
+// (80)" in the Concourse's z-order comment — so the heartbeat
+// lives at 85/86: above the Earth Console and every other world
+// root (all the rest are bare fixed inset-0, z-auto), and below
+// the transient modal layers (notifications/popovers at 88,
+// dialogs at 90+, the program menu at 40000), which still cover
+// the pill while they are open, as a modal should. The heartbeat
+// never disturbs a world's own layering — it only rises above it.
+const HEARTBEAT_OVERLAY_Z = 85;
+const HEARTBEAT_PILL_Z = 86;
+
 function AshCanvas({ opacity }) {
   const ref = useRef(null);
 
@@ -101,7 +116,7 @@ function AshCanvas({ opacity }) {
       ref={ref}
       aria-hidden="true"
       className="pointer-events-none fixed inset-0 h-full w-full"
-      style={{ zIndex: 60, opacity }}
+      style={{ zIndex: HEARTBEAT_OVERLAY_Z, opacity }}
     />
   );
 }
@@ -258,18 +273,19 @@ export default function LingeringDecayHeartbeat() {
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0"
-        style={{ zIndex: 60, backgroundColor: '#8a8a8a', mixBlendMode: 'saturation', opacity: strength.desat }}
+        style={{ zIndex: HEARTBEAT_OVERLAY_Z, backgroundColor: '#8a8a8a', mixBlendMode: 'saturation', opacity: strength.desat }}
       />
       {/* Ashen darkening over the top. */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0"
-        style={{ zIndex: 60, backgroundColor: '#241812', mixBlendMode: 'multiply', opacity: strength.darken }}
+        style={{ zIndex: HEARTBEAT_OVERLAY_Z, backgroundColor: '#241812', mixBlendMode: 'multiply', opacity: strength.darken }}
       />
       {!reducedMotion && <AshCanvas opacity={strength.ash} />}
       {/* The countdown pill: plain English, top centre, never a tap target. */}
       <div
-        className="pointer-events-none fixed left-1/2 top-3 z-[61] -translate-x-1/2 rounded-full border border-red-500/60 bg-black/70 px-4 py-1.5 text-center text-[11px] font-bold tracking-[0.2em] text-red-200"
+        className="pointer-events-none fixed left-1/2 top-3 -translate-x-1/2 rounded-full border border-red-500/60 bg-black/70 px-4 py-1.5 text-center text-[11px] font-bold tracking-[0.2em] text-red-200"
+        style={{ zIndex: HEARTBEAT_PILL_Z }}
         role="status"
       >
         ☠ LINGERING DECAY {formatRemaining(view.remainingMs)} — everything within 1 km withers

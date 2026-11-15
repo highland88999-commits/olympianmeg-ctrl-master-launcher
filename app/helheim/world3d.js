@@ -33,9 +33,12 @@ import {
   right,
   stepPosition,
 } from '@/lib/helheim/world';
+import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const STONE = '#2a2f38';
@@ -45,45 +48,6 @@ const FROST = '#9fd8ff';
 const PORTAL_GLOW = '#5aa2ff';
 
 // --- canvas textures (procedural, seeded) ---------------------------------
-
-function groundTexture() {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 1024;
-  const g = c.getContext('2d');
-  g.fillStyle = '#0a0e14';
-  g.fillRect(0, 0, 1024, 1024);
-  // Speckled cold rock.
-  for (let i = 0; i < 9000; i += 1) {
-    const v = 8 + Math.floor(Math.random() * 22);
-    g.fillStyle = `rgb(${Math.floor(v * 0.9)},${v},${Math.floor(v * 1.25)})`;
-    g.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
-  }
-  // Glowing frost veins.
-  g.strokeStyle = FROST;
-  g.shadowColor = FROST;
-  g.shadowBlur = 14;
-  for (let i = 0; i < 26; i += 1) {
-    let x = Math.random() * 1024;
-    let y = Math.random() * 1024;
-    g.lineWidth = 1.5 + Math.random() * 2.5;
-    g.beginPath();
-    g.moveTo(x, y);
-    const steps = 4 + Math.floor(Math.random() * 6);
-    for (let s = 0; s < steps; s += 1) {
-      x += (Math.random() - 0.5) * 220;
-      y += (Math.random() - 0.5) * 220;
-      g.lineTo(x, y);
-    }
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 6);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 function riverTexture() {
   const c = document.createElement('canvas');
@@ -135,11 +99,11 @@ const regionLabelStyle = {
 // --- static pieces ----------------------------------------------------------
 
 function Ground() {
-  const tex = useMemo(() => groundTexture(), []);
+  const floor = useMemo(() => floorSurface('helheim', 6), []);
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
       <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial map={tex} color="#ffffff" roughness={1} metalness={0} />
+      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
     </mesh>
   );
 }
@@ -185,20 +149,21 @@ function River({reduced}) {
 }
 
 function Bridge() {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
   const slabs = [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5];
   return (
     <group>
       {slabs.map((x) => (
         <mesh key={x} position={[x, 0.3, 0]}>
           <boxGeometry args={[3.2, 0.6, 38]} />
-          <meshStandardMaterial color="#8a6d2f" roughness={0.7} metalness={0.3} />
+          <meshStandardMaterial {...stone} color="#8a6d2f" roughness={0.7} metalness={0.3} />
         </mesh>
       ))}
       {/* golden rails along Gjallarbrú */}
       {[-9.5, 9.5].map((x) => (
         <mesh key={x} position={[x, 1.4, 0]}>
           <boxGeometry args={[0.4, 0.6, 38]} />
-          <meshStandardMaterial color="#c9a227" roughness={0.5} metalness={0.5} />
+          <meshStandardMaterial {...stone} color="#c9a227" roughness={0.5} metalness={0.5} />
         </mesh>
       ))}
     </group>
@@ -206,18 +171,19 @@ function Bridge() {
 }
 
 function Gates() {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
   return (
     <group position={[GATES.x, 0, GATES.z]}>
       <pointLight position={[0, 7, 4]} color="#7dff9a" intensity={14} distance={34} />
       {[-6, 6].map((x) => (
         <mesh key={x} position={[x, 7, 0]}>
           <boxGeometry args={[3, 14, 3]} />
-          <meshStandardMaterial color="#10141c" roughness={0.85} />
+          <meshStandardMaterial {...stone} color="#10141c" roughness={0.85} />
         </mesh>
       ))}
       <mesh position={[0, 14.5, 0]}>
         <boxGeometry args={[15, 2, 3]} />
-        <meshStandardMaterial color="#10141c" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#10141c" roughness={0.85} />
       </mesh>
       <mesh position={[0, 13.2, 0]}>
         <boxGeometry args={[11, 0.5, 0.4]} />
@@ -231,31 +197,32 @@ function Gates() {
 }
 
 function Hall() {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
   return (
     <group position={[HALL.x, 0, HALL.z]}>
       <pointLight position={[0, 10, 12]} color={FROST} intensity={60} distance={110} />
       <mesh position={[0, 1, 0]}>
         <cylinderGeometry args={[17, 19, 2, 24]} />
-        <meshStandardMaterial color="#0a0e14" roughness={0.9} />
+        <meshStandardMaterial {...stone} color="#0a0e14" roughness={0.9} />
       </mesh>
       {/* Éljúðnir: a long low hall, ridge running east-west */}
       <mesh position={[0, 3.5, 0]}>
         <boxGeometry args={[26, 7, 12]} />
-        <meshStandardMaterial color="#12161f" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#12161f" roughness={0.85} />
       </mesh>
       {/* sloped roof slabs meeting at the ridge */}
       <mesh position={[0, 8.6, -3.1]} rotation={[0.6, 0, 0]}>
         <boxGeometry args={[28, 0.6, 7.5]} />
-        <meshStandardMaterial color="#0a0d13" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#0a0d13" roughness={0.85} />
       </mesh>
       <mesh position={[0, 8.6, 3.1]} rotation={[-0.6, 0, 0]}>
         <boxGeometry args={[28, 0.6, 7.5]} />
-        <meshStandardMaterial color="#0a0d13" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#0a0d13" roughness={0.85} />
       </mesh>
       {/* door, facing the plaza (south) */}
       <mesh position={[0, 2.5, 6.1]}>
         <boxGeometry args={[4, 5, 0.5]} />
-        <meshStandardMaterial color="#05070a" roughness={0.9} />
+        <meshStandardMaterial {...stone} color="#05070a" roughness={0.9} />
       </mesh>
       {/* frost-lit window slits along the hall */}
       {[-9, -4.5, 4.5, 9].map((x) => (
@@ -272,6 +239,8 @@ function Hall() {
 }
 
 function MistFields({stones, shades, reduced}) {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
+  const floor = useMemo(() => floorSurface('helheim', 2), []);
   const mistShades = useMemo(() => shades.filter((s) => s.id.startsWith('m')), [shades]);
   const shadeRefs = useRef([]);
   useFrame((state) => {
@@ -286,12 +255,12 @@ function MistFields({stones, shades, reduced}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#2c3644" roughness={1} />
+        <meshStandardMaterial {...floor} color="#2c3644" roughness={1} />
       </mesh>
       {stones.map((s) => (
         <mesh key={s.id} position={[s.x, s.h / 2, s.z]} rotation={[0, s.id * 0.7, 0]}>
           <boxGeometry args={[1.2, s.h, 0.8]} />
-          <meshStandardMaterial color={PALE_STONE} roughness={1} />
+          <meshStandardMaterial {...stone} color={PALE_STONE} roughness={1} />
         </mesh>
       ))}
       {mistShades.map((s, i) => (
@@ -312,11 +281,13 @@ function MistFields({stones, shades, reduced}) {
 }
 
 function Nastrond({stones, shades}) {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
+  const floor = useMemo(() => floorSurface('helheim', 2), []);
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#1c2416" roughness={1} />
+        <meshStandardMaterial {...floor} color="#1c2416" roughness={1} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.08, -70]}>
         <circleGeometry args={[12, 24]} />
@@ -326,7 +297,7 @@ function Nastrond({stones, shades}) {
       {stones.map((p) => (
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.9, 1.1, p.h, 10]} />
-          <meshStandardMaterial color="#3a4432" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#3a4432" roughness={0.9} />
         </mesh>
       ))}
       {shades.filter((s) => s.id.startsWith('e')).map((s) => (
@@ -343,6 +314,7 @@ function Nastrond({stones, shades}) {
 }
 
 function FrozenShore({pits, shades, reduced}) {
+  const floor = useMemo(() => floorSurface('helheim', 2), []);
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -357,7 +329,7 @@ function FrozenShore({pits, shades, reduced}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
         <circleGeometry args={[80, 40]} />
-        <meshStandardMaterial color="#16202c" roughness={1} />
+        <meshStandardMaterial {...floor} color="#16202c" roughness={1} />
       </mesh>
       <pointLight position={[0, 8, -230]} color={FROST} intensity={55} distance={110} />
       {pits.map((p) => (
@@ -389,6 +361,11 @@ function FrozenShore({pits, shades, reduced}) {
 }
 
 function PortalArches() {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
+  // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
+  // the illustrated art of the place it leads to; before a texture
+  // loads the arch shows its plain glow disc.
+  const archTex = useArchTextures(PORTALS.map((p) => p.key));
   return (
     <group>
       {PORTALS.map((p) => (
@@ -400,17 +377,23 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />
             <meshBasicMaterial color={PORTAL_GLOW} transparent opacity={0.55} side={THREE.DoubleSide} />
           </mesh>
+          {archTex[p.key] ? (
+            <mesh position={[0, 3.6, 0.12]}>
+              <circleGeometry args={[2.6, 24]} />
+              <meshBasicMaterial map={archTex[p.key]} transparent opacity={0.92} side={THREE.DoubleSide} />
+            </mesh>
+          ) : null}
           <mesh position={[0, 3.6, 0.15]}>
             <circleGeometry args={[1.5, 24]} />
             <meshBasicMaterial color="#bfe6ff" transparent opacity={0.4} side={THREE.DoubleSide} />
@@ -434,6 +417,7 @@ function PortalArches() {
 // the way back up. Walking through it does nothing in this round — the
 // menu comes later.
 function DescentPortal() {
+  const stone = useMemo(() => stoneSurface('helheim'), []);
   const stones = [];
   for (let i = 0; i < 8; i += 1) {
     // Offset by 22.5°: without it a stone sits dead-centre on the south
@@ -449,7 +433,7 @@ function DescentPortal() {
       {stones.map((s) => (
         <mesh key={s.key} position={[s.x, 0.8, s.z]}>
           <boxGeometry args={[1.4, 1.6, 1]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
@@ -460,7 +444,7 @@ function DescentPortal() {
           toward the player who just came down */}
       <mesh position={[0, 4.5, 0]}>
         <torusGeometry args={[DESCENT_PORTAL.radius, 0.7, 12, 32]} />
-        <meshStandardMaterial color={STONE} roughness={0.9} />
+        <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
       </mesh>
       {/* the doorway: violet-blue disc + bright core, round and deeper
           than the arch portals */}
@@ -693,6 +677,7 @@ export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced, 
   return (
     <>
       <DayNightRig shade={NETHER_REALM_SHADE.helheim} storm={null} />
+      <RealmSkyDome realmKey="helheim" />
       <Ground />
       <FrostPools pools={world.frostPools} />
       <River reduced={reduced} />

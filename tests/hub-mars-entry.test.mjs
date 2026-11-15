@@ -22,13 +22,16 @@ test('Mars group delivers taps to onSelect (stopPropagation, gated)', () => {
   assert.match(home, /onClick=\{onSelect \? \(e\) => \{ e\.stopPropagation\(\); onSelect\(\); \} : undefined\}/);
 });
 
-test('Mars mount is freeroam-gated and dives via beginMarsDive (no route push)', () => {
+test('Mars mount is freeroam-gated and opens the Mars chooser via beginMarsDive (no route push)', () => {
   assert.match(home, /<MarsBackground onSelect=\{appState === 'hub_freeroam' \? beginMarsDive : null\} \/>/);
   assert.ok(!home.includes("router.push('/mars')"), 'hub Mars tap must not route away to /mars');
 });
 
 test('page owns the mars_surface state and the freeroam-gated dive', () => {
-  assert.match(page, /const beginMarsDive = \(\) => \{\s*if \(appState !== 'hub_freeroam'\) return;\s*setAppState\('mars_surface'\);/);
+  // Mars chooser (Merlin, 2026-11-15): tapping Mars now opens the menu
+  // like Earth — beginMarsDive opens the chooser, pickMars dives/routes.
+  assert.match(page, /const beginMarsDive = \(\) => \{\s*if \(appState !== 'hub_freeroam'\) return;\s*setShowMarsChooser\(true\);/);
+  assert.match(page, /const pickMars = \(opt\) => \{\s*setShowMarsChooser\(false\);\s*if \(opt\.target\.kind === 'route'\) \{\s*window\.location\.href = opt\.target\.route;\s*return;\s*\}\s*if \(appState !== 'hub_freeroam'\) return;\s*setAppState\('mars_surface'\);/);
   assert.match(page, /const exitMars = \(\) => \{ setAppState\('hub_freeroam'\); \};/);
   assert.match(page, /const marsProfile = useMemo\(\(\) => generateMarsProfile\(marsSeed\), \[marsSeed\]\);/);
 });

@@ -12,7 +12,7 @@
 // English everywhere. No game mechanics in the base shell — the arches
 // only navigate, nothing fights, nothing charges.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -40,7 +40,7 @@ import {
   stepPosition,
 } from '@/lib/nether-realm/world';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
-import { LAIR_GRAPHIC } from '@/lib/portal/portal-graphics';
+import { useArchTextures } from '@/lib/portal/arch-graphics';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import {
   LAIR_RUN_MPS,
@@ -52,6 +52,8 @@ import {
 } from '@/lib/nether-realm/medusa';
 import { heroMotionPose, heroPhaseRate } from '@/app/middle-earth/figure-motion.js';
 import DayNightRig from '@/components/DayNightRig';
+import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import RealmSkyDome from '@/components/RealmSkyDome';
 import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
 import {
   LAVA_GLOW_CRACK_OPACITY,
@@ -70,45 +72,6 @@ const LAVA = '#ff5a00';
 const PORTAL_GLOW = '#7c3aed';
 
 // --- canvas textures (procedural, seeded) ---------------------------------
-
-function groundTexture() {
-  const c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 1024;
-  const g = c.getContext('2d');
-  g.fillStyle = '#0b090d';
-  g.fillRect(0, 0, 1024, 1024);
-  // Speckled basalt.
-  for (let i = 0; i < 9000; i += 1) {
-    const v = 8 + Math.floor(Math.random() * 22);
-    g.fillStyle = `rgb(${v},${Math.floor(v * 0.9)},${Math.floor(v * 1.2)})`;
-    g.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
-  }
-  // Glowing lava veins.
-  g.strokeStyle = LAVA;
-  g.shadowColor = LAVA;
-  g.shadowBlur = LAVA_GLOW_VEIN_SHADOW_BLUR;
-  for (let i = 0; i < 26; i += 1) {
-    let x = Math.random() * 1024;
-    let y = Math.random() * 1024;
-    g.lineWidth = 1.5 + Math.random() * 2.5;
-    g.beginPath();
-    g.moveTo(x, y);
-    const steps = 4 + Math.floor(Math.random() * 6);
-    for (let s = 0; s < steps; s += 1) {
-      x += (Math.random() - 0.5) * 220;
-      y += (Math.random() - 0.5) * 220;
-      g.lineTo(x, y);
-    }
-    g.stroke();
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 6);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
 
 function riverTexture() {
   const c = document.createElement('canvas');
@@ -171,11 +134,11 @@ const lavaLabelStyle = {
 // --- static pieces ----------------------------------------------------------
 
 function Ground() {
-  const tex = useMemo(() => groundTexture(), []);
+  const floor = useMemo(() => floorSurface('hades', 6), []);
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
       <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial map={tex} color="#ffffff" roughness={1} metalness={0} />
+      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
     </mesh>
   );
 }
@@ -217,13 +180,14 @@ function River({reduced}) {
 }
 
 function Bridge() {
+  const stone = useMemo(() => stoneSurface('hades'), []);
   const slabs = [-7.5, -4.5, -1.5, 1.5, 4.5, 7.5];
   return (
     <group>
       {slabs.map((x) => (
         <mesh key={x} position={[x, 0.3, 0]}>
           <boxGeometry args={[3.2, 0.6, 38]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
     </group>
@@ -286,17 +250,18 @@ function Cerberus() {
 }
 
 function Gates() {
+  const stone = useMemo(() => stoneSurface('hades'), []);
   return (
     <group position={[GATES.x, 0, GATES.z]}>
       {[-6, 6].map((x) => (
         <mesh key={x} position={[x, 7, 0]}>
           <boxGeometry args={[3, 14, 3]} />
-          <meshStandardMaterial color="#0f0f14" roughness={0.85} />
+          <meshStandardMaterial {...stone} color="#0f0f14" roughness={0.85} />
         </mesh>
       ))}
       <mesh position={[0, 14.5, 0]}>
         <boxGeometry args={[15, 2, 3]} />
-        <meshStandardMaterial color="#0f0f14" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#0f0f14" roughness={0.85} />
       </mesh>
       <mesh position={[0, 13.2, 0]}>
         <boxGeometry args={[11, 0.5, 0.4]} />
@@ -310,6 +275,7 @@ function Gates() {
 }
 
 function Palace() {
+  const stone = useMemo(() => stoneSurface('hades'), []);
   const spikes = [];
   for (let i = 0; i < 6; i += 1) {
     const a = (i / 6) * Math.PI * 2;
@@ -320,23 +286,23 @@ function Palace() {
       <pointLight position={[0, 22, 12]} color={PORTAL_GLOW} intensity={90} distance={130} />
       <mesh position={[0, 1, 0]}>
         <cylinderGeometry args={[17, 19, 2, 24]} />
-        <meshStandardMaterial color="#0a0810" roughness={0.9} />
+        <meshStandardMaterial {...stone} color="#0a0810" roughness={0.9} />
       </mesh>
       {/* black spire */}
       <mesh position={[0, 25, 0]}>
         <cylinderGeometry args={[2.5, 10, 46, 8]} />
-        <meshStandardMaterial color="#08070c" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#08070c" roughness={0.85} />
       </mesh>
       {spikes.map((s) => (
         <mesh key={s.key} position={[s.x, 49, s.z]}>
           <coneGeometry args={[0.9, 5, 6]} />
-          <meshStandardMaterial color="#08070c" roughness={0.85} />
+          <meshStandardMaterial {...stone} color="#08070c" roughness={0.85} />
         </mesh>
       ))}
       {/* throne, facing the plaza */}
       <mesh position={[0, 3, 12]}>
         <boxGeometry args={[7, 5, 3]} />
-        <meshStandardMaterial color="#0d0a14" roughness={0.85} />
+        <meshStandardMaterial {...stone} color="#0d0a14" roughness={0.85} />
       </mesh>
       <mesh position={[0, 6.4, 12]}>
         <boxGeometry args={[3, 2.4, 1]} />
@@ -359,6 +325,8 @@ function Palace() {
 }
 
 function Asphodel({stones, shades, reduced}) {
+  const stone = useMemo(() => stoneSurface('hades'), []);
+  const floor = useMemo(() => floorSurface('hades', 2), []);
   const asphodelShades = useMemo(() => shades.filter((s) => s.id.startsWith('a')), [shades]);
   const shadeRefs = useRef([]);
   useFrame((state) => {
@@ -373,12 +341,12 @@ function Asphodel({stones, shades, reduced}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#3d3d44" roughness={1} />
+        <meshStandardMaterial {...floor} color="#3d3d44" roughness={1} />
       </mesh>
       {stones.map((s) => (
         <mesh key={s.id} position={[s.x, s.h / 2, s.z]} rotation={[0, s.id * 0.7, 0]}>
           <boxGeometry args={[1.2, s.h, 0.8]} />
-          <meshStandardMaterial color={PALE_STONE} roughness={1} />
+          <meshStandardMaterial {...stone} color={PALE_STONE} roughness={1} />
         </mesh>
       ))}
       {asphodelShades.map((s, i) => (
@@ -399,11 +367,13 @@ function Asphodel({stones, shades, reduced}) {
 }
 
 function Elysium({pillars, shades}) {
+  const stone = useMemo(() => stoneSurface('hades'), []);
+  const floor = useMemo(() => floorSurface('hades', 2), []);
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
         <circleGeometry args={[70, 40]} />
-        <meshStandardMaterial color="#6b5f3f" roughness={1} />
+        <meshStandardMaterial {...floor} color="#6b5f3f" roughness={1} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.08, -70]}>
         <circleGeometry args={[12, 24]} />
@@ -413,7 +383,7 @@ function Elysium({pillars, shades}) {
       {pillars.map((p) => (
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.9, 1.1, p.h, 10]} />
-          <meshStandardMaterial color="#d8d2c0" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#d8d2c0" roughness={0.9} />
         </mesh>
       ))}
       {shades.filter((s) => s.id.startsWith('e')).map((s) => (
@@ -430,6 +400,7 @@ function Elysium({pillars, shades}) {
 }
 
 function Tartarus({pits, shades, reduced}) {
+  const floor = useMemo(() => floorSurface('hades', 2), []);
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -444,7 +415,7 @@ function Tartarus({pits, shades, reduced}) {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.05, -230]}>
         <circleGeometry args={[80, 40]} />
-        <meshStandardMaterial color="#1c0505" roughness={1} />
+        <meshStandardMaterial {...floor} color="#1c0505" roughness={1} />
       </mesh>
       <pointLight position={[0, 8, -230]} color={LAVA} intensity={LAVA_GLOW_PIT_LIGHT_INTENSITY} distance={LAVA_GLOW_PIT_LIGHT_DISTANCE} />
       {pits.map((p) => (
@@ -477,25 +448,13 @@ function Tartarus({pits, shades, reduced}) {
 }
 
 function PortalArches() {
-  // Medusa's lair graphic (Merlin, 2026-11-15): the lair arch's doorway
-  // wears the lair's illustrated art; the other six arches keep their
-  // glow discs. House pattern (HomeScene Mars): load once, set state
-  // when ready — before it loads the arch shows its plain glow disc.
-  // The art is 3:2, the doorway is a circle: crop the centre square
-  // (repeat.x 2/3, offset.x 1/6) so Medusa is not stretched.
-  const [lairTex, setLairTex] = useState(null);
-  useEffect(() => {
-    let live = true;
-    new THREE.TextureLoader().load(LAIR_GRAPHIC, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.repeat.set(2 / 3, 1);
-      tex.offset.set(1 / 6, 0);
-      if (live) setLairTex(tex);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+  const stone = useMemo(() => stoneSurface('hades'), []);
+  // Arch doorway art (Merlin, 2026-11-15): every arch's doorway wears
+  // the illustrated art of the place it leads to. The medusa door keeps
+  // the same lair texture, crop, position and opacity as before — the
+  // bespoke loader is replaced by the shared hook. Before a texture
+  // loads the arch shows its plain glow disc.
+  const archTex = useArchTextures(PORTALS.map((p) => p.key));
 
   return (
     <group>
@@ -508,21 +467,21 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />
             <meshBasicMaterial color={PORTAL_GLOW} transparent opacity={0.55} side={THREE.DoubleSide} />
           </mesh>
-          {p.key === 'medusa' && lairTex ? (
+          {archTex[p.key] ? (
             <mesh position={[0, 3.6, 0.12]}>
               <circleGeometry args={[2.6, 24]} />
-              <meshBasicMaterial map={lairTex} transparent opacity={0.92} side={THREE.DoubleSide} />
+              <meshBasicMaterial map={archTex[p.key]} transparent opacity={0.92} side={THREE.DoubleSide} />
             </mesh>
           ) : null}
           <mesh position={[0, 3.6, 0.15]}>
@@ -548,6 +507,7 @@ function PortalArches() {
 // the way back up. Walking through it does nothing in this round — the
 // menu comes later.
 function DescentPortal() {
+  const stone = useMemo(() => stoneSurface('hades'), []);
   const stones = [];
   for (let i = 0; i < 8; i += 1) {
     // Offset by 22.5°: without it a stone sits dead-centre on the south
@@ -563,7 +523,7 @@ function DescentPortal() {
       {stones.map((s) => (
         <mesh key={s.key} position={[s.x, 0.8, s.z]}>
           <boxGeometry args={[1.4, 1.6, 1]} />
-          <meshStandardMaterial color={STONE} roughness={0.9} />
+          <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
         </mesh>
       ))}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
@@ -575,7 +535,7 @@ function DescentPortal() {
           toward the player who just came down */}
       <mesh position={[0, 4.5, 0]}>
         <torusGeometry args={[DESCENT_PORTAL.radius, 0.7, 12, 32]} />
-        <meshStandardMaterial color={STONE} roughness={0.9} />
+        <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
       </mesh>
       {/* the doorway: violet-blue disc + bright core, round and deeper
           than the arch portals */}
@@ -861,6 +821,7 @@ function SnakeHair({ count = MEDUSA_SNAKE_COUNT, size = 1, state = 'idle', reduc
 }
 
 function MedusaLair({ reduced }) {
+  const stone = useMemo(() => stoneSurface('hades'), []);
   const tex = useMemo(() => lairFloorTexture(), []);
   const gateYaw = Math.atan2(
     MEDUSA_LAIR.x - MEDUSA_LAIR.gate.x,
@@ -876,7 +837,7 @@ function MedusaLair({ reduced }) {
       {/* chamber floor — seeded scale texture */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[MEDUSA_LAIR.x, 0.06, MEDUSA_LAIR.z]}>
         <circleGeometry args={[MEDUSA_LAIR.r, 48]} />
-        <meshStandardMaterial map={tex} color="#ffffff" roughness={1} />
+        <meshStandardMaterial map={tex} emissiveMap={tex} emissive={LAIR_GREEN} emissiveIntensity={0.35} color="#ffffff" roughness={1} />
       </mesh>
       {/* the snake pit: a glowing green disc at the chamber's heart */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[MEDUSA_POS.x, 0.1, MEDUSA_POS.z]}>
@@ -887,7 +848,7 @@ function MedusaLair({ reduced }) {
       {pillars.map((p) => (
         <mesh key={p.key} position={[p.x, 4, p.z]}>
           <cylinderGeometry args={[0.9, 1.2, 8, 8]} />
-          <meshStandardMaterial color="#101a12" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#101a12" roughness={0.9} />
         </mesh>
       ))}
       {/* green braziers — emissive only, no lights (the budget) */}
@@ -904,12 +865,12 @@ function MedusaLair({ reduced }) {
         {[-3.5, 3.5].map((x) => (
           <mesh key={x} position={[x, 4.5, 0]}>
             <boxGeometry args={[1.4, 9, 1.4]} />
-            <meshStandardMaterial color="#101a12" roughness={0.9} />
+            <meshStandardMaterial {...stone} color="#101a12" roughness={0.9} />
           </mesh>
         ))}
         <mesh position={[0, 9.4, 0]}>
           <boxGeometry args={[9.4, 1.2, 1.4]} />
-          <meshStandardMaterial color="#101a12" roughness={0.9} />
+          <meshStandardMaterial {...stone} color="#101a12" roughness={0.9} />
         </mesh>
         <mesh position={[0, 8.6, 0]}>
           <boxGeometry args={[7, 0.4, 0.4]} />
@@ -1299,21 +1260,22 @@ function FoeFigures({ foes, reduced }) {
 // Statues are stone: they never move, never animate. A solid
 // monument with the victim's name, who turned them, and when.
 function Statues({ statues }) {
+  const stone = useMemo(() => stoneSurface('hades'), []);
   return (
     <group>
       {(statues || []).map((s) => (
         <group key={s.id} position={[s.x, 0, s.z]}>
           <mesh position={[0, 0.25, 0]}>
             <boxGeometry args={[1.6, 0.5, 1.6]} />
-            <meshStandardMaterial color="#3a3a42" roughness={1} />
+            <meshStandardMaterial {...stone} color="#3a3a42" roughness={1} />
           </mesh>
           <mesh position={[0, 1.4, 0]}>
             <coneGeometry args={[0.55, 2.4, 8]} />
-            <meshStandardMaterial color="#8a8a92" roughness={0.95} />
+            <meshStandardMaterial {...stone} color="#8a8a92" roughness={0.95} />
           </mesh>
           <mesh position={[0, 2.9, 0]}>
             <sphereGeometry args={[0.34, 12, 10]} />
-            <meshStandardMaterial color="#8a8a92" roughness={0.95} />
+            <meshStandardMaterial {...stone} color="#8a8a92" roughness={0.95} />
           </mesh>
           {/* Constant screen size, capped width: a statue's story
               is the longest label in the lair, and with
@@ -1490,6 +1452,7 @@ export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegio
           seed: 7101,
         }}
       />
+      <RealmSkyDome realmKey="hades" />
       <Ground />
       <LavaPools pools={world.lavaPools} reduced={reduced} />
       <River reduced={reduced} />

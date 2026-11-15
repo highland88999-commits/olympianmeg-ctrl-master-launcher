@@ -77,13 +77,14 @@ function MarsBackground({ onSelect }) {
   // — the single source of truth that also feeds its collider in
   // StaticColliders and the Mars-centered SYSTEM RINGS, so the three
   // can never drift apart. Earth stays exactly where it is.
-  // Clickable (Merlin, 2026-10-21): tapping the hub's Mars body dives
-  // INTO the planet — the seeded surface renders inside this same
-  // Canvas (MarsRealmContent at the origin, appState 'mars_surface'),
-  // mirroring how clicking Earth begins the dive. onSelect is gated
-  // by the parent to hub_freeroam (same gate as NexusEarth's
-  // onSelect); the handler sits on the group so both the planet mesh
-  // and its atmosphere shell deliver the tap.
+  // Clickable (Merlin, 2026-10-21): tapping the hub's Mars body opens
+  // the Mars chooser (Merlin, 2026-11-15 — Mars 1 or Mars 2, the same
+  // menu Earth got); Mars 1 dives INTO the planet — the seeded surface
+  // renders inside this same Canvas (MarsRealmContent at the origin,
+  // appState 'mars_surface'), mirroring how clicking Earth begins the
+  // dive. onSelect is gated by the parent to hub_freeroam (same gate
+  // as NexusEarth's onSelect); the handler sits on the group so both
+  // the planet mesh and its atmosphere shell deliver the tap.
   return (
     <group
       position={[MARS_CENTER.x, MARS_CENTER.y, MARS_CENTER.z]}

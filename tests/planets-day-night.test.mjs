@@ -1,8 +1,9 @@
 // tests/planets-day-night.test.mjs
 // Planets day/night (Merlin, 2026-11-14): Earth 1, Earth 3, Mars
 // and the Moon all run the SAME real-clock cycle as Earth 2
-// (lib/day-night.js), each keeping its own look. Jupiter has no
-// walkable scene, so it is pinned as SKIPPED, not wired.
+// (lib/day-night.js), each keeping its own look. Jupiter 2 (built
+// Nov 15) has a walkable storm scene wired to the same law;
+// Jupiter 1 is still a hub sphere with no route.
 //
 // The scenes are R3F / plain-three and cannot be imported in
 // node, so the wiring is pinned two ways: (1) the shared law
@@ -13,7 +14,7 @@
 // Run: node --test tests/planets-day-night.test.mjs (from the repo root)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 import { timeOfDay01, moonPhaseDaylight } from '../lib/day-night.js';
 
@@ -99,13 +100,14 @@ test('Earth 3: the scene drives background/fog/hemi/sun + the sun disc from the 
   assert.ok(newEarth.includes('refreshDayNight(performance.now())'), 'the refresh runs in tick()');
 });
 
-test('Jupiter: no walkable scene exists, so there is nothing to light', () => {
-  assert.equal(existsSync('app/jupiter'), false, 'no /jupiter route');
-  assert.equal(existsSync('components/JupiterScene.jsx'), false, 'no Jupiter scene component');
-  const componentFiles = readdirSync('components', { recursive: true, withFileTypes: true })
-    .filter((d) => d.isFile())
-    .map((d) => d.name);
-  assert.ok(!componentFiles.some((n) => /jupiter/i.test(n)), 'no Jupiter file anywhere under components/');
+test('Jupiter 2: the walkable storm scene exists and follows the day/night law', () => {
+  assert.equal(existsSync('app/jupiter'), false, 'no /jupiter route — Jupiter 1 is a hub sphere');
+  assert.ok(existsSync('app/jupiter-2'), 'Jupiter 2 route exists');
+  assert.ok(existsSync('components/jupiter2/Jupiter2Scene.jsx'), 'Jupiter 2 scene component exists');
+  const j2page = readFileSync('app/jupiter-2/page.jsx', 'utf8');
+  assert.ok(j2page.includes('getDayNightPlace'), 'the page reads the day/night place');
+  assert.ok(j2page.includes('requestDayNightPlace'), 'the page requests the day/night place');
+  assert.ok(j2page.includes('timeOfDay01'), 'the page uses the day/night time-of-day');
   assert.ok(existsSync('app/mars'), 'sanity: Mars route exists');
   assert.ok(existsSync('app/moon'), 'sanity: Moon route exists');
   assert.ok(existsSync('app/new-earth'), 'sanity: Earth 3 route exists');

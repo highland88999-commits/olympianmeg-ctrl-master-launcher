@@ -1,7 +1,9 @@
 // tests/portal-graphics.test.mjs — headless tests for the portal
 // graphics upgrade (lib/portal/portal-graphics.js, wired into
-// components/PortalRoom.jsx carousel cards and the Medusa lair arch
-// doorway in app/nether-realm/world3d.js).
+// components/PortalRoom.jsx carousel cards and, via the shared arch
+// hook in lib/portal/arch-graphics.js, every arch doorway in
+// app/nether-realm/world3d.js). The medusa door keeps the same lair
+// graphic — the bespoke loader is retired, the hook loads it now.
 // Run: node tests/portal-graphics.test.mjs (from the repo root).
 // No browser, no network — proves:
 //   * every one of the 24 portal realms has exactly one graphic
@@ -98,11 +100,12 @@ t('PortalRoom cards use portalCardBackground(realm.key, realm.hue)',
 t('PortalRoom cards keep their size (208px) and label',
   portalRoomSrc.includes('width: 208') && portalRoomSrc.includes('{realm.label}'));
 const world3dSrc = readFileSync(join(ROOT, 'app', 'nether-realm', 'world3d.js'), 'utf8');
-t('world3d imports LAIR_GRAPHIC', world3dSrc.includes('LAIR_GRAPHIC'));
-t('world3d loads the lair art with the house TextureLoader pattern',
-  world3dSrc.includes('new THREE.TextureLoader().load(LAIR_GRAPHIC'));
-t('world3d textures ONLY the medusa arch doorway (p.key === medusa)',
-  world3dSrc.includes("p.key === 'medusa' && lairTex"));
+t('world3d imports the shared arch hook (bespoke lair loader retired)',
+  world3dSrc.includes("import { useArchTextures } from '@/lib/portal/arch-graphics'"));
+t('world3d has no bespoke lair loader left',
+  !world3dSrc.includes('LAIR_GRAPHIC') && !world3dSrc.includes('lairTex'));
+t('world3d textures every arch doorway through the hook (archTex[p.key])',
+  world3dSrc.includes('archTex[p.key]'));
 t('world3d keeps the plain glow disc under the art (fallback before load)',
   world3dSrc.includes('color={PORTAL_GLOW} transparent opacity={0.55}'));
 
