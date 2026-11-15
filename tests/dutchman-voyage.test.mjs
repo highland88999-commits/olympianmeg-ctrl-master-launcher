@@ -23,6 +23,9 @@ import {
   makeSwordDuel, swordDuelTick, swordDuelAction,
   makePistolDuel, pistolDuelTap,
   findLegendaryShip, unlockShip, makeFleetShip, switchCommand, stepFleetShip,
+  STATUS_ICON_SIZE, STATUS_ICON_DEFAULT, STATUS_TAP_SLOP_PX,
+  clampStatusIconPos, panelPosForIcon, isStatusIconTap,
+  loadStatusIconPos, saveStatusIconPos, loadStatusMinimized, saveStatusMinimized,
 } from '../app/flying-dutchman/voyage.js';
 import {
   makeVoyageBackpack, loadVoyageBackpack, saveVoyageBackpack,
@@ -691,4 +694,70 @@ test('pistol duel: tap 0.9 s after the signal loses slow', () => {
   assert.equal(r.phase, 'lost');
   assert.equal(r.result, 'slow');
   assert.equal(r.reward, 0);
+});
+
+// ---------- Ship status panel: minimizable floating icon ----------
+
+const PHONE_AREA = { width: 390, height: 700 }; // a 390 px phone, safe-area-padded area
+
+test('status icon: default position is upper-left', () => {
+  assert.deepEqual(STATUS_ICON_DEFAULT, { x: 0, y: 0 });
+  assert.equal(STATUS_ICON_SIZE, 56);
+});
+
+test('status icon: clamping keeps it on screen at all four edges', () => {
+  assert.deepEqual(clampStatusIconPos({ x: -20, y: -30 }, PHONE_AREA), { x: 0, y: 0 });
+  assert.deepEqual(clampStatusIconPos({ x: 1000, y: 1000 }, PHONE_AREA), { x: 334, y: 644 });
+  assert.deepEqual(clampStatusIconPos({ x: 200, y: -5 }, PHONE_AREA), { x: 200, y: 0 });
+  assert.deepEqual(clampStatusIconPos({ x: -1, y: 300 }, PHONE_AREA), { x: 0, y: 300 });
+  // An area smaller than the icon pins it to the origin.
+  assert.deepEqual(clampStatusIconPos({ x: 40, y: 40 }, { width: 30, height: 30 }), { x: 0, y: 0 });
+});
+
+test('status icon: sub-threshold movement is a tap, larger movement is a drag', () => {
+  assert.equal(isStatusIconTap(0, 0), true);
+  assert.equal(isStatusIconTap(5, 5), true, 'hypot 7.07 < 8');
+  assert.equal(isStatusIconTap(8, 0), false, 'exactly at the slop counts as a drag');
+  assert.equal(isStatusIconTap(6, 6), false, 'hypot 8.49 > 8');
+  assert.equal(isStatusIconTap(0, -20), false);
+  assert.equal(STATUS_TAP_SLOP_PX, 8);
+});
+
+test('status panel: expands at the icon spot, clamped fully on screen', () => {
+  const panel = { width: 160, height: 200 };
+  assert.deepEqual(panelPosForIcon({ x: 0, y: 0 }, panel, PHONE_AREA), { x: 0, y: 0 });
+  assert.deepEqual(panelPosForIcon({ x: 100, y: 100 }, panel, PHONE_AREA), { x: 100, y: 100 });
+  // Icon parked bottom-right: the panel slides up-left so it fits.
+  assert.deepEqual(panelPosForIcon({ x: 334, y: 644 }, panel, PHONE_AREA), { x: 230, y: 500 });
+});
+
+test('status icon: in node (no localStorage) loads fall back and saves report failure', () => {
+  assert.equal(loadStatusIconPos(), null);
+  assert.equal(saveStatusIconPos({ x: 10, y: 10 }), false);
+  assert.equal(loadStatusMinimized(), false);
+  assert.equal(saveStatusMinimized(true), false);
+});
+
+test('status icon: position and minimized state round-trip through storage', () => {
+  const store = new Map();
+  const fake = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+  };
+  const prev = globalThis.localStorage;
+  globalThis.localStorage = fake;
+  try {
+    assert.equal(saveStatusIconPos({ x: 120, y: 200 }), true);
+    assert.deepEqual(loadStatusIconPos(), { x: 120, y: 200 });
+    assert.equal(saveStatusMinimized(true), true);
+    assert.equal(loadStatusMinimized(), true);
+    assert.equal(saveStatusMinimized(false), true);
+    assert.equal(loadStatusMinimized(), false);
+    // Corrupt stored JSON falls back to null, not a throw.
+    store.set('dutchman:status-icon-pos:v1', '{not json');
+    assert.equal(loadStatusIconPos(), null);
+  } finally {
+    if (prev === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prev;
+  }
 });

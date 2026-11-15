@@ -7,7 +7,7 @@
 // their souls to grow your crew. Solo against the damned fleet, or duel
 // another captain live over Supabase Realtime.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import {
   makeWorld, spawnWave, stepWorld, makeShip,
@@ -28,6 +28,8 @@ import {
   SKINS, skinAvailable, buySkin, setSkin as setSkinLogic,
   makeSwordDuel, swordDuelTick, swordDuelAction, makePistolDuel, pistolDuelTap,
   DOCK_RANGE, LEGENDARY_SHIPS, unlockShip, makeFleetShip, stepFleetShip, switchCommand,
+  STATUS_ICON_SIZE, STATUS_ICON_DEFAULT, clampStatusIconPos, panelPosForIcon,
+  isStatusIconTap, loadStatusIconPos, saveStatusIconPos, loadStatusMinimized, saveStatusMinimized,
 } from './voyage.js';
 import {
   makeVoyageBackpack, loadVoyageBackpack, saveVoyageBackpack, addItem, removeItem,
@@ -401,6 +403,17 @@ export default function DutchmanPage() {
   const [duelView, setDuelView] = useState({ kind: null, phase: 'fight', foeHp: 3, playerHp: 3, foeState: 'idle', signalAt: 0, now: 0, result: null, reaction: null });
   const [shopSnap, setShopSnap] = useState(null);
   const bpRef = useRef(null);
+
+  // Ship status panel: minimizable to a draggable floating icon.
+  // Positions live in the safe-area-padded overlay area, so the
+  // default upper-left spot is exactly where the panel used to sit.
+  const statusWrapRef = useRef(null);
+  const panelRef = useRef(null);
+  const [statusMinimized, setStatusMinimized] = useState(() => loadStatusMinimized());
+  const [iconPos, setIconPos] = useState(() => loadStatusIconPos() || { ...STATUS_ICON_DEFAULT });
+  const [statusArea, setStatusArea] = useState({ width: 390, height: 700 });
+  const [panelSize, setPanelSize] = useState({ width: 160, height: 200 });
+  const statusDragRef = useRef(null); // { pointerId, startClientX, startClientY, startPos, moved, pos }
 
   // Snapshot of the live captain + backpack for the shop / slot /
   // backpack panels. Rebuilt on open and after every transaction.
@@ -1775,6 +1788,76 @@ export default function DutchmanPage() {
     setJoyTick((n) => n + 1);
   }
 
+  // Ship status panel: minimize to a floating icon, drag it anywhere,
+  // tap it to expand the panel back at the icon's spot. Drag is handled
+  // on the icon only (stopPropagation + pointer capture + touch-action
+  // none), so it never fights the helm joystick or the cannon buttons.
+  function measureStatusArea() {
+    const wrap = statusWrapRef.current;
+    if (!wrap) return;
+    const area = { width: wrap.clientWidth, height: wrap.clientHeight };
+    setStatusArea(area);
+    setIconPos((p) => clampStatusIconPos(p, area));
+  }
+  useEffect(() => {
+    measureStatusArea();
+    window.addEventListener('resize', measureStatusArea);
+    return () => window.removeEventListener('resize', measureStatusArea);
+  }, [screen]);
+  // Measure the expanded panel so it can be clamped fully on screen.
+  // The shape only changes when the panel opens or a foe bar appears.
+  useLayoutEffect(() => {
+    if (statusMinimized || !panelRef.current) return;
+    const r = panelRef.current.getBoundingClientRect();
+    if (r.width > 0) setPanelSize({ width: r.width, height: r.height });
+  }, [statusMinimized, hud?.enemyHull, hud?.foeHull, hud?.maxShield]);
+  function statusIconDown(e) {
+    e.stopPropagation();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    statusDragRef.current = {
+      pointerId: e.pointerId,
+      startClientX: e.clientX, startClientY: e.clientY,
+      startPos: { ...iconPos }, moved: false, pos: { ...iconPos },
+    };
+  }
+  function statusIconMove(e) {
+    const d = statusDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    e.stopPropagation();
+    const dx = e.clientX - d.startClientX;
+    const dy = e.clientY - d.startClientY;
+    if (!d.moved && !isStatusIconTap(dx, dy)) d.moved = true;
+    if (d.moved) {
+      const wrap = statusWrapRef.current;
+      const area = wrap
+        ? { width: wrap.clientWidth, height: wrap.clientHeight }
+        : statusArea;
+      d.pos = clampStatusIconPos({ x: d.startPos.x + dx, y: d.startPos.y + dy }, area);
+      setIconPos(d.pos);
+    }
+  }
+  function statusIconUp(e) {
+    const d = statusDragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    e.stopPropagation();
+    statusDragRef.current = null;
+    const dx = e.clientX - d.startClientX;
+    const dy = e.clientY - d.startClientY;
+    if (isStatusIconTap(dx, dy)) {
+      // A real tap (not a drag): expand the panel at the icon's spot.
+      setStatusMinimized(false);
+      saveStatusMinimized(false);
+    } else {
+      saveStatusIconPos(d.pos);
+    }
+  }
+  function minimizeStatusPanel() {
+    setStatusMinimized(true);
+    saveStatusMinimized(true);
+  }
+  // Expanded panel anchors at the icon's spot, clamped on screen.
+  const panelPos = panelPosForIcon(iconPos, panelSize, statusArea);
+
   const windDeg = hud ? (hud.windRel * 180) / Math.PI : 0;
 
   return (
@@ -1812,57 +1895,10 @@ export default function DutchmanPage() {
               paddingTop: 'max(8px, env(safe-area-inset-top))',
             }}
           >
-            {/* hull, crew, souls */}
-            <div className="w-40 flex-none rounded-xl border border-zinc-800 bg-black/55 p-2 backdrop-blur">
-              <div className="mb-1 flex items-center justify-between text-[10px] tracking-widest text-zinc-400">
-                <span>HULL</span><span>{hud.hull}/{hud.maxHull}</span>
-              </div>
-              <div className="h-2.5 overflow-hidden rounded-full bg-zinc-800">
-                <div
-                  className={`h-full rounded-full ${hud.hull > 50 ? 'bg-emerald-400' : hud.hull > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
-                  style={{ width: `${(hud.hull / hud.maxHull) * 100}%` }}
-                />
-              </div>
-              {hud.maxShield > 0 && (
-                <>
-                  <div className="mb-1 mt-1.5 flex items-center justify-between text-[10px] tracking-widest text-zinc-400">
-                    <span>SHIELD</span><span>{hud.shield}/{hud.maxShield}</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
-                    <div className="h-full rounded-full bg-cyan-400" style={{ width: `${(hud.shield / hud.maxShield) * 100}%` }} />
-                  </div>
-                </>
-              )}
-              <div className="mt-1.5 flex justify-between text-[11px] text-zinc-300">
-                <span>👻 {hud.crew} crew</span>
-                <span>💀 {hud.souls} souls{typeof hud.megaSouls === 'number' ? ` · ✨ ${hud.megaSouls}` : ''}</span>
-              </div>
-              <p className="mt-1 text-[10px] font-black tracking-widest text-amber-200/90">
-                ⚓ LVL {hud.level}{hud.level >= 10 ? ' — MAX' : ` — ${hud.sinkings % 5}/5 to LVL ${hud.level + 1}`}
-              </p>
-              <div className="mt-1.5 grid grid-cols-2 gap-1">
-                <div>
-                  <p className="text-[9px] tracking-widest text-zinc-500">PORT</p>
-                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadPort * 100}%` }} /></div>
-                </div>
-                <div>
-                  <p className="text-[9px] tracking-widest text-zinc-500">STBD</p>
-                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadStbd * 100}%` }} /></div>
-                </div>
-              </div>
-              {hud.enemyHull != null && (
-                <div className="mt-1.5">
-                  <p className="text-[9px] tracking-widest text-red-300/80">RIVAL HULL {hud.enemyHull}</p>
-                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-red-500" style={{ width: `${hud.enemyHull}%` }} /></div>
-                </div>
-              )}
-              {hud.foeHull && (
-                <div className="mt-1.5">
-                  <p className="text-[9px] tracking-widest text-orange-300/80">FOE — {hud.foeHull.name.toUpperCase()} {hud.foeHull.hull}</p>
-                  <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-orange-500" style={{ width: `${(hud.foeHull.hull / hud.foeHull.maxHull) * 100}%` }} /></div>
-                </div>
-              )}
-            </div>
+            {/* The ship status panel lives in the floating overlay
+                below; this spacer keeps the wave pill centred and the
+                pause/backpack buttons right. */}
+            <div className="w-40 flex-none" aria-hidden="true" />
 
             {/* wave / duel */}
             <div className="flex min-w-0 flex-1 flex-col items-center pt-1">
@@ -1887,6 +1923,107 @@ export default function DutchmanPage() {
               >
                 {paused ? '▶' : '❚❚'}
               </button>
+            </div>
+          </div>
+
+          {/* Ship status overlay: the expanded panel, or the minimized
+              floating icon. The wrapper carries the same safe-area
+              padding as the top bar, so positions are measured from
+              the padded area — the default upper-left spot is exactly
+              where the panel used to sit. The wrapper itself ignores
+              touches; only the panel and the icon take them. */}
+          <div
+            className="pointer-events-none absolute inset-0 z-20"
+            style={{
+              paddingLeft: 'max(8px, env(safe-area-inset-left))',
+              paddingRight: 'max(8px, env(safe-area-inset-right))',
+              paddingTop: 'max(8px, env(safe-area-inset-top))',
+              paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+            }}
+          >
+            {/* Inner box = the padded content area: absolutely-positioned
+                children measure from here, so (0, 0) is the padded
+                upper-left where the panel used to sit. */}
+            <div ref={statusWrapRef} className="pointer-events-none relative h-full w-full">
+              {statusMinimized ? (
+              <button
+                type="button"
+                aria-label={`Show ship status — level ${hud.level}`}
+                onPointerDown={statusIconDown}
+                onPointerMove={statusIconMove}
+                onPointerUp={statusIconUp}
+                onPointerCancel={statusIconUp}
+                className="pointer-events-auto absolute flex flex-col items-center justify-center rounded-full border border-amber-400/60 bg-black/70 backdrop-blur"
+                style={{ left: iconPos.x, top: iconPos.y, width: STATUS_ICON_SIZE, height: STATUS_ICON_SIZE, touchAction: 'none' }}
+              >
+                <span className="text-base leading-none">⚓</span>
+                <span className="mt-1 h-1 w-8 overflow-hidden rounded-full bg-zinc-800">
+                  <span className="block h-full rounded-full bg-emerald-400" style={{ width: `${hud.maxHull > 0 ? (hud.hull / hud.maxHull) * 100 : 0}%` }} />
+                </span>
+                <span className="mt-0.5 text-[8px] font-black tracking-widest text-amber-200">LVL {hud.level}</span>
+              </button>
+            ) : (
+              <div
+                ref={panelRef}
+                className="pointer-events-auto absolute w-40 rounded-xl border border-zinc-800 bg-black/55 p-2 backdrop-blur"
+                style={{ left: panelPos.x, top: panelPos.y }}
+              >
+                <div className="mb-1 flex items-center justify-between text-[10px] tracking-widest text-zinc-400">
+                  <span>HULL</span><span>{hud.hull}/{hud.maxHull}</span>
+                  <button
+                    type="button" onClick={minimizeStatusPanel} aria-label="Minimize ship status"
+                    className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-zinc-700 bg-black/40 text-sm leading-none text-zinc-300"
+                  >
+                    —
+                  </button>
+                </div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className={`h-full rounded-full ${hud.hull > 50 ? 'bg-emerald-400' : hud.hull > 25 ? 'bg-amber-400' : 'bg-red-500'}`}
+                    style={{ width: `${(hud.hull / hud.maxHull) * 100}%` }}
+                  />
+                </div>
+                {hud.maxShield > 0 && (
+                  <>
+                    <div className="mb-1 mt-1.5 flex items-center justify-between text-[10px] tracking-widest text-zinc-400">
+                      <span>SHIELD</span><span>{hud.shield}/{hud.maxShield}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+                      <div className="h-full rounded-full bg-cyan-400" style={{ width: `${(hud.shield / hud.maxShield) * 100}%` }} />
+                    </div>
+                  </>
+                )}
+                <div className="mt-1.5 flex justify-between text-[11px] text-zinc-300">
+                  <span>👻 {hud.crew} crew</span>
+                  <span>💀 {hud.souls} souls{typeof hud.megaSouls === 'number' ? ` · ✨ ${hud.megaSouls}` : ''}</span>
+                </div>
+                <p className="mt-1 text-[10px] font-black tracking-widest text-amber-200/90">
+                  ⚓ LVL {hud.level}{hud.level >= 10 ? ' — MAX' : ` — ${hud.sinkings % 5}/5 to LVL ${hud.level + 1}`}
+                </p>
+                <div className="mt-1.5 grid grid-cols-2 gap-1">
+                  <div>
+                    <p className="text-[9px] tracking-widest text-zinc-500">PORT</p>
+                    <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadPort * 100}%` }} /></div>
+                  </div>
+                  <div>
+                    <p className="text-[9px] tracking-widest text-zinc-500">STBD</p>
+                    <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-sky-400" style={{ width: `${hud.reloadStbd * 100}%` }} /></div>
+                  </div>
+                </div>
+                {hud.enemyHull != null && (
+                  <div className="mt-1.5">
+                    <p className="text-[9px] tracking-widest text-red-300/80">RIVAL HULL {hud.enemyHull}</p>
+                    <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-red-500" style={{ width: `${hud.enemyHull}%` }} /></div>
+                  </div>
+                )}
+                {hud.foeHull && (
+                  <div className="mt-1.5">
+                    <p className="text-[9px] tracking-widest text-orange-300/80">FOE — {hud.foeHull.name.toUpperCase()} {hud.foeHull.hull}</p>
+                    <div className="h-1.5 rounded-full bg-zinc-800"><div className="h-full rounded-full bg-orange-500" style={{ width: `${(hud.foeHull.hull / hud.foeHull.maxHull) * 100}%` }} /></div>
+                  </div>
+                )}
+              </div>
+            )}
             </div>
           </div>
 

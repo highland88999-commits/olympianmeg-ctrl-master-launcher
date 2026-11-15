@@ -797,3 +797,111 @@ export function switchCommand(world, shipId) {
   world.player = next;
   return { ok: true, shipId: next.id };
 }
+
+// ---------------------------------------------------------------------------
+// 14. SHIP STATUS PANEL (minimizable floating icon)
+// ---------------------------------------------------------------------------
+//
+// The hull/shield panel can collapse to a small floating icon that the
+// user drags anywhere on screen; tapping the icon expands the panel back
+// at the icon's spot. Positions live in the safe-area-padded area (the
+// overlay the page renders with the same max(8px, env(...)) padding as
+// the top bar), so the default upper-left spot is exactly where the
+// panel used to sit. Pure functions + try/catch-guarded localStorage
+// only, so node tests can import this module with no DOM at all.
+
+export const STATUS_ICON_KEY = 'dutchman:status-icon-pos:v1';
+export const STATUS_MINIMIZED_KEY = 'dutchman:status-minimized:v1';
+export const STATUS_ICON_SIZE = 56; // px — the round floating icon (h-14 w-14)
+export const STATUS_PANEL_WIDTH = 160; // px — the panel is w-40
+export const STATUS_TAP_SLOP_PX = 8; // a pointer that moves less than this is a tap, not a drag
+
+/** Default icon spot: upper-left of the safe-area-padded area. */
+export const STATUS_ICON_DEFAULT = { x: 0, y: 0 };
+
+function clampNum(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+/**
+ * Keep the floating icon fully on screen inside the padded area.
+ * area is { width, height } of the safe-area-padded overlay; when the
+ * area is smaller than the icon the icon pins to the origin.
+ */
+export function clampStatusIconPos(pos, area) {
+  const w = Math.max(0, (area?.width || 0) - STATUS_ICON_SIZE);
+  const h = Math.max(0, (area?.height || 0) - STATUS_ICON_SIZE);
+  return {
+    x: clampNum(Math.round(pos?.x || 0), 0, w),
+    y: clampNum(Math.round(pos?.y || 0), 0, h),
+  };
+}
+
+/**
+ * The expanded panel anchors at the icon's spot, clamped so the whole
+ * panel stays on screen. panel is { width, height } (measured live by
+ * the page; the width is always STATUS_PANEL_WIDTH).
+ */
+export function panelPosForIcon(iconPos, panel, area) {
+  const w = Math.max(0, (area?.width || 0) - (panel?.width || STATUS_PANEL_WIDTH));
+  const h = Math.max(0, (area?.height || 0) - (panel?.height || 0));
+  return {
+    x: clampNum(Math.round(iconPos?.x || 0), 0, w),
+    y: clampNum(Math.round(iconPos?.y || 0), 0, h),
+  };
+}
+
+/** True when the pointer moved so little it counts as a tap, not a drag. */
+export function isStatusIconTap(dx, dy) {
+  return Math.hypot(dx || 0, dy || 0) < STATUS_TAP_SLOP_PX;
+}
+
+function isPos(v) {
+  return v && typeof v === 'object' &&
+    Number.isFinite(v.x) && Number.isFinite(v.y);
+}
+
+/** Saved icon position, or null when nothing valid is stored. */
+export function loadStatusIconPos() {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(STATUS_ICON_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return isPos(parsed) ? { x: parsed.x, y: parsed.y } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the icon position. Returns false when storage is unavailable. */
+export function saveStatusIconPos(pos) {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    localStorage.setItem(STATUS_ICON_KEY, JSON.stringify({ x: pos.x, y: pos.y }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the panel was left minimized. Defaults to expanded (false). */
+export function loadStatusMinimized() {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(STATUS_MINIMIZED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the minimized/expanded state. Returns false when storage is unavailable. */
+export function saveStatusMinimized(minimized) {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    localStorage.setItem(STATUS_MINIMIZED_KEY, minimized ? '1' : '0');
+    return true;
+  } catch {
+    return false;
+  }
+}
