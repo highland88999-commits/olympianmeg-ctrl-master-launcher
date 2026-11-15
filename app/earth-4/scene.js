@@ -38,6 +38,11 @@ import {
   REFRESH_SECONDS,
 } from '../../lib/earth4/spawner.js';
 import {
+  enrichCreatures,
+  growthScale,
+  lifeFor,
+} from '../../lib/earth4/operators.js';
+import {
   buildCreatureMesh,
   animateCreatureMesh,
   CREATURE_SHARED_GEOMETRIES,
@@ -338,6 +343,20 @@ function makeCreatureMesh(c) {
   return buildCreatureMesh(c, CREATURE_PLANS);
 }
 
+// The operators' verdict, made visible: a living creature renders
+// at its CURRENT size (a juvenile is smaller than its adult size —
+// growthScale floors at 0.15 so hatchlings still read), and a
+// decomposing body lies flat as remains. The mesh scale is the
+// Growth and Decomposition Agents' doing, not the builder's.
+function applyLifeToMesh(mesh, life) {
+  if (!mesh || !life) return;
+  if (life.state === 'decomposing') {
+    mesh.scale.set(1, 0.35, 1);
+  } else {
+    mesh.scale.setScalar(growthScale(life));
+  }
+}
+
 function buildCreatures(ctx, S) {
   const { scene, anim } = ctx;
   const group = new THREE.Group();
@@ -365,9 +384,14 @@ function buildCreatures(ctx, S) {
     if (refreshIn <= 0) {
       refreshIn = REFRESH_SECONDS;
       const fresh = creaturesNear(S.origin, S.pos.x, S.pos.z, SPAWN_RADIUS_M, groundNow());
+      // The operators layer TIME on the spawner's space: every fresh
+      // creature arrives with its life — age, growth stage, what it
+      // is doing right now — read off the device clock.
+      enrichCreatures(fresh);
       for (const d of fresh) {
         if (ctx.creatures.has(d.id)) continue;
         const mesh = makeCreatureMesh(d);
+        applyLifeToMesh(mesh, d.life);
         mesh.position.set(d.x, d.y, d.z);
         mesh.rotation.y = d.heading;
         group.add(mesh);
@@ -380,10 +404,24 @@ function buildCreatures(ctx, S) {
           removeCreature(id);
         }
       }
+      // The clock moves: refresh the life of the creatures already
+      // standing here — a juvenile grows, a sleeper wakes, a body
+      // finishes decomposing and the next generation is born.
+      for (const live of ctx.creatures.values()) {
+        live.data.life = lifeFor(
+          live.data.name, live.data.cell || live.data.id || '', Date.now(), live.data.lat || 0,
+        );
+        applyLifeToMesh(live.mesh, live.data.life);
+      }
       ctx.creatureCount = ctx.creatures.size;
     }
     for (const live of ctx.creatures.values()) {
-      live.data = stepCreature(live.data, dt, groundNow());
+      // Only a moving creature walks its circuit — a sleeping,
+      // feeding or resting creature holds its place. The Habits
+      // Agent decides, hour by hour, on the device clock.
+      if (!live.data.life || live.data.life.activity === 'moving') {
+        live.data = stepCreature(live.data, dt, groundNow());
+      }
       live.mesh.position.set(live.data.x, live.data.y, live.data.z);
       live.mesh.rotation.y = live.data.heading;
       if (live.mesh.userData.wings) {

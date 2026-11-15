@@ -205,8 +205,17 @@ export default function Earth4Page() {
 
   // Every species now carries a size: 'listed' is a real measurement,
   // anything else is a taxon-median estimate and reads with a ~ prefix.
+  // When the operators have weighed in, the card shows the creature's
+  // CURRENT size (a juvenile is smaller than its adult size) — a
+  // growing creature always reads with a ~, it is a growth-model
+  // estimate, not a measurement.
+  const shownSizeM = species && species.life && species.life.state === 'alive'
+    ? species.life.sizeM
+    : (species ? species.sizeM : 0);
+  const sizeEstimated = !species || species.sizeSource !== 'listed'
+    || (species.life && species.life.state === 'alive' && species.life.growthFraction < 1);
   const sizeText = species
-    ? `${species.sizeSource === "listed" ? "" : "~ "}${species.sizeM >= 1 ? `${species.sizeM.toFixed(2)} m` : `${Math.round(species.sizeM * 100)} cm`}`
+    ? `${sizeEstimated ? "~ " : ""}${shownSizeM >= 1 ? `${shownSizeM.toFixed(2)} m` : `${Math.round(shownSizeM * 100)} cm`}`
     : "";
 
   return (
@@ -302,6 +311,15 @@ export default function Earth4Page() {
                 {species.diet ? ` · eats ${species.diet.toLowerCase()}` : ""}
                 {species.habitat ? ` · ${species.habitat}` : ""}
               </p>
+              {species.life && (
+                <p>
+                  {species.life.state === 'decomposing'
+                    ? `Remains — ${species.life.decompStageName}`
+                    : `${species.life.stageName} · ${species.life.activity}`
+                      + `${species.life.breeding ? ` · breeding now — ${species.life.offspring} offspring` : ""}`
+                      + `${species.life.social && species.life.social.groupSize > 1 ? ` · in a group of ${species.life.social.groupSize}` : ""}`}
+                </p>
+              )}
               <div className="crow">
                 <button className="cx" onClick={() => setSpecies(null)} aria-label="Close"><Glyph size={13}>{IC.x}</Glyph></button>
               </div>
