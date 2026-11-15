@@ -159,7 +159,10 @@ for (const [dir, key, floorN, stoneN] of REALMS) {
       'water texture kept');
 
     // Exact wrapped-surface counts (pinned by the wiring run).
-    assert.equal(count(src, /\{\.\.\.floor\}/g), floorN, `{...floor} count`);
+    // Batch-1 video grounds (Merlin, Nov 15 ~15:03) spread {...mat} —
+    // the video texture when live, the painted floor when it is not —
+    // instead of {...floor}; the total wrapped-floor count is unchanged.
+    assert.equal(count(src, /\{\.\.\.floor\}/g) + count(src, /\{\.\.\.mat\}/g), floorN, 'wrapped floor spreads');
     assert.equal(count(src, /\{\.\.\.stone\}/g), stoneN, `{...stone} count`);
 
     // LIGHT BUDGET: zero new real lights. One <pointLight JSX tag in
@@ -183,7 +186,9 @@ for (const [dir, key, floorN, stoneN] of REALMS) {
     for (const m of src.matchAll(/<meshStandardMaterial[\s\S]*?\/>/g)) {
       const tag = m[0];
       const fn = fnOf(src, m.index);
-      if (tag.includes('{...floor}') || tag.includes('{...stone}')) continue;
+      // {...mat} is a batch-1 video ground (video texture, or the painted
+      // floor when the video is not live) — a wrapped spread like {...floor}.
+      if (tag.includes('{...floor}') || tag.includes('{...stone}') || tag.includes('{...mat}')) continue;
       if (tag.includes('map=') && tag.includes('emissiveMap=')) continue; // lair floor
       if (fn === 'River' || fn === 'MistWall') continue; // water keeps its own map
       if (fn === 'Fortress') {

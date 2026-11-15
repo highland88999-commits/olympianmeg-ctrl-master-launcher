@@ -20,16 +20,23 @@
 //      still bites every other surface in the realm.
 // No real light is added here — the dome is meshBasicMaterial, unlit,
 // and it is the ceiling texture, not a lamp.
+//
+// VIDEO WRAPS (Merlin, Nov 15 ~15:03, batch 1): realms with a sky video
+// (lib/nether-realm/video-wraps.js — Hades, Hell, Helheim in batch 1)
+// wear their looping video texture instead; the static image stays as
+// the fallback while the video loads and for realms without one yet.
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { skyUrlForRealm } from '@/lib/portal/realm-surfaces';
+import { skyVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 
 /** Encloses the whole walkable world (ground disc radius 400). */
 export const REALM_SKY_DOME_RADIUS = 520;
 
 export default function RealmSkyDome({ realmKey }) {
+  const videoTex = useNetherVideoTexture(skyVideoUrlForRealm(realmKey));
   const [tex, setTex] = useState(null);
   const texRef = useRef(null);
 
@@ -58,11 +65,14 @@ export default function RealmSkyDome({ realmKey }) {
     };
   }, [realmKey]);
 
-  if (!tex) return null;
+  // Video when it is live, static image while it loads (or when the
+  // realm has no video yet) — never a blank sky.
+  const map = videoTex ?? tex;
+  if (!map) return null;
   return (
     <mesh>
       <sphereGeometry args={[REALM_SKY_DOME_RADIUS, 32, 24]} />
-      <meshBasicMaterial map={tex} side={THREE.BackSide} fog={false} toneMapped={false} />
+      <meshBasicMaterial map={map} side={THREE.BackSide} fog={false} toneMapped={false} />
     </mesh>
   );
 }

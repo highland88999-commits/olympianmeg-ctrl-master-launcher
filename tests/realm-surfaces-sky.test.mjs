@@ -69,7 +69,8 @@ test('RealmSkyDome wears the image as an unlit BackSide ceiling', () => {
   assert.ok(dome.includes('THREE.BackSide'), 'BackSide sphere (ceiling seen from inside)');
   assert.ok(dome.includes('fog={false}'), 'dome ignores fog or the sky washes out');
   assert.ok(dome.includes('meshBasicMaterial'), 'unlit: the dome is a ceiling, not a lamp');
-  assert.ok(dome.includes('if (!tex) return null'), 'renders nothing before the image loads');
+  assert.ok(dome.includes('if (!map) return null'), 'renders nothing before a sky texture loads');
+  assert.ok(dome.includes('videoTex ?? tex'), 'video preferred when live, image is the fallback');
   assert.ok(dome.includes('REALM_SKY_DOME_RADIUS = 520'), 'dome radius encloses the world');
   assert.ok(!dome.includes('pointLight') && !dome.includes('spotLight')
     && !dome.includes('directionalLight'), 'the dome adds zero real lights');

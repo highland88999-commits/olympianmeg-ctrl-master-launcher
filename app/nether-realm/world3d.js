@@ -52,7 +52,8 @@ import {
 } from '@/lib/nether-realm/medusa';
 import { heroMotionPose, heroPhaseRate } from '@/app/middle-earth/figure-motion.js';
 import DayNightRig from '@/components/DayNightRig';
-import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
 import {
@@ -135,10 +136,16 @@ const lavaLabelStyle = {
 
 function Ground() {
   const floor = useMemo(() => floorSurface('hades', 6), []);
+  // VIDEO WRAP (Merlin, Nov 15 ~15:03, batch 1): the lava floor video
+  // when it is live; the painted floorSurface() until then.
+  const videoTex = useNetherVideoTexture(floorVideoUrlForRealm('hades'));
+  const mat = videoTex
+    ? { map: videoTex, emissiveMap: videoTex, emissive: '#ffffff', emissiveIntensity: FLOOR_EMISSIVE_INTENSITY }
+    : floor;
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
       <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
+      <meshStandardMaterial {...mat} color="#ffffff" roughness={1} metalness={0} />
     </mesh>
   );
 }

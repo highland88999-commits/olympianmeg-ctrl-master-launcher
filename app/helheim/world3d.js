@@ -37,7 +37,8 @@ import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
-import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
+import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
@@ -100,10 +101,16 @@ const regionLabelStyle = {
 
 function Ground() {
   const floor = useMemo(() => floorSurface('helheim', 6), []);
+  // VIDEO WRAP (Merlin, Nov 15 ~15:03, batch 1): the ice floor video
+  // when it is live; the painted floorSurface() until then.
+  const videoTex = useNetherVideoTexture(floorVideoUrlForRealm('helheim'));
+  const mat = videoTex
+    ? { map: videoTex, emissiveMap: videoTex, emissive: '#ffffff', emissiveIntensity: FLOOR_EMISSIVE_INTENSITY }
+    : floor;
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
       <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
+      <meshStandardMaterial {...mat} color="#ffffff" roughness={1} metalness={0} />
     </mesh>
   );
 }
