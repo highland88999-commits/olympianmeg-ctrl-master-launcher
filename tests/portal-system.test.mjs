@@ -221,6 +221,14 @@ test('the gun fires from everywhere the backpack lives', () => {
   assert.ok(card.includes('Fire'), 'a Fire button');
 });
 
+test('the gun catches up when the count already says earned but the pack does not hold it', () => {
+  const card = src('../components/PortalGunCard.jsx');
+  assert.ok(card.includes('portalGunEarned(progress)'), 'card reads the earn state');
+  assert.ok(card.includes('maybeAwardPortalGun'), 'card can grant the gun itself');
+  assert.ok(card.includes('updateBackpack'), 'card writes the grant into the backpack');
+  assert.ok(card.includes('useEffect'), 'the catch-up runs on mount, not on a tap');
+});
+
 // --- 6. Billboards 16:9 (point 8): the monument face is 16:9, look unchanged ---
 
 test('street monument face is 16:9 at the tower-panel scale', () => {

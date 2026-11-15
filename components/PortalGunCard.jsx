@@ -13,10 +13,10 @@
 
 'use client';
 
-import { useState } from 'react';
-import { useBackpack } from '@/lib/backpack/store';
-import { portalsToGun, usePortalProgress } from '@/lib/portal/progress';
-import { hasPortalGun } from '@/lib/portal/gun';
+import { useEffect, useState } from 'react';
+import { updateBackpack, useBackpack } from '@/lib/backpack/store';
+import { portalGunEarned, portalsToGun, usePortalProgress } from '@/lib/portal/progress';
+import { hasPortalGun, maybeAwardPortalGun } from '@/lib/portal/gun';
 import PortalRoom from './PortalRoom';
 
 export default function PortalGunCard({ onClosePanel }) {
@@ -25,6 +25,20 @@ export default function PortalGunCard({ onClosePanel }) {
   const [roomOpen, setRoomOpen] = useState(false);
   const held = hasPortalGun(record);
   const toGo = portalsToGun(progress);
+
+  // Catch-up (Merlin, Nov 15): the gun was only awarded on the exact
+  // crossing edge inside a PortalRoom entry. A count that reaches 10
+  // any other way — entries from before the gun shipped, progress
+  // restored from another device — left the card at "10 / 10, 0 more"
+  // with no gun and nothing ever catching up. If the count says earned
+  // and the pack does not hold the gun, grant it now. Idempotent:
+  // maybeAwardPortalGun returns the same record when already held,
+  // so the effect no-ops once the gun lands.
+  useEffect(() => {
+    if (portalGunEarned(progress) && !held) {
+      updateBackpack((rec) => maybeAwardPortalGun(rec, progress));
+    }
+  }, [progress, held]);
 
   const fire = () => {
     if (onClosePanel) onClosePanel();
