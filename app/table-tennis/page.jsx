@@ -8,6 +8,11 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createRacket, stepRacket, serveRacket, courtDims, formatScore } from '@/lib/sports/tennis.js';
+import {
+  cachedMaps, woodMaps, tableTopMaps, panelMaps, netTexture, tableBallMaps,
+  paddleFaceMaps, jerseyMaps, makeCrowd, makeContactShadow,
+  breathScale, breathTilt, phaseFor, rollBall,
+} from '@/lib/sports/cgi.js';
 
 export default function TableTennisPage() {
   const containerRef = useRef(null);
@@ -38,16 +43,70 @@ export default function TableTennisPage() {
     const sun = new THREE.DirectionalLight(0xffffff, 0.6);
     sun.position.set(3, 8, 3);
     scene.add(sun);
+    // CGI hall (lib/sports/cgi.js): wood floor, panelled walls, ceiling
+    // light strips, banners, bleachers + seated crowd. Rules untouched.
+    scene.add(new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.5));
+    const wood = woodMaps(20261115); // fresh texture: repeat is per-texture
+    const hallPanels = cachedMaps('hallPanels', 20261115, (s) => panelMaps(s, '#1b2a44'));
+    const wallMat = new THREE.MeshStandardMaterial({ map: hallPanels.map, bumpMap: hallPanels.bumpMap, bumpScale: 0.4, roughness: 0.9 });
+    for (const [w, h, x, z, ry] of [
+      [20, 6, 0, -10, 0], [20, 6, 0, 10, Math.PI],
+      [20, 6, -10, 0, Math.PI / 2], [20, 6, 10, 0, -Math.PI / 2],
+    ]) {
+      const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
+      wall.position.set(x, h / 2, z);
+      wall.rotation.y = ry;
+      scene.add(wall);
+    }
+    const stripMat = new THREE.MeshBasicMaterial({ color: '#e2e8f0' });
+    for (const z of [-3, 0, 3]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(8, 0.08, 0.5), stripMat);
+      strip.position.set(0, 5.4, z);
+      scene.add(strip);
+    }
+    const banners = [];
+    for (const [color, x, z, ry, phase] of [
+      ['#1e40af', -4, -9.9, 0, 0], ['#92400e', 4, -9.9, 0, 1.4],
+      ['#166534', -4, 9.9, Math.PI, 2.1], ['#7c2d12', 4, 9.9, Math.PI, 2.9],
+    ]) {
+      const banner = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.8, 3),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.8, side: THREE.DoubleSide })
+      );
+      banner.position.set(x, 3.4, z);
+      banner.rotation.y = ry;
+      banner.userData.phase = phase;
+      banner.userData.baseY = ry;
+      scene.add(banner);
+      banners.push(banner);
+    }
+    const bleacherMat = new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.9 });
+    const crowdSpots = [];
+    for (const sx of [-1, 1]) {
+      for (const [rowX, rowY, rowH] of [[4.5, 0.5, 0.5], [5.6, 1.3, 1.3]]) {
+        const step = new THREE.Mesh(new THREE.BoxGeometry(1.6, rowH, 7.5), bleacherMat);
+        step.position.set(sx * rowX, rowH / 2, 0);
+        scene.add(step);
+        for (let z = -3; z <= 3; z += 1.1) crowdSpots.push([sx * rowX, rowY, z]);
+      }
+    }
+    const crowd = makeCrowd(scene, { seed: 20261115, spots: crowdSpots });
 
-    // Floor
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.9 }));
+    // Floor — seeded wood planks
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(20, 20),
+      new THREE.MeshStandardMaterial({ map: wood.map, bumpMap: wood.bumpMap, bumpScale: 0.5, roughness: 0.8 })
+    );
+    floor.material.map.repeat.set(4, 4);
+    floor.material.bumpMap.repeat.set(4, 4);
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
 
-    // Table
+    // Table — matte competition-blue top with grain + sheen, dark edge trim
+    const tableTopTex = cachedMaps('tableTop', 20261115, tableTopMaps);
     const tableTop = new THREE.Mesh(
       new THREE.BoxGeometry(d.W, 0.05, d.L),
-      new THREE.MeshStandardMaterial({ color: '#1d4ed8', roughness: 0.4 })
+      new THREE.MeshStandardMaterial({ map: tableTopTex.map, bumpMap: tableTopTex.bumpMap, bumpScale: 0.4, roughness: 0.35 })
     );
     tableTop.position.y = 0.76;
     scene.add(tableTop);
@@ -69,31 +128,82 @@ export default function TableTennisPage() {
       leg.position.set(lx, 0.38, lz);
       scene.add(leg);
     }
-    // Net
+    // Net — woven mesh + white tape; ripples in the frame loop.
+    const netTex = netTexture();
+    netTex.repeat.set(3, 1);
+    const netGeo = new THREE.PlaneGeometry(d.W, d.NET_H, 12, 2);
     const net = new THREE.Mesh(
-      new THREE.PlaneGeometry(d.W, d.NET_H),
-      new THREE.MeshStandardMaterial({ color: '#111', transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+      netGeo,
+      new THREE.MeshStandardMaterial({ color: '#111111', map: netTex, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
     );
     net.position.set(0, 0.76 + d.NET_H / 2, 0);
+    net.userData.base = Float32Array.from(netGeo.attributes.position.array);
     scene.add(net);
+    const netTape = new THREE.Mesh(
+      new THREE.BoxGeometry(d.W, 0.02, 0.02),
+      new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.6 })
+    );
+    netTape.position.set(0, 0.76 + d.NET_H + 0.005, 0);
+    scene.add(netTape);
 
-    // Paddles (players are represented by their paddle + a marker)
-    const mkPaddle = (color) => {
+    // Players: procedural figures (jersey weave, head, arm) holding their
+    // paddle — the paddle is the hand, the figure is the player. Faces the
+    // table: you face -z, the AI group is turned PI to face +z.
+    const mkPlayer = (color, isYou) => {
       const g = new THREE.Group();
-      const blade = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.02, 12), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
+      const jersey = cachedMaps(`jersey-${color}`, 20261115, (s) => jerseyMaps(s, color));
+      const body = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.26, 0.55, 4, 10),
+        new THREE.MeshStandardMaterial({ map: jersey.map, bumpMap: jersey.bumpMap, bumpScale: 0.3, roughness: 0.7 })
+      );
+      body.position.y = 0.95;
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.19, 12, 10),
+        new THREE.MeshStandardMaterial({ color: '#e8b98a', roughness: 0.6 })
+      );
+      head.position.y = 1.62;
+      const arm = new THREE.Mesh(
+        new THREE.BoxGeometry(0.09, 0.09, 0.5),
+        new THREE.MeshStandardMaterial({ map: jersey.map, roughness: 0.7 })
+      );
+      arm.position.set(0.12, 1.12, -0.18);
+      arm.rotation.x = 0.5;
+      const legMat = new THREE.MeshStandardMaterial({ color: '#1f2937', roughness: 0.8 });
+      for (const lx of [-0.12, 0.12]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.55, 8), legMat);
+        leg.position.set(lx, 0.28, 0);
+        g.add(leg);
+      }
+      // Paddle (rubber face + wooden handle) held out toward the table.
+      const paddle = new THREE.Group();
+      const rubber = cachedMaps(`paddle-${color}`, 20261115, (s) => paddleFaceMaps(s, isYou ? '#dc2626' : '#1f2937'));
+      const blade = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.09, 0.09, 0.02, 12),
+        new THREE.MeshStandardMaterial({ map: rubber.map, bumpMap: rubber.bumpMap, bumpScale: 0.3, roughness: 0.55 })
+      );
       blade.rotation.x = Math.PI / 2;
       const handle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.12), new THREE.MeshStandardMaterial({ color: '#8b4513' }));
-      handle.position.z = -0.1;
-      g.add(blade, handle);
+      handle.position.z = 0.1;
+      paddle.add(blade, handle);
+      paddle.position.set(0.12, 1.0, -0.32);
+      const shadow = makeContactShadow(0.45);
+      shadow.position.y = 0.015;
+      g.add(body, head, arm, paddle, shadow);
+      g.userData.paddle = paddle;
+      if (!isYou) g.rotation.y = Math.PI;
       scene.add(g);
       return g;
     };
-    const youPaddle = mkPaddle('#3b82f6');
-    const aiPaddle = mkPaddle('#ef4444');
+    const youPlayer = mkPlayer('#3b82f6', true);
+    const aiPlayer = mkPlayer('#ef4444', false);
+    const youPhase = phaseFor('you');
+    const aiPhase = phaseFor('ai');
 
+    // Ball — white celluloid with seam; spins in the loop.
+    const tableBall = cachedMaps('tableBall', 20261115, tableBallMaps);
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.035, 10, 8),
-      new THREE.MeshStandardMaterial({ color: '#ff8800', roughness: 0.4 })
+      new THREE.SphereGeometry(0.035, 12, 10),
+      new THREE.MeshStandardMaterial({ map: tableBall.map, bumpMap: tableBall.bumpMap, bumpScale: 0.2, roughness: 0.35 })
     );
     scene.add(ball);
 
@@ -132,9 +242,30 @@ export default function TableTennisPage() {
         }
       }
 
-      youPaddle.position.set(state.you.x, 1.0, state.you.z);
-      aiPaddle.position.set(state.ai.x, 1.0, state.ai.z);
+      youPlayer.position.set(state.you.x, 0, state.you.z);
+      aiPlayer.position.set(state.ai.x, 0, state.ai.z);
       ball.position.set(state.ball.x, state.ball.y, state.ball.z);
+
+      // ---- CGI life: breathing + lean, paddle swing, net ripple, ball spin
+      const t = now / 1000;
+      crowd.update(t);
+      youPlayer.scale.y = breathScale(t, youPhase);
+      aiPlayer.scale.y = breathScale(t, aiPhase);
+      youPlayer.rotation.z = breathTilt(t, youPhase);
+      aiPlayer.rotation.z = breathTilt(t, aiPhase);
+      const youNear = Math.max(0, 1 - Math.abs(state.ball.z - state.you.z) / 1.0) * (state.ball.z > 0 ? 1 : 0);
+      const aiNear = Math.max(0, 1 - Math.abs(state.ball.z - state.ai.z) / 1.0) * (state.ball.z < 0 ? 1 : 0);
+      youPlayer.userData.paddle.rotation.x = -0.45 * youNear;
+      aiPlayer.userData.paddle.rotation.x = -0.45 * aiNear;
+      const netPos = netGeo.attributes.position;
+      const netBase = net.userData.base;
+      for (let i = 0; i < netPos.count; i++) {
+        const bx = netBase[i * 3];
+        netPos.array[i * 3 + 2] = Math.sin(bx * 6 + t * 3) * 0.008 * (1 - Math.abs(bx) / (d.W / 2));
+      }
+      netPos.needsUpdate = true;
+      for (const b of banners) b.rotation.y = b.userData.baseY + Math.sin(t * 1.2 + b.userData.phase) * 0.06;
+      rollBall(ball, state.ball.vx, state.ball.vz, dt);
 
       camera.position.set(state.you.x * 0.6, 2.6, state.you.z + 2.2);
       camera.lookAt(0, 0.8, -0.5);

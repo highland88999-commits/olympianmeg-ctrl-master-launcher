@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createVolleyball, stepVolleyball, serveBall, stepServe, beginServe, SERVE_WINDOW, SET_PAUSE, COURT_W, COURT_L, NET_H } from '@/lib/sports/volleyball.js';
 import { loadSportPlayer } from '@/lib/sports/player-models.js';
+import { cachedMaps, sandMaps, netTexture, volleyballMaps, breathScale, breathTilt, phaseFor } from '@/lib/sports/cgi.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -53,10 +54,13 @@ export default function VolleyballPage() {
     sun.position.set(10, 20, 10);
     scene.add(sun);
 
-    // Sand court
+    // Sand court — CGI grain + wind ripples in a seeded colour/bump pair.
+    const sandPair = cachedMaps('sand', 0x5a4d, sandMaps);
+    sandPair.map.repeat.set(4, 4);
+    sandPair.bumpMap.repeat.set(4, 4);
     const sand = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_W + 8, COURT_L + 8),
-      new THREE.MeshStandardMaterial({ color: '#e8d5a3', roughness: 1 })
+      new THREE.MeshStandardMaterial({ map: sandPair.map, bumpMap: sandPair.bumpMap, bumpScale: 0.5, roughness: 1 })
     );
     sand.rotation.x = -Math.PI / 2;
     scene.add(sand);
@@ -72,7 +76,7 @@ export default function VolleyballPage() {
     mkLine(0.15, COURT_L, -COURT_W / 2, 0);
     mkLine(0.15, COURT_L, COURT_W / 2, 0);
 
-    // Net
+    // Net — woven grid from the seeded net texture, white tape on top.
     const netPost = new THREE.CylinderGeometry(0.08, 0.08, NET_H + 0.5, 8);
     const postMat = new THREE.MeshStandardMaterial({ color: '#666666' });
     for (const sx of [-1, 1]) {
@@ -80,12 +84,44 @@ export default function VolleyballPage() {
       post.position.set(sx * (COURT_W / 2 + 0.3), (NET_H + 0.5) / 2, 0);
       scene.add(post);
     }
+    const volleyNetTex = netTexture();
+    volleyNetTex.repeat.set(6, 2);
     const net = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_W + 0.6, NET_H),
-      new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.35, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ map: volleyNetTex, transparent: true, side: THREE.DoubleSide, depthWrite: false })
     );
     net.position.set(0, NET_H / 2, 0);
     scene.add(net);
+    const netTape = new THREE.Mesh(
+      new THREE.BoxGeometry(COURT_W + 0.6, 0.09, 0.06),
+      new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 })
+    );
+    netTape.position.set(0, NET_H, 0);
+    scene.add(netTape);
+
+    // Environment — ocean beyond the far baseline, beach umbrellas at the
+    // corners. The camera looks toward -z from behind you, so the sea
+    // sits in the background of play.
+    const ocean = new THREE.Mesh(
+      new THREE.PlaneGeometry(120, 40),
+      new THREE.MeshStandardMaterial({ color: '#0ea5e9', roughness: 0.25, metalness: 0.15 })
+    );
+    ocean.rotation.x = -Math.PI / 2;
+    ocean.position.set(0, -0.05, -(COURT_L / 2 + 24));
+    scene.add(ocean);
+    const umbrellaColors = ['#ef4444', '#facc15', '#22c55e', '#3b82f6'];
+    const umbrellaPoleMat = new THREE.MeshStandardMaterial({ color: '#92400e', roughness: 0.7 });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], i) => {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.4, 6), umbrellaPoleMat);
+      pole.position.set(sx * (COURT_W / 2 + 5), 1.2, sz * (COURT_L / 2 + 4));
+      scene.add(pole);
+      const canopy = new THREE.Mesh(
+        new THREE.ConeGeometry(1.9, 0.7, 10),
+        new THREE.MeshStandardMaterial({ color: umbrellaColors[i % umbrellaColors.length], roughness: 0.8, side: THREE.DoubleSide })
+      );
+      canopy.position.set(sx * (COURT_W / 2 + 5), 2.6, sz * (COURT_L / 2 + 4));
+      scene.add(canopy);
+    });
 
     // Players (shared materials per team — built once, not once per player)
     const bodyMats = {
@@ -126,12 +162,24 @@ export default function VolleyballPage() {
     youRing.position.y = 0.02;
     scene.add(youRing);
 
-    // Ball
+    // Ball — panelled (blue / yellow / white) with grain; spins with its
+    // flight and casts a shadow that shrinks as it climbs.
+    const volleyBall = cachedMaps('volleyball', 0xb011, volleyballMaps);
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.32, 16, 12),
-      new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.4 })
+      new THREE.SphereGeometry(0.32, 24, 18),
+      new THREE.MeshStandardMaterial({ map: volleyBall.map, bumpMap: volleyBall.bumpMap, bumpScale: 0.3, roughness: 0.4 })
     );
     scene.add(ball);
+    const volleyShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.36, 20),
+      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.3, depthWrite: false })
+    );
+    volleyShadow.rotation.x = -Math.PI / 2;
+    volleyShadow.position.y = 0.02;
+    scene.add(volleyShadow);
+    const prevVolleyBall = { x: 0, y: 0, z: 0 };
+    const volleyRollAxis = new THREE.Vector3();
+    const prevVolleyPos = {};
 
     const onResize = () => {
       renderer.setSize(container.clientWidth, container.clientHeight);
@@ -195,6 +243,20 @@ export default function VolleyballPage() {
         if (m) {
           m.position.set(p.x, 0, p.z);
           m.rotation.y = p.team === 'blue' ? Math.PI : 0;
+          // Idle life: standing players breathe (scale + sway on the
+          // facing axis); moving players stand tall.
+          const prev = prevVolleyPos[p.id];
+          const speed = prev && dt > 0 ? Math.hypot(p.x - prev.x, p.z - prev.z) / dt : 0;
+          prevVolleyPos[p.id] = { x: p.x, z: p.z };
+          const vt = now / 1000;
+          const vphase = phaseFor(p.id);
+          if (speed < 0.8) {
+            m.scale.y = breathScale(vt, vphase);
+            m.rotation.x = breathTilt(vt, vphase);
+          } else {
+            m.scale.y = 1;
+            m.rotation.x = 0;
+          }
         }
       }
       if (you) {
@@ -202,6 +264,24 @@ export default function VolleyballPage() {
         youRing.position.z = you.z;
       }
       ball.position.set(state.ball.x, state.ball.y, state.ball.z);
+      // Spin with flight; shadow shrinks/fades as the ball climbs.
+      const vdx = ball.position.x - prevVolleyBall.x;
+      const vdy = ball.position.y - prevVolleyBall.y;
+      const vdz = ball.position.z - prevVolleyBall.z;
+      const vdist = Math.hypot(vdx, vdy, vdz);
+      if (vdist > 0.001) {
+        volleyRollAxis.set(vdz, 0, -vdx).normalize();
+        if (volleyRollAxis.lengthSq() > 0.5) ball.rotateOnWorldAxis(volleyRollAxis, vdist / 0.32);
+        else ball.rotation.x += vdist / 0.32;
+      }
+      prevVolleyBall.x = ball.position.x;
+      prevVolleyBall.y = ball.position.y;
+      prevVolleyBall.z = ball.position.z;
+      volleyShadow.position.x = ball.position.x;
+      volleyShadow.position.z = ball.position.z;
+      const vShScale = Math.max(0.4, 1 - ball.position.y * 0.12);
+      volleyShadow.scale.set(vShScale, vShScale, vShScale);
+      volleyShadow.material.opacity = 0.3 * vShScale;
 
       // Camera follows you
       if (you) {

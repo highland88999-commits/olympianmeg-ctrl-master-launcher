@@ -15,6 +15,7 @@ import {
   SHOT_TYPES, SHOT_TIMING, slapPower, pickPassTarget, passLeadPoint,
 } from '@/lib/sports/hockey.js';
 import { loadSportPlayer } from '@/lib/sports/player-models.js';
+import { cachedMaps, iceMaps, crowdMaps, netTexture, breathScale, breathTilt, phaseFor } from '@/lib/sports/cgi.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -98,10 +99,14 @@ export default function HockeyPage() {
     sun.position.set(0, 30, 0);
     scene.add(sun);
 
-    // Ice
+    // Ice — CGI skate-marked sheet: seeded scratches + scuff in the
+    // colour/bump pair, glossy finish kept.
+    const iceMapsPair = cachedMaps('ice', 0x1ce5, iceMaps);
+    iceMapsPair.map.repeat.set(3, 6);
+    iceMapsPair.bumpMap.repeat.set(3, 6);
     const ice = new THREE.Mesh(
       new THREE.PlaneGeometry(RINK_W, RINK_L),
-      new THREE.MeshStandardMaterial({ color: '#dbeafe', roughness: 0.15, metalness: 0.1 })
+      new THREE.MeshStandardMaterial({ map: iceMapsPair.map, bumpMap: iceMapsPair.bumpMap, bumpScale: 0.25, roughness: 0.15, metalness: 0.1 })
     );
     ice.rotation.x = -Math.PI / 2;
     scene.add(ice);
@@ -147,21 +152,33 @@ export default function HockeyPage() {
       scene.add(crease);
     }
 
-    // Boards
+    // Boards — white boards, yellow kickplate at the base, glass above.
     const boardMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.5 });
+    const kickMat = new THREE.MeshStandardMaterial({ color: '#facc15', roughness: 0.6 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: '#bae6fd', transparent: true, opacity: 0.14, roughness: 0.1, metalness: 0.2, side: THREE.DoubleSide });
     const mkBoard = (w, d, x, z) => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), boardMat);
       b.position.set(x, 0.6, z);
       scene.add(b);
+      const k = new THREE.Mesh(new THREE.BoxGeometry(w === 0.4 ? 0.42 : w, 0.18, d === 0.4 ? 0.42 : d), kickMat);
+      k.position.set(x, 0.09, z);
+      scene.add(k);
+      const g = new THREE.Mesh(new THREE.PlaneGeometry(w === 0.4 ? d : w, 1.1), glassMat);
+      if (w === 0.4) g.rotation.y = Math.PI / 2;
+      g.position.set(x, 1.75, z);
+      scene.add(g);
     };
     mkBoard(RINK_W + 1, 0.4, 0, RINK_L / 2 + 0.2);
     mkBoard(RINK_W + 1, 0.4, 0, -RINK_L / 2 - 0.2);
     mkBoard(0.4, RINK_L + 1, -RINK_W / 2 - 0.2, 0);
     mkBoard(0.4, RINK_L + 1, RINK_W / 2 + 0.2, 0);
 
-    // Nets IN the crease, on the goal line
+    // Nets IN the crease, on the goal line — woven netting on back, top
+    // AND sides now, from the seeded net texture.
     const goalMat = new THREE.MeshStandardMaterial({ color: '#ef4444', roughness: 0.4 });
-    const netMat = new THREE.MeshStandardMaterial({ color: '#ffffff', transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    const hockeyNetTex = netTexture();
+    hockeyNetTex.repeat.set(2, 1);
+    const netMat = new THREE.MeshBasicMaterial({ map: hockeyNetTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
     for (const gz of [GOAL_LINE_Z, -GOAL_LINE_Z]) {
       const dir = gz > 0 ? 1 : -1;
       for (const gx of [-GOAL_W / 2, GOAL_W / 2]) {
@@ -181,7 +198,40 @@ export default function HockeyPage() {
       netTop.rotation.x = Math.PI / 2 - 0.5 * dir;
       netTop.position.set(0, 1.3, gz + dir * 0.55);
       scene.add(netTop);
+      for (const sx of [-1, 1]) {
+        const netSide = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.6), netMat);
+        netSide.rotation.y = Math.PI / 2;
+        netSide.position.set(sx * GOAL_W / 2, 0.8, gz + dir * 0.55);
+        scene.add(netSide);
+      }
     }
+
+    // Environment — crowd stands around the rink (seeded crowd speckle)
+    // and a hanging scoreboard over centre ice. Emissive only, no lights.
+    const hockeyCrowd = cachedMaps('crowd', 0xc0d, crowdMaps);
+    hockeyCrowd.map.repeat.set(6, 1);
+    const hockeyStandMat = new THREE.MeshStandardMaterial({ map: hockeyCrowd.map, bumpMap: hockeyCrowd.bumpMap, bumpScale: 0.4, roughness: 0.95 });
+    const hockeyStand = (w, d, x, z) => {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(w, 4.5, d), hockeyStandMat);
+      s.position.set(x, 2.25, z);
+      scene.add(s);
+    };
+    hockeyStand(7, RINK_L + 10, -(RINK_W / 2 + 5), 0);
+    hockeyStand(7, RINK_L + 10, RINK_W / 2 + 5, 0);
+    hockeyStand(RINK_W + 10, 7, 0, -(RINK_L / 2 + 5));
+    hockeyStand(RINK_W + 10, 7, 0, RINK_L / 2 + 5);
+    const boardBox = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 2.2, 1.2),
+      new THREE.MeshStandardMaterial({ color: '#0a1020', emissive: '#0ea5e9', emissiveIntensity: 0.5, roughness: 0.6 })
+    );
+    boardBox.position.set(0, 11, 0);
+    scene.add(boardBox);
+    const boardTrim = new THREE.Mesh(
+      new THREE.BoxGeometry(5.1, 0.14, 1.3),
+      new THREE.MeshStandardMaterial({ color: '#fbbf24', emissive: '#fbbf24', emissiveIntensity: 1.2 })
+    );
+    boardTrim.position.set(0, 12.15, 0);
+    scene.add(boardTrim);
 
     // Players with sticks; goalies bigger with leg pads
     const playerMeshes = {};
@@ -225,12 +275,21 @@ export default function HockeyPage() {
     youRing.position.y = 0.02;
     scene.add(youRing);
 
-    // Puck
+    // Puck — spins as it slides, with a soft shadow tracking it.
     const puck = new THREE.Mesh(
       new THREE.CylinderGeometry(0.3, 0.3, 0.15, 12),
       new THREE.MeshStandardMaterial({ color: '#111111', roughness: 0.6 })
     );
     scene.add(puck);
+    const puckShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.34, 16),
+      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.3, depthWrite: false })
+    );
+    puckShadow.rotation.x = -Math.PI / 2;
+    puckShadow.position.y = 0.02;
+    scene.add(puckShadow);
+    const prevPuck = { x: 0, z: 0 };
+    const prevHockeyPos = {};
 
     // Guidance lines (Merlin 2026-11-02): dotted, in the rink plane.
     // Shot line (amber) while holding SHOOT — color shifts with the timing
@@ -379,6 +438,20 @@ export default function HockeyPage() {
         // Face the play
         const targetZ = p.team === 'blue' ? -GOAL_LINE_Z : GOAL_LINE_Z;
         m.rotation.y = Math.atan2(0 - p.x, targetZ - p.z);
+        // Idle life: standing skaters breathe; moving ones stand tall.
+        // (rotation.y faces the play, so the sway goes on rotation.x.)
+        const prev = prevHockeyPos[p.id];
+        const speed = prev && dt > 0 ? Math.hypot(p.x - prev.x, p.z - prev.z) / dt : 0;
+        prevHockeyPos[p.id] = { x: p.x, z: p.z };
+        const ht = now / 1000;
+        const hphase = phaseFor(p.id);
+        if (speed < 0.8) {
+          m.scale.y = breathScale(ht, hphase);
+          m.rotation.x = breathTilt(ht, hphase);
+        } else {
+          m.scale.y = 1;
+          m.rotation.x = 0;
+        }
       }
       if (you && you.penalty <= 0) {
         youRing.position.x = you.x;
@@ -392,6 +465,13 @@ export default function HockeyPage() {
         const holder = playerMeshes[state.puck.holder];
         if (holder) puck.position.set(holder.position.x + 0.5, 0.1, holder.position.z + 0.5);
       }
+      // Puck spin + shadow track its slide.
+      const pkDist = Math.hypot(puck.position.x - prevPuck.x, puck.position.z - prevPuck.z);
+      if (pkDist > 0.001) puck.rotation.y += pkDist * 2;
+      prevPuck.x = puck.position.x;
+      prevPuck.z = puck.position.z;
+      puckShadow.position.x = puck.position.x;
+      puckShadow.position.z = puck.position.z;
 
       if (you) {
         camera.position.set(you.x * 0.6, 22, you.z * 0.6 + 18);

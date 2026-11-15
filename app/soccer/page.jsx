@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createSoccer, stepSoccer, kickoff, PITCH_W, PITCH_L, GOAL_W, FORMAT_SHORT } from '@/lib/sports/soccer.js';
 import { loadSportPlayer } from '@/lib/sports/player-models.js';
+import { cachedMaps, grassMaps, crowdMaps, netTexture, soccerBallMaps, breathScale, breathTilt, phaseFor } from '@/lib/sports/cgi.js';
 
 const TEAM_COLORS = { blue: '#3b82f6', red: '#ef4444' };
 
@@ -52,23 +53,18 @@ export default function SoccerPage() {
     sun.position.set(20, 40, 20);
     scene.add(sun);
 
-    // Pitch
+    // Pitch — CGI grass: mow stripes + blade grain baked into a seeded
+    // colour/bump pair (lib/sports/cgi.js); the old 8 flat stripe planes
+    // are gone, the stripes live in the texture now.
+    const grass = cachedMaps('grass', 0x5a0cc4, grassMaps);
+    grass.map.repeat.set(6, 10);
+    grass.bumpMap.repeat.set(6, 10);
     const pitch = new THREE.Mesh(
       new THREE.PlaneGeometry(PITCH_W, PITCH_L),
-      new THREE.MeshStandardMaterial({ color: '#2d8a2d', roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ map: grass.map, bumpMap: grass.bumpMap, bumpScale: 0.6, roughness: 0.9 })
     );
     pitch.rotation.x = -Math.PI / 2;
     scene.add(pitch);
-    // Stripes
-    for (let i = 0; i < 8; i++) {
-      const stripe = new THREE.Mesh(
-        new THREE.PlaneGeometry(PITCH_W, PITCH_L / 8),
-        new THREE.MeshStandardMaterial({ color: i % 2 ? '#2d8a2d' : '#359535', roughness: 0.9 })
-      );
-      stripe.rotation.x = -Math.PI / 2;
-      stripe.position.set(0, 0.005, -PITCH_L / 2 + (i + 0.5) * (PITCH_L / 8));
-      scene.add(stripe);
-    }
     // Lines
     const lineMat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
     const mkLine = (w, d, x, z) => {
@@ -85,9 +81,14 @@ export default function SoccerPage() {
     circle.rotation.x = -Math.PI / 2;
     circle.position.y = 0.01;
     scene.add(circle);
-    // Goals
+    // Goals — posts + crossbar as before, plus woven netting (back, top,
+    // both sides) from the seeded net texture.
     const goalMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.4 });
+    const netTex = netTexture();
+    netTex.repeat.set(4, 2);
+    const soccerNetMat = new THREE.MeshBasicMaterial({ map: netTex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
     for (const gz of [PITCH_L / 2, -PITCH_L / 2]) {
+      const dir = gz > 0 ? 1 : -1;
       for (const gx of [-GOAL_W / 2, GOAL_W / 2]) {
         const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.5, 8), goalMat);
         post.position.set(gx, 1.25, gz);
@@ -97,6 +98,45 @@ export default function SoccerPage() {
       cross.rotation.z = Math.PI / 2;
       cross.position.set(0, 2.5, gz);
       scene.add(cross);
+      const netBack = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_W, 2.5), soccerNetMat);
+      netBack.position.set(0, 1.25, gz + dir * 1.2);
+      scene.add(netBack);
+      const netTop = new THREE.Mesh(new THREE.PlaneGeometry(GOAL_W, 1.2), soccerNetMat);
+      netTop.rotation.x = Math.PI / 2 - 0.45 * dir;
+      netTop.position.set(0, 2.1, gz + dir * 0.6);
+      scene.add(netTop);
+      for (const sx of [-1, 1]) {
+        const netSide = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 2.5), soccerNetMat);
+        netSide.rotation.y = Math.PI / 2;
+        netSide.position.set(sx * GOAL_W / 2, 1.25, gz + dir * 0.6);
+        scene.add(netSide);
+      }
+    }
+
+    // Environment — crowd stands on all four sides (seeded crowd speckle)
+    // and floodlight poles with emissive heads. No extra lights (perf).
+    const crowd = cachedMaps('crowd', 0xc0d, crowdMaps);
+    crowd.map.repeat.set(6, 1);
+    const standMat = new THREE.MeshStandardMaterial({ map: crowd.map, bumpMap: crowd.bumpMap, bumpScale: 0.4, roughness: 0.95 });
+    const standSide = (w, d, x, z) => {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(w, 5, d), standMat);
+      s.position.set(x, 2.5, z);
+      scene.add(s);
+    };
+    standSide(8, PITCH_L + 12, -(PITCH_W / 2 + 6), 0);
+    standSide(8, PITCH_L + 12, PITCH_W / 2 + 6, 0);
+    standSide(PITCH_W + 12, 8, 0, -(PITCH_L / 2 + 6));
+    standSide(PITCH_W + 12, 8, 0, PITCH_L / 2 + 6);
+    const poleMat = new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.5, metalness: 0.6 });
+    const lampMat = new THREE.MeshStandardMaterial({ color: '#fefce8', emissive: '#fef9c3', emissiveIntensity: 1.6 });
+    for (const [px, pz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 18, 8), poleMat);
+      pole.position.set(px * (PITCH_W / 2 + 3), 9, pz * (PITCH_L / 2 + 3));
+      scene.add(pole);
+      const lamp = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.4, 0.4), lampMat);
+      lamp.position.set(px * (PITCH_W / 2 + 3), 18.2, pz * (PITCH_L / 2 + 3));
+      lamp.lookAt(0, 0, 0);
+      scene.add(lamp);
     }
 
     const playerMeshes = {};
@@ -131,20 +171,24 @@ export default function SoccerPage() {
     youRing.position.y = 0.02;
     scene.add(youRing);
 
+    // Ball — panelled leather (seeded pentagon patches + grain) that
+    // rolls with its travel instead of spinning on a fixed axis.
+    const soccerBall = cachedMaps('soccerBall', 0xba11, soccerBallMaps);
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.4, 16, 12),
-      new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.35 })
+      new THREE.SphereGeometry(0.4, 24, 18),
+      new THREE.MeshStandardMaterial({ map: soccerBall.map, bumpMap: soccerBall.bumpMap, bumpScale: 0.3, roughness: 0.35 })
     );
-    // Pentagons (simple dark patches)
-    const patchMat = new THREE.MeshBasicMaterial({ color: '#1e293b' });
-    for (let i = 0; i < 6; i++) {
-      const patch = new THREE.Mesh(new THREE.CircleGeometry(0.12, 5), patchMat);
-      const a = (i / 6) * Math.PI * 2;
-      patch.position.set(Math.cos(a) * 0.35, Math.sin(a) * 0.35, 0.25);
-      patch.lookAt(patch.position.clone().multiplyScalar(2));
-      ball.add(patch);
-    }
     scene.add(ball);
+    const ballShadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.45, 20),
+      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.28, depthWrite: false })
+    );
+    ballShadow.rotation.x = -Math.PI / 2;
+    ballShadow.position.y = 0.02;
+    scene.add(ballShadow);
+    const prevBall = { x: 0, z: 0 };
+    const rollAxis = new THREE.Vector3();
+    const prevPlayerPos = {};
 
     const onResize = () => {
       renderer.setSize(container.clientWidth, container.clientHeight);
@@ -202,18 +246,45 @@ export default function SoccerPage() {
 
       for (const p of state.players) {
         const m = playerMeshes[p.id];
-        if (m) m.position.set(p.x, 0, p.z);
+        if (m) {
+          m.position.set(p.x, 0, p.z);
+          // Idle life: standing players breathe (scale + sway); moving
+          // players stand tall. Phase is seeded per player id.
+          const prev = prevPlayerPos[p.id];
+          const speed = prev && dt > 0 ? Math.hypot(p.x - prev.x, p.z - prev.z) / dt : 0;
+          prevPlayerPos[p.id] = { x: p.x, z: p.z };
+          const t = now / 1000;
+          const phase = phaseFor(p.id);
+          if (speed < 0.8) {
+            m.scale.y = breathScale(t, phase);
+            m.rotation.z = breathTilt(t, phase);
+          } else {
+            m.scale.y = 1;
+            m.rotation.z = 0;
+          }
+        }
       }
       if (you) {
         youRing.position.x = you.x;
         youRing.position.z = you.z;
       }
       ball.position.set(state.ball.x, 0.4, state.ball.z);
-      ball.rotation.x += 2 * dt;
       if (state.ball.holder) {
         const h = playerMeshes[state.ball.holder];
         if (h) ball.position.set(h.position.x, 0.4, h.position.z + 0.9);
       }
+      // Roll the ball along its travel direction; shadow tracks it.
+      const bdx = ball.position.x - prevBall.x;
+      const bdz = ball.position.z - prevBall.z;
+      const bdist = Math.hypot(bdx, bdz);
+      if (bdist > 0.001) {
+        rollAxis.set(bdz, 0, -bdx).normalize();
+        ball.rotateOnWorldAxis(rollAxis, bdist / 0.4);
+      }
+      prevBall.x = ball.position.x;
+      prevBall.z = ball.position.z;
+      ballShadow.position.x = ball.position.x;
+      ballShadow.position.z = ball.position.z;
 
       if (you) {
         camera.position.set(you.x * 0.7, 26, you.z * 0.7 + 22);

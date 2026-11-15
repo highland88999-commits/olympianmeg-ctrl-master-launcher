@@ -15,6 +15,7 @@ import {
   BOARD_BOTTOM,
   BOARD_TOP,
 } from '@/lib/basketball/constants';
+import { cachedMaps, woodMaps, crowdMaps, netTexture } from '@/lib/sports/cgi.js';
 
 const LINE_Y = 0.02;
 const LINE_COLOR = '#d7f9ff';
@@ -95,14 +96,27 @@ function CourtMarkings() {
 }
 
 function Net({ rimZ }) {
-  // wireframe cone under the rim
+  // Woven netting (seeded grid texture) that sways gently at idle —
+  // the old flat wireframe cone is gone.
   const geo = useMemo(() => {
     const g = new THREE.CylinderGeometry(RIM_R * 0.98, 0.13, 0.42, 10, 4, true);
     return g;
   }, []);
+  const mesh = useRef();
+  const tex = useMemo(() => {
+    const t = netTexture();
+    t.repeat.set(3, 1);
+    return t;
+  }, []);
+  useFrame(({ clock }) => {
+    if (!mesh.current) return;
+    const t = clock.getElapsedTime();
+    mesh.current.rotation.z = Math.sin(t * 1.3 + rimZ) * 0.035;
+    mesh.current.rotation.x = Math.cos(t * 1.1 + rimZ) * 0.025;
+  });
   return (
-    <mesh position={[0, RIM_Y - 0.22, rimZ]} geometry={geo}>
-      <meshBasicMaterial color="#f5f5f5" wireframe transparent opacity={0.85} />
+    <mesh ref={mesh} position={[0, RIM_Y - 0.22, rimZ]} geometry={geo}>
+      <meshBasicMaterial map={tex} transparent side={THREE.DoubleSide} depthWrite={false} />
     </mesh>
   );
 }
@@ -198,6 +212,19 @@ function HoopAssembly({ side }) {
 }
 
 function Arena() {
+  // Crowd stands wear the seeded crowd speckle; the hanging scoreboard
+  // breathes (slow emissive pulse) so the arena feels alive at idle.
+  const crowd = useMemo(() => {
+    const c = cachedMaps('crowd', 0xc0d, crowdMaps);
+    c.map.repeat.set(8, 1);
+    c.bumpMap.repeat.set(8, 1);
+    return c;
+  }, []);
+  const boardMat = useRef();
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    if (boardMat.current) boardMat.current.emissiveIntensity = 0.45 + Math.sin(t * 0.8) * 0.18;
+  });
   return (
     <group>
       {/* surrounding dark floor */}
@@ -215,7 +242,7 @@ function Arena() {
         <group key={i}>
           <mesh position={b.p}>
             <boxGeometry args={b.s} />
-            <meshStandardMaterial color="#0a1020" roughness={0.9} />
+            <meshStandardMaterial map={crowd.map} bumpMap={crowd.bumpMap} bumpScale={0.4} roughness={0.95} />
           </mesh>
           <mesh position={[b.p[0], b.p[1] + b.s[1] / 2 + 0.05, b.p[2]]}>
             <boxGeometry args={[b.s[0], 0.1, b.s[2]]} />
@@ -226,7 +253,7 @@ function Arena() {
       {/* hanging scoreboard */}
       <mesh position={[0, 10.5, 0]}>
         <boxGeometry args={[4.4, 2.2, 4.4]} />
-        <meshStandardMaterial color="#0a1020" emissive="#0ea5e9" emissiveIntensity={0.55} />
+        <meshStandardMaterial ref={boardMat} color="#0a1020" emissive="#0ea5e9" emissiveIntensity={0.55} />
       </mesh>
       <mesh position={[0, 10.5, 0]}>
         <boxGeometry args={[4.5, 0.12, 4.5]} />
@@ -264,12 +291,19 @@ function SpotMarkers({ spots, activeIndex, visible }) {
 }
 
 export function CourtScene({ spots, activeIndex, showSpots }) {
+  // Court floor — CGI hardwood: seeded planks + grain + seams.
+  const wood = useMemo(() => {
+    const w = cachedMaps('wood', 0xc0e77, woodMaps);
+    w.map.repeat.set(2, 3);
+    w.bumpMap.repeat.set(2, 3);
+    return w;
+  }, []);
   return (
     <group>
       {/* court floor */}
       <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[COURT_W, COURT_L]} />
-        <meshStandardMaterial color="#0c1626" roughness={0.55} metalness={0.15} />
+        <meshStandardMaterial map={wood.map} bumpMap={wood.bumpMap} bumpScale={0.4} roughness={0.55} metalness={0.15} />
       </mesh>
       {/* painted key areas (subtle) */}
       {[1, -1].map((s) => (

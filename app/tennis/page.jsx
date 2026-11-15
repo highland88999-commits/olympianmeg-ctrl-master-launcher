@@ -10,6 +10,11 @@ import * as THREE from 'three';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { createRacket, stepRacket, serveRacket, courtDims, formatScore } from '@/lib/sports/tennis.js';
 import { loadSportPlayer } from '@/lib/sports/player-models.js';
+import {
+  cachedMaps, hardcourtMaps, surroundMaps, netTexture, tennisBallMaps,
+  skyDome, makeClouds, makeFloodlights, makeCrowd, makeContactShadow,
+  breathScale, breathTilt, phaseFor, rollBall, squashY,
+} from '@/lib/sports/cgi.js';
 
 export default function TennisPage() {
   const containerRef = useRef(null);
@@ -40,17 +45,41 @@ export default function TennisPage() {
     const sun = new THREE.DirectionalLight(0xffffff, 0.7);
     sun.position.set(10, 25, 10);
     scene.add(sun);
+    // CGI environment (lib/sports/cgi.js): gradient sky, drifting clouds,
+    // floodlights, bleachers + seated crowd. Rules / camera untouched.
+    scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x2d6a2d, 0.5));
+    skyDome(scene);
+    const clouds = makeClouds(scene, 20261114, { count: 8, spread: 90, yMin: 30, yMax: 48 });
+    makeFloodlights(scene, [
+      [-d.W / 2 - 6, -d.L / 2 - 6], [d.W / 2 + 6, -d.L / 2 - 6],
+      [-d.W / 2 - 6, d.L / 2 + 6], [d.W / 2 + 6, d.L / 2 + 6],
+    ]);
+    const bleacherMat = new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.9 });
+    const crowdSpots = [];
+    for (const sz of [-1, 1]) {
+      for (const [rowZ, rowY, rowH] of [[d.L / 2 + 5.5, 0.6, 0.6], [d.L / 2 + 7, 1.4, 1.4]]) {
+        const step = new THREE.Mesh(new THREE.BoxGeometry(d.W + 10, rowH, 1.6), bleacherMat);
+        step.position.set(0, rowH / 2, sz * rowZ);
+        scene.add(step);
+        for (let x = -d.W / 2 - 3; x <= d.W / 2 + 3; x += 1.1) {
+          crowdSpots.push([x, rowY, sz * rowZ]);
+        }
+      }
+    }
+    const crowd = makeCrowd(scene, { seed: 20261114, spots: crowdSpots });
 
-    // Court (green with blue playing area)
+    // Court (seeded hardcourt + mow-striped surround, colour/bump pairs)
+    const hardcourt = cachedMaps('hardcourt', 20261114, hardcourtMaps);
+    const surround = cachedMaps('surround', 20261114, surroundMaps);
     const outer = new THREE.Mesh(
       new THREE.PlaneGeometry(d.W + 8, d.L + 8),
-      new THREE.MeshStandardMaterial({ color: '#2d6a2d', roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ map: surround.map, bumpMap: surround.bumpMap, bumpScale: 0.6, roughness: 0.9 })
     );
     outer.rotation.x = -Math.PI / 2;
     scene.add(outer);
     const court = new THREE.Mesh(
       new THREE.PlaneGeometry(d.W, d.L),
-      new THREE.MeshStandardMaterial({ color: '#3b82c4', roughness: 0.85 })
+      new THREE.MeshStandardMaterial({ map: hardcourt.map, bumpMap: hardcourt.bumpMap, bumpScale: 0.5, roughness: 0.85 })
     );
     court.rotation.x = -Math.PI / 2;
     court.position.y = 0.01;
@@ -67,13 +96,23 @@ export default function TennisPage() {
     mkLine(0.1, d.L, -d.W / 2, 0);
     mkLine(0.1, d.L, d.W / 2, 0); // fixed 2026-11-02: was (0.1, d.W/2, d.W/2) — a 5.5m white slab instead of a full-length sideline
     mkLine(d.W, 0.1, 0, 0); // service line (simplified)
-    // Net
+    // Net — woven mesh (see-through) + white tape; ripples in the frame loop.
+    const netTex = netTexture();
+    netTex.repeat.set(10, 1);
+    const netGeo = new THREE.PlaneGeometry(d.W, d.NET_H, 24, 4);
     const net = new THREE.Mesh(
-      new THREE.PlaneGeometry(d.W, d.NET_H),
-      new THREE.MeshStandardMaterial({ color: '#111111', transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+      netGeo,
+      new THREE.MeshStandardMaterial({ color: '#111111', map: netTex, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
     );
     net.position.set(0, d.NET_H / 2, 0);
+    net.userData.base = Float32Array.from(netGeo.attributes.position.array);
     scene.add(net);
+    const tape = new THREE.Mesh(
+      new THREE.BoxGeometry(d.W, 0.06, 0.04),
+      new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.6 })
+    );
+    tape.position.set(0, d.NET_H + 0.01, 0);
+    scene.add(tape);
     for (const sx of [-1, 1]) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, d.NET_H + 0.2, 8), new THREE.MeshStandardMaterial({ color: '#888' }));
       post.position.set(sx * d.W / 2, (d.NET_H + 0.2) / 2, 0);
@@ -83,10 +122,20 @@ export default function TennisPage() {
     // Players (TRIPO RIGGED, Merlin 2026-11-03 — racket stays procedural)
     const mkPlayer = (color) => {
       const g = new THREE.Group();
-      // Racket (procedural prop, kept)
+      // Racket (procedural prop, kept): strung face + handle.
       const racket = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.05, 6, 12), new THREE.MeshStandardMaterial({ color: '#8b4513' }));
       racket.position.set(0.5, 1.1, 0.2);
-      g.add(racket);
+      const strings = new THREE.Mesh(
+        new THREE.CircleGeometry(0.26, 16),
+        new THREE.MeshBasicMaterial({ map: netTexture(), transparent: true, opacity: 0.85, side: THREE.DoubleSide, color: '#f8fafc' })
+      );
+      strings.position.set(0.5, 1.1, 0.2);
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.35, 0.05), new THREE.MeshStandardMaterial({ color: '#3f2d20', roughness: 0.7 }));
+      handle.position.set(0.5, 0.62, 0.2);
+      g.add(racket, strings, handle);
+      const shadow = makeContactShadow(0.7);
+      g.add(shadow);
+      shadow.position.y = 0.015;
       scene.add(g);
       loadSportPlayer('tennis').then((model) => {
         model.userData.setTeamColor(color);
@@ -107,11 +156,17 @@ export default function TennisPage() {
     youRing.position.y = 0.02;
     scene.add(youRing);
 
+    // Ball — seeded felt with white seam; spins and squashes in the loop.
+    const tennisBall = cachedMaps('tennisBall', 20261114, tennisBallMaps);
     const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 12, 10),
-      new THREE.MeshStandardMaterial({ color: '#ccff00', roughness: 0.5 })
+      new THREE.SphereGeometry(0.18, 16, 12),
+      new THREE.MeshStandardMaterial({ map: tennisBall.map, bumpMap: tennisBall.bumpMap, bumpScale: 0.4, roughness: 0.9 })
     );
     scene.add(ball);
+    const ballShadow = makeContactShadow(0.3, 0.3);
+    scene.add(ballShadow);
+    const youPhase = phaseFor('you');
+    const aiPhase = phaseFor('ai');
 
     const onResize = () => {
       renderer.setSize(container.clientWidth, container.clientHeight);
@@ -156,6 +211,29 @@ export default function TennisPage() {
       youRing.position.x = state.you.x;
       youRing.position.z = state.you.z;
       ball.position.set(state.ball.x, state.ball.y, state.ball.z);
+
+      // ---- CGI life: breathing + lean, net ripple, ball spin/squash/shadow
+      const t = now / 1000;
+      clouds.update(t, dt);
+      crowd.update(t);
+      youMesh.scale.y = breathScale(t, youPhase);
+      aiMesh.scale.y = breathScale(t, aiPhase);
+      youMesh.rotation.z = breathTilt(t, youPhase) + Math.max(-0.12, Math.min(0.12, (state.ball.x - state.you.x) * 0.02));
+      aiMesh.rotation.z = breathTilt(t, aiPhase) + Math.max(-0.12, Math.min(0.12, (state.ball.x - state.ai.x) * 0.02));
+      const netPos = netGeo.attributes.position;
+      const netBase = net.userData.base;
+      for (let i = 0; i < netPos.count; i++) {
+        const bx = netBase[i * 3];
+        netPos.array[i * 3 + 2] = Math.sin(bx * 1.5 + t * 3) * 0.02 * (1 - Math.abs(bx) / (d.W / 2));
+      }
+      netPos.needsUpdate = true;
+      rollBall(ball, state.ball.vx, state.ball.vz, dt);
+      const sq = squashY(state.ball.y);
+      ball.scale.set(1 + (1 - sq) * 0.6, sq, 1 + (1 - sq) * 0.6);
+      ballShadow.position.set(state.ball.x, 0.015, state.ball.z);
+      const shScale = Math.max(0.4, 1 - state.ball.y * 0.12);
+      ballShadow.scale.setScalar(shScale);
+      ballShadow.material.opacity = 0.3 * shScale;
 
       camera.position.set(state.you.x * 0.5, 12, state.you.z + 12);
       camera.lookAt(0, 0.5, -2);

@@ -15,9 +15,32 @@ import {
   zoneAt,
   steerAngle,
   zoneSpeedDelta,
+  seededRandom,
   TUBE_RADIUS,
   RIDE_RADIUS,
 } from '@/lib/luge/track';
+import {
+  generateObstacles,
+  obstaclesHitBetween,
+  createHitTracker,
+  registerObstacleHit,
+  isSlowed,
+  hitPenaltyMs,
+  HIT_SLOW_FACTOR,
+} from '@/lib/luge/obstacles';
+import {
+  makeIceTrackTexture,
+  makeObstacleTexture,
+  makeSnowSpriteTexture,
+  makeCarbonTexture,
+  riderBreath,
+  sledVibration,
+  shardSway,
+} from '@/lib/luge/cgi';
+import {
+  makeSledLiveryTexture,
+  makeSledHullGeometry,
+} from '@/lib/luge/sled-cgi';
 import { createFinishGuard } from '@/lib/luge/finish-guard';
 import GoldCheckoutOption from '@/components/economy/GoldCheckoutOption';
 import { fx, unlockFx } from '@/lib/fx';
@@ -167,6 +190,190 @@ function ZoneBand({ curve, zone, kind }) {
   );
 }
 
+// --- CGI helpers: a point on the tube interior -------------------------
+// The tube's banked frame at a progress fraction + a tube angle (0 =
+// floor, PI/2 = right wall, PI = ceiling), at a given radius from the
+// tube axis. The sled, the obstacles and the trackside shards all share
+// this one frame, so everything agrees on where "on the track" is.
+function tubePoint(curve, progress, angle, radius) {
+  const p = THREE.MathUtils.clamp(progress, 0.001, 0.999);
+  const pos = curve.getPointAt(p);
+  const tangent = curve.getTangentAt(p);
+  const roll = tangent.x * Math.PI * 1.2;
+  const up = new THREE.Vector3(0, 1, 0).applyAxisAngle(Z_AXIS, roll);
+  const right = new THREE.Vector3().crossVectors(tangent, up).normalize();
+  const radial = right.clone().multiplyScalar(Math.sin(angle)).addScaledVector(up, -Math.cos(angle));
+  return { position: pos.clone().addScaledVector(radial, radius), radial, tangent };
+}
+
+function obstacleFrame(curve, progress, angle) {
+  const frame = tubePoint(curve, progress, angle, RIDE_RADIUS);
+  const quaternion = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    frame.radial.clone().normalize()
+  );
+  return { ...frame, quaternion };
+}
+
+// One graphic-wrapped obstacle: the procedural wrap texture from
+// lib/luge/cgi.js on real geometry (barrel / rune boulder / pine
+// branches), with an amber warning ring on the tube wall behind it so
+// the rider sees it coming. Boulders turn slowly (the rune face
+// catches the light); barrels wobble. Visual only — the hit test is
+// the pure function in lib/luge/obstacles.js.
+function ObstacleMesh({ curve, obstacle, textures }) {
+  const frame = useMemo(
+    () => obstacleFrame(curve, obstacle.progress, obstacle.angle),
+    [curve, obstacle]
+  );
+  const spinRef = useRef(null);
+  useFrame((state) => {
+    if (!spinRef.current) return;
+    if (obstacle.type === 'boulder') {
+      spinRef.current.rotation.y = state.clock.elapsedTime * 0.25 + obstacle.progress * 10;
+    } else if (obstacle.type === 'barrel') {
+      spinRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.8 + obstacle.progress * 20) * 0.08;
+    }
+  });
+  const tex = textures[obstacle.type];
+  return (
+    <group position={frame.position.toArray()} quaternion={frame.quaternion}>
+      <mesh position={[0, obstacle.radius + 0.5, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[obstacle.radius + 0.9, 0.09, 8, 32]} />
+        <meshBasicMaterial color="#ffb300" transparent opacity={0.55} toneMapped={false} />
+      </mesh>
+      <group ref={spinRef}>
+        {obstacle.type === 'barrel' && (
+          <mesh>
+            <cylinderGeometry args={[obstacle.radius * 0.85, obstacle.radius * 0.85, 2.6, 20]} />
+            {tex ? (
+              <meshStandardMaterial map={tex} roughness={0.5} metalness={0.3} />
+            ) : (
+              <meshStandardMaterial color="#ffb300" roughness={0.5} metalness={0.3} />
+            )}
+          </mesh>
+        )}
+        {obstacle.type === 'boulder' && (
+          <mesh>
+            <dodecahedronGeometry args={[obstacle.radius, 0]} />
+            {tex ? (
+              <meshStandardMaterial map={tex} roughness={0.35} metalness={0.05} emissive="#00f2ff" emissiveMap={tex} emissiveIntensity={0.35} />
+            ) : (
+              <meshStandardMaterial color="#7fa8c9" roughness={0.4} />
+            )}
+          </mesh>
+        )}
+        {obstacle.type === 'branches' && (
+          <group>
+            {[0, 1, 2].map((i) => (
+              <mesh key={i} position={[(i - 1) * 1.1, 0.3, 0]} rotation={[0, 0, (i - 1) * 0.5]}>
+                <coneGeometry args={[1.0, 3.4, 8]} />
+                {tex ? (
+                  <meshStandardMaterial map={tex} roughness={0.9} metalness={0} />
+                ) : (
+                  <meshStandardMaterial color="#1d4d24" roughness={0.9} />
+                )}
+              </mesh>
+            ))}
+            <mesh position={[0, 1.9, 0]}>
+              <coneGeometry args={[0.5, 0.9, 8]} />
+              <meshStandardMaterial color="#ffffff" roughness={0.6} />
+            </mesh>
+          </group>
+        )}
+      </group>
+    </group>
+  );
+}
+
+// Trackside dressing: seeded glowing holo shards stuck to the tube wall
+// just inside it, swaying gently — the tube reads alive instead of
+// empty between zones. Pure decoration; nothing here collides.
+function TracksideDressing({ curve, course }) {
+  const groupRef = useRef(null);
+  const shards = useMemo(() => {
+    const rand = seededRandom(course.id * 331 + 7);
+    return Array.from({ length: 26 }, (_, i) => {
+      const progress = 0.03 + ((i + rand() * 0.8) / 26) * 0.94;
+      const angle = rand() * Math.PI * 2;
+      const frame = tubePoint(curve, progress, angle, TUBE_RADIUS - 0.6);
+      return {
+        base: frame.position,
+        radial: frame.radial,
+        size: 0.5 + rand() * 0.9,
+        color: rand() > 0.5 ? '#00f2ff' : '#ff00ff',
+        phase: rand() * 10,
+      };
+    });
+  }, [curve, course]);
+  useFrame((state) => {
+    const g = groupRef.current;
+    if (!g) return;
+    const t = state.clock.elapsedTime;
+    g.children.forEach((child, i) => {
+      const s = shards[i];
+      if (!s) return;
+      child.position.copy(s.base).addScaledVector(s.radial, shardSway(t, s.phase));
+      child.rotation.set(t * 0.3 + s.phase, t * 0.2, 0);
+    });
+  });
+  return (
+    <group ref={groupRef}>
+      {shards.map((s, i) => (
+        <mesh key={i} position={s.base.toArray()}>
+          <octahedronGeometry args={[s.size, 0]} />
+          <meshBasicMaterial color={s.color} transparent opacity={0.7} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// Snow spray kicked up behind the sled: points that stream backwards
+// (+Z local, behind the travel direction) and recycle. Lives inside
+// the sled group, so it follows the sled around the tube.
+function SnowSpray({ count = 70 }) {
+  const pointsRef = useRef(null);
+  const sprite = useMemo(() => makeSnowSpriteTexture(), []);
+  const { positions, speeds } = useMemo(() => {
+    const positions = new Float32Array(count * 3);
+    const speeds = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = (Math.random() - 0.5) * 3;
+      positions[i * 3 + 1] = Math.random() * 1.5;
+      positions[i * 3 + 2] = 0.5 + Math.random() * 8;
+      speeds[i] = 4 + Math.random() * 8;
+    }
+    return { positions, speeds };
+  }, [count]);
+  useFrame((state, delta) => {
+    const pts = pointsRef.current;
+    if (!pts) return;
+    const attr = pts.geometry.attributes.position;
+    for (let i = 0; i < count; i++) {
+      let z = attr.getZ(i) + speeds[i] * delta;
+      let y = attr.getY(i) - delta * 1.2;
+      if (z > 9) {
+        z = 0.5 + Math.random();
+        y = 0.2 + Math.random() * 1.2;
+        attr.setX(i, (Math.random() - 0.5) * 3);
+      }
+      if (y < -0.5) y = 1.2;
+      attr.setZ(i, z);
+      attr.setY(i, y);
+    }
+    attr.needsUpdate = true;
+  });
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial size={0.55} map={sprite} transparent opacity={0.8} depthWrite={false} color="#dff4ff" sizeAttenuation />
+    </points>
+  );
+}
+
 // ==========================================
 // 3D TRACK & PHYSICS ENGINE
 // ==========================================
@@ -206,10 +413,12 @@ function RivalGhosts({ curve, rivals }) {
 // renders exactly as it always has. The mount stays invisible
 // until the model is truly on stage (fallback law: no pop-in, no
 // hole — the empty sled is this surface's native state).
-function RiderFigure() {
+function RiderFigure({ tiltData }) {
   const pick = useMemo(() => resolveSurfaceCharacter('luge'), []);
   const yawRef = useRef(null);
   const handleRef = useRef(null);
+  const breathRef = useRef(null);
+  const leanRef = useRef(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -239,24 +448,38 @@ function RiderFigure() {
   useFrame((state, delta) => {
     const h = handleRef.current;
     if (h) h.update(LUGE_RIDER_POSE, delta, state.clock.elapsedTime);
+    // CGI alive motion: slow breathing + lean into the steering.
+    // Visual only — the pose driver and the sled physics never see it.
+    if (breathRef.current) {
+      const b = riderBreath(state.clock.elapsedTime);
+      breathRef.current.scale.set(b, b, b);
+    }
+    if (leanRef.current && tiltData) {
+      leanRef.current.rotation.z = -tiltData.current.x * 0.15;
+    }
   });
 
   if (!pick) return null;
   return (
-    <group position={LUGE_RIDER_MOUNT.position} visible={ready}>
-      <group rotation={[LUGE_RIDER_MOUNT.recline, 0, 0]}>
-        <group rotation={[0, LUGE_RIDER_MOUNT.yaw, 0]} ref={yawRef} />
+    <group ref={breathRef}>
+      <group ref={leanRef}>
+        <group position={LUGE_RIDER_MOUNT.position} visible={ready}>
+          <group rotation={[LUGE_RIDER_MOUNT.recline, 0, 0]}>
+            <group rotation={[0, LUGE_RIDER_MOUNT.yaw, 0]} ref={yawRef} />
+          </group>
+        </group>
       </group>
     </group>
   );
 }
 
-function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
+function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx, onHit }) {
   const { camera } = useThree();
   const sledRef = useRef(null);
 
   const [trackTex, setTrackTex] = useState(null);
   const [hullTex, setHullTex] = useState(null);
+  const [iceTex, setIceTex] = useState(null);
   // Zone FX is lifted to LugeEngine (onZoneFx prop) so the HUD can read it.
   // Set only on change — never at frame rate.
   const setZoneFx = onZoneFx || (() => {});
@@ -266,11 +489,37 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
   // PI = ceiling. Steering rolls the full 360° — the whole tube is track.
   const tubeAngle = useRef(0);
   const activeZone = useRef(null);
+  // Obstacle hits: fresh per race (this component remounts on every race
+  // start). raceTime is the run clock for immunity + the speed cut.
+  const hitTrackerRef = useRef(null);
+  if (hitTrackerRef.current === null) hitTrackerRef.current = createHitTracker();
+  const raceTimeRef = useRef(0);
 
   const baseMaxSpeed = 150 + (course.turns * 8);
 
   // Deterministic per-course speed-up / sand layout (same every run).
   const zones = useMemo(() => generateZones(course), [course]);
+
+  // Deterministic per-course graphic-wrapped obstacles (same every run).
+  const obstacles = useMemo(() => generateObstacles(course), [course]);
+  const obstacleTextures = useMemo(
+    () => ({
+      barrel: makeObstacleTexture('barrel', course.id * 7 + 1),
+      boulder: makeObstacleTexture('boulder', course.id * 7 + 2),
+      branches: makeObstacleTexture('branches', course.id * 7 + 3),
+    }),
+    [course]
+  );
+
+  // CGI: procedural ice for the track surface, procedural livery + 3D
+  // hull for the sled (its OG Luge-Refuge design), carbon runner blades.
+  useEffect(() => {
+    setIceTex(makeIceTrackTexture(course.id * 31 + 7));
+    return () => { setIceTex(null); };
+  }, [course]);
+  const liveryTex = useMemo(() => makeSledLiveryTexture(sled), [sled]);
+  const hullGeo = useMemo(() => makeSledHullGeometry(), []);
+  const carbonTex = useMemo(() => makeCarbonTexture(course.id), [course]);
 
   // 1. Dynamic Texture Loader & UV Wrapper (course walls)
   useEffect(() => {
@@ -336,6 +585,7 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
 
   // 3. The 60FPS Game Loop with DeviceOrientation Physics
   useFrame((state, delta) => {
+    raceTimeRef.current += delta;
     // TILT PHYSICS: Acceleration (Beta)
     const tiltAccel = tiltData.current.y; // -1 (forward) to 1 (backward)
     if (tiltAccel < 0) {
@@ -364,9 +614,35 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
     }
     speed.current += zoneSpeedDelta(zone, sled, delta);
 
+    // OBSTACLE HITS: a hit costs time (+2 s at the finish) and cuts speed
+    // to 45% for ~1 s — never a crash, never a run end. The cut is a
+    // clamp, so the speed ceiling and the anti-cheat floor never move.
+    if (isSlowed(hitTrackerRef.current, raceTimeRef.current)) {
+      speed.current = Math.min(speed.current, baseMaxSpeed * HIT_SLOW_FACTOR);
+    }
+
     speed.current = THREE.MathUtils.clamp(speed.current, 20, baseMaxSpeed * 1.5);
 
+    const progressBefore = progress.current;
     progress.current += (speed.current * delta) / course.length;
+
+    // Segment test (prev -> now) so a fast frame can never tunnel through
+    // an obstacle. Per-obstacle immunity + the per-run cap live in the
+    // tracker; a hit here only ever counts once per obstacle per pass.
+    const newlyHit = obstaclesHitBetween(
+      obstacles,
+      progressBefore,
+      progress.current,
+      tubeAngle.current,
+      course.length
+    );
+    for (const ob of newlyHit) {
+      const reg = registerObstacleHit(hitTrackerRef.current, ob, raceTimeRef.current);
+      if (reg) {
+        fx.sandDrag();
+        if (onHit) onHit(hitTrackerRef.current.count);
+      }
+    }
 
     // PvP progress beacon hook (solo runs pass no pvp prop — untouched).
     if (pvp && pvp.onProgress) pvp.onProgress(progress.current);
@@ -402,6 +678,11 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
       sledRef.current.position.copy(pos).addScaledVector(tangent, 15).addScaledVector(radial, RIDE_RADIUS);
       const sledMatrix = new THREE.Matrix4().lookAt(sledRef.current.position, sledRef.current.position.clone().add(tangent), sledUp);
       sledRef.current.quaternion.setFromRotationMatrix(sledMatrix);
+      // CGI alive motion: speed-grown vibration + lean into the steering.
+      // The quaternion is rebuilt from scratch every frame above, so
+      // neither accumulates — the physics frame never moves.
+      sledRef.current.position.addScaledVector(sledUp, sledVibration(state.clock.elapsedTime, speed.current));
+      sledRef.current.rotateZ(-tiltData.current.x * 0.08);
     }
 
     // Chase camera on a gimbal: it follows the sled around the tube but its
@@ -419,6 +700,9 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
     if (trackTex && trackTex.isTexture) {
       trackTex.offset.y -= delta * speed.current * 0.02;
     }
+    if (iceTex && iceTex.isTexture) {
+      iceTex.offset.y -= delta * speed.current * 0.02;
+    }
   });
 
   return (
@@ -433,6 +717,14 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
         />
       </mesh>
 
+      {/* CGI: procedural ice overlay — grain + cyan veins over the course art */}
+      {iceTex && (
+        <mesh>
+          <tubeGeometry args={[curve, Math.floor(course.length / 20), TUBE_RADIUS - 0.15, 16, false]} />
+          <meshStandardMaterial map={iceTex} transparent opacity={0.35} side={THREE.BackSide} roughness={0.25} metalness={0.1} />
+        </mesh>
+      )}
+
       {/* Speed-up zones (cyan) and sand patches (amber) painted on the walls */}
       {zones.boosts.map((z, i) => (
         <ZoneBand key={`boost-${i}`} curve={curve} zone={z} kind="boost" />
@@ -441,25 +733,60 @@ function LugeTrack({ course, sled, tiltData, onFinish, pvp, onZoneFx }) {
         <ZoneBand key={`sand-${i}`} curve={curve} zone={z} kind="sand" />
       ))}
 
+      {/* Graphic-wrapped obstacles — seeded per course, always a clean line */}
+      {obstacles.map((ob) => (
+        <ObstacleMesh key={ob.id} curve={curve} obstacle={ob} textures={obstacleTextures} />
+      ))}
+
+      {/* Trackside holo shards, swaying on the tube wall */}
+      <TracksideDressing curve={curve} course={course} />
+
       {/* PvP rival ghosts (absent in solo runs) */}
       {pvp && pvp.rivals && <RivalGhosts curve={curve} rivals={pvp.rivals} />}
 
       <group ref={sledRef}>
-        <mesh castShadow>
-          <boxGeometry args={[3, 1, 6]} />
-          {hullTex ? (
-            <meshStandardMaterial map={hullTex} roughness={0.35} metalness={0.75} />
+        {/* CGI bobsled: procedural 3D hull wearing its OG Luge-Refuge
+            livery (seeded texture), not the old flat box. Same footprint,
+            same physics — the hull is visual only. */}
+        <mesh geometry={hullGeo} castShadow>
+          {liveryTex ? (
+            <meshStandardMaterial map={liveryTex} roughness={0.35} metalness={0.6} />
           ) : (
             <meshStandardMaterial color={sled.color} roughness={0.3} metalness={0.9} />
           )}
         </mesh>
-        <mesh position={[0, 0.5, 0]}>
-          <boxGeometry args={[3.2, 0.2, 6.2]} />
-          <meshBasicMaterial color={sled.accent} toneMapped={false} />
+        {/* Cockpit deck inlay: the OG hull wrap, where it fits. */}
+        <mesh position={[0, 0.48, 0.4]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[2.2, 3.4]} />
+          {hullTex ? (
+            <meshStandardMaterial map={hullTex} roughness={0.35} metalness={0.6} />
+          ) : (
+            <meshBasicMaterial color={sled.accent} toneMapped={false} />
+          )}
         </mesh>
+        {/* Carbon runner blades */}
+        {[-1.05, 1.05].map((x) => (
+          <mesh key={`blade-${x}`} position={[x, -0.62, 0]}>
+            <boxGeometry args={[0.18, 0.22, 5.6]} />
+            {carbonTex ? (
+              <meshStandardMaterial map={carbonTex} roughness={0.25} metalness={0.85} />
+            ) : (
+              <meshStandardMaterial color="#222222" roughness={0.25} metalness={0.85} />
+            )}
+          </mesh>
+        ))}
+        {/* Rear fins in the sled accent */}
+        {[-1.2, 1.2].map((x) => (
+          <mesh key={`fin-${x}`} position={[x, 0.35, 2.6]} rotation={[0, 0, x > 0 ? -0.35 : 0.35]}>
+            <boxGeometry args={[0.12, 1.1, 1.2]} />
+            <meshStandardMaterial color={sled.accent} roughness={0.3} metalness={0.7} emissive={sled.accent} emissiveIntensity={0.25} />
+          </mesh>
+        ))}
+        {/* Snow spray streaming behind the sled */}
+        <SnowSpray />
         {/* WAVE 6: the rider — your character, seated on the sled.
             Purely visual; nothing here touches the sled's physics. */}
-        <RiderFigure />
+        <RiderFigure tiltData={tiltData} />
         {/* Kept small and local: light must never drown out the hull textures. */}
         <pointLight color={sled.accent} intensity={2.0} distance={60} position={[0, 2, -5]} />
       </group>
@@ -486,6 +813,11 @@ export default function LugeEngine() {
   // HUD label for the zone the sled is currently in ('boost' | 'sand' | null).
   // Lifted from LugeTrack so the HUD overlay in this component can read it.
   const [zoneFx, setZoneFx] = useState(null);
+
+  // Obstacle hits this run (live HUD count) + the last finished run's
+  // penalised time, shown on the podium and the menu board.
+  const [hitFx, setHitFx] = useState({ count: 0 });
+  const [lastRun, setLastRun] = useState(null);
 
   // Ambient menu backdrop: Video → Still → Off (persisted). Reduced-motion users get Still.
   const [ambience, setAmbience] = useState('video');
@@ -580,6 +912,13 @@ export default function LugeEngine() {
   // recording once per run and ignores the rest. Re-armed on race start.
   const finishGuardRef = useRef(null);
   if (finishGuardRef.current === null) finishGuardRef.current = createFinishGuard();
+  // Obstacle hits this run (mirrors the track's per-race tracker; the
+  // finish adds +2 s per hit to the recorded time).
+  const hitCountRef = useRef(0);
+  const handleObstacleHit = useCallback((count) => {
+    hitCountRef.current = count;
+    setHitFx({ count });
+  }, []);
 
   const ownsArsenal = LUGE_PREMIUM_IDS.every((id) => ownedIds.has(id));
 
@@ -1053,6 +1392,9 @@ export default function LugeEngine() {
           attachRaceControls();
           raceStartRef.current = pvpStartsAtRef.current;
           finishGuardRef.current.reset();
+          hitCountRef.current = 0;
+          setHitFx({ count: 0 });
+          setLastRun(null);
           setRecordError('');
           pvpProgressRef.current = 0;
           pvpFinishedRef.current = false;
@@ -1087,6 +1429,9 @@ export default function LugeEngine() {
       attachRaceControls();
       raceStartRef.current = Date.now();
       finishGuardRef.current.reset();
+      hitCountRef.current = 0;
+      setHitFx({ count: 0 });
+      setLastRun(null);
       setRecordError('');
       setGameState('racing');
     };
@@ -1163,9 +1508,24 @@ export default function LugeEngine() {
     const isPvp = !!pvpCodeRef.current && pvpModeRef.current === 'race' && gameStateRef.current === 'racing';
     // PvP finish times use the synced race clock (startsAt from the room),
     // so every racer's time is comparable. Solo runs use the local clock.
-    const runMs = isPvp
+    // Obstacle hits cost +2 s each: the penalty is added to the recorded
+    // time BEFORE anything posts, so the leaderboard time and the
+    // course-completion time both carry it. It only ever slows a run
+    // down, so the server anti-cheat floor still holds.
+    const hits = hitCountRef.current;
+    const penaltyMs = hitPenaltyMs(hits);
+    const rawMs = isPvp
       ? Math.max(1, Date.now() - pvpStartsAtRef.current)
       : Math.max(1, Date.now() - (raceStartRef.current || Date.now()));
+    const runMs = rawMs + penaltyMs;
+    setLastRun({
+      runMs,
+      rawMs,
+      hits,
+      penaltyMs,
+      courseId: selectedCourse.id,
+      courseName: selectedCourse.name,
+    });
     const finishSledId = isPvp ? pvpSledIdRef.current : selectedSled.id;
 
     if (isPvp) {
@@ -1201,6 +1561,7 @@ export default function LugeEngine() {
             runMs,
             sledId: finishSledId,
             player: pvpCallsignRef.current || 'Rider',
+            hits,
           }),
         });
       } catch { /* best-effort */ }
@@ -1218,6 +1579,7 @@ export default function LugeEngine() {
           courseId: selectedCourse.id,
           runMs,
           sledId: finishSledId,
+          hits,
         }),
       });
       let completeData = null;
@@ -1418,6 +1780,12 @@ export default function LugeEngine() {
             )}
             {recordError && (
               <p className="mb-2 text-[10px] text-amber-300">{recordError}</p>
+            )}
+            {lastRun && (
+              <p className="mb-2 text-[10px] text-zinc-400">
+                Last run — {lastRun.courseName}: <span className="font-mono text-cyan-300">{formatRaceTime(lastRun.runMs)}</span>
+                {lastRun.hits > 0 ? ` · ${lastRun.hits} obstacle hit${lastRun.hits === 1 ? '' : 's'} (+${lastRun.penaltyMs / 1000}s)` : ' · clean run, no hits'}
+              </p>
             )}
             {pvpBoard.length === 0 && !pvpBoardNotice && (
               <p className="text-[10px] text-zinc-600">No times yet on this course — be the first.</p>
@@ -1764,6 +2132,8 @@ export default function LugeEngine() {
             <p className="text-xs text-zinc-500 mb-6">
               No gyroscope? Tap the left or right half of the screen to roll.
               On desktop, use the arrow keys.
+              <br />
+              <span className="text-amber-400 font-bold">Dodge the wrapped obstacles</span> — barrels, rune boulders, pine barriers. Each hit costs +2s and cuts your speed for a second. A clean line always exists.
             </p>
             <button
               onClick={requestTiltAccessAndStart}
@@ -1794,6 +2164,7 @@ export default function LugeEngine() {
               tiltData={tiltData}
               onFinish={handleFinish}
               onZoneFx={setZoneFx}
+              onHit={handleObstacleHit}
               pvp={
                 gameState === 'racing' && pvpCodeInput && pvpMode === 'race'
                   ? { onProgress: handlePvpProgress, rivals: pvpRivals }
@@ -1846,6 +2217,12 @@ export default function LugeEngine() {
             </div>
           )}
 
+          {hitFx.count > 0 && (
+            <div className="absolute top-16 right-5 z-10 pointer-events-none px-4 py-2 rounded border border-red-400 bg-red-500/20 backdrop-blur animate-pulse">
+              <span className="text-red-300 text-sm font-black tracking-widest uppercase">⚠ {hitFx.count} hit{hitFx.count === 1 ? '' : 's'} · +{hitFx.count * 2}s</span>
+            </div>
+          )}
+
           <div className="absolute bottom-10 w-full text-center text-zinc-500 text-[10px] tracking-[0.3em] pointer-events-none z-10">
             TILT TO ROLL AROUND THE TUBE — OR TAP LEFT / RIGHT SIDE OF THE SCREEN.
           </div>
@@ -1868,6 +2245,14 @@ export default function LugeEngine() {
           </p>
           {recordError && (
             <p className="mb-8 text-xs text-amber-300">{recordError}</p>
+          )}
+          {lastRun && (
+            <p className="mb-8 text-xs text-zinc-300">
+              {lastRun.courseName} — <span className="font-mono text-cyan-300">{formatRaceTime(lastRun.runMs)}</span>
+              {lastRun.hits > 0
+                ? ` · ${lastRun.hits} obstacle hit${lastRun.hits === 1 ? '' : 's'} (+${lastRun.penaltyMs / 1000}s penalty, raw ${formatRaceTime(lastRun.rawMs)})`
+                : ' · clean run, no hits'}
+            </p>
           )}
 
           <div className="w-full max-w-2xl p-8 border rounded border-amber-500/50 bg-black/60 shadow-[0_0_50px_rgba(255,215,0,0.1)]">

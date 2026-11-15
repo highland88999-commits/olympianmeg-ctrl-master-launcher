@@ -1,5 +1,5 @@
 // app/api/luge/complete/route.js
-// POST /api/luge/complete { courseId, runMs, sledId }
+// POST /api/luge/complete { courseId, runMs, sledId, hits? }
 //   -> { ok, courseId, completed, total }
 //
 // Records a course completion server-side. Anti-cheat: the run is validated
@@ -8,8 +8,14 @@
 // alone never records a completion. Replays are harmless (first completion
 // stands). Only runs from deployment forward are recorded — nothing is
 // ever backfilled.
+//
+// hits (optional): the run's obstacle-hit count, clamped 0..10 server-side.
+// It rides along on the same single upserted row — never a second row —
+// and only ever makes the recorded run slower, so it cannot help a cheat.
+// The `hits` column lands with the staged SQL (supabase/luge.sql); until
+// it exists the upsert retries without it, so recording never breaks.
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server.js';
-import { validateRun, courseCompletionStatus } from '@/lib/luge/logic.js';
+import { validateRun, courseCompletionStatus, sanitizeHitCount } from '@/lib/luge/logic.js';
 import { apiGuard } from '@/lib/api-guard';
 
 function tableMissing(err) {
@@ -32,6 +38,7 @@ export const POST = apiGuard(async function POST(req) {
   const courseId = Number(body?.courseId);
   const runMs = Number(body?.runMs);
   const sledId = typeof body?.sledId === 'string' ? body.sledId : '';
+  const hits = sanitizeHitCount(body?.hits);
 
   let supabase;
   try {
@@ -57,16 +64,23 @@ export const POST = apiGuard(async function POST(req) {
   });
   if (!check.ok) return jsonError(check.error, check.status);
 
-  const { error: insertError } = await supabase
+  // One upsert, one row: the hit count rides along on the same row.
+  // If the staged `hits` column has not landed yet, retry without it —
+  // recording the run matters more than the hit count.
+  const upsertRow = (withHits) => ({
+    user_id: user.id,
+    course_id: check.course.id,
+    run_seconds: runMs / 1000,
+    ...(withHits ? { hits } : {}),
+  });
+  let { error: insertError } = await supabase
     .from('luge_course_completions')
-    .upsert(
-      {
-        user_id: user.id,
-        course_id: check.course.id,
-        run_seconds: runMs / 1000,
-      },
-      { onConflict: 'user_id,course_id', ignoreDuplicates: true }
-    );
+    .upsert(upsertRow(true), { onConflict: 'user_id,course_id', ignoreDuplicates: true });
+  if (insertError && /hits/i.test(insertError.message || '')) {
+    ({ error: insertError } = await supabase
+      .from('luge_course_completions')
+      .upsert(upsertRow(false), { onConflict: 'user_id,course_id', ignoreDuplicates: true }));
+  }
   if (insertError) {
     if (tableMissing(insertError)) {
       return jsonError('Progress tracking is not connected yet. Your run still happened — try again later.', 503);

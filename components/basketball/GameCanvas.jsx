@@ -7,33 +7,16 @@ import * as THREE from 'three';
 import { CourtScene } from './Court';
 import { BALL_R } from '@/lib/basketball/constants';
 import { simulateArc } from '@/lib/basketball/physics';
-
-function makeBallTexture() {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 128;
-  const g = c.getContext('2d');
-  g.fillStyle = '#e2691e';
-  g.fillRect(0, 0, 128, 128);
-  g.strokeStyle = '#1a0d05';
-  g.lineWidth = 4;
-  // vertical + horizontal seams
-  g.beginPath(); g.moveTo(64, 0); g.lineTo(64, 128); g.stroke();
-  g.beginPath(); g.moveTo(0, 64); g.lineTo(128, 64); g.stroke();
-  // curved side seams
-  g.beginPath(); g.arc(0, 64, 52, -Math.PI / 2.6, Math.PI / 2.6); g.stroke();
-  g.beginPath(); g.arc(128, 64, 52, Math.PI - Math.PI / 2.6, Math.PI + Math.PI / 2.6); g.stroke();
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
+import { cachedMaps, basketballMaps } from '@/lib/sports/cgi.js';
 
 function BallView({ game }) {
   const mesh = useRef();
   const shadow = useRef();
   const trailRef = useRef();
   const trailPts = useRef([]);
-  const tex = useMemo(() => (typeof document !== 'undefined' ? makeBallTexture() : null), []);
+  // Ball leather — CGI pebbled grain + channel seams from the shared
+  // seeded maps (lib/sports/cgi.js); the flat canvas texture is gone.
+  const ballMaps = useMemo(() => cachedMaps('basketball', 0xba5e, basketballMaps), []);
   const trailGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
@@ -82,11 +65,7 @@ function BallView({ game }) {
     <group>
       <mesh ref={mesh}>
         <sphereGeometry args={[BALL_R, 24, 18]} />
-        {tex ? (
-          <meshStandardMaterial map={tex} roughness={0.65} />
-        ) : (
-          <meshStandardMaterial color="#e2691e" roughness={0.65} />
-        )}
+        <meshStandardMaterial map={ballMaps.map} bumpMap={ballMaps.bumpMap} bumpScale={0.3} roughness={0.65} />
       </mesh>
       <mesh ref={shadow} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[BALL_R * 1.15, 20]} />

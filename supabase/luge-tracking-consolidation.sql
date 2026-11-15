@@ -63,6 +63,12 @@ create table if not exists public.luge_course_completions (
 create index if not exists luge_course_completions_user_idx
   on public.luge_course_completions (user_id);
 
+-- Obstacle hits for the recorded run (Nov 14, 2026): the hit count rides
+-- along on the same single row — never a second row. The API routes retry
+-- without the column until it lands, so recording never breaks either way.
+alter table public.luge_course_completions
+  add column if not exists hits integer not null default 0 check (hits >= 0);
+
 -- Live race beacons: one row per rider per room (PvP ghost markers +
 -- live standings). Clients upsert their own row ~1/sec.
 create table if not exists public.luge_race_beacons (
@@ -92,6 +98,11 @@ create table if not exists public.luge_leaderboard (
 );
 create index if not exists luge_leaderboard_course_time_idx
   on public.luge_leaderboard (course, time_ms asc);
+
+-- Obstacle hits for the recorded finish (Nov 14, 2026): rides along on
+-- the same single row, never a second row.
+alter table public.luge_leaderboard
+  add column if not exists hits integer not null default 0 check (hits >= 0);
 
 -- ============================================================================
 -- 2. The completions primary key — the link POST /api/luge/complete depends on

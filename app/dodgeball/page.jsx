@@ -15,6 +15,10 @@ import WalkJoystick from '@/components/world/WalkJoystick';
 import { fx, unlockFx } from '@/lib/fx';
 import { loadSportPlayer } from '@/lib/sports/player-models.js';
 import {
+  cachedMaps, woodMaps, panelMaps, dodgeballMaps, jerseyMaps,
+  makeCrowd, mulberry32, breathScale, phaseFor, rollBall,
+} from '@/lib/sports/cgi.js';
+import {
   createMatch, step, autoAim, incomingBallFor,
   COURT_HALF_W, COURT_HALF_D, BLOCK_DIST, ATTACK_LINE_DIST,
   FORMAT, DEFAULT_MODE, TEAM_SIZES,
@@ -62,16 +66,35 @@ function makeCourtTexture() {
     ctx.lineTo(W - 16, zToY(s * ATTACK_LINE_DIST));
     ctx.stroke();
   }
+  // CGI wear (seeded): speckle + scuff arcs from play, baked into the court.
+  const rng = mulberry32(20261116);
+  for (let i = 0; i < 900; i++) {
+    ctx.fillStyle = rng() > 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.08)';
+    ctx.beginPath();
+    ctx.arc(rng() * W, rng() * H, 1 + rng() * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 26; i++) {
+    const x = rng() * W;
+    const y = rng() * H;
+    ctx.beginPath();
+    ctx.arc(x, y, 12 + rng() * 30, rng() * Math.PI * 2, rng() * Math.PI + rng() * 2);
+    ctx.stroke();
+  }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-function makePlayerMesh(team, isHuman) {
+function makePlayerMesh(team, isHuman, id = 'player') {
   const group = new THREE.Group();
   // TRIPO RIGGED PLAYER (Merlin, 2026-11-03): Batch 9 GLB loads async;
-  // procedural capsule is the fallback AND the instant placeholder.
-  const bodyMat = new THREE.MeshStandardMaterial({ color: TEAM_COLORS[team], roughness: 0.6 });
+  // procedural fallback is fuller now — arms, legs, headband, white cloth
+  // weave tinted by the team colour (the loop still drives bodyMat.color).
+  const jersey = cachedMaps('jersey-white', 20261116, (s) => jerseyMaps(s, '#ffffff'));
+  const bodyMat = new THREE.MeshStandardMaterial({ map: jersey.map, bumpMap: jersey.bumpMap, bumpScale: 0.3, color: TEAM_COLORS[team], roughness: 0.7 });
   const headMat = new THREE.MeshStandardMaterial({ color: '#e5e7eb', roughness: 0.5 });
   const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.42, 0.75, 4, 12), bodyMat);
   body.position.y = 0.85;
@@ -82,10 +105,24 @@ function makePlayerMesh(team, isHuman) {
     new THREE.MeshStandardMaterial({ color: '#111827', roughness: 0.4 }),
   );
   visor.position.set(0, 1.68, 0.28);
+  const headband = new THREE.Mesh(new THREE.TorusGeometry(0.29, 0.045, 8, 16), bodyMat);
+  headband.position.y = 1.78;
+  headband.rotation.x = Math.PI / 2;
+  const armGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.6, 8);
+  const legMat = new THREE.MeshStandardMaterial({ color: '#1f2937', roughness: 0.8 });
+  const legGeo = new THREE.CylinderGeometry(0.1, 0.09, 0.55, 8);
   const fallback = new THREE.Group();
-  fallback.add(body, head, visor);
+  fallback.add(body, head, visor, headband);
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Mesh(armGeo, bodyMat);
+    arm.position.set(sx * 0.52, 1.05, 0);
+    arm.rotation.z = sx * -0.25;
+    const leg = new THREE.Mesh(legGeo, legMat);
+    leg.position.set(sx * 0.18, 0.28, 0);
+    fallback.add(arm, leg);
+  }
   group.add(fallback);
-  group.userData = { bodyMat, headMat, isHuman, benched: false };
+  group.userData = { bodyMat, headMat, isHuman, benched: false, phase: phaseFor(id), prevX: 0, prevZ: 0, stepPhase: 0 };
   loadSportPlayer('dodgeball').then((model) => {
     model.userData.setTeamColor(TEAM_COLORS[team]);
     group.remove(fallback);
@@ -139,6 +176,36 @@ export default function DodgeballPage() {
     const sun = new THREE.DirectionalLight(0xffffff, 0.9);
     sun.position.set(6, 14, 6);
     scene.add(sun);
+    // CGI arena (lib/sports/cgi.js): wood apron, padded walls, ceiling
+    // light strips, bleachers + seated crowd. Rules / camera untouched.
+    scene.add(new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.45));
+    const apronTex = woodMaps(20261116); // fresh texture: repeat is per-texture
+    const apron = new THREE.Mesh(
+      new THREE.PlaneGeometry(COURT_HALF_W * 2 + 14, COURT_HALF_D * 2 + 14),
+      new THREE.MeshStandardMaterial({ map: apronTex.map, bumpMap: apronTex.bumpMap, bumpScale: 0.5, roughness: 0.8 })
+    );
+    apronTex.map.repeat.set(3, 3);
+    apronTex.bumpMap.repeat.set(3, 3);
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.y = -0.01;
+    scene.add(apron);
+    const stripMat = new THREE.MeshBasicMaterial({ color: '#e2e8f0' });
+    for (const z of [-3, 0, 3]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(14, 0.08, 0.6), stripMat);
+      strip.position.set(0, 6, z);
+      scene.add(strip);
+    }
+    const bleacherMat = new THREE.MeshStandardMaterial({ color: '#475569', roughness: 0.9 });
+    const crowdSpots = [];
+    for (const sz of [-1, 1]) {
+      for (const [rowZ, rowY, rowH] of [[COURT_HALF_D + 3.2, 0.5, 0.5], [COURT_HALF_D + 4.6, 1.3, 1.3]]) {
+        const step = new THREE.Mesh(new THREE.BoxGeometry(15, rowH, 1.6), bleacherMat);
+        step.position.set(0, rowH / 2, sz * rowZ);
+        scene.add(step);
+        for (let x = -7; x <= 7; x += 1.2) crowdSpots.push([x, rowY, sz * rowZ]);
+      }
+    }
+    const crowd = makeCrowd(scene, { seed: 20261116, spots: crowdSpots });
 
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(COURT_HALF_W * 2, COURT_HALF_D * 2),
@@ -147,7 +214,8 @@ export default function DodgeballPage() {
     floor.rotation.x = -Math.PI / 2;
     scene.add(floor);
 
-    const wallMat = new THREE.MeshStandardMaterial({ color: '#334155', roughness: 0.8 });
+    const wallPanels = cachedMaps('dodgePanels', 20261116, (s) => panelMaps(s, '#334155'));
+    const wallMat = new THREE.MeshStandardMaterial({ map: wallPanels.map, bumpMap: wallPanels.bumpMap, bumpScale: 0.4, roughness: 0.8 });
     const trimMat = new THREE.MeshBasicMaterial({ color: '#f59e0b' });
     const mkWall = (w, d, x, z) => {
       const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 1.1, d), wallMat);
@@ -178,7 +246,7 @@ export default function DodgeballPage() {
 
     const playerMeshes = {};
     for (const p of gameRef.current.players) {
-      const mesh = makePlayerMesh(p.team, p.isHuman);
+      const mesh = makePlayerMesh(p.team, p.isHuman, p.id);
       scene.add(mesh);
       playerMeshes[p.id] = mesh;
     }
@@ -190,7 +258,9 @@ export default function DodgeballPage() {
     youRing.position.y = 0.02;
     scene.add(youRing);
 
-    const ballMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.4 });
+    // Balls — seeded foam panels; they spin from velocity in the loop.
+    const dodgeballTex = cachedMaps('dodgeball', 20261116, dodgeballMaps);
+    const ballMat = new THREE.MeshStandardMaterial({ map: dodgeballTex.map, bumpMap: dodgeballTex.bumpMap, bumpScale: 0.4, roughness: 0.55 });
     const ballMeshes = gameRef.current.balls.map(() => {
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.35, 20, 14), ballMat);
       scene.add(mesh);
@@ -329,7 +399,7 @@ export default function DodgeballPage() {
         let mesh = playerMeshes[p.id];
         if (!mesh) {
           // A new match (lobby roster, rematch) can bring new player ids.
-          mesh = makePlayerMesh(p.team, p.isHuman);
+          mesh = makePlayerMesh(p.team, p.isHuman, p.id);
           scene.add(mesh);
           playerMeshes[p.id] = mesh;
         }
@@ -346,14 +416,28 @@ export default function DodgeballPage() {
           mesh.userData.bodyMat.color.set('#6b7280');
           mesh.visible = true;
         }
+        // CGI life: breathing + run bob from actual movement speed.
+        const ud = mesh.userData;
+        const mdx = p.x - ud.prevX;
+        const mdz = p.z - ud.prevZ;
+        ud.prevX = p.x;
+        ud.prevZ = p.z;
+        const pSpeed = Math.hypot(mdx, mdz) / Math.max(dt, 0.001);
+        ud.stepPhase += dt * (2 + pSpeed * 1.6);
+        mesh.scale.y = breathScale(now / 1000, ud.phase);
+        mesh.position.y = p.alive ? Math.abs(Math.sin(ud.stepPhase)) * Math.min(0.09, pSpeed * 0.02) : 0;
       }
       for (const id of Object.keys(playerMeshes)) {
         if (!liveIds.has(id)) playerMeshes[id].visible = false;
       }
       for (let i = 0; i < state.balls.length; i++) {
         const b = state.balls[i];
-        if (ballMeshes[i]) ballMeshes[i].position.set(b.x, b.mode === 'carried' ? 0.9 : 0.35, b.z);
+        if (ballMeshes[i]) {
+          ballMeshes[i].position.set(b.x, b.mode === 'carried' ? 0.9 : 0.35, b.z);
+          rollBall(ballMeshes[i], b.vx, b.vz, dt);
+        }
       }
+      crowd.update(now / 1000);
       if (you) {
         youRing.position.x = you.x;
         youRing.position.z = you.z;

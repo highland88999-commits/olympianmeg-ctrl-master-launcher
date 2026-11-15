@@ -69,6 +69,14 @@ create table if not exists public.luge_course_completions (
 create index if not exists luge_course_completions_user_idx
   on public.luge_course_completions (user_id);
 
+-- Obstacle hits for the recorded run (Nov 14, 2026): the hit count rides
+-- along on the same single row — never a second row. Staged, NOT RUN
+-- (needs Merlin's green light like the rest of this file's draft half);
+-- the API routes retry without the column until it lands, so recording
+-- never breaks either way.
+alter table public.luge_course_completions
+  add column if not exists hits integer not null default 0 check (hits >= 0);
+
 alter table public.luge_course_completions enable row level security;
 
 -- Riders read their own completions. No client writes — inserts happen

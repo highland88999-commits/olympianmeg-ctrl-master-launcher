@@ -93,6 +93,11 @@ create table if not exists public.luge_leaderboard (
 create index if not exists luge_leaderboard_course_time_idx
   on public.luge_leaderboard (course, time_ms asc);
 
+-- Obstacle hits for the recorded finish (Nov 14, 2026): rides along on
+-- the same single row, never a second row. Staged, NOT RUN.
+alter table public.luge_leaderboard
+  add column if not exists hits integer not null default 0 check (hits >= 0);
+
 alter table public.luge_leaderboard enable row level security;
 
 -- Global read: every rider sees the same board.

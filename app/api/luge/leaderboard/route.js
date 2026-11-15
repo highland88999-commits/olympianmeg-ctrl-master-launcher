@@ -2,17 +2,20 @@
 // Global Luge leaderboard (Merlin 2026-09-30: leaderboards are global).
 //
 //   GET  /api/luge/leaderboard?course=<id>  -> { ok, entries: [...] } (top 50)
-//   POST /api/luge/leaderboard { courseId, runMs, sledId, player }
+//   POST /api/luge/leaderboard { courseId, runMs, sledId, player, hits? }
 //        -> { ok, entry } — every submission passes the same physics
 //           anti-cheat floor as course completions (lib/luge/logic.js).
 //           Impossible times are rejected (400/422), never stored.
+//           hits rides along on the same single row (never a second row);
+//           the `hits` column lands with the staged SQL — until it exists
+//           the insert/select retry without it, so the board never breaks.
 //
 // Table: luge_leaderboard (supabase/luge-pvp.sql — frozen draft, runs with
 // the consolidated SQL). Until it exists the route degrades honestly:
 // GET returns an empty board with a notice, POST answers 503.
 
 import { getAdminClient, getUserFromRequest, jsonError } from '../_server.js';
-import { decideLeaderboardPost } from '@/lib/luge/logic.js';
+import { decideLeaderboardPost, sanitizeHitCount } from '@/lib/luge/logic.js';
 import { apiGuard } from '@/lib/api-guard';
 
 export const dynamic = 'force-dynamic';
@@ -40,12 +43,22 @@ export const GET = apiGuard(async function GET(req) {
 
   let query = supabase
     .from('luge_leaderboard')
-    .select('player, course, sled_id, time_ms, created_at')
+    .select('player, course, sled_id, time_ms, hits, created_at')
     .order('time_ms', { ascending: true })
     .limit(50);
   if (Number.isInteger(courseId)) query = query.eq('course', String(courseId));
 
-  const { data, error } = await query;
+  let { data, error } = await query;
+  if (error && /hits/i.test(error.message || '')) {
+    // The staged `hits` column has not landed yet — read without it.
+    let retry = supabase
+      .from('luge_leaderboard')
+      .select('player, course, sled_id, time_ms, created_at')
+      .order('time_ms', { ascending: true })
+      .limit(50);
+    if (Number.isInteger(courseId)) retry = retry.eq('course', String(courseId));
+    ({ data, error } = await retry);
+  }
   if (error) {
     if (tableMissing(error)) {
       return Response.json({ ok: true, entries: [], notice: NOT_PROVISIONED });
@@ -61,6 +74,7 @@ export const GET = apiGuard(async function GET(req) {
       course: r.course,
       sledId: r.sled_id,
       timeMs: r.time_ms,
+      hits: typeof r.hits === 'number' ? r.hits : undefined,
       createdAt: r.created_at,
     })),
   });
@@ -80,6 +94,7 @@ export const POST = apiGuard(async function POST(req) {
   const runMs = Number(body?.runMs);
   const sledId = typeof body?.sledId === 'string' ? body.sledId : '';
   const player = typeof body?.player === 'string' ? body.player : '';
+  const hits = sanitizeHitCount(body?.hits);
 
   let supabase;
   try {
@@ -106,16 +121,26 @@ export const POST = apiGuard(async function POST(req) {
   });
   if (!check.ok) return jsonError(check.error, check.status);
 
-  const { data, error: insertError } = await supabase
+  const insertRow = (withHits) => ({
+    player: check.player,
+    course: String(courseId),
+    sled_id: sledId,
+    time_ms: Math.round(runMs),
+    ...(withHits ? { hits } : {}),
+  });
+  let { data, error: insertError } = await supabase
     .from('luge_leaderboard')
-    .insert([{
-      player: check.player,
-      course: String(courseId),
-      sled_id: sledId,
-      time_ms: Math.round(runMs),
-    }])
-    .select('player, course, sled_id, time_ms, created_at')
+    .insert([insertRow(true)])
+    .select('player, course, sled_id, time_ms, hits, created_at')
     .single();
+  if (insertError && /hits/i.test(insertError.message || '')) {
+    // The staged `hits` column has not landed yet — record without it.
+    ({ data, error: insertError } = await supabase
+      .from('luge_leaderboard')
+      .insert([insertRow(false)])
+      .select('player, course, sled_id, time_ms, created_at')
+      .single());
+  }
   if (insertError) {
     if (tableMissing(insertError)) return jsonError(NOT_PROVISIONED, 503);
     console.error('Luge leaderboard insert error:', insertError.message);
@@ -129,6 +154,7 @@ export const POST = apiGuard(async function POST(req) {
       course: data.course,
       sledId: data.sled_id,
       timeMs: data.time_ms,
+      hits: typeof data.hits === 'number' ? data.hits : undefined,
       createdAt: data.created_at,
     },
   });

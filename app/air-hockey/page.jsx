@@ -184,7 +184,7 @@ export default function AirHockeyPage() {
         else if (ev === 'lose') { s.lose(); syncHud(); }
       }
 
-      drawScene(ctx, game, visualRef.current);
+      drawScene(ctx, game, visualRef.current, reducedMotion.current ? 0 : (now - tStart) / 1000);
 
       // Merlin's kaleidoscope: his shader, animated by wall-clock time.
       // Frozen at t=0 when reduced motion is requested.
