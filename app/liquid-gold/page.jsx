@@ -26,6 +26,7 @@ import {
   canSurge, surgeCooldownRemaining, TICK,
 } from './engine';
 import { fx } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
 import { toStoredState, toEngineState } from '@/lib/economy/refinery-shared';
 
 const UPGRADES = [
@@ -58,6 +59,23 @@ export default function LiquidGoldPage() {
 
   const bump = () => setUiTick((n) => n + 1);
 
+  // Server sync only runs signed-in: the refinery routes answer 401
+  // without a token, and a bare request logs a console error for
+  // every signed-out visitor. Guests keep the local game — the save /
+  // claim / restore calls simply never fire, and the aether balance
+  // reads '—' as it always has. Signed-in, the account token rides
+  // along: the old headerless calls could never authenticate, so
+  // restores and saves silently never landed.
+  const authHeaders = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      return token ? { Authorization: `Bearer ${token}` } : null;
+    } catch {
+      return null;
+    }
+  };
+
   // ---- Server sync -------------------------------------------------------
 
   const applyServerSummary = (data) => {
@@ -76,10 +94,12 @@ export default function LiquidGoldPage() {
 
   const saveNow = async () => {
     if (setupRequired) return;
+    const headers = await authHeaders();
+    if (!headers) return; // signed out: local play only, no request
     try {
       const res = await fetch('/api/economy/refinery/state', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({
           gameState: toStoredState(stRef.current),
           log: effectiveLog(),
@@ -99,12 +119,14 @@ export default function LiquidGoldPage() {
   // proven aether mint into the aether balance (capped per day).
   const claimConversions = async () => {
     if (setupRequired) return;
+    const headers = await authHeaders();
+    if (!headers) return; // signed out: nothing to credit, no request
     if (claimInFlightRef.current) { claimQueuedRef.current = true; return; }
     claimInFlightRef.current = true;
     try {
       const res = await fetch('/api/economy/refinery/claim', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...headers },
         body: JSON.stringify({
           log: effectiveLog(),
           tickCount: Math.round(stRef.current.now / TICK),
@@ -147,8 +169,10 @@ export default function LiquidGoldPage() {
   };
 
   const loadFromServer = async () => {
+    const headers = await authHeaders();
+    if (!headers) return false; // signed out: local play only, no request
     try {
-      const res = await fetch('/api/economy/refinery/state');
+      const res = await fetch('/api/economy/refinery/state', { headers });
       const data = await res.json().catch(() => null);
       if (!data) return false;
       if (data.setupRequired) { setSetupRequired(true); return false; }
@@ -329,11 +353,14 @@ export default function LiquidGoldPage() {
     bump();
     // Overwrite the server save so the reset sticks across devices.
     try {
-      await fetch('/api/economy/refinery/state', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gameState: toStoredState(fresh), log: [], base: null }),
-      });
+      const headers = await authHeaders();
+      if (headers) {
+        await fetch('/api/economy/refinery/state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({ gameState: toStoredState(fresh), log: [], base: null }),
+        });
+      }
     } catch { /* the next save retries */ }
   };
 

@@ -42,3 +42,17 @@ alter table public.basketball_scores
 
 create index if not exists basketball_scores_room_code_idx
   on public.basketball_scores (room_code, score desc);
+
+-- CPU rivals (2026-11-14, scout flaw 9 — STAGED, NOT RUN: needs Merlin's
+-- green light before executing). The client already inserts/reads is_npc
+-- (see lib/basketball/storage.js) but the live table lacks the column, so
+-- every leaderboard read currently 400s with "column
+-- basketball_scores.is_npc does not exist". Until this runs, the client
+-- reads BASE_COLS only and NPC scores save unbadged (the insert retries
+-- without the column). After this runs, re-add `, is_npc` to the two
+-- selects in lib/basketball/storage.js so CPU rivals badge again.
+alter table public.basketball_scores
+  add column if not exists is_npc boolean not null default false;
+
+create index if not exists basketball_scores_is_npc_idx
+  on public.basketball_scores (is_npc);

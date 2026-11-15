@@ -752,7 +752,7 @@ describe('the chamber wiring', () => {
     assert.ok(page.includes("id=\"draculas-exchange\""), "Dracula's Exchange panel is in the chamber");
     assert.ok(page.includes("DRACULA'S EXCHANGE") || page.includes('DRACULA&rsquo;S EXCHANGE'), 'the exchange names its host');
     assert.ok(page.includes('hasEarth2Access'), 'access gate intact (owner or POC guest)');
-    assert.ok(page.includes('This page could not be found.'), 'plain 404 intact');
+    assert.ok(page.includes('Sign in to enter Earth 2'), 'locked screen is the sign-in gate, not a 404 (scout flaw 1, Nov 14, 2026)');
     assert.ok(!page.includes('This bay fills when the real assets land'), 'the empty state is gone');
   });
   it('the Bay is driven by the manifest and the resolver', () => {

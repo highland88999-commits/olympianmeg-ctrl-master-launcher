@@ -35,6 +35,7 @@
 //             keeps the floating GTA-pages behaviour unchanged.
 import { useEffect, useRef, useState } from 'react';
 import CharacterToken from './CharacterToken';
+import { supabase } from '@/lib/supabase';
 import {
   getEmbodiment, listEmbodiments, readProfileCharacterId,
   readSurfaceOverride, resolveSurfaceCharacterId, writeSurfaceOverride,
@@ -74,16 +75,24 @@ export default function CharacterPicker({ surface, onPick, accent = '#ffffff', s
   // truth, exactly the write MyCharacters makes on save — and
   // re-resolves, so the label and the host scene (via onPick) see the
   // real chain. A surface override still wins: refresh() resolves the
-  // chain, it is never bypassed. Guests (401) and network failures stay
-  // silent and keep the mirror's answer. An account with NO pick never
-  // clears the mirror: a pick whose save didn't persist lives there
-  // (the /api/profiles/me contract) and stays honored.
+  // chain, it is never bypassed. Guests stay silent by never firing
+  // the request at all: with no session there is no account to sync,
+  // and a bare fetch would answer 401 and log a console error for
+  // every signed-out visitor (Mega City / Truman). Signed-in, the
+  // account token rides along — the old headerless fetch could never
+  // authenticate, so the sync silently never landed. Network failures
+  // stay silent and keep the mirror's answer. An account with NO pick
+  // never clears the mirror: a pick whose save didn't persist lives
+  // there (the /api/profiles/me contract) and stays honored.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token;
+        if (!token) return; // signed out: no account to sync, no request
         const res = await fetch('/api/profiles/me', {
-          headers: { accept: 'application/json' },
+          headers: { accept: 'application/json', Authorization: `Bearer ${token}` },
         });
         if (!res || !res.ok) return;
         const data = await res.json().catch(() => null);

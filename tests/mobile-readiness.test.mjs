@@ -22,6 +22,24 @@ test('pwa manifest: installable baseline is present and sound', () => {
   assert.ok(m.icons.some((i) => i.purpose === 'maskable'), 'maskable icon declared');
 });
 
+test('pwa manifest: /manifest.json exists for the layouts that declare it', () => {
+  // app/fortress-of-solitude/layout.tsx and app/phone-home/layout.tsx
+  // declare manifest: '/manifest.json' — without the file the browser
+  // logs a 404 on every visit (scout flaw 13, Nov 14, 2026). It mirrors
+  // the webmanifest: same name, start_url, theme, and on-disk icons.
+  assert.ok(exists('public/manifest.json'), 'manifest.json exists');
+  const m = JSON.parse(src('public/manifest.json'));
+  const w = JSON.parse(src('public/manifest.webmanifest'));
+  assert.equal(m.name, w.name, 'same name as webmanifest');
+  assert.equal(m.short_name, w.short_name, 'same short_name as webmanifest');
+  assert.equal(m.start_url, '/', 'start_url is /');
+  assert.equal(m.display, 'standalone', 'standalone display');
+  assert.equal(m.theme_color, '#050505', 'theme color');
+  for (const icon of m.icons) {
+    assert.ok(exists(`public${icon.src}`), `${icon.src} exists`);
+  }
+});
+
 test('pwa icons: required files exist on disk', () => {
   for (const f of [
     'public/icons/icon-192.png',

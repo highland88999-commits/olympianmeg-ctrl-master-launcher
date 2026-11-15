@@ -150,7 +150,12 @@ export const ACCENT = "#ff2d78";
 const rng = mulberry32(0xbeef);
 const STARS = Array.from({ length: 120 }, () => ({ x: rng() * WORLD_W, y: rng() * 480, r: 0.4 + rng() * 1.3, p: rng() * 6.28 }));
 const STACKS = [560, 640, 720, 880];
-const SMOKE = Array.from({ length: 26 }, () => ({ sx: 0, x: 0, y: 0, vy: 0, r: 0, a: 0, seed: rng() * 1000 }));
+// One smoke puff per stack x 7 — derived from STACKS so the init loop below
+// (SMOKE[si * 7 + i]) can never run past the end of the array. Was a hardcoded
+// 26 against 4 stacks x 7 = 28, so SMOKE[26] and SMOKE[27] were undefined and
+// setting .sx on them threw "Cannot set properties of undefined (setting 'sx')"
+// on every load (Mordor Smelting scout flaw, Nov 14).
+const SMOKE = Array.from({ length: STACKS.length * 7 }, () => ({ sx: 0, x: 0, y: 0, vy: 0, r: 0, a: 0, seed: rng() * 1000 }));
 const WAVES = Array.from({ length: 40 }, (_, i) => ({ x: (i / 40) * WORLD_W + rng() * 30, p: rng() * 6.28 }));
 
 export function createScene(canvas, opts) {

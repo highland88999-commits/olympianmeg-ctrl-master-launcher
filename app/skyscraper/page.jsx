@@ -46,6 +46,10 @@ export default function OmegaTower() {
     const [isMobile, setIsMobile] = useState(true);
     const [hasEntered, setHasEntered] = useState(false);
     const [showLanding, setShowLanding] = useState(true); 
+    // Landing-gate video fallback (scout flaw 5, 2026-11-14): if the intro
+    // video fails to load, the gate must still show its title + prompt on
+    // the black background instead of a dead black screen.
+    const [videoFailed, setVideoFailed] = useState(false);
     const { progress } = useProgress(); 
     
     const [forceUnlock, setForceUnlock] = useState(false);
@@ -328,9 +332,26 @@ export default function OmegaTower() {
 
             {showLanding && (
                 <div onClick={() => isLoaded && (setHasEntered(true), setTimeout(() => setShowLanding(false), 1000))} style={{ position: 'absolute', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', opacity: hasEntered ? 0 : 1, transition: 'opacity 1s ease', cursor: isLoaded ? 'pointer' : 'wait' }}>
-                    <video autoPlay loop muted playsInline style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 1 }}>
-                        <source src="/media/skyscraper/uqokyy.mp4" type="video/mp4" />
-                    </video>
+                    {!videoFailed && (
+                        <video autoPlay loop muted playsInline onError={() => setVideoFailed(true)} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 1 }}>
+                            <source src="/media/skyscraper/uqokyy.mp4" type="video/mp4" />
+                        </video>
+                    )}
+                    {/* Landing copy (scout flaw 5, 2026-11-14): the gate was a
+                        video with zero DOM text — a text probe (and any
+                        visitor whose video stalls) saw a blank black page
+                        with no title and no idea to tap. The tower now
+                        announces itself and tells the visitor what to do;
+                        the video stays as the backdrop, the words stay
+                        legible over it. */}
+                    <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '24px', pointerEvents: 'none' }}>
+                        <div style={{ fontSize: 'clamp(2rem, 10vw, 4rem)', fontWeight: 900, color: '#fff', letterSpacing: '10px', textShadow: '0 0 24px rgba(0,240,255,0.8), 2px 2px 0 #000', lineHeight: 1 }}>SKYSCRAPER</div>
+                        <div style={{ fontSize: 'clamp(0.7rem, 3vw, 0.95rem)', color: '#00f0ff', letterSpacing: '6px', marginTop: '12px', textShadow: '0 0 12px rgba(0,240,255,0.8), 1px 1px 0 #000' }}>OMEGA TOWER &middot; NEXUS VORTEX</div>
+                        <div style={{ marginTop: '32px', fontSize: 'clamp(0.85rem, 3.5vw, 1.1rem)', fontWeight: 'bold', color: isLoaded ? '#00f0ff' : '#88a0b5', letterSpacing: '4px', textShadow: '0 0 12px rgba(0,240,255,0.6), 1px 1px 0 #000', animation: isLoaded ? 'skyscraper-enter-pulse 1.6s ease-in-out infinite' : 'none' }}>
+                            {isLoaded ? 'TAP TO ENTER' : `LOADING ${Math.round(progress)}%`}
+                        </div>
+                    </div>
+                    <style>{`@keyframes skyscraper-enter-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }`}</style>
                 </div>
             )}
 

@@ -19,13 +19,18 @@ export default function SettingsPage() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const { data } = await supabase
-          .from('world_engine_settings')
-          .select('quality, audio_enabled, particle_limit, density_cap')
-          .single();
-        if (data) setSettings({ ...DEFAULTS, ...data });
-      } catch { /* first run: no row yet */ }
+      // maybeSingle — NOT single(): a user with no saved row yet (or a
+      // signed-out visitor, whose RLS read returns zero rows) must NOT
+      // produce PostgREST PGRST116 / HTTP 406. .single() coerces zero rows
+      // to "Cannot coerce the result to a single JSON object" and the
+      // browser logs the failed request as a console error even though
+      // the page correctly falls back to defaults. maybeSingle returns
+      // { data: null, error: null } for zero rows — silent, no 406.
+      const { data, error } = await supabase
+        .from('world_engine_settings')
+        .select('quality, audio_enabled, particle_limit, density_cap')
+        .maybeSingle();
+      if (!error && data) setSettings({ ...DEFAULTS, ...data });
       setLoading(false);
     })();
   }, []);

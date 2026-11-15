@@ -78,12 +78,17 @@ function makeLabelSprite(text, opts = {}) {
 export function createWorld(canvas, cb = {}) {
   const { onReady, onNavigate, onError } = cb;
   let renderer;
+  // Declared OUTSIDE the try: tick() and destroy() below both use it, and a
+  // const declared inside the try block is invisible to them — it was
+  // ReferenceError 'contextGuard is not defined' every frame and on unmount
+  // (World Nexus scout flaw, Nov 14). Same shape as app/alexandria/page.tsx.
+  let contextGuard = null;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   // Context-loss guard (fleet rollout 2026-10-15): transient losses heal
   // in place; a loss that stays gone surfaces the FEED LOST fallback,
   // and the loop below freezes while the context is lost.
-  const contextGuard = guardCanvasContext(canvas, { label: 'WORLD NEXUS' });
+  contextGuard = guardCanvasContext(canvas, { label: 'WORLD NEXUS' });
   } catch (err) {
     if (onError) onError(err);
     throw err;
@@ -477,7 +482,7 @@ export function createWorld(canvas, cb = {}) {
   let firstFrame = true;
   function tick(now) {
     raf = requestAnimationFrame(tick);
-    if (contextGuard.isLost()) return; // frozen while the context is gone
+    if (contextGuard && contextGuard.isLost()) return; // frozen while the context is gone
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = now / 1000;
@@ -538,7 +543,7 @@ export function createWorld(canvas, cb = {}) {
 
   return {
     destroy() {
-      contextGuard.dispose();
+      if (contextGuard) contextGuard.dispose();
       cancelAnimationFrame(raf);
       canvas.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointermove', onMovePtr);

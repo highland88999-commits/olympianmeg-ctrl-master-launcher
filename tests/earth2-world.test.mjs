@@ -583,10 +583,10 @@ describe('the walker — Earth laws in the step', () => {
 describe('the gate — the world lives behind the same lock as the Bay', () => {
   const page = read('app/earth-2/page.jsx');
 
-  it('the chamber still 404s accounts without Earth 2 access before anything renders', () => {
+  it('the chamber still gates accounts without Earth 2 access before anything renders', () => {
     assert.ok(page.includes('hasEarth2Access'), 'access check (owner or POC guest)');
     assert.ok(page.includes('getSession'), 'session read');
-    assert.ok(page.includes('This page could not be found.'), 'plain 404 for accounts without access');
+    assert.ok(page.includes('Sign in to enter Earth 2'), 'sign-in gate for accounts without access (scout flaw 1, Nov 14, 2026)');
   });
 
   it('the world entry is prominent in the chamber, near the top', () => {

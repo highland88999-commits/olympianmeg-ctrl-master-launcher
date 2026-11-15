@@ -185,7 +185,7 @@ describe('master-portal seating + featured placement', () => {
     assert.equal(seat.pos, 'HERMES');
     assert.equal(seat.section, 'TOOLS');
     assert.equal(SATELLITES.filter((s) => s.route === '/social-media-cheat-code').length, 1);
-    assert.equal(SATELLITES.length, 210); // Request a Billboard seat: 178→179; Collapse Run seat: 179→180; Quidditch seat: 180→181; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026)
+    assert.equal(SATELLITES.length, 213); // Request a Billboard seat: 178→179; Collapse Run seat: 179→180; Quidditch seat: 180→181; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026); Earth 4 seat: 210→211 (Nov 14, 2026); Moon + Sun Base seats: 211→213 (Nov 14, 2026)
   });
 
   it('the HERMES god menu carries the room (so search + menu rows find it)', () => {
@@ -196,7 +196,7 @@ describe('master-portal seating + featured placement', () => {
   it('the Portal Room roster includes the room (registry − the room itself)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 209); // Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026)
+    assert.equal(roster.length, 212); // Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026)
     const seat = roster.find((p) => p.key === 'social-media-cheat-code');
     assert.ok(seat);
     assert.equal(seat.title, 'Social Media Cheat Code');

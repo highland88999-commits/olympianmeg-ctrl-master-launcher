@@ -55,6 +55,11 @@ export default function WalletAdminPage() {
   const [note, setNote] = useState('');
   const [released, setReleased] = useState(null);
   const [releasing, setReleasing] = useState(false);
+  // Sign-in gate (2026-11-14): the queue UI — including the Christmas
+  // release — renders only for a signed-in session. Signed-out
+  // visitors get the gate below, never the admin chrome; the actions
+  // stay gated server-side besides (authed() throws 'Sign in first.').
+  const [auth, setAuth] = useState('checking'); // 'checking' | 'open' | 'locked'
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,7 +74,28 @@ export default function WalletAdminPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!alive) return;
+        if (!session?.access_token) {
+          setAuth('locked');
+          setLoading(false);
+          return;
+        }
+        setAuth('open');
+        load();
+      } catch {
+        if (alive) {
+          setAuth('locked');
+          setLoading(false);
+        }
+      }
+    })();
+    return () => { alive = false; };
+  }, [load]);
 
   async function releaseChristmasQueue() {
     if (!window.confirm('Release the Christmas payout queue? The queue will then process itself — oldest earnings first, pausing honestly if platform funds run short. This is your one explicit confirmation.')) return;
@@ -102,6 +128,28 @@ export default function WalletAdminPage() {
       setError(e.message);
     }
     setBusyId('');
+  }
+
+  // Signed-out visitors see only the gate — no queue, no release
+  // control, no inputs. While the session is still resolving, the
+  // same holds: nothing admin renders until the session proves itself.
+  if (auth === 'locked') {
+    return (
+      <main style={{ maxWidth: 900, margin: '0 auto', padding: '2rem 1.2rem 5rem', color: '#e8e6df', textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem' }}>🔒</div>
+        <h1 style={{ fontSize: '1.8rem', margin: '0.8rem 0 0.4rem' }}>Payout queue</h1>
+        <p style={{ color: '#8b91a8', margin: '0 0 1.4rem' }}>Sign in to view the payout queue.</p>
+        <a href="/" style={{ color: '#fbbf24' }}>← Back to hub</a>
+      </main>
+    );
+  }
+
+  if (auth === 'checking') {
+    return (
+      <main style={{ maxWidth: 900, margin: '0 auto', padding: '2rem 1.2rem 5rem', color: '#e8e6df' }}>
+        <p style={{ color: '#8b91a8' }}>Loading…</p>
+      </main>
+    );
   }
 
   return (

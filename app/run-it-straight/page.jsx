@@ -15,28 +15,60 @@ import * as THREE from 'three';
 import { createRunItStraight, startRound, stepRunIt, tapYou, LANE_W, LANE_L, MAX_SPEED } from '@/lib/sports/run-it-straight.js';
 import { loadSportPlayer } from '@/lib/sports/player-models.js';
 
-// Mixamo → game joint name mapping for the Tripo rugby player.
+// Mixamo -> game joint name mapping for the Tripo rugby player.
+// NOTE: three's GLTFLoader sanitizes node names on load (PropertyBinding.
+// sanitizeNodeName strips ':'), so the file's 'mixamorig:Hips' arrives in
+// the scene as 'mixamorigHips'. Mapping against the colon form matches
+// NOTHING — every joint came back undefined and poseRunner threw
+// "Cannot read properties of undefined (reading 'rotation')" every frame
+// (Run It Straight scout flaw, Nov 14). These are the as-loaded names,
+// verified against public/models/sports/rugby-player.glb (65-joint skin).
+// lib/hawkins/rig.js normalizes the same way for the same reason.
 const MIXAMO_JOINT_MAP = {
-  hips: 'mixamorig:Hips',
-  torso: 'mixamorig:Spine2',
-  head: 'mixamorig:Head',
-  shoulderL: 'mixamorig:LeftArm',
-  elbowL: 'mixamorig:LeftForeArm',
-  shoulderR: 'mixamorig:RightArm',
-  elbowR: 'mixamorig:RightForeArm',
-  hipL: 'mixamorig:LeftUpLeg',
-  kneeL: 'mixamorig:LeftLeg',
-  hipR: 'mixamorig:RightUpLeg',
-  kneeR: 'mixamorig:RightLeg',
+  hips: 'mixamorigHips',
+  torso: 'mixamorigSpine2',
+  head: 'mixamorigHead',
+  shoulderL: 'mixamorigLeftArm',
+  elbowL: 'mixamorigLeftForeArm',
+  shoulderR: 'mixamorigRightArm',
+  elbowR: 'mixamorigRightForeArm',
+  hipL: 'mixamorigLeftUpLeg',
+  kneeL: 'mixamorigLeftLeg',
+  hipR: 'mixamorigRightUpLeg',
+  kneeR: 'mixamorigRightLeg',
 };
 
 /** Build a rigged humanoid runner. Returns { group, joints }.
  *  Uses the Tripo rugby player GLB (Merlin, 2026-11-03); falls back to
- *  the procedural rig if the GLB fails to load. */
+ *  the procedural rig if the GLB fails to load OR if its joints don't
+ *  map (a rig with missing joints used to throw in poseRunner every frame).
+ *  NOTE: loadSportPlayer's plain .clone() shares the source skeleton, so the
+ *  cloned mesh would deform from the CACHED scene's bones, not the clone's
+ *  own — posing the clone's bones would move nothing visible. So the clone's
+ *  skinned mesh is rebound here to its OWN bones (matched by name; the 65
+ *  names are unique), each runner getting its own skeleton. three's
+ *  SkeletonUtils.clone can't do this job: it looks bones up by object
+ *  identity inside the source hierarchy, and the shared skeleton's bones
+ *  live outside the clone — every lookup comes back undefined. */
 async function mkRiggedRunner(teamColor) {
   try {
     const model = await loadSportPlayer('run-it-straight', false);
     model.userData.setTeamColor(teamColor);
+    // Rebind the clone's skinned mesh to the clone's own bones.
+    let skinned = null;
+    const ownBones = new Map();
+    model.traverse((o) => {
+      if (o.isBone) ownBones.set(o.name, o);
+      if (o.isSkinnedMesh && !skinned) skinned = o;
+    });
+    if (skinned) {
+      const rebound = skinned.skeleton.bones.map((b) => ownBones.get(b.name));
+      if (rebound.length === skinned.skeleton.bones.length && rebound.every(Boolean)) {
+        const skeleton = skinned.skeleton.clone();
+        skeleton.bones = rebound;
+        skinned.bind(skeleton, skinned.bindMatrix);
+      }
+    }
     const group = new THREE.Group();
     group.add(model);
     // Map Mixamo joints to the game's joint names.
@@ -47,6 +79,18 @@ async function mkRiggedRunner(teamColor) {
         if (o.name === mixamoName) joints[gameName] = o;
       }
     });
+    // Every joint the pose code touches must be present — otherwise the
+    // per-frame pose throws. A partial rig is a broken rig: fall back.
+    const missing = Object.keys(MIXAMO_JOINT_MAP).filter((k) => !joints[k]);
+    if (missing.length) {
+      console.warn('[run-it-straight] Tripo rig missing joints, using procedural rig:', missing.join(', '));
+      return mkProceduralRunner(teamColor);
+    }
+    // The posed joints must be the ones the rendered mesh deforms from.
+    if (!skinned || !Object.values(joints).every((j) => skinned.skeleton.bones.includes(j))) {
+      console.warn('[run-it-straight] Tripo rig skeleton mismatch, using procedural rig');
+      return mkProceduralRunner(teamColor);
+    }
     // The game expects hips at y≈0.95; the Tripo model is ~1.8m tall.
     // Wrap in a group so the game's position/rotation logic works.
     return { group, joints };
@@ -252,6 +296,11 @@ export default function RunItStraightPage() {
     /** Pose a runner: run cycle, idle, or clash/knockback. */
     const poseRunner = (rig, state, role, now) => {
       const j = rig.joints;
+      // Defense in depth: a rig with missing joints must never throw
+      // mid-frame — leave it in bind pose instead. mkRiggedRunner already
+      // falls back to the procedural rig when joints don't map; this guard
+      // covers any future partial rig.
+      if (!Object.keys(MIXAMO_JOINT_MAP).every((k) => j[k])) return;
       const t = now * 0.001;
       const speedNorm = Math.min(1, state.speed / MAX_SPEED);
 

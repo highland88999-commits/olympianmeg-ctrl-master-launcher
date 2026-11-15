@@ -271,6 +271,11 @@ export const SATELLITES: SatelliteEntry[] = [
   // wallet credit, subscription) — sits with the PLUTUS wealth row
   // beside WALLET: ARES/TOOLS.
   { key: "request-billboard", route: "/request-billboard", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
+  // MOON (walk the Moon under real lunar gravity) and SUN BASE (your
+  // base inside the sun) sit with the other worlds under ARTEMIS,
+  // space & exploration: ARGUS/OBSERVATORY, like Mars and the Earths.
+  { key: "moon", route: "/moon", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "sun-base", route: "/sun-base", pos: "ARTEMIS", section: "OBSERVATORY", constellation: "ARGUS" },
 ];
 
 export interface SectionDef { name: string; key: string; constellation: string; }

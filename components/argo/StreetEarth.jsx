@@ -88,6 +88,8 @@ export default function StreetEarth({
     };
 
     const fail = () => {
+      if (st.failed) return;
+      st.failed = true;
       if (st.renderer) {
         try { st.renderer.removeEventListener?.('load-tile-set', st.onTileSettled); } catch { /* noop */ }
         try { st.renderer.dispose(); } catch { /* gone */ }
@@ -111,6 +113,29 @@ export default function StreetEarth({
       try {
         const [{ TilesRenderer }] = await Promise.all([import('3d-tiles-renderer')]);
         if (!st.alive) return;
+
+        // Fail fast on a dead tileset (scout flaw 6, 2026-11-14): the
+        // renderer's fetchTileSet swallows tileset-load failures ("error
+        // is logged internally") and fires NO failure event — the only
+        // fallback was the 30 s timeout below, so a Google-denied tileset
+        // left the page on "Contacting Google tiles…" for half a minute.
+        // Probe the same root.json the renderer would fetch (tiny, same
+        // session token) and fall over to the stylized globe at once when
+        // it answers non-OK. The probe's own 403 still shows as a console
+        // error — that clears only when the Google key restriction is
+        // fixed in Cloud Console (Merlin-only; see the flaw-6 report).
+        let tilesetOk = false;
+        try {
+          const probe = await fetch(rootUrlForSession(session), { mode: 'cors' });
+          tilesetOk = probe.ok;
+        } catch {
+          tilesetOk = false;
+        }
+        if (!st.alive) return;
+        if (!tilesetOk) {
+          fail();
+          return;
+        }
 
         const renderer = new TilesRenderer(rootUrlForSession(session));
         let currentSession = session;

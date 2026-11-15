@@ -481,7 +481,10 @@ describe('the access lock (static wiring)', () => {
     const page = read('app/earth-2/page.jsx');
     assert.ok(page.includes('hasEarth2Access'), 'page checks Earth 2 access');
     assert.ok(page.includes('getSession'), 'page reads the browser session');
-    assert.ok(page.includes('This page could not be found.'), 'locked screen is a plain 404');
+    // Signed-out visitors get the sign-in gate (same pattern as /moon
+    // and /sun-base) — never a dead 404 (scout flaw 1, Nov 14, 2026).
+    assert.ok(page.includes('Sign in to enter Earth 2'), 'locked screen is the sign-in gate');
+    assert.ok(!page.includes('This page could not be found.'), 'no dead 404 for signed-out visitors');
   });
 
   it('both portal surfaces feed their roster through withSignedInPortals', () => {

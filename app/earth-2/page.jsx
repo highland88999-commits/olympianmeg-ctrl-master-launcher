@@ -5,9 +5,9 @@
 // for every signed-in account 2026-10-31).
 //
 // This page gates on the Supabase browser session before it renders
-// anything at all: signed-out visitors get a plain not-found screen
-// with no Earth 2 branding and no content, and every /api/earth2/*
-// route re-verifies access server-side (and 404s) besides. The
+// anything at all: signed-out visitors get the sign-in gate (same
+// pattern as /moon and /sun-base — never a dead 404), and every
+// /api/earth2/* route re-verifies access server-side besides. The
 // portal entries that lead here (Portal Room + Concourse Portals 3D)
 // only exist for signed-in accounts too — lib/portal-roster.js
 // withSignedInPortals.
@@ -913,13 +913,18 @@ export default function Earth2Page() {
     );
   }
 
+  // Signed-out visitors get the sign-in gate (same pattern as /moon
+  // and /sun-base) — never a dead 404. The world, the Bay and the
+  // chamber stay behind the gate; the API routes still re-verify
+  // access server-side besides.
   if (gate === 'locked') {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center bg-white px-6 text-center text-zinc-900">
-        <p className="text-5xl font-light">404</p>
-        <p className="mt-3 text-sm text-zinc-500">This page could not be found.</p>
-        <a href="/" className="mt-6 text-sm text-zinc-700 underline underline-offset-4">
-          Return home
+      <main className="flex min-h-screen flex-col items-center justify-center bg-[#050310] px-6 text-center text-zinc-100">
+        <p className="text-5xl">🌍</p>
+        <h1 className="mt-4 text-2xl font-black tracking-[0.18em] text-amber-100">EARTH 2</h1>
+        <p className="mt-3 text-sm text-zinc-300">Sign in to enter Earth 2 — open to every signed-in account.</p>
+        <a href="/" className="mt-6 rounded-full border border-emerald-300/60 bg-emerald-400/25 px-5 py-3 text-sm font-black tracking-widest text-emerald-50 transition hover:bg-emerald-400/40">
+          ← Back to hub
         </a>
       </main>
     );
