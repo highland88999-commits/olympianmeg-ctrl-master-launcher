@@ -16,6 +16,22 @@ import { tileIndexFromId } from '../../lib/earth3/claims.js';
 import { modelDeliveryUrls, fetchEarth2ModelUrls } from '../../lib/earth2/models.js';
 import { resolveBones, normalizeJointName } from '../../lib/earth2/bones.js';
 import { supabase } from '../../lib/supabase';
+// CGI pass (Merlin, Nov 14, 2026): the world around the real
+// dinos and real trees — terrain grain, water shimmer, sky
+// shimmer, flower sway, drifting motes. All motion is a pure
+// function of the device clock (lib/earth3/cgi.js); dinos, trees,
+// claims, tour and landmarks are untouched.
+import {
+  groundDetailMaps,
+  waterShimmerOffset,
+  waterShimmerTexture,
+  sunShimmer,
+  cloudBreath,
+  vegetationSway,
+  makeEarth3Dust,
+  arcticIceMaps,
+} from '../../lib/earth3/cgi.js';
+import { updateDustField } from '../../lib/planet-cgi/motion.js';
 
 /* ============================================================
    Landmarks — the page shell builds against this exact shape
@@ -274,6 +290,16 @@ function buildSky(ctx) {
   glow.scale.set(340, 340, 1); glow.position.copy(sun.position);
   scene.add(glow);
   ctx.sunGlow = glow;
+  // CGI: the sun shimmers on the real clock — the glow breathes
+  // in opacity and size instead of sitting flat. (The day/night
+  // law already drives the sun's position and the sky tint, so
+  // this only touches the glow.)
+  anim.push(() => {
+    const sh = sunShimmer(Date.now());
+    glow.material.opacity = 0.62 + sh * 0.35;
+    const gs = 340 * (1 + sh * 0.06);
+    glow.scale.set(gs, gs, 1);
+  });
 
   // Drifting clouds (billboard sprites)
   const clouds = [];
@@ -284,13 +310,23 @@ function buildSky(ctx) {
     const w = 60 + ctx.rng() * 70;
     s.scale.set(w, w * 0.45, 1);
     s.position.set((ctx.rng() - 0.5) * 900, 95 + ctx.rng() * 55, (ctx.rng() - 0.5) * 900);
-    s.userData.v = 1.5 + ctx.rng() * 2.5;
+    // CGI: faster drift so it reads, plus a per-cloud breathing
+    // phase from the index (no extra rng draws — the stream after
+    // buildSky must stay identical, tree/flower placement depends
+    // on it). baseOp/y0 are read back, not drawn.
+    s.userData.v = 4 + ctx.rng() * 4;
+    s.userData.baseOp = s.material.opacity;
+    s.userData.ph = i * 2.39996;
+    s.userData.y0 = s.position.y;
     scene.add(s); clouds.push(s);
   }
   anim.push((t, dt) => {
+    const now = Date.now();
     for (const c of clouds) {
       c.position.x += c.userData.v * dt;
       if (c.position.x > 480) c.position.x = -480;
+      c.position.y = c.userData.y0 + Math.sin(now / 9000 + c.userData.ph) * 4;
+      c.material.opacity = c.userData.baseOp * cloudBreath(now, c.userData.ph);
     }
   });
 
@@ -345,8 +381,14 @@ function buildGround(ctx) {
     colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // CGI: a neutral near-white detail map + rock bump (lib/earth3/
+  // cgi.js) multiplies the vertex colours — the green/sand/snow
+  // zones keep their colours and layout, the ground just gains
+  // real grain and relief under the sun.
+  const detail = groundDetailMaps('earth3-ground');
   scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide,
+    map: detail.map, bumpMap: detail.bumpMap, bumpScale: detail.bumpScale,
   })));
 }
 
@@ -379,6 +421,30 @@ function buildWater(ctx) {
   scene.add(dome);
   const domeMat = dome.material;
   anim.push((t) => { domeMat.opacity = 0.76 + Math.sin(t * 0.9 + 2) * 0.05; });
+
+  // CGI: a scrolling shimmer sheet over each water body — cloud
+  // streaks drifting on the real clock, so the water reads alive,
+  // not just breathing. The sheets ride above the tallest wave
+  // crest (south waves peak at y 0.87) and draw after the water.
+  const shimmerTex = waterShimmerTexture('earth3-water');
+  const mkShimmer = (geo, x, z, y) => {
+    geo.rotateX(-Math.PI / 2);
+    const m = new THREE.MeshBasicMaterial({
+      map: shimmerTex, transparent: true, opacity: 0.16,
+      color: 0xdff4ff, depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, m);
+    mesh.position.set(x, y, z);
+    mesh.renderOrder = 1;
+    scene.add(mesh);
+    return mesh;
+  };
+  mkShimmer(new THREE.PlaneGeometry(760, 280), 0, 280, 0.95);
+  mkShimmer(new THREE.CircleGeometry(75, 48), -235, 55, 0.5);
+  anim.push(() => {
+    const o = waterShimmerOffset(Date.now());
+    shimmerTex.offset.set(o.u, o.v);
+  });
 }
 
 // Cheap blob shadow helper (no shadow maps anywhere)
@@ -743,8 +809,17 @@ function buildOceanDome(ctx) {
 function buildArctic(ctx) {
   const { scene, anim } = ctx;
   const AX = 175, AZ = -175;
+  // CGI: the snow wears the iceCap family — white-blue crystal
+  // with crevasse lines and bump relief, tiled 6x across the
+  // 124 m patch so the grain reads at walking height.
+  const ice = arcticIceMaps('earth3-arctic');
+  ice.map.repeat.set(6, 6);
+  ice.bumpMap.repeat.set(6, 6);
   const snowPatch = new THREE.Mesh(new THREE.CircleGeometry(62, 48),
-    new THREE.MeshStandardMaterial({ color: 0xf4f8fb, roughness: 0.9 }));
+    new THREE.MeshStandardMaterial({
+      map: ice.map, bumpMap: ice.bumpMap, bumpScale: ice.bumpScale,
+      roughness: ice.roughness,
+    }));
   snowPatch.rotation.x = -Math.PI / 2; snowPatch.position.set(AX, 0.15, AZ); scene.add(snowPatch);
   const domeMat = new THREE.MeshStandardMaterial({
     color: 0xf6fafd, roughness: 0.35, emissive: 0xcfe4f8, emissiveIntensity: 0.08,
@@ -846,6 +921,44 @@ function buildVegetation(ctx) {
   stems.instanceMatrix.needsUpdate = true; blos.instanceMatrix.needsUpdate = true;
   if (blos.instanceColor) blos.instanceColor.needsUpdate = true;
   scene.add(stems); scene.add(blos);
+
+  // CGI (Merlin, Nov 14): warm motes drifting over the gardens
+  // and a gentle sway on the flowers — one shared phase per plant
+  // on the real clock, no per-leaf rigs. The real trees are
+  // untouched; only the instanced flowers lean, a fraction of a
+  // degree, stem and blossom together.
+  const dustFields = makeEarth3Dust();
+  for (const f of dustFields) scene.add(f);
+  const swayBase = [];
+  {
+    const m = new THREE.Matrix4();
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+    for (let i = 0; i < fp; i++) {
+      stems.getMatrixAt(i, m); m.decompose(p, q, s);
+      const sx = p.x, sy = p.y, sz = p.z, sc = s.x;
+      blos.getMatrixAt(i, m); m.decompose(p, q, s);
+      swayBase.push({ sx, sy, sz, bx: p.x, by: p.y, bz: p.z, s: sc });
+    }
+  }
+  const swayDummy = new THREE.Object3D();
+  ctx.anim.push(() => {
+    const now = Date.now();
+    for (const f of dustFields) updateDustField(f, now);
+    for (let i = 0; i < swayBase.length; i++) {
+      const b = swayBase[i];
+      const { rx, rz } = vegetationSway(i, now);
+      swayDummy.rotation.set(rx, 0, rz);
+      swayDummy.scale.setScalar(b.s);
+      swayDummy.position.set(b.sx, b.sy, b.sz);
+      swayDummy.updateMatrix();
+      stems.setMatrixAt(i, swayDummy.matrix);
+      swayDummy.position.set(b.bx, b.by, b.bz);
+      swayDummy.updateMatrix();
+      blos.setMatrixAt(i, swayDummy.matrix);
+    }
+    stems.instanceMatrix.needsUpdate = true;
+    blos.instanceMatrix.needsUpdate = true;
+  });
 
   // butterflies near gardens
   const bCols = [0xffb347, 0xffffff, 0xc39bd3];

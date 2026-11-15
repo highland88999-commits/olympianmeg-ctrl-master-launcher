@@ -4,6 +4,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
+import { terrainMaterial, disposeTerrainMaterial, monsSite, monsSlopeMaterial, monsCapMaterial, hazeSpriteTexture, devilStreakTexture, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '@/lib/mars/cgi';
+import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { SharedMaterials, buildFloraGroup, buildFaunaGroup } from '@/lib/mars/meshes';
 
@@ -544,11 +546,139 @@ function MarsTerrain({ profile }) {
     g.computeVertexNormals();
     return g;
   }, [profile]);
-  useEffect(() => () => geo.dispose(), [geo]);
+  // CGI: the marsRegolith map + bump MULTIPLY over the vertex
+  // colours (three.js: map × vertexColor × color), so the seeded
+  // rust bands keep their hue and gain dunes + relief. The cloned
+  // textures carry the repeat — the shared cache stays pristine.
+  const material = useMemo(() => terrainMaterial(profile), [profile]);
+  useEffect(() => () => {
+    geo.dispose();
+    disposeTerrainMaterial(material);
+  }, [geo, material]);
   return (
-    <mesh geometry={geo}>
-      <meshStandardMaterial vertexColors roughness={0.82} metalness={0.15} flatShading />
-    </mesh>
+    <mesh geometry={geo} material={material} />
+  );
+}
+
+// --- CGI: Olympus Mons landmark --------------------------------------------
+// No named tallest peak exists in the profile, so one landmark rise
+// stands on the outer rise: a broad shield cone (rust slopes, pale
+// ice-cap summit) at a seeded spot, labelled. Visual only — the
+// walker still stands on getTerrainHeight, never on the cone.
+function OlympusMons({ profile }) {
+  const site = useMemo(() => monsSite(profile), [profile]);
+  const slopeMat = useMemo(() => monsSlopeMaterial(profile), [profile]);
+  const capMat = useMemo(() => monsCapMaterial(profile), [profile]);
+  return (
+    <group position={[site.x, site.y - site.sink, site.z]}>
+      <mesh position={[0, site.height / 2, 0]} material={slopeMat}>
+        <coneGeometry args={[site.radius, site.height, 64]} />
+      </mesh>
+      <mesh position={[0, site.capY, 0]} material={capMat}>
+        <coneGeometry args={[site.capRadius, site.capHeight, 64]} />
+      </mesh>
+      <Html position={[0, site.height + 3.5, 0]} center distanceFactor={60}
+        style={{ pointerEvents: 'none' }}>
+        <div style={{
+          fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap',
+          color: '#ffe3cc', textShadow: '0 1px 6px #000', fontWeight: 700,
+        }}>OLYMPUS MONS</div>
+      </Html>
+    </group>
+  );
+}
+
+// --- CGI: dust, dust devils, storm haze --------------------------------------
+// All motion is a pure function of the device clock (lib/planet-cgi):
+// the dust motes wander, the devils live ~40 s then reseed elsewhere,
+// and the haze breathes thick and thin over ~2.3 minutes. Nothing is
+// stored, nothing ticks on a server. dayF dims the dust at night so
+// the motes don't glow in the dark.
+function MarsCgi({ profile, dayF }) {
+  const dust = useMemo(() => makeDustField({
+    count: 260, width: 170, height: 8, depth: 170, yBase: 0.3,
+    seed: profile.seed + '-dust', color: '#d9a06a', size: 0.12, opacity: 0.5,
+  }), [profile]);
+
+  // One open cylinder per devil (outer faint + inner denser shell);
+  // the streak map is what makes the spin visible. Opacity is
+  // per-devil, so each devil owns its two materials.
+  const devilGeo = useMemo(() => new THREE.CylinderGeometry(0.7, 1, 1, 20, 1, true), []);
+  const devilTex = useMemo(() => devilStreakTexture(), []);
+  const devilMats = useMemo(() => Array.from({ length: DUST_DEVIL_COUNT }, () => ({
+    outer: new THREE.MeshBasicMaterial({ map: devilTex, color: '#d9b28c', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+    inner: new THREE.MeshBasicMaterial({ map: devilTex, color: '#e8c9a0', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+  })), [devilTex]);
+  const devilRefs = useRef([]);
+
+  const haze = useMemo(() => {
+    const rng = new SeedRNG(profile.seed + '-HAZE');
+    const tex = hazeSpriteTexture();
+    const list = [];
+    for (let i = 0; i < HAZE_COUNT; i++) {
+      const mat = new THREE.SpriteMaterial({ map: tex, color: '#c98a5a', transparent: true, opacity: 0.08, depthWrite: false });
+      const s = new THREE.Sprite(mat);
+      const sc = rng.range(42, 72);
+      s.scale.set(sc, sc * 0.45, 1);
+      const bx = rng.range(-55, 55);
+      const bz = rng.range(-55, 55);
+      s.position.set(bx, rng.range(7, 15), bz);
+      list.push({ sprite: s, baseX: bx, baseZ: bz, phase: rng.range(0, Math.PI * 2) });
+    }
+    return { tex, list };
+  }, [profile]);
+
+  useEffect(() => () => {
+    dust.geometry.dispose();
+    dust.material.dispose();
+    devilGeo.dispose();
+    devilTex.dispose();
+    devilMats.forEach((m) => { m.outer.dispose(); m.inner.dispose(); });
+    haze.tex.dispose();
+    haze.list.forEach((h) => h.sprite.material.dispose());
+  }, [dust, devilGeo, devilTex, devilMats, haze]);
+
+  useFrame(() => {
+    const now = Date.now();
+    updateDustField(dust, now);
+    dust.material.opacity = 0.18 + 0.34 * dayF;
+    const t = (now - PLANET_CGI_EPOCH_MS) / 1000;
+    const vis = 0.45 + 0.55 * dayF;
+    for (let i = 0; i < DUST_DEVIL_COUNT; i++) {
+      const d = devilFor(i, now, DUST_DEVIL_AREA);
+      const g = devilRefs.current[i];
+      if (!g) continue;
+      g.visible = d.alive;
+      if (!d.alive) continue;
+      const gy = getTerrainHeight(d.x, d.z, profile);
+      g.position.set(d.x, gy + d.height / 2, d.z);
+      g.rotation.y = d.spin;
+      g.scale.set(d.radius, d.height, d.radius);
+      devilMats[i].outer.opacity = 0.10 * d.opacity * vis;
+      devilMats[i].inner.opacity = 0.24 * d.opacity * vis;
+    }
+    for (let i = 0; i < haze.list.length; i++) {
+      const h = haze.list[i];
+      h.sprite.position.x = h.baseX + Math.sin(t * 0.02 + h.phase) * 9;
+      h.sprite.position.z = h.baseZ + Math.cos(t * 0.016 + h.phase) * 9;
+      const breathe = 0.5 + 0.5 * Math.sin(t * 0.045 + h.phase * 2.3);
+      h.sprite.material.opacity = (0.04 + 0.10 * breathe) * (0.45 + 0.55 * dayF);
+    }
+  });
+
+  return (
+    <>
+      <primitive object={dust} />
+      {devilMats.map((m, i) => (
+        <group key={i} ref={(el) => { devilRefs.current[i] = el; }} visible={false}>
+          <mesh geometry={devilGeo} material={m.outer} scale={[1.6, 1, 1.6]} />
+          <mesh geometry={devilGeo} material={m.inner} scale={[0.85, 1, 0.85]} />
+        </group>
+      ))}
+      {haze.list.map((h, i) => (
+        <primitive key={i} object={h.sprite} />
+      ))}
+    </>
   );
 }
 
@@ -808,6 +938,8 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, focusReq, onSelect, 
       <MarsStars profile={profile} opacity={1 - sky.dayF} />
 
       <MarsTerrain profile={profile} />
+      <OlympusMons profile={profile} />
+      <MarsCgi profile={profile} dayF={sky.dayF} />
       <primitive object={world.worldGroup} />
 
       {world.creatures.map((c) => (

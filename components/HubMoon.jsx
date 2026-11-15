@@ -19,59 +19,17 @@ import {
 } from '@/lib/hub-layout';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 import { MOON_TRIGGER_RADIUS, isMoonTriggerPoint } from '@/lib/moon';
+import { planetMaps } from '@/lib/planet-cgi/textures';
 
-// Procedural lunar surface: gray regolith, speckle noise, shaded craters.
-// Seeded so every client paints the same Moon. Named export — the
-// /moon scene reuses this exact texture (one source of truth).
+// Procedural lunar surface — one source of truth for the Moon's
+// look, shared with the /moon scene. Delegates to the shared
+// planet-CGI module (lib/planet-cgi/textures.js): seeded grey
+// regolith + a real crater bump map, cached per family+seed,
+// node-safe (DataTexture, no DOM canvas). Returns { map, bumpMap,
+// roughness, bumpScale } — the maps are cache-owned, never
+// disposed by a consumer.
 export function makeMoonTexture() {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 256;
-  const ctx = c.getContext('2d');
-  // iPhone hardening (2026-10-01): iOS Safari returns null for 2D contexts
-  // under canvas memory pressure — null texture is fine, a throw is not.
-  if (!ctx) return null;
-  let seed = 20260930;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-
-  ctx.fillStyle = '#9a9a9a';
-  ctx.fillRect(0, 0, 512, 256);
-
-  // Regolith speckle.
-  for (let i = 0; i < 5200; i++) {
-    const g = 118 + Math.floor(rnd() * 72);
-    ctx.fillStyle = `rgb(${g},${g},${g})`;
-    ctx.globalAlpha = 0.25;
-    ctx.fillRect(rnd() * 512, rnd() * 256, 2, 2);
-  }
-  ctx.globalAlpha = 1;
-
-  // Craters: dark bowl, offset light rim, darker pit.
-  for (let i = 0; i < 90; i++) {
-    const x = rnd() * 512;
-    const y = rnd() * 256;
-    const r = 3 + rnd() * 15;
-    ctx.fillStyle = 'rgba(72,72,72,0.55)';
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(205,205,205,0.5)';
-    ctx.beginPath();
-    ctx.arc(x - r * 0.28, y - r * 0.28, r * 0.72, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(88,88,88,0.6)';
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
+  return planetMaps('lunarRegolith', 'moon');
 }
 
 // MOON LANDING (Merlin, Nov 13, 2026): the Moon is now a door.
@@ -82,10 +40,8 @@ export function makeMoonTexture() {
 // not. Clicks are drag-guarded like the sun (e.delta > 10 = a drag).
 export default function HubMoon({ onSelect, freeroam }) {
   const groupRef = useRef();
-  const tex = useMemo(makeMoonTexture, []);
+  const maps = useMemo(makeMoonTexture, []);
   const enteredRef = useRef(false);
-
-  useEffect(() => () => tex.dispose(), [tex]);
 
   useEffect(() => {
     registerCollider('moon', () => moonPositionAt(orbitTime()), MOON_RADIUS + 1);
@@ -133,8 +89,9 @@ export default function HubMoon({ onSelect, freeroam }) {
       >
         <sphereGeometry args={[MOON_RADIUS, 48, 32]} />
         {/* Matte regolith: high roughness, no metalness, no emissive — the
-            texture does the work, nothing washes it out. */}
-        <meshStandardMaterial map={tex} roughness={0.95} metalness={0} />
+            texture does the work, nothing washes it out. The shared
+            lunar maps carry a real bump map now (CGI pass, Nov 14). */}
+        <meshStandardMaterial map={maps.map} bumpMap={maps.bumpMap} bumpScale={maps.bumpScale} roughness={maps.roughness} metalness={0} />
       </mesh>
       {/* Small nav beam riding with the Moon */}
       <mesh position={[0, MOON_RADIUS + 60, 0]}>

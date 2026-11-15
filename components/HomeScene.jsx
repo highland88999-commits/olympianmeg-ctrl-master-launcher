@@ -46,6 +46,8 @@ import GodTower, { preloadHubPanelVideos } from './GodTower';
 import VanGoghSky from './VanGoghSky';
 import { setVanGoghActive, VANGOGH_BODY_CLASS } from '../lib/vangogh';
 import { resolveUiSettings, readUiSettingsCache, UI_SETTINGS_EVENT } from '../lib/ui-settings';
+import { planetMaps, spotSwirlTexture, GREAT_RED_SPOT_UV, spotAnchorOnSphere } from '../lib/planet-cgi/textures';
+import { bandFlowOffset, spinAngle, lightningFlash } from '../lib/planet-cgi/motion';
 
 function MarsBackground({ onSelect }) {
   const marsRef = useRef();
@@ -140,9 +142,47 @@ function MarsBackground({ onSelect }) {
 // null everywhere else; the handler sits on the outer group so the
 // sphere AND Saturn's rings deliver the tap, and hover gets the
 // same pointer-cursor affordance the realms' creatures use.
-function PlanetBody({ planet, map, ringMap, onSelect }) {
+// JUPITER CGI (Merlin, Nov 14, 2026 — "run CGI through all our planets,
+// minus Earth 1 & 2"): the hub's Jupiter is a backdrop sphere, so the
+// pass lives on that sphere — procedural gas-giant bands that flow, a
+// swirling Great Red Spot riding the surface, and storm lightning.
+// Center, radius, spin and collider all stay on the PLANETS table
+// (lib/god-orbits.js) — this only changes what the sphere looks like.
+// All motion is a pure function of the device clock (lib/planet-cgi):
+// no stored state, same instant = same frame on every phone.
+const JUPITER_BAND_FLOW_RATE = 0.003; // texture-U units/s (full wrap ~5.5 min)
+const JUPITER_SPOT_SWIRL_RATE = 0.03; // rad/s — slow storm turn
+const JUPITER_SPOT_LIFT = 1.0; // spot plane sits just above the surface (clears depth precision at hub distance)
+const JUPITER_SPOT_WIDTH = 22; // ~14° of longitude — the real spot spans ~13°
+const JUPITER_SPOT_HEIGHT = 13;
+const JUPITER_LIGHTNING_MAX = 260; // peak point-light intensity; distance-capped so it never reaches the hub
+const JUPITER_LIGHTNING_SEED = 'jupiter-storms';
+
+function PlanetBody({ planet, map, ringMap, bumpMap = null, bumpScale = 0, roughness = 0.95, onSelect }) {
   const spinRef = useRef();
-  useFrame((state, delta) => { if (spinRef.current) spinRef.current.rotation.y += delta * planet.spin; });
+  const spotRef = useRef();
+  const stormLightRef = useRef();
+  const isJupiter = planet.key === 'jupiter';
+  // Great Red Spot anchor (Jupiter only): UV -> point on the sphere,
+  // so the storm rides the surface and turns with the planet's spin.
+  const spotAnchor = useMemo(() => {
+    if (!isJupiter) return null;
+    return spotAnchorOnSphere(GREAT_RED_SPOT_UV, planet.radius, JUPITER_SPOT_LIFT);
+  }, [isJupiter, planet]);
+  const spotTex = useMemo(() => (isJupiter ? spotSwirlTexture() : null), [isJupiter]);
+  useEffect(() => () => { if (spotTex) spotTex.dispose(); }, [spotTex]);
+  useFrame((state, delta) => {
+    if (spinRef.current) spinRef.current.rotation.y += delta * planet.spin;
+    if (!isJupiter) return;
+    const now = Date.now();
+    // Bands flow past the storm: the sphere's own spin stays as-is,
+    // this is in addition — texture U offset, wraps 0..1.
+    if (map) map.offset.x = bandFlowOffset(JUPITER_BAND_FLOW_RATE, now);
+    // The storm swirls on its own clock while the bands flow past.
+    if (spotRef.current) spotRef.current.rotation.z = spinAngle(JUPITER_SPOT_SWIRL_RATE, now);
+    // Storm lightning: mostly dark, sharp brief flashes, local only.
+    if (stormLightRef.current) stormLightRef.current.intensity = lightningFlash(now, JUPITER_LIGHTNING_SEED) * JUPITER_LIGHTNING_MAX;
+  });
   const ringGeo = useMemo(() => {
     if (!planet.rings) return null;
     const geo = new THREE.RingGeometry(planet.rings.inner, planet.rings.outer, 128, 1);
@@ -167,7 +207,18 @@ function PlanetBody({ planet, map, ringMap, onSelect }) {
       <group rotation={[0, 0, planet.tilt || 0]}>
         <mesh ref={spinRef}>
           <sphereGeometry args={[planet.radius, 48, 48]} />
-          <meshStandardMaterial map={map || undefined} color={map ? '#ffffff' : (planet.color || '#777777')} roughness={0.95} metalness={0.05} />
+          <meshStandardMaterial map={map || undefined} bumpMap={bumpMap || undefined} bumpScale={bumpScale} color={map ? '#ffffff' : (planet.color || '#777777')} roughness={roughness} metalness={0.05} />
+          {isJupiter && spotAnchor && (
+            <group position={spotAnchor.position} quaternion={spotAnchor.quaternion}>
+              <mesh ref={spotRef}>
+                <planeGeometry args={[JUPITER_SPOT_WIDTH, JUPITER_SPOT_HEIGHT]} />
+                <meshBasicMaterial map={spotTex || undefined} transparent depthWrite={false} />
+              </mesh>
+            </group>
+          )}
+          {isJupiter && spotAnchor && (
+            <pointLight ref={stormLightRef} color="#cfe4ff" intensity={0} distance={260} decay={2} position={spotAnchor.lightPosition} />
+          )}
         </mesh>
         {planet.rings && ringGeo && (
           <mesh geometry={ringGeo} rotation={[-Math.PI / 2, 0, 0]}>
@@ -181,6 +232,11 @@ function PlanetBody({ planet, map, ringMap, onSelect }) {
 
 function BackdropPlanets({ onPlanetSelect }) {
   const [maps, setMaps] = useState({});
+  // Jupiter is CGI now (Merlin, Nov 14, 2026): procedural gas-giant
+  // maps from the shared planet-cgi module, built synchronously —
+  // the /planets/jupiter.jpg on disk is left alone, just no longer
+  // loaded. Every other planet still loads its JPG as before.
+  const jupiterMaps = useMemo(() => planetMaps('gasGiant', 'jupiter'), []);
   useEffect(() => {
     let live = true;
     const loader = new THREE.TextureLoader();
@@ -189,6 +245,7 @@ function BackdropPlanets({ onPlanetSelect }) {
       if (live) setMaps((m) => ({ ...m, [key]: tex }));
     });
     PLANETS.forEach((p) => {
+      if (p.key === 'jupiter') return; // CGI — no JPG load
       load(p.texture, p.key);
       if (p.rings) load(p.rings.texture, p.key + ':rings');
     });
@@ -197,7 +254,16 @@ function BackdropPlanets({ onPlanetSelect }) {
   return (
     <>
       {PLANETS.map((p) => (
-        <PlanetBody key={p.key} planet={p} map={maps[p.key] || null} ringMap={maps[p.key + ':rings'] || null} onSelect={onPlanetSelect} />
+        <PlanetBody
+          key={p.key}
+          planet={p}
+          map={p.key === 'jupiter' ? jupiterMaps.map : (maps[p.key] || null)}
+          ringMap={maps[p.key + ':rings'] || null}
+          bumpMap={p.key === 'jupiter' ? jupiterMaps.bumpMap : undefined}
+          bumpScale={p.key === 'jupiter' ? jupiterMaps.bumpScale : undefined}
+          roughness={p.key === 'jupiter' ? jupiterMaps.roughness : undefined}
+          onSelect={onPlanetSelect}
+        />
       ))}
     </>
   );

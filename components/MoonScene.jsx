@@ -1,21 +1,17 @@
 'use client';
 
-// components/MoonScene.jsx — the lunar surface (Merlin, Nov 13, 2026).
-//
-// The /moon route: stand on the Moon itself. The Moon is the real
-// hub sphere — radius 14, same procedural crater texture as the hub
-// orb (components/HubMoon.jsx makeMoonTexture, one source of truth)
-// — with Earth hanging in the sky at the hub's own scene scale
-// (radius 55 at 180 away, 35.58° across) and a starfield behind.
-//
-// The rig is first-person, deliberately like the sun base's: drag
-// to look, WASD / arrows / the shared WalkJoystick to walk, Space
-// or the JUMP button to bounce. The physics lives in lib/moon.js
-// (pure, tested): real lunar gravity 1.62 m/s², jump apex 2.7778 m,
-// hang 3.7037 s. The walker stands ON the sphere — up is the
-// surface normal, so the horizon tilts correctly as you walk
-// around the Moon — and the step re-projects onto the sphere every
-// frame, so you can never fall through or drift off into space.
+// components/MoonScene.jsx — the lunar surface (Merlin, Nov 13, 2026;
+// CGI pass Nov 14: "Make it a cgi moon" — the surface, Earth and
+// rocks now come from the shared planet-CGI module
+// (lib/planet-cgi) with a real bump map, Earth turns on the real
+// clock under its own drifting cloud layer, dust motes drift
+// around the pad, and the flag waves. The physics lives in
+// lib/moon.js (pure, tested): real lunar gravity 1.62 m/s², jump
+// apex 2.7778 m, hang 3.7037 s — untouched by the CGI pass.
+// The walker stands ON the sphere — up is the surface normal,
+// so the horizon tilts correctly as you walk around the Moon —
+// and the step re-projects onto the sphere every frame, so you
+// can never fall through or drift off into space.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -31,12 +27,24 @@ import {
   MOON_EARTH_DISTANCE,
   MOON_LANDING_FEET,
   MOON_SPAWN_FEET,
+  MOON_EARTH_SPIN_RATE,
+  MOON_OLYMPUS_LABEL_SIZE,
+  MOON_FLAG_CLOTH,
+  MOON_DUST_FIELD,
   moonLandingState,
   moonTangentBasis,
   stepMoonWalker,
 } from '@/lib/moon';
 import { EARTH_RADIUS } from '@/lib/god-orbits';
 import { moonPhaseDaylight } from '@/lib/day-night';
+import { planetMaps, materialForPlanet, cloudLayerTexture } from '@/lib/planet-cgi/textures';
+import {
+  spinAngle,
+  cloudDriftAngle,
+  makeDustField,
+  updateDustField,
+  waveFlag,
+} from '@/lib/planet-cgi/motion';
 
 // Earth as seen from the Moon: radius 55 at 180 away.
 const EARTH_POS = {
@@ -45,46 +53,55 @@ const EARTH_POS = {
   z: MOON_EARTH_DIR.z * MOON_EARTH_DISTANCE,
 };
 
-// Procedural Earth: blue oceans, green/brown land, white clouds,
-// bright poles — seeded so every client paints the same Earth.
-function makeEarthTexture() {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 256;
-  const ctx = c.getContext('2d');
-  if (!ctx) return null;
-  let seed = 19690720;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  ctx.fillStyle = '#2f6fd0';
-  ctx.fillRect(0, 0, 512, 256);
-  // Continents: clustered green/brown blobs.
-  for (let i = 0; i < 26; i++) {
-    const cx = rnd() * 512;
-    const cy = 40 + rnd() * 176;
-    const r = 12 + rnd() * 30;
-    ctx.fillStyle = rnd() > 0.5 ? 'rgba(63,143,79,0.9)' : 'rgba(138,111,63,0.9)';
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, r, r * (0.5 + rnd() * 0.5), rnd() * Math.PI, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Clouds: white streaks.
-  for (let i = 0; i < 70; i++) {
-    ctx.fillStyle = `rgba(255,255,255,${0.25 + rnd() * 0.4})`;
-    ctx.beginPath();
-    ctx.ellipse(rnd() * 512, rnd() * 256, 8 + rnd() * 26, 2 + rnd() * 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Ice caps.
-  ctx.fillStyle = 'rgba(240,248,255,0.95)';
-  ctx.fillRect(0, 0, 512, 14);
-  ctx.fillRect(0, 242, 512, 14);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
+// Earth as seen from the Moon, CGI (Nov 14): a real earthLike
+// surface turning slowly on the real clock, a separate cloud
+// layer drifting faster above it, and a faint additive
+// atmosphere rim. Earth stays 26° up, radius 55 at 180 away.
+const EARTH_CLOUD_RADIUS = EARTH_RADIUS * 1.02;
+const EARTH_ATMO_RADIUS = EARTH_RADIUS * 1.06;
+
+function EarthInSky() {
+  const earthRef = useRef();
+  const cloudRef = useRef();
+  const earthMaps = useMemo(() => planetMaps('earthLike', 'earth'), []);
+  const cloudTex = useMemo(() => cloudLayerTexture('earth-clouds'), []);
+  useEffect(() => () => cloudTex.dispose(), [cloudTex]);
+  useFrame(() => {
+    const now = Date.now();
+    if (earthRef.current) earthRef.current.rotation.y = spinAngle(MOON_EARTH_SPIN_RATE, now);
+    if (cloudRef.current) cloudRef.current.rotation.y = cloudDriftAngle(MOON_EARTH_SPIN_RATE, now);
+  });
+  return (
+    <group position={[EARTH_POS.x, EARTH_POS.y, EARTH_POS.z]}>
+      <mesh ref={earthRef}>
+        <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
+        <meshStandardMaterial map={earthMaps.map} bumpMap={earthMaps.bumpMap} bumpScale={earthMaps.bumpScale} roughness={earthMaps.roughness} metalness={0} />
+      </mesh>
+      {/* Clouds ride their own slightly larger sphere, turning
+          1.35× the surface rate so they drift over the ground. */}
+      <mesh ref={cloudRef}>
+        <sphereGeometry args={[EARTH_CLOUD_RADIUS, 48, 32]} />
+        <meshBasicMaterial map={cloudTex} transparent opacity={0.85} depthWrite={false} />
+      </mesh>
+      {/* Faint atmosphere rim: a BackSide additive shell — a cheap
+          fresnel-ish glow around the disc, no shader. */}
+      <mesh>
+        <sphereGeometry args={[EARTH_ATMO_RADIUS, 48, 32]} />
+        <meshBasicMaterial color="#7fb2ff" transparent opacity={0.14} blending={THREE.AdditiveBlending} side={THREE.BackSide} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+// Per-frame CGI motion, all pure functions of the real clock —
+// no stored state: dust drifts, the flag waves.
+function MoonCgiMotion({ dust, flagGeo }) {
+  useFrame(() => {
+    const now = Date.now();
+    if (dust) updateDustField(dust, now);
+    if (flagGeo) waveFlag(flagGeo, now, MOON_FLAG_CLOTH.width, MOON_FLAG_CLOTH.amplitude);
+  });
+  return null;
 }
 
 // Deterministic rocks near the landing site (seeded — same every load).
@@ -116,6 +133,35 @@ function rockPlacements() {
     });
   }
   return rocks;
+}
+
+// Small pebbles scattered on and around the pad (seeded — same every load).
+function pebblePlacements() {
+  let seed = 20261114;
+  const rnd = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed / 0x7fffffff;
+  };
+  const up = { x: 0, y: 1, z: 0 };
+  const pebbles = [];
+  for (let i = 0; i < 8; i++) {
+    const az = rnd() * Math.PI * 2;
+    const ang = 0.04 + rnd() * 0.18; // 0.04–0.22 rad from the pad (~0.6–3 m away)
+    const axis = { x: Math.cos(az), y: 0, z: Math.sin(az) };
+    const cross = { x: axis.y * up.z - axis.z * up.y, y: axis.z * up.x - axis.x * up.z, z: axis.x * up.y - axis.y * up.x };
+    const dir = {
+      x: up.x * Math.cos(ang) + cross.x * Math.sin(ang),
+      y: up.y * Math.cos(ang) + cross.y * Math.sin(ang),
+      z: up.z * Math.cos(ang) + cross.z * Math.sin(ang),
+    };
+    const size = 0.05 + rnd() * 0.11;
+    pebbles.push({
+      pos: { x: dir.x * (MOON_RADIUS - size * 0.3), y: dir.y * (MOON_RADIUS - size * 0.3), z: dir.z * (MOON_RADIUS - size * 0.3) },
+      size,
+      rot: rnd() * Math.PI * 2,
+    });
+  }
+  return pebbles;
 }
 
 const FLAG_OFFSET_M = 2.6; // flag stands 2.6 m north of the pad centre
@@ -232,9 +278,29 @@ function MoonRig({ moveRef, jumpRef, hudRef }) {
 }
 
 export default function MoonScene({ moveRef, jumpRef, hudRef }) {
-  const moonTex = useMemo(makeMoonTexture, []);
-  const earthTex = useMemo(makeEarthTexture, []);
+  // One source of truth with the hub orb (HubMoon makeMoonTexture):
+  // the shared lunar maps now carry a real bump map. The maps and
+  // the rock materials are cache-owned by lib/planet-cgi — never
+  // disposed by a consumer. Only the per-mount dust field, flag
+  // cloth and cloud texture are disposed on unmount.
+  const moonMaps = useMemo(makeMoonTexture, []);
   const rocks = useMemo(rockPlacements, []);
+  const pebbles = useMemo(pebblePlacements, []);
+  const dust = useMemo(() => makeDustField(MOON_DUST_FIELD), []);
+  const flagGeo = useMemo(
+    () => new THREE.PlaneGeometry(MOON_FLAG_CLOTH.width, MOON_FLAG_CLOTH.height, MOON_FLAG_CLOTH.segmentsX, MOON_FLAG_CLOTH.segmentsY),
+    []
+  );
+  const rockMatA = useMemo(() => materialForPlanet('rock', 'moon-rock-a'), []);
+  const rockMatB = useMemo(() => materialForPlanet('rock', 'moon-rock-b'), []);
+  useEffect(
+    () => () => {
+      dust.geometry.dispose();
+      dust.material.dispose();
+      flagGeo.dispose();
+    },
+    [dust, flagGeo]
+  );
   // Day/night (Merlin, 2026-11-14): the hard sunlight scales by
   // the moon's real illuminated fraction (the shared law) —
   // full moon = the built 2.2 daylight on the Earth-facing
@@ -252,13 +318,6 @@ export default function MoonScene({ moveRef, jumpRef, hudRef }) {
     const id = setInterval(applyPhase, 10000);
     return () => clearInterval(id);
   }, []);
-  useEffect(
-    () => () => {
-      moonTex && moonTex.dispose();
-      earthTex && earthTex.dispose();
-    },
-    [moonTex, earthTex]
-  );
 
   return (
     <>
@@ -266,26 +325,36 @@ export default function MoonScene({ moveRef, jumpRef, hudRef }) {
           scaled by the real moon phase (see the effect above). */}
       <ambientLight intensity={0.12} />
       <directionalLight position={[50, 80, 40]} intensity={sunlight} color="#fff2dd" />
+      {/* Earthshine: a soft cool fill from Earth's direction so
+          the night side isn't dead black. */}
+      <directionalLight position={[EARTH_POS.x, EARTH_POS.y, EARTH_POS.z]} intensity={0.35} color="#a8c4e8" />
       <Stars radius={300} depth={50} count={5000} factor={4} fade speed={0.5} />
 
-      {/* The Moon itself — the walker stands on this sphere. */}
+      {/* The Moon itself — the walker stands on this sphere.
+          Shared lunar maps now carry a real bump map. */}
       <mesh>
         <sphereGeometry args={[MOON_RADIUS, 64, 48]} />
-        <meshStandardMaterial map={moonTex} roughness={0.95} metalness={0} />
+        <meshStandardMaterial map={moonMaps.map} bumpMap={moonMaps.bumpMap} bumpScale={moonMaps.bumpScale} roughness={moonMaps.roughness} metalness={0} />
       </mesh>
 
-      {/* Earth hanging in the sky, hub scene scale (r55 at 180). */}
-      <mesh position={[EARTH_POS.x, EARTH_POS.y, EARTH_POS.z]}>
-        <sphereGeometry args={[EARTH_RADIUS, 48, 32]} />
-        <meshStandardMaterial map={earthTex} roughness={0.7} metalness={0} />
-      </mesh>
+      {/* Earth hanging in the sky, hub scene scale (r55 at 180) —
+          CGI now: turning surface, drifting clouds, faint rim. */}
+      <EarthInSky />
       <Billboard position={[EARTH_POS.x, EARTH_POS.y + EARTH_RADIUS + 22, EARTH_POS.z]}>
         <VanGoghText fontSize={9} color="#cfe8ff" anchorX="center" anchorY="middle" outlineWidth={0.4} outlineColor="#000000">
           ◈ EARTH
         </VanGoghText>
       </Billboard>
 
-      {/* Landing zone: gold ring at the pad + the Olympus flag. */}
+      {/* Dust motes drifting around the landing site. */}
+      <primitive object={dust} position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y, MOON_LANDING_FEET.z]} />
+
+      {/* Landing zone: darker regolith disc under the gold ring,
+          the Olympus flag, and pebbles. */}
+      <mesh position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y + 0.02, MOON_LANDING_FEET.z]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[2.1, 48]} />
+        <meshStandardMaterial color="#5f5f5f" roughness={1} metalness={0} polygonOffset polygonOffsetFactor={-1} />
+      </mesh>
       <mesh position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y + 0.05, MOON_LANDING_FEET.z]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[1.7, 2.1, 48]} />
         <meshBasicMaterial color="#ffd700" transparent opacity={0.9} side={THREE.DoubleSide} />
@@ -295,25 +364,38 @@ export default function MoonScene({ moveRef, jumpRef, hudRef }) {
           <cylinderGeometry args={[0.05, 0.05, 2.4, 8]} />
           <meshStandardMaterial color="#cfd2d6" roughness={0.4} metalness={0.8} />
         </mesh>
-        <mesh position={[0.58, 2.1, 0]}>
-          <planeGeometry args={[1.15, 0.65]} />
+        {/* The cloth is a 12×6 segmented plane so waveFlag can
+            ripple the free edge while the pole edge stays pinned;
+            the pole itself stays rigid. */}
+        <mesh position={[0.58, 2.1, 0]} geometry={flagGeo}>
           <meshBasicMaterial color="#ffd700" side={THREE.DoubleSide} />
         </mesh>
-        <Billboard position={[0, 3.1, 0]}>
-          <VanGoghText fontSize={0.9} color="#ffd700" anchorX="center" anchorY="middle" outlineWidth={0.15} outlineColor="#000000">
+        {/* OLYMPUS was fontSize 0.9 — ~2.6 m in front of the spawn
+            camera, filling the whole screen over the help line.
+            Now a small label just above the flag. */}
+        <Billboard position={[0, 2.75, 0]}>
+          <VanGoghText fontSize={MOON_OLYMPUS_LABEL_SIZE} color="#ffd700" anchorX="center" anchorY="middle" outlineWidth={0.05} outlineColor="#000000">
             OLYMPUS
           </VanGoghText>
         </Billboard>
       </group>
 
-      {/* Scattered rocks near the landing zone. */}
+      {/* Scattered rocks near the landing zone — shared rock
+          material now, bump-mapped instead of flat grey. */}
       {rocks.map((rock, i) => (
-        <mesh key={i} position={[rock.pos.x, rock.pos.y, rock.pos.z]} rotation={[0, rock.rot, 0]}>
+        <mesh key={i} position={[rock.pos.x, rock.pos.y, rock.pos.z]} rotation={[0, rock.rot, 0]} material={i % 2 ? rockMatB : rockMatA}>
           <dodecahedronGeometry args={[rock.size, 0]} />
-          <meshStandardMaterial color="#8a8a8a" roughness={1} metalness={0} flatShading />
         </mesh>
       ))}
 
+      {/* Pebbles on and around the pad. */}
+      {pebbles.map((pebble, i) => (
+        <mesh key={`peb-${i}`} position={[pebble.pos.x, pebble.pos.y, pebble.pos.z]} rotation={[0, pebble.rot, 0]} material={i % 2 ? rockMatB : rockMatA}>
+          <dodecahedronGeometry args={[pebble.size, 0]} />
+        </mesh>
+      ))}
+
+      <MoonCgiMotion dust={dust} flagGeo={flagGeo} />
       <MoonRig moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} />
     </>
   );
