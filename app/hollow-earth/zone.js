@@ -478,6 +478,13 @@ export function buildWorld(THREE, def, T, opts = {}) {
         continue;
       }
       if (!m.active) continue;
+      // RIDING (2026-11-15): a mounted monster is driven by its
+      // rider, not its hunt AI — no chasing, no attacks, no
+      // push-out from the rider's own circle. The page drives
+      // its x/z/faceYaw each frame before update() runs; the
+      // figure still syncs so it travels with the rider. On
+      // dismount the AI resumes from exactly where it was left.
+      if (m.mounted) { syncFigure(m, dt); continue; }
       const evs = stepMonster(m, dt, player, rng, {
         losClear: (ax, az, bx, bz) => losClear(heightAt, ax, az, bx, bz),
         inBase: observer.inBase,

@@ -21,8 +21,10 @@ import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { useRealmInfoFade } from '@/components/useRealmInfoFade';
+import { RealmLifeLine } from '@/components/RealmLifeLine';
 import { HelheimScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/helheim/world';
+import { ANTI_LIFE_PORTAL_NAME, ANTI_LIFE_ROUTE } from '@/lib/afterlife/anti-life-portal';
 
 const STICK_RADIUS = 60;
 
@@ -106,6 +108,13 @@ export default function HelheimPage() {
 
   const onPortal = useCallback((portal) => {
     travel(portal.route, portal.label);
+  }, [travel]);
+  // ANTI-LIFE PORTAL (Merlin, 2026-11-15): the fall-through floor
+  // portal in this realm drops the walker into Anti-Life — where the
+  // 10-minute decay effect is granted. Same vortex travel as the
+  // arches; the tube is the fall.
+  const onAntiLife = useCallback(() => {
+    travel(ANTI_LIFE_ROUTE, ANTI_LIFE_PORTAL_NAME);
   }, [travel]);
 
   const onRegion = useCallback((name) => {
@@ -206,6 +215,7 @@ export default function HelheimPage() {
             playerRef={playerRef}
             inputRef={inputRef}
             onPortal={onPortal}
+            onAntiLife={onAntiLife}
             onRegion={onRegion}
             reduced={reduced}
           />
@@ -261,9 +271,10 @@ export default function HelheimPage() {
         </p>
         <p className="mt-3 rounded-full bg-black/55 px-4 py-2 text-xs text-stone-200">
           {touchUI
-            ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel'
-            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel'}
+            ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel · step onto the dark Anti-Life disc to fall through'
+            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel · step onto the dark Anti-Life disc to fall through'}
         </p>
+        <RealmLifeLine realmKey="helheim" />
       </div>
 
       <div className="absolute left-4 top-4 z-30">

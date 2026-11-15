@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createState, formatDecay, stageLabel, zoneLabel, applyPan } from './decay';
+import { formatRemaining, grantCarrier, loadCarrier, remainingMs } from '@/lib/anti-life/lingering';
 import { createAntiLifeRenderer } from './canvas';
 import PassageLink from '@/components/styx/PassageLink';
 import { panelTileStyle } from '@/lib/hestia/ambience';
@@ -27,6 +28,29 @@ export default function AntiLifePage() {
   const [ready, setReady] = useState(false); // renderer built — world is shaped
   const [reducedMotion, setReducedMotion] = useState(false);
   const [hud, setHud] = useState({ decay: 0, ashfall: false, held: false });
+  const [lingering, setLingering] = useState(null);
+
+  // LINGERING DECAY (Merlin, 2026-11-15): every visit grants the
+  // decay for 10 minutes — every user, every visit. The grant lands
+  // on mount (the visit), not on Begin: even a walker who turns
+  // straight around carries it out. The heartbeat owns the timer
+  // from here; this effect only grants and shows the countdown.
+  useEffect(() => {
+    try {
+      grantCarrier(window.localStorage, 'anti-life');
+    } catch { /* storage unavailable — the visit still happened */ }
+    const update = () => {
+      try {
+        const s = loadCarrier(window.localStorage);
+        setLingering(s ? formatRemaining(remainingMs(s)) : null);
+      } catch {
+        setLingering(null);
+      }
+    };
+    update();
+    const iv = setInterval(update, 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   useEffect(() => {
     const mq =
@@ -119,6 +143,12 @@ export default function AntiLifePage() {
           <div className="text-[11px] sm:text-xs text-neutral-400 mt-0.5 tracking-wider">
             DECAY: <span className="text-red-400 font-bold">{formatDecay(decay)}</span>
           </div>
+          {lingering && (
+            <div className="text-[11px] sm:text-xs text-neutral-400 mt-0.5 tracking-wider">
+              LINGERING: <span className="text-red-400 font-bold">{lingering}</span>
+              <span className="text-neutral-500"> — follows you when you leave</span>
+            </div>
+          )}
           {reducedMotion && (
             <div className="text-[10px] text-neutral-500 mt-1 tracking-wider">
               HELD STILL — REDUCED MOTION

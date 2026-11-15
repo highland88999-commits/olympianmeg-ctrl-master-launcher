@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { LEGS, STORAGE_KEY, sanitizeLeg, advanceLeg, isComplete, stationUrl } from '@/lib/styx/journey';
 import { panelTileStyle } from '@/lib/hestia/ambience';
 import { useVortexTravel } from '@/components/VortexTravel';
+import { newNonce, readVisitedRealms, soulsApi } from '@/lib/afterlife/souls';
+import { ferryDestinations } from '@/lib/afterlife/ferry';
 
 function Glyph({ size = 14, children }) {
   return (
@@ -23,6 +25,44 @@ export default function StyxPage() {
   const { travel, overlay: vortexOverlay } = useVortexTravel();
   const [leg, setLeg] = useState(0);
   const [ready, setReady] = useState(false);
+
+  // THE FERRY (tranche 1): 1 gold to any realm you have visited.
+  // The visited list is device-local (no visited-realms record
+  // exists in code; portal progress tracks counts only) — it fills
+  // as you walk through portal arches.
+  const [visited, setVisited] = useState([]);
+  const [ferryBusy, setFerryBusy] = useState(null);
+  const [ferryMsg, setFerryMsg] = useState(null);
+
+  useEffect(() => {
+    setVisited(readVisitedRealms());
+  }, []);
+
+  useEffect(() => {
+    if (!ferryMsg) return undefined;
+    const t = setTimeout(() => setFerryMsg(null), 6000);
+    return () => clearTimeout(t);
+  }, [ferryMsg]);
+
+  const rideFerry = useCallback(async (realm) => {
+    if (ferryBusy) return;
+    setFerryBusy(realm.key);
+    try {
+      const res = await soulsApi('/api/afterlife/ferry', { method: 'POST', body: { kind: 'travel', destination: realm.key, nonce: newNonce() } });
+      if (res.ok) {
+        travel(realm.route, realm.label);
+      } else if (res.data?.reason === 'not_enough_gold') {
+        setFerryMsg('Not enough gold — the ferry costs 1 gold.');
+      } else if (res.status === 401) {
+        setFerryMsg('Sign in to ride the ferry.');
+      } else {
+        setFerryMsg('Charon did not come. Try again.');
+      }
+    } catch {
+      setFerryMsg('Charon did not come. Try again.');
+    }
+    setFerryBusy(null);
+  }, [ferryBusy, travel]);
 
   useEffect(() => {
     let next = 0;
@@ -152,6 +192,35 @@ export default function StyxPage() {
             </button>
           </section>
         )}
+
+        {/* The ferry (tranche 1): 1 gold to any realm you have visited. */}
+        <div className="mt-12 w-full">
+          <p className="text-xs tracking-[0.35em] uppercase text-[#5a5f68]">Or ride the ferry — 1 gold a crossing</p>
+          <p className="mt-2 text-sm text-[#8a8f98] leading-relaxed">
+            Realms you have visited appear here. Charon asks 1 gold, and the river minds its own business.
+          </p>
+          {ferryDestinations(visited).length === 0 ? (
+            <p className="mt-4 text-sm text-[#a9adb5] leading-relaxed">
+              You have not visited any realm yet — walk through a portal arch first, and it will wait here for you.
+            </p>
+          ) : (
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {ferryDestinations(visited).map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => rideFerry(r)}
+                  disabled={ferryBusy === r.key}
+                  className="rounded-xl border border-[#2a2e34] bg-[#0b0e11]/60 px-4 py-4
+                             hover:border-[#ffd700]/50 transition-colors text-left disabled:opacity-50"
+                >
+                  <p className="text-xs tracking-[0.3em] text-[#8a8f98]">⛴ 1 gold</p>
+                  <p className="mt-1 text-[#e8e4da]">{r.label}</p>
+                </button>
+              ))}
+            </div>
+          )}
+          {ferryMsg && <p className="mt-4 text-sm text-[#ffd700]">{ferryMsg}</p>}
+        </div>
 
         {/* free wandering */}
         <div className="mt-12 w-full">

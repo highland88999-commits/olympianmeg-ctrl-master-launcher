@@ -26,6 +26,9 @@ import {
   mountVehicle, dismountPoint, parkVehicle, stepVehicle,
   vehicleInPromptRange, chaseCameraPose,
 } from './vehicles';
+import { speederInPromptRange, speederDismountSpot } from './riding';
+import { graphicForPlanet, artScrimBackground, NEUTRAL_GRAPHIC } from '../../lib/star-wars/menu-graphics';
+import { lifeFor } from './operators';
 
 const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
@@ -125,6 +128,7 @@ export default function StarWarsPage() {
   const [crawlIdx, setCrawlIdx] = useState(0);
   const [ridePrompt, setRidePrompt] = useState(null); // vehicle id offering a ride
   const [mountedId, setMountedId] = useState(null); // vehicle id being driven
+  const [lifeCard, setLifeCard] = useState(null); // tapped life: { name, line, kind, planet }
   const [roamCard, setRoamCard] = useState(true); // free-roam banner: full card -> chip
 
   const showToast = useCallback((msg) => {
@@ -301,22 +305,13 @@ export default function StarWarsPage() {
       const spawn = zone.spawn || { x: 0, z: 0, yaw: 0 };
       const isFly = def.kind === 'fly';
 
-      // Page-owned beat markers (checkpoints gray->green, target amber->green).
-      const markers = [];
-      const addMarker = (pt, color) => {
-        const mesh = new THREE.Mesh(
-          new THREE.TorusGeometry(pt.r || 2, 0.28, 8, 40),
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 })
-        );
-        const y = isFly ? (spawn.y != null ? spawn.y : 12) : zone.groundHeight(pt.x, pt.z) + 0.5;
-        mesh.position.set(pt.x, y, pt.z);
-        mesh.rotation.x = -Math.PI / 2;
-        scene.add(mesh);
-        markers.push(mesh);
-        return mesh;
-      };
-      const cpMarkers = (zone.checkpoints || []).map((pt) => addMarker(pt, 0xffcc44));
-      const targetMarker = zone.target ? addMarker(zone.target, 0xff6644) : null;
+      // Beat markers are the zone's own beams now (zone.js): one gold
+      // beam per checkpoint, the target's light pillar, each standing
+      // on a flat ground-zone disc. No page-owned rings — the
+      // reached-state colour lives on the beams and zones instead
+      // (checkBeat below turns a reached beam + its zone green). The
+      // beams and zones ride in zone.group, so zone.dispose() owns
+      // their cleanup.
 
       const total = (zone.checkpoints || []).length + (zone.target ? 1 : 0);
       setBeatState({ reached: 0, total });
@@ -346,7 +341,10 @@ export default function StarWarsPage() {
         if (reached < cps.length) {
           const cp = cps[reached];
           if (Math.hypot(x - cp.x, z - cp.z) <= (cp.r || 2)) {
-            if (cpMarkers[reached]) cpMarkers[reached].material.color.set(0x44ff77);
+            const cpBeam = cps[reached] && cps[reached].beam;
+            if (cpBeam) cpBeam.material.color.set(0x44ff77);
+            const cpZone = cps[reached] && cps[reached].zone;
+            if (cpZone) cpZone.material.color.set(0x44ff77);
             reached += 1;
             setBeatState({ reached, total });
             if (reached >= cps.length && !zone.target) complete();
@@ -356,7 +354,8 @@ export default function StarWarsPage() {
         if (zone.target) {
           const t = zone.target;
           if (Math.hypot(x - t.x, z - t.z) <= (t.r || 2)) {
-            if (targetMarker) targetMarker.material.color.set(0x44ff77);
+            if (zone.target && zone.target.pillar) zone.target.pillar.material.color.set(0x44ff77);
+            if (zone.target && zone.target.zone) zone.target.zone.material.color.set(0x44ff77);
             setBeatState({ reached: total, total });
             complete();
           }
@@ -391,7 +390,13 @@ export default function StarWarsPage() {
         },
         dismount() {
           if (!mounted || !walker) return;
-          const pt = dismountPoint(mounted.state);
+          // The landspeeder dismounts through the shared mounting
+          // module (app/star-wars/riding.js — the same 3.8 m right
+          // flank vehicles.js dismountPoint gives); podracers keep
+          // their own vehicles.js flow.
+          const pt = mounted.state.type === 'landspeeder'
+            ? speederDismountSpot(mounted.state)
+            : dismountPoint(mounted.state);
           parkVehicle(mounted.state, zone.groundHeight);
           walker.pos.x = pt.x;
           walker.pos.z = pt.z;
@@ -419,6 +424,61 @@ export default function StarWarsPage() {
           onLook: (dx, dy) => applyLook(flight, dx, dy),
         }));
       }
+
+      /* LIFE TAP CARDS (Nov 15, 2026 — integration): tap a creature or
+       * a named figure to see its life card (name + operator life
+       * line). A tap is a short, still pointer-up — drag-look moves
+       * too far or lasts too long to count, so looking around never
+       * opens a card. A tap on empty ground closes the open card. */
+      const raycaster = new THREE.Raycaster();
+      const ndc = new THREE.Vector2();
+      let tapDown = null;
+      const onTapDown = (e) => {
+        tapDown = { x: e.clientX, y: e.clientY, t: performance.now() };
+      };
+      const onTapUp = (e) => {
+        if (!tapDown) return;
+        const moved = Math.hypot(e.clientX - tapDown.x, e.clientY - tapDown.y);
+        const held = performance.now() - tapDown.t;
+        tapDown = null;
+        if (moved > 12 || held > 500 || introRef.current) return;
+        const rect = canvas.getBoundingClientRect();
+        ndc.set(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1
+        );
+        raycaster.setFromCamera(ndc, camera);
+        const targets = [];
+        for (const rec of (zone.ambient || [])) if (rec.group) targets.push({ rec, group: rec.group, kind: 'ambient' });
+        for (const rec of (zone.characters || [])) if (rec.group) targets.push({ rec, group: rec.group, kind: 'character' });
+        if (!targets.length) return;
+        const hits = raycaster.intersectObjects(targets.map((t) => t.group), true);
+        if (!hits.length) { setLifeCard(null); return; }
+        let hitGroup = hits[0].object;
+        while (hitGroup && !targets.some((t) => t.group === hitGroup)) hitGroup = hitGroup.parent;
+        if (!hitGroup) { setLifeCard(null); return; }
+        const found = targets.find((t) => t.group === hitGroup);
+        if (!found) { setLifeCard(null); return; }
+        try {
+          const life = found.kind === 'character'
+            ? lifeFor({ kind: 'character', id: found.rec.id, name: found.rec.name })
+            : lifeFor({ type: found.rec.type, planet: found.rec.planet, index: found.rec.index });
+          if (life) {
+            setLifeCard({
+              name: life.name || found.rec.name || found.rec.type,
+              line: life.line || '',
+              kind: found.kind === 'character' ? 'Named figure' : 'Creature',
+              planet: life.planetName || def.name,
+            });
+          }
+        } catch (err) { /* a bad life line never breaks the walk */ }
+      };
+      canvas.addEventListener('pointerdown', onTapDown);
+      canvas.addEventListener('pointerup', onTapUp);
+      detachers.push(() => {
+        canvas.removeEventListener('pointerdown', onTapDown);
+        canvas.removeEventListener('pointerup', onTapUp);
+      });
 
       const frame = (now) => {
         if (cancelled) return;
@@ -465,11 +525,16 @@ export default function StarWarsPage() {
                  * eye every frame (Merlin QA 2026-10-23). */
                 snapY: true,
               });
-              /* Ride prompt: nearest parked vehicle in range. */
+              /* Ride prompt: nearest parked vehicle in range. The
+               * landspeeder prompts through the shared mounting
+               * module (app/star-wars/riding.js — the same 3.5 m);
+               * podracers keep their own vehicles.js check. */
               let promptId = null;
               for (const v of zone.vehicles || []) {
-                if (v.state.mode === 'parked'
-                  && vehicleInPromptRange(v.state, walker.pos.x, walker.pos.z)) {
+                const inRange = v.state.type === 'landspeeder'
+                  ? speederInPromptRange(v.state, walker.pos.x, walker.pos.z)
+                  : vehicleInPromptRange(v.state, walker.pos.x, walker.pos.z);
+                if (v.state.mode === 'parked' && inRange) {
                   promptId = v.id;
                   break;
                 }
@@ -535,7 +600,6 @@ export default function StarWarsPage() {
           );
         }
         zone.update(t, dt);
-        for (const m of markers) m.rotation.z += dt * 0.6;
         renderer.render(scene, camera);
         raf = requestAnimationFrame(frame);
       };
@@ -543,11 +607,6 @@ export default function StarWarsPage() {
 
       cleanup = () => {
         detachers.forEach((d) => { try { d(); } catch (e) {} });
-        markers.forEach((m) => {
-          scene.remove(m);
-          m.geometry.dispose();
-          m.material.dispose();
-        });
         try { zone.dispose(); } catch (e) {}
         scene.remove(zone.group);
       };
@@ -562,6 +621,7 @@ export default function StarWarsPage() {
       ridePromptRef.current = null;
       setRidePrompt(null);
       setMountedId(null);
+      setLifeCard(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, planetId, entry]);
@@ -589,6 +649,29 @@ export default function StarWarsPage() {
   const selMissionCount = sel ? planetMissionsDone(progress, sel.id) : null;
   const fmtClock = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+  /* Menu graphics (per-part art, lib/star-wars/menu-graphics.js):
+   * the selected part's art dresses its card banner, its travel
+   * buttons and its mission rows; the neutral galaxy art dresses the
+   * menu/crawl screens. Dark scrims keep every label legible at
+   * phone size in bright light. No sizes, order or actions change. */
+  const selArt = selectedId ? graphicForPlanet(selectedId) : NEUTRAL_GRAPHIC;
+  const menuArtBg = {
+    backgroundImage: `linear-gradient(rgba(2,2,10,0.62), rgba(2,2,10,0.88)), url(${NEUTRAL_GRAPHIC})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  };
+  const artTravelBtn = selectedId ? {
+    backgroundImage: artScrimBackground(selectedId, 0.68),
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    color: '#ffe81f',
+  } : {};
+  const artMissionRow = selectedId ? {
+    backgroundImage: artScrimBackground(selectedId, 0.8),
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  } : {};
+
   const nextId = (() => {
     const i = SAGA.indexOf(planetId);
     return i >= 0 ? SAGA[i + 1] : null;
@@ -615,7 +698,7 @@ export default function StarWarsPage() {
 
       {/* ================= MENU ================= */}
       {mode === 'menu' && (
-        <div style={styles.menu}>
+        <div style={{ ...styles.menu, ...menuArtBg }}>
           <StarBackdrop />
           <div style={styles.menuInner}>
             <h1 style={styles.swTitle}>Star Wars</h1>
@@ -629,7 +712,7 @@ export default function StarWarsPage() {
 
       {/* ================= CRAWL ================= */}
       {mode === 'crawl' && (
-        <div style={styles.menu}>
+        <div style={{ ...styles.menu, ...menuArtBg }}>
           <StarBackdrop />
           <div style={{ ...styles.menuInner, maxWidth: 640, textAlign: 'left' }}>
             <div style={styles.crawlEp}>{crawl.ep}</div>
@@ -670,6 +753,7 @@ export default function StarWarsPage() {
 
           {sel && cardView === 'main' && (
             <div style={styles.card}>
+              <div style={{ ...styles.cardArt, backgroundImage: `linear-gradient(rgba(6,8,18,0) 55%, rgba(6,8,18,0.55)), url(${selArt})` }} aria-hidden="true" />
               <div style={styles.cardName}>{sel.name}</div>
               <div style={styles.cardMeta}>{sel.biome}</div>
               {selMissionCount && (
@@ -680,8 +764,8 @@ export default function StarWarsPage() {
               )}
               <div style={styles.cardHint}>How do you want to visit?</div>
               <div style={styles.cardRow}>
-                <button style={styles.btn} onClick={() => setCardView('missions')}>🎯 Missions</button>
-                <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam</button>
+                <button style={{ ...styles.btn, ...artTravelBtn }} onClick={() => setCardView('missions')}>🎯 Missions</button>
+                <button style={{ ...styles.btn, ...styles.btnGhost, ...artTravelBtn }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam</button>
                 <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => setSelectedId(null)}>Close</button>
               </div>
               {selectedId === 'coruscant' && (
@@ -694,6 +778,7 @@ export default function StarWarsPage() {
 
           {sel && cardView === 'missions' && (
             <div style={styles.card}>
+              <div style={{ ...styles.cardArt, backgroundImage: `linear-gradient(rgba(6,8,18,0) 55%, rgba(6,8,18,0.55)), url(${selArt})` }} aria-hidden="true" />
               <div style={styles.cardName}>{sel.name}</div>
               <div style={styles.cardMeta}>Missions · progress counts here</div>
               <div style={styles.missionList}>
@@ -702,7 +787,7 @@ export default function StarWarsPage() {
                   return (
                     <button
                       key={m.id}
-                      style={styles.missionRow}
+                      style={{ ...styles.missionRow, ...artMissionRow }}
                       onClick={() => travelTo(selectedId, 'mission', m.id)}
                     >
                       <span style={styles.missionTitle}>
@@ -718,7 +803,7 @@ export default function StarWarsPage() {
               </div>
               <div style={styles.cardRow}>
                 <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => setCardView('main')}>Back</button>
-                <button style={{ ...styles.btn, ...styles.btnGhost }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam instead</button>
+                <button style={{ ...styles.btn, ...styles.btnGhost, ...artTravelBtn }} onClick={() => travelTo(selectedId, 'roam')}>🧭 Free Roam instead</button>
               </div>
             </div>
           )}
@@ -781,6 +866,16 @@ export default function StarWarsPage() {
             >
               ⬇ Exit vehicle
             </button>
+          )}
+
+          {/* life card: tap a creature or named figure for its life line */}
+          {lifeCard && (
+            <div style={styles.lifeCard}>
+              <div style={styles.lifeName}>{lifeCard.name}</div>
+              <div style={styles.lifeMeta}>{lifeCard.kind}{lifeCard.planet ? ` · ${lifeCard.planet}` : ''}</div>
+              {lifeCard.line && <div style={styles.lifeLine}>{lifeCard.line}</div>}
+              <button style={styles.smallBtn} onClick={() => setLifeCard(null)}>Close</button>
+            </div>
           )}
 
           {/* mission intro */}
@@ -921,7 +1016,11 @@ const styles = {
   },
   // map HUD
   mapTop: {
-    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 44px)', left: 12, right: 12,
+    // 54px, not 44: the exit button is minHeight 44 + 10px padding
+    // top/bottom (~64px tall), so a 44px top put the title's first
+    // line under its bottom edge on the left of the row (Nov 15,
+    // 2026 — caught by the lobby-pods suite). Matches zoneTop.
+    position: 'absolute', top: 'calc(' + BANNER_CLEAR + ' + 54px)', left: 12, right: 12,
     display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
     pointerEvents: 'none', padding: '12px 10px 30px', borderRadius: 14,
     // scrim: 3D planet labels drifting behind the header can no
@@ -940,6 +1039,14 @@ const styles = {
     boxShadow: '0 18px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,0,0,0.4)',
   },
   cardName: { color: '#fff', fontSize: 20, fontWeight: 700, letterSpacing: 1 },
+  /* Per-part menu art banner (lib/star-wars/menu-graphics.js): the
+   * selected planet's illustrated graphic, cover-cropped, with a
+   * soft dark blend into the card at its foot. */
+  cardArt: {
+    height: 116, borderRadius: 10, marginBottom: 14,
+    backgroundSize: 'cover', backgroundPosition: 'center',
+    border: '1px solid rgba(255,232,31,0.25)',
+  },
   cardMeta: { color: '#9fb4d8', fontSize: 12, letterSpacing: 2, marginTop: 4, textTransform: 'uppercase' },
   cardBeat: { color: '#ffe81f', fontSize: 14, marginTop: 10 },
   cardHint: { color: '#9fb4d8', fontSize: 12, letterSpacing: 1, marginTop: 12 },
@@ -1002,6 +1109,19 @@ const styles = {
     borderRadius: 10, cursor: 'pointer', pointerEvents: 'auto',
     whiteSpace: 'nowrap',
   },
+  // life card: sits above the ride prompt, below the objective —
+  // never over the joystick (left), the exit button (right) or the
+  // ride prompt (bottom-centre)
+  lifeCard: {
+    position: 'absolute', left: 16, right: 16, bottom: 'calc(' + BOTTOM_CLEAR + ' + 200px)',
+    background: 'rgba(6,8,18,0.97)', backdropFilter: 'blur(12px)',
+    border: '1px solid rgba(255,232,31,0.45)',
+    borderRadius: 14, padding: 16, pointerEvents: 'auto', maxWidth: 440, margin: '0 auto',
+    boxShadow: '0 18px 50px rgba(0,0,0,0.6)', textAlign: 'center',
+  },
+  lifeName: { color: '#fff', fontSize: 18, fontWeight: 700, letterSpacing: 1 },
+  lifeMeta: { color: '#9fb4d8', fontSize: 12, letterSpacing: 2, marginTop: 4, textTransform: 'uppercase' },
+  lifeLine: { color: '#ffe9b0', fontSize: 14, lineHeight: 1.6, margin: '10px 0 12px' },
   stickWrap: {
     position: 'absolute', left: 20, bottom: BOTTOM_CLEAR, pointerEvents: 'auto',
   },

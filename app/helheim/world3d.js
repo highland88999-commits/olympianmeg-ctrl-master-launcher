@@ -33,6 +33,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/helheim/world';
+import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
+import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
@@ -605,10 +607,12 @@ function Mist({reduced}) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, onAntiLife}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
+  const lastAntiLifeRef = useRef(0);
+  const antiLifeTravelingRef = useRef(false);
   const lastRegionRef = useRef('');
 
   useFrame((state, dtRaw) => {
@@ -663,6 +667,20 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
     } else {
       travelingRef.current = false;
     }
+    // ANTI-LIFE PORTAL (Merlin, 2026-11-15): a fall-through-the-floor
+    // portal to Anti-Life — the same once-per-entry guard as the
+    // arches and the Hades lava drop, so standing on the disc re-fires
+    // the fall only after stepping back out. The fall rides the same
+    // vortex travel; the tube is the fall.
+    if (onAntiLife && isOnAntiLifePortal(player.x, player.z)) {
+      if (!antiLifeTravelingRef.current && now - lastAntiLifeRef.current > 1500) {
+        antiLifeTravelingRef.current = true;
+        lastAntiLifeRef.current = now;
+        onAntiLife();
+      }
+    } else {
+      antiLifeTravelingRef.current = false;
+    }
   });
 
   return null;
@@ -670,7 +688,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
 
 // --- the whole scene ---------------------------------------------------------
 
-export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced, onAntiLife}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -685,6 +703,7 @@ export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced})
       <Nastrond stones={world.nastrondStones}  shades={world.shades}/>
       <FrozenShore pits={world.frozenPits} shades={world.shades} reduced={reduced} />
       <PortalArches />
+      <AntiLifePortalDisc />
       <DescentPortal />
       <Torches reduced={reduced} />
       <Mist reduced={reduced} />
@@ -692,6 +711,7 @@ export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced})
         playerRef={playerRef}
         inputRef={inputRef}
         onPortal={onPortal}
+        onAntiLife={onAntiLife}
         onRegion={onRegion}
         reduced={reduced}
       />

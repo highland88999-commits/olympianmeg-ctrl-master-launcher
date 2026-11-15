@@ -33,6 +33,7 @@ export function mulberry32(seed) {
 }
 
 import { ORC_WINDUP_S, ORC_ARM_REST, orcLimbAngles } from './figure-motion.js';
+import { ORC_SHARD_ITEM_ID, ORC_SHARD_ITEM_NAME, shardDropFor } from '../../lib/nether-realm/medusa.js';
 
 /* ---------------- numbers (the hunt's tuning) ---------------- */
 
@@ -450,6 +451,11 @@ export function damageOrc(orc, dmg, rng) {
 export function rollLoot(kind, rng) {
   const loot = [];
   const r = rng();
+  // ORC SHARDS (Merlin, 2026-11-15): every orc kill drops shards
+  // for Medusa's head upgrades — the shard economy did not exist
+  // before this; the drop is built here, in the one loot roll.
+  // Warrior 1–2, captain 3–5 (lib/nether-realm/medusa.js).
+  loot.push({ id: ORC_SHARD_ITEM_ID, name: ORC_SHARD_ITEM_NAME, qty: shardDropFor(kind, rng) });
   if (kind === 'captain') {
     loot.push({ id: 'crude-iron', name: 'Crude Iron', qty: 2 });
     if (rng() < 0.25) {

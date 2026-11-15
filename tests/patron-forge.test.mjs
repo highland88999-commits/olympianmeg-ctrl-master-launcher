@@ -37,6 +37,7 @@ import {
   sanitizeBackpackRecord,
   RETICLE_BY_CLASS,
 } from '../lib/backpack/backpack.js';
+import { cgiForClass, FIRING_KINDS } from '../lib/weapons/cgi.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -262,5 +263,40 @@ describe('route + page + venue source pins', () => {
     assert.ok(read('app/star-wars/landmarks.js').includes("'kyber-forge'"));
     assert.ok(read('app/star-wars/data.js').includes("type: 'kyber-forge'"));
     assert.ok(read('app/star-wars/page.jsx').includes('The Kyber Smith keeps a forge'));
+  });
+});
+
+describe('the CGI stamping (Merlin, 2026-11-15)', () => {
+  it('a commissioned weapon carries meta.cgi derived from its actual class', () => {
+    for (const cls of Object.keys(RETICLE_BY_CLASS)) {
+      const spec = { ...goodSpec, weaponClass: cls };
+      const item = aiWeaponItemFor(spec, 'kyber', '2026-10-24T00:00:00.000Z');
+      assert.ok(item.meta.cgi, cls);
+      // Commissions are known only by class: procedural model, never a GLB.
+      assert.equal(item.meta.cgi.model.kind, 'procedural', cls);
+      assert.ok(item.meta.cgi.firing && FIRING_KINDS.includes(item.meta.cgi.firing.kind), cls);
+      assert.equal(item.meta.cgi.firing.kind, cgiForClass(cls).firing.kind, cls);
+      assert.ok(JSON.stringify(item.meta).length < 2400, `${cls}: meta fits the law`);
+    }
+  });
+
+  it('an unknown class defaults to the blade CGI, never an invented one', () => {
+    assert.deepEqual(cgiForClass('no-such-class'), cgiForClass('blade'));
+    assert.equal(cgiForClass('staff').firing.kind, 'blast');
+    assert.equal(cgiForClass('firearm').firing.kind, 'bullet');
+  });
+
+  it('shelveAiWeapon shelves the item with its CGI intact', () => {
+    const shelved = shelveAiWeapon(emptyBackpackRecord(), goodSpec, 'dwarf', new Date('2026-10-24T00:00:00Z'));
+    assert.equal(shelved.ok, true);
+    assert.ok(shelved.item.meta.cgi, 'shelved item carries cgi');
+    assert.equal(shelved.item.meta.cgi.model.build, 'blade');
+    assert.equal(shelved.item.meta.reticle.style, 'dot', 'reticle untouched');
+  });
+
+  it('the commission route returns the cgi spec with the weapon', () => {
+    const src = read('app/api/weapons-forge/commission/route.js');
+    assert.ok(src.includes('cgiForClass'), 'route imports the shared spec');
+    assert.ok(src.includes('cgi: cgiForClass'), 'response carries cgi');
   });
 });

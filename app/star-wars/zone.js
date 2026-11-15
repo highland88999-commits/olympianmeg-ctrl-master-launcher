@@ -32,14 +32,19 @@
  *     group renders from the state in update().
  *   - colliders: world-space [{x, z, r}] (landmark-local circles rotated by ry,
  *     scaled by s, offset by landmark x/z).
- *   - checkpoints / target: {x, z, r, label}. Fly-zone rings sit at y≈0 so a
- *     2D horizontal distance check works.
+ *   - checkpoints / target: {x, z, r, label} plus the live beam /
+ *     pillar mesh (checkpoint.beam, target.pillar) and the flat
+ *     ground-zone disc (checkpoint.zone, target.zone) so the page can
+ *     recolour them green on reach. Fly-zone beams sit on y≈0 ground,
+ *     so a 2D horizontal distance check works.
  *   - sky / fog are extras for the page shell (scene.background + FogExp2).
  */
 import * as ThreeJS from 'three';
 import { buildLandmark, buildAmbient, GLB_MODELS, attachGlbModel } from './landmarks.js';
-import { buildCharacter } from './characters.js';
+import { buildCharacter, labelOpacity, makeLifeLabel } from './characters.js';
+import { ambientLifeFor } from './operators.js';
 import { VEHICLE_TYPES, createVehicleState } from './vehicles.js';
+import { cgiGroundMaps, buildCgi } from './cgi.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -242,11 +247,6 @@ function makeDiscGeometry(R, radius, rings, segs, heightAt) {
   return g;
 }
 
-const TEX_BY_NAME = {
-  sand: 'sandTexture', rock: 'rockTexture', ice: 'iceTexture', lava: 'lavaTexture',
-  metal: 'metalTexture', leaf: 'leafTexture', water: 'waterTexture', salt: 'saltTexture',
-  swamp: 'swampTexture', city: 'cityTexture',
-};
 
 /**
  * TEMPLATE (scatter): seeded instanced dressing for a walk world.
@@ -474,7 +474,19 @@ export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
       const r = minR + rand() * (maxR - minR);
       const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
       if (canyon && distToPath(x, z, canyon.path) < canyon.width / 2 + s + 2) continue;
-      if (!clearOf(x, z, Math.max(1.5, s * 0.6))) continue;
+      /* CLEARANCE LAW (Nov 15, 2026 — the rover perch): the pad must
+       * cover the instance's own radius, not 0.6 of it. The old
+       * 0.6*s let a size-5 rock sit 2 m inside a landmark's collider
+       * circle — a boulder overlapping the thing it was meant to
+       * keep clear of, so a vehicle could end up parked on a rock.
+       * Solid kinds clear by their full extent (rock: its radius;
+       * mesa: its flared skirt; wreck: its long axis); soft
+       * dressing keeps the old pad. */
+      const solidPad = entry.kind === 'rock' ? s
+        : entry.kind === 'mesa' ? s * 1.3
+        : entry.kind === 'wreck' ? s * 2.4
+        : Math.max(1.5, s * 0.6);
+      if (!clearOf(x, z, Math.max(1.5, solidPad))) continue;
       return { x, z };
     }
     return null;
@@ -544,12 +556,17 @@ export function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
       inst.castShadow = false; inst.receiveShadow = false;
       group.add(inst);
     } else if (entry.kind === 'vaporator') {
+      /* Vaporator metal (Nov 15, 2026 — the lamp-post read): at
+       * metalness 0.6 with no environment map the poles rendered
+       * near-black, and the 0.16 m crossbar vanished at distance —
+       * a forest of street lamps (Merlin's video 4). Lower metal,
+       * thicker bar, bigger head: pale farm machinery, not lamps. */
       const metal = new R.MeshStandardMaterial({
-        color: 0x9aa0a6, metalness: 0.6, roughness: 0.5, flatShading: true,
+        color: 0x9aa0a6, metalness: 0.3, roughness: 0.6, flatShading: true,
       });
       const pole = new R.InstancedMesh(new R.CylinderGeometry(0.09, 0.14, 1, 6), metal, placed.length);
-      const bar = new R.InstancedMesh(new R.BoxGeometry(1.9, 0.16, 0.16), metal, placed.length);
-      const head = new R.InstancedMesh(new R.BoxGeometry(0.66, 0.66, 0.66), metal, placed.length);
+      const bar = new R.InstancedMesh(new R.BoxGeometry(2.1, 0.24, 0.24), metal, placed.length);
+      const head = new R.InstancedMesh(new R.BoxGeometry(0.8, 0.8, 0.8), metal, placed.length);
       placed.forEach((p, k) => {
         const gy = heightAt(p.x, p.z);
         setInst(pole, k, p.x, gy, p.z, p.ry, p.s, 1, p.s, 0, 3.5, 0, 0, 1, 7, 1);
@@ -665,26 +682,36 @@ export function buildZone(THREE, planetDef, T, opts) {
   const skyHex = def.sky != null ? def.sky : (kind === 'walk' ? 0x87b5e0 : 0x05070f);
   const fogHex = def.fog != null ? def.fog : skyHex;
   const fogDensity = def.fogDensity != null ? def.fogDensity : (kind === 'walk' ? 0.0075 : 0.0);
+  /* The lights are captured (not anonymous) so the CGI layer can
+   * drive them with the real-clock day/night blend. */
+  let hemiLight = null, sunLight = null;
   if (kind === 'walk') {
-    group.add(new R.HemisphereLight(skyHex, def.ground != null ? def.ground : 0x8a6f4d, 0.85));
-    const sun = new R.DirectionalLight(0xfff2dd, 1.25);
-    sun.position.set(60, 110, 35);
-    group.add(sun);
+    hemiLight = new R.HemisphereLight(skyHex, def.ground != null ? def.ground : 0x8a6f4d, 0.85);
+    group.add(hemiLight);
+    sunLight = new R.DirectionalLight(0xfff2dd, 1.25);
+    sunLight.position.set(60, 110, 35);
+    group.add(sunLight);
   } else {
-    group.add(new R.HemisphereLight(0x8899ff, 0x111122, 0.5));
-    const sun = new R.DirectionalLight(0xcfe0ff, 0.9);
-    sun.position.set(-40, 80, 60);
-    group.add(sun);
+    hemiLight = new R.HemisphereLight(0x8899ff, 0x111122, 0.5);
+    group.add(hemiLight);
+    sunLight = new R.DirectionalLight(0xcfe0ff, 0.9);
+    sunLight.position.set(-40, 80, 60);
+    group.add(sunLight);
   }
 
   /* ---------- terrain (walk) / starfield (fly) ---------- */
   const worldRadius = kind === 'walk' ? (def.worldRadius || 130) : 130;
   if (kind === 'walk') {
-    const makerName = TEX_BY_NAME[def.tex] || 'sandTexture';
-    const gtex = T[makerName]();
-    extraTextures.push(gtex);
+    /* CGI GROUND (Nov 15, 2026): seeded colour + bump DataTextures
+     * from cgi.js — the lib/planet-cgi standard — instead of the old
+     * flat canvas tile. The maps carry the world's own colours, so
+     * the material stays white; the maps are cached per world and
+     * shared, so they are NOT pushed to extraTextures (zone.dispose
+     * must not free them — see the shared guard there). */
+    const groundMaps = cgiGroundMaps(R, def);
     const reps = Math.max(4, Math.round(28 * worldRadius / 130));
-    gtex.repeat.set(reps, reps);
+    groundMaps.map.repeat.set(reps, reps);
+    groundMaps.bumpMap.repeat.set(reps, reps);
     /* DENSE on purpose: the walker tracks the ANALYTIC heightAt
      * exactly (page snapY), so the rendered mesh must track it too.
      * At the old ~6 m radial spacing the mesh sagged up to 2.4 m
@@ -704,17 +731,28 @@ export function buildZone(THREE, planetDef, T, opts) {
     const ampFactor = 1 + Math.max(0, (def.groundAmp != null ? def.groundAmp : 2.5) - 2.5) * 0.125;
     const rings = Math.max(26, Math.round(worldRadius / 1.5 * (def.canyon ? 1.25 : 1) * ampFactor));
     const segs = Math.max(64, Math.round(worldRadius * 0.95 * (def.canyon ? 1.5 : 1) * ampFactor));
+    const terrainMat = new R.MeshStandardMaterial({
+      color: 0xffffff,
+      map: groundMaps.map, bumpMap: groundMaps.bumpMap,
+      bumpScale: groundMaps.bumpScale, roughness: groundMaps.roughness,
+      metalness: 0,
+    });
+    terrainMat.userData.shared = true; // maps are cached per world — do not dispose
     const terrain = new R.Mesh(
       makeDiscGeometry(R, worldRadius, rings, segs, heightAt),
-      new R.MeshStandardMaterial({
-        color: def.ground != null ? def.ground : 0xc9a06a,
-        map: gtex, roughness: 1, metalness: 0,
-      })
+      terrainMat
     );
     terrain.castShadow = false; terrain.receiveShadow = false;
     group.add(terrain);
     /* Far silhouettes so a big world reads as distance, not a rim. */
     group.add(buildHorizon(R, def, heightAt));
+    /* CGI SKY (Nov 15, 2026): gradient dome, suns, clouds, motes,
+     * devils, lightning — all on the real clock + the shared
+     * day/night law. The updater reads the zone's own `observer`,
+     * so the mote/devil fields follow the walker. */
+    const cgi = buildCgi(R, def, T, { sunLight: sunLight, hemiLight: hemiLight });
+    group.add(cgi.group);
+    updaters.push(function (t, dt) { cgi.update(t, dt, Date.now(), observer); });
   } else {
     const N = 1600, pos = new Float32Array(N * 3), rand = mulberry32(seed ^ 0x9e37);
     for (let i = 0; i < N; i++) {
@@ -729,6 +767,11 @@ export function buildZone(THREE, planetDef, T, opts) {
     group.add(new R.Points(sg, new R.PointsMaterial({
       color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false,
     })));
+    /* CGI SKY (fly worlds): no dome — the starfield is the sky —
+     * just the fixed sun sprite, so the debris field orbits a star. */
+    const cgiFly = buildCgi(R, def, T, {});
+    group.add(cgiFly.group);
+    updaters.push(function (t, dt) { cgiFly.update(t, dt, Date.now(), observer); });
   }
 
   /* ---------- landmarks (colliders -> world space) ---------- */
@@ -860,6 +903,8 @@ export function buildZone(THREE, planetDef, T, opts) {
           id: cd.id || cd.model || 'figure',
           name: cd.name || cd.id || '',
           x: cd.at[0], z: cd.at[1],
+          /* Tap target: the page raycasts this group for the life card. */
+          group: ch.group,
         });
         const cx = cd.at[0], cz = cd.at[1];
         updaters.push(function (t, dt) {
@@ -903,6 +948,15 @@ export function buildZone(THREE, planetDef, T, opts) {
     return true;
   }
   const ambientMaxR = def.ambientRadius || 100;
+  /* Ambient life records for the zone return (and the page):
+   * { type, name, x, z, index, planet } — the seeded home of
+   * each copy. Each copy also wears a floating two-line label
+   * (name + operator life line) that follows it as it wanders
+   * and refreshes about once a second — the same label path
+   * the named characters wear (characters.js makeLifeLabel).
+   * A label is dressing: if it cannot be built here, the
+   * creature still wanders without one. */
+  const ambient = [];
   for (const ad of ambientDefs) {
     const n = ad.count | 0;
     for (let i = 0; i < n; i++) {
@@ -917,12 +971,58 @@ export function buildZone(THREE, planetDef, T, opts) {
         const amb = buildAmbient(ad.type, R, T);
         amb.group.position.set(px, heightAt(px, pz), pz);
         group.add(amb.group);
-        updaters.push(function (t, dt) { amb.update(t, dt); });
+        const rec = {
+          type: ad.type, x: px, z: pz, index: i, planet: def.id || null,
+          /* Tap target: the page raycasts this group for the life card. */
+          group: amb.group,
+        };
+        ambient.push(rec);
+        let ambLabel = null;
+        try {
+          if (typeof document !== 'undefined') {
+            const life0 = ambientLifeFor(rec, Date.now());
+            rec.name = life0.name;
+            const made = makeLifeLabel(R, life0.name, life0.line);
+            made.sprite.position.set(px, heightAt(px, pz) + (life0.labelH || 2.2), pz);
+            group.add(made.sprite);
+            ambLabel = { made: made, labelH: life0.labelH || 2.2, lastRefresh: -10 };
+          }
+        } catch (e) { /* the creature wanders on, labelless */ }
+        updaters.push(function (t, dt) {
+          amb.update(t, dt);
+          /* Live home: the record's x/z track the wander, so tap
+           * cards and any consumer read where the creature IS, not
+           * where it was seeded. */
+          rec.x = amb.group.position.x; rec.z = amb.group.position.z;
+          if (ambLabel) {
+            const g = amb.group;
+            ambLabel.made.sprite.position.set(
+              g.position.x, g.position.y + ambLabel.labelH, g.position.z);
+            const op = labelOpacity(Math.hypot(observer.x - g.position.x, observer.z - g.position.z));
+            ambLabel.made.sprite.material.opacity = op;
+            ambLabel.made.sprite.visible = op > 0.02;
+            if (typeof t === 'number' && Number.isFinite(t) && t - ambLabel.lastRefresh >= 1) {
+              ambLabel.lastRefresh = t;
+              ambLabel.made.setLine(ambientLifeFor(rec, Date.now()).line);
+            }
+          }
+        });
       } catch (e) { /* unknown ambient: skip */ }
     }
   }
 
-  /* ---------- checkpoint rings ---------- */
+  /* ---------- checkpoint beams (mission mode only) ----------
+   * Was: golden torus rings, spinning + bobbing at terrain + 6.
+   * Now: tall additive gold beams in the target-pillar style, so the
+   * objective reads from across the map. Positions, radii (cp.r),
+   * labels and mission-mode gating are unchanged; the beam mesh is
+   * exposed on the checkpoint record so the page can recolour it
+   * green on reach (see page.jsx checkBeat).
+   * Ground zones, 2026-11-15 (Merlin: beam WITH ground zone, never
+   * a vertical ring with a ground zone): each checkpoint also carries
+   * a flat gold disc on the ground showing its trigger radius — a
+   * disc, not a torus ring. The disc mesh rides on the record too
+   * (checkpoint.zone) so the page can turn it green on reach. */
   const checkpoints = [];
   const cpDefs = Array.isArray(beat.checkpoints) ? beat.checkpoints : [];
   function makeLabel(text) {
@@ -947,17 +1047,29 @@ export function buildZone(THREE, planetDef, T, opts) {
     return sp;
   }
   for (const cp of cpDefs) {
-    const cy = kind === 'walk' ? heightAt(cp.x, cp.z) + 6 : 0;
-    const ring = new R.Mesh(
-      new R.TorusGeometry(4, 0.28, 10, 40),
-      new R.MeshStandardMaterial({
-        color: 0xffc63a, emissive: 0xff9d00, emissiveIntensity: 1.4,
-        roughness: 0.4, metalness: 0.3,
+    const gy = kind === 'walk' ? heightAt(cp.x, cp.z) : 0;
+    const cy = kind === 'walk' ? gy + 6 : 0;
+    const beam = new R.Mesh(
+      new R.CylinderGeometry(1.4, 2.2, 70, 12, 1, true),
+      new R.MeshBasicMaterial({
+        color: 0xffc63a, transparent: true, opacity: 0.28,
+        blending: R.AdditiveBlending, side: R.DoubleSide, depthWrite: false, fog: false,
       })
     );
-    ring.position.set(cp.x, cy, cp.z);
-    ring.castShadow = false; ring.receiveShadow = false;
-    group.add(ring);
+    beam.position.set(cp.x, gy + 32, cp.z);
+    beam.castShadow = false; beam.receiveShadow = false;
+    group.add(beam);
+    const zoneDisc = new R.Mesh(
+      new R.CircleGeometry(cp.r || 5, 48),
+      new R.MeshBasicMaterial({
+        color: 0xffc63a, transparent: true, opacity: 0.16,
+        side: R.DoubleSide, depthWrite: false, fog: false,
+      })
+    );
+    zoneDisc.rotation.x = -Math.PI / 2;
+    zoneDisc.position.set(cp.x, gy + 0.4, cp.z);
+    zoneDisc.castShadow = false; zoneDisc.receiveShadow = false;
+    group.add(zoneDisc);
     let label = null;
     if (cp.label) {
       label = makeLabel(cp.label);
@@ -965,15 +1077,22 @@ export function buildZone(THREE, planetDef, T, opts) {
       group.add(label);
     }
     const phase = cp.x * 1.7 + cp.z;
-    updaters.push(function (t, dt) {
-      ring.rotation.y += dt * 1.2;
-      ring.position.y = cy + Math.sin(t * 1.6 + phase) * 0.5;
-      if (label) label.position.y = cy + 5.5 + Math.sin(t * 1.6 + phase) * 0.5;
+    updaters.push(function (t) {
+      beam.material.opacity = 0.22 + Math.sin(t * 2.2 + phase) * 0.08;
+      zoneDisc.material.opacity = 0.12 + Math.sin(t * 2.2 + phase) * 0.04;
     });
-    checkpoints.push({ x: cp.x, z: cp.z, r: cp.r || 5, label: cp.label || '' });
+    checkpoints.push({ x: cp.x, z: cp.z, r: cp.r || 5, label: cp.label || '', beam: beam, zone: zoneDisc });
   }
 
-  /* ---------- target: light pillar + ground ring ---------- */
+  /* ---------- target: light pillar (mission mode only) ----------
+   * The flat ground ring is gone — the pillar already marks the
+   * target. The pillar itself is untouched (pale blue 0x9fdcff;
+   * Merlin, 2026-11-15: DISTINCT — it stays blue, it does not go
+   * gold). The pillar mesh is exposed on the target record so the
+   * page can recolour it green on reach (see page.jsx checkBeat).
+   * The target's ground zone is pale blue like its pillar, so the
+   * whole target marker reads distinct from the gold checkpoints;
+   * it is a flat disc (CircleGeometry), not a ring. */
   let target = null;
   if (beat.target) {
     const tg = beat.target;
@@ -987,18 +1106,22 @@ export function buildZone(THREE, planetDef, T, opts) {
     );
     pillar.position.set(tg.x, ty + 32, tg.z);
     group.add(pillar);
-    const gring = new R.Mesh(
-      new R.TorusGeometry(tg.r || 6, 0.3, 8, 48),
-      new R.MeshBasicMaterial({ color: 0x9fdcff, transparent: true, opacity: 0.7, fog: false })
+    const targetZone = new R.Mesh(
+      new R.CircleGeometry(tg.r || 6, 48),
+      new R.MeshBasicMaterial({
+        color: 0x9fdcff, transparent: true, opacity: 0.16,
+        side: R.DoubleSide, depthWrite: false, fog: false,
+      })
     );
-    gring.rotation.x = -Math.PI / 2;
-    gring.position.set(tg.x, ty + 0.4, tg.z);
-    group.add(gring);
+    targetZone.rotation.x = -Math.PI / 2;
+    targetZone.position.set(tg.x, ty + 0.4, tg.z);
+    targetZone.castShadow = false; targetZone.receiveShadow = false;
+    group.add(targetZone);
     updaters.push(function (t) {
       pillar.material.opacity = 0.22 + Math.sin(t * 2.2) * 0.08;
-      gring.rotation.z += 0.004;
+      targetZone.material.opacity = 0.12 + Math.sin(t * 2.2) * 0.04;
     });
-    target = { x: tg.x, z: tg.z, r: tg.r || 6, label: tg.label || '' };
+    target = { x: tg.x, z: tg.z, r: tg.r || 6, label: tg.label || '', pillar: pillar, zone: targetZone };
   }
 
   /* ---------- emissive pulse: anything tagged userData.pulse ---------- */
@@ -1057,7 +1180,13 @@ export function buildZone(THREE, planetDef, T, opts) {
         if (o.geometry) o.geometry.dispose();
         const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
         for (const m of mats) {
-          if (m.map) { try { m.map.dispose(); } catch (e) { /* noop */ } }
+          /* Shared maps (the CGI ground textures, cached per world)
+           * must NOT be freed here — the next zone build reuses
+           * them. Only per-build maps are disposed. */
+          if (!m.userData.shared) {
+            if (m.map) { try { m.map.dispose(); } catch (e) { /* noop */ } }
+            if (m.bumpMap) { try { m.bumpMap.dispose(); } catch (e) { /* noop */ } }
+          }
           try { m.dispose(); } catch (e) { /* noop */ }
         }
       }
@@ -1074,6 +1203,7 @@ export function buildZone(THREE, planetDef, T, opts) {
     checkpoints: checkpoints,
     target: target,
     characters: characters,
+    ambient: ambient,
     vehicles: vehicles,
     setObserver: function (x, z) { observer.x = x; observer.z = z; },
     update: update,

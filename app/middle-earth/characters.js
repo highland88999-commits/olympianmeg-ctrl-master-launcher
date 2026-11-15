@@ -43,7 +43,16 @@ export const CHARACTER_MODELS = {
   dwarf: { url: '/models/middle-earth/dwarf.glb', yawFix: 0 },
   halfling: { url: '/models/middle-earth/halfling.glb', yawFix: 0 },
   'dark-lord': { url: '/models/middle-earth/dark-lord.glb', yawFix: 0 },
-  horse: { url: '/models/middle-earth/horse.glb', yawFix: 0 },
+  /* Horse yawFix (measured 2026-11-15 from the GLB itself, not
+   * assumed): the model's longest axis is X and the HEAD end is
+   * -X — the -X end bins carry the tallest vertices (max Y 0.79
+   * at the -X end, falling to 0.31 at +X), the head/neck rising
+   * over the barrel. -X must map to the house forward (+Z), and
+   * rotation.y = +PI/2 does exactly that — so the horse now faces
+   * its declared faceYaw instead of standing flank-on to it, and
+   * a ridden horse faces the way it travels. One-glance
+   * correctable, like every yawFix here. */
+  horse: { url: '/models/middle-earth/horse.glb', yawFix: Math.PI / 2 },
   eagle: { url: '/models/middle-earth/eagle.glb', yawFix: 0 },
   warg: { url: '/models/middle-earth/warg.glb', yawFix: 0 },
   'fell-beast': { url: '/models/middle-earth/' + CREATURE_FILE['fell-beast'] + '.glb', yawFix: 0 },

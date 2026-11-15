@@ -75,7 +75,7 @@ test('the Gates stand at the bridge, the palace on the far bank', () => {
 test('portal arches: exact set, unique keys/routes/labels, all live routes', () => {
   assert.equal(PORTALS.length, 4);
   assert.deepEqual(PORTALS, [
-    { key: 'medusa', label: 'Medusa\'s Lair', route: '/medusa/lair', x: -47.6, z: -102.5 },
+    { key: 'sanctuary', label: 'Sanctuary', route: '/sanctuary', x: -47.6, z: -102.5 },
     { key: 'nether-realm', label: 'Hades', route: '/nether-realm', x: -18.8, z: -78.3 },
     { key: 'erebus', label: 'Erebus', route: '/erebus', x: 18.8, z: -78.3 },
     { key: 'zeus-v-hades', label: 'Zeus v Hades', route: '/zeus-v-hades', x: 47.6, z: -102.5 },

@@ -69,7 +69,7 @@ export const LANDMARK_TYPES = [
   'mustafar-fortress', 'lava-falls', 'yavin-temple', 'echo-base', 'swamp-hut',
   'cloud-city', 'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
   'starkiller-cannon', 'jedi-village', 'salt-arch', 'sith-citadel', 'sith-throne',
-  'death-star', 'debris-field', 'star-destroyer', 'cantina', 'landspeeder', 'rover',
+  'death-star', 'debris-field', 'star-destroyer', 'cantina', 'landspeeder', 'crashed-ship',
 ];
 
 /* ------------------------------------------------------------------
@@ -97,19 +97,13 @@ export const GLB_MODELS = {
     meters: 15,
     colliders: [{ x: 0, z: 0, r: 8.4 }],
   },
-  /* The Tatooine rover lives under /models/vehicles/ (the shared
-   * vehicle shelf, alongside the untouched rover.glb) — the one
-   * registry entry whose URL is not under /models/star-wars/.
-   * meters 6.0: the rigged file's own extent is ~1 unit, fitted to
-   * 6 m in-world; collider 3.3 covers the fitted footprint + margin. */
-  'tatooine-rover': {
-    url: '/models/vehicles/tatooine-rover.glb',
-    meters: 6.0,
-    colliders: [{ x: 0, z: 0, r: 3.3 }],
-    /* Facing is UNMEASURED (no device pass yet): if the rover drives
-     * tail-first on device, add yawFix: Math.PI here, as the
-     * landspeeder carries for its measured +Z nose. */
-  },
+  /* NOTE (Nov 15, 2026): the 'tatooine-rover' seat was REMOVED with
+   * the rover itself — its GLB was a rigged Tripo export whose broken
+   * skinning twisted its own undercarriage into the spiky mass the
+   * truck sat on (see the crash-site note on the Tatooine def). The
+   * file still exists on the shared vehicle shelf because Earth 2's
+   * fleet references it (lib/earth/vehicles.js) — it is simply no
+   * longer seated anywhere in Star Wars. */
   landspeeder: {
     url: '/models/star-wars/landspeeder.glb',
     meters: 5.6,
@@ -253,8 +247,29 @@ const BUILDERS = {
       const cable = mesh(R, new R.BoxGeometry(0.12, 0.12, 4.6), dark, s * 1.2, 1, 1.6);
       cable.rotation.y = s * 0.52; g.add(cable);
     }
-    const beam = mesh(R, new R.BoxGeometry(4.8, 0.16, 0.16), E(R, 0xd76bff, { transparent: true, opacity: 0.9 }), 0, 1.15, -3.1);
-    beam.userData.pulse = true; g.add(beam);
+    /* THE ENERGY BEAM (Nov 15, 2026 — Merlin's purple/pink band):
+     * the old beam was one opaque flat magenta bar (0xd76bff,
+     * opacity 0.9) floating between the engines — from the chase
+     * camera it read as a painted stripe across the ground, not as
+     * part of the pod. It is now a two-layer ADDITIVE energy tether:
+     * a thin near-white core inside a soft violet halo, both
+     * additive so the dune shows through and the eye reads LIGHT,
+     * plus small violet anchors where it meets the engine intakes.
+     * Same span (engine to engine), same place — it just reads as
+     * energy now. The halo alone carries userData.pulse. */
+    const beamCore = mesh(R, new R.BoxGeometry(4.8, 0.09, 0.09),
+      new R.MeshBasicMaterial({ color: 0xefe4ff, transparent: true, opacity: 0.85,
+        blending: R.AdditiveBlending, depthWrite: false, fog: false }), 0, 1.15, -3.1);
+    g.add(beamCore);
+    const beamHalo = mesh(R, new R.BoxGeometry(4.8, 0.3, 0.3),
+      new R.MeshBasicMaterial({ color: 0xb46bff, transparent: true, opacity: 0.32,
+        blending: R.AdditiveBlending, depthWrite: false, fog: false }), 0, 1.15, -3.1);
+    beamHalo.userData.pulse = true; g.add(beamHalo);
+    for (const s of [-1, 1]) {
+      g.add(mesh(R, new R.SphereGeometry(0.16, 8, 6),
+        new R.MeshBasicMaterial({ color: 0xc9a0ff, transparent: true, opacity: 0.8,
+          blending: R.AdditiveBlending, depthWrite: false, fog: false }), s * 2.4, 1.15, -3.1));
+    }
     const pod = mesh(R, new R.SphereGeometry(1.15, 12, 9), orange, 0, 0.95, 3.4);
     pod.scale.set(0.95, 0.8, 1.9); g.add(pod);
     const canopy = mesh(R, new R.SphereGeometry(0.55, 9, 7), dark, 0, 1.55, 2.9);
@@ -813,26 +828,67 @@ const BUILDERS = {
     }
     return done(R, g, cols);
   },
-  /* Tatooine — a parked six-wheeled rover: long chassis, cab at the
-   * drive end (-Z, the direction vehicles drive), three wheel pairs.
-   * Procedural stand-in for the tatooine-rover GLB seat; hidden when
-   * the GLB arrives. */
-  'rover': function (R) {
+  /* Tatooine — THE CRASH SITE (Nov 15, 2026 rework): a downed
+   * starship hull settled into the dunes where the army-truck rover
+   * used to sit. Deliberate wreckage, not a pedestal: the hull lies
+   * at a slight list with its low edge BURIED (its base sits below
+   * y=0 by construction, and span seating sinks it further), a
+   * detached engine nacelle rests beside it, thin debris plates lie
+   * half-buried around it, and a scorch disc marks the sand. No
+   * ride — it is a place, not a vehicle. Colliders chain the hull
+   * and the nacelle; the flat debris plates are walk-over. */
+  'crashed-ship': function (R) {
     const g = new R.Group();
-    const hull = M(R, 0xb08d58, { metalness: 0.35, roughness: 0.5 });
-    const dark = M(R, 0x2b2f35, { metalness: 0.5, roughness: 0.4 });
-    g.add(mesh(R, new R.BoxGeometry(2.2, 0.7, 5.2), hull, 0, 0.95, 0));
-    g.add(mesh(R, new R.BoxGeometry(1.8, 0.8, 1.4), hull, 0, 1.6, -1.9));
-    g.add(mesh(R, new R.BoxGeometry(1.4, 0.5, 0.2), dark, 0, 1.55, -2.65));
-    for (const s of [-1, 1]) {
-      for (const wz of [-2, 0, 2]) {
-        const wheel = mesh(R, new R.CylinderGeometry(0.48, 0.48, 0.32, 12), dark, s * 1.15, 0.48, wz);
-        wheel.rotation.z = Math.PI / 2;
-        g.add(wheel);
-      }
+    const hull = M(R, 0x3a3f46, { metalness: 0.6, roughness: 0.45 });
+    const dark = M(R, 0x23262c, { metalness: 0.55, roughness: 0.5 });
+    const scorched = M(R, 0x191512, { metalness: 0.2, roughness: 0.9 });
+    // scorch mark on the sand under the wreck
+    const scorch = mesh(R, new R.CircleGeometry(5.5, 20),
+      new R.MeshBasicMaterial({ color: 0x241a10, transparent: true, opacity: 0.55, depthWrite: false }), 0, 0.06, 0);
+    scorch.rotation.x = -Math.PI / 2;
+    g.add(scorch);
+    // main hull: 6.4 m of tapered fuselage, listed ~4 deg, low edge buried
+    const body = mesh(R, new R.BoxGeometry(2.6, 1.5, 6.4), hull, 0, 0.65, 0);
+    body.rotation.z = 0.07; body.rotation.x = -0.05;
+    g.add(body);
+    const nose = mesh(R, new R.ConeGeometry(1.15, 2.2, 4), scorched, 0, 0.7, -4.1);
+    nose.rotation.x = -Math.PI / 2; nose.rotation.z = Math.PI / 4;
+    g.add(nose);
+    // broken wing stub, one end kicked up; tail fin, snapped forward
+    const wing = mesh(R, new R.BoxGeometry(3.4, 0.18, 1.6), dark, 1.2, 1.15, 1.2);
+    wing.rotation.z = 0.35; g.add(wing);
+    const fin = mesh(R, new R.BoxGeometry(0.18, 1.6, 1.4), dark, -0.8, 1.55, 3.0);
+    fin.rotation.x = 0.3; fin.rotation.z = -0.2; g.add(fin);
+    // one dead running light, still faintly lit
+    g.add(mesh(R, new R.BoxGeometry(0.5, 0.08, 0.08),
+      E(R, 0x7fe7ff, { transparent: true, opacity: 0.6 }), 0, 1.25, -1.5));
+    // detached engine nacelle, lying on its side beside the hull
+    const nacelle = mesh(R, new R.CylinderGeometry(0.55, 0.65, 2.6, 10), hull, 4.6, 0.55, 2.2);
+    nacelle.rotation.z = Math.PI / 2; nacelle.rotation.y = 0.5;
+    g.add(nacelle);
+    // debris plates, half-buried around the wreck — low but SOLID:
+    // the QA hull law covers every vertex in the walker band, so
+    // each plate carries its own collider and the walker steps
+    // around them instead of through them
+    const debris = [
+      [3.8, 0.1, -2.5, 0.7, 1.6, 1.1], [-3.6, 0.08, 1.8, -0.4, 1.4, 0.9],
+      [2.2, 0.06, 4.6, 1.2, 1.2, 0.8], [-2.8, 0.1, -4.2, 2.0, 1.8, 1.0],
+    ];
+    for (const [dx, dy, dz, ry, w, d] of debris) {
+      const plate = mesh(R, new R.BoxGeometry(w, 0.12, d), scorched, dx, dy, dz, ry);
+      plate.rotation.x = (ry % 0.7) * 0.2;
+      g.add(plate);
     }
-    // the fitted GLB spans 6 m on its long axis; r 3.3 covers it
-    return done(R, g, [{ x: 0, z: 0, r: 3.3 }]);
+    /* Colliders cover the VISUAL hull (QA 2 law — every vertex in
+     * the walker band must sit inside a disc + 0.35 m): the nose
+     * cone pokes 3 m past the fuselage, the wing stub's raised tip
+     * sticks out sideways, and each debris plate carries its own. */
+    return done(R, g, [
+      { x: 0, z: -4.6, r: 1.6 }, { x: 0, z: -2.2, r: 2.1 }, { x: 0, z: 0.2, r: 2.3 }, { x: 0, z: 2.6, r: 2.0 },
+      { x: 2.4, z: 1.2, r: 1.2 }, { x: 4.6, z: 2.2, r: 1.3 },
+      { x: 3.8, z: -2.5, r: 1.0 }, { x: -3.6, z: 1.8, r: 0.9 },
+      { x: 2.2, z: 4.6, r: 0.8 }, { x: -2.8, z: -4.2, r: 1.1 },
+    ]);
   },
   /* Tatooine — a parked landspeeder: rounded hull, twin intakes,
    * windshield, hover skirt. Procedural stand-in for the GLB seat. */

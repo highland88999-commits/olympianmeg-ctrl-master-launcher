@@ -7,6 +7,7 @@ const LABELS = {
   bot_blocked: 'Bot blocked',
   rate_limited: 'Rate limited',
   blocked_ip_hit: 'Banned visitor retry',
+  agent_self_terminate: 'Agent self-terminated',
 };
 
 const COLORS = {
@@ -15,6 +16,7 @@ const COLORS = {
   bot_blocked: 'border-red-500/40 text-red-300',
   rate_limited: 'border-yellow-500/40 text-yellow-200',
   blocked_ip_hit: 'border-zinc-500/40 text-zinc-300',
+  agent_self_terminate: 'border-rose-500/40 text-rose-300',
 };
 
 function timeAgo(iso) {
@@ -53,6 +55,18 @@ export default function EventsFeed({ events = [] }) {
                   {String(e.ip_hash).slice(0, 12)}
                 </span>
               </div>
+              {e.event_type === 'agent_self_terminate' && e.details && (
+                <div className="mt-1 text-[11px] leading-relaxed text-zinc-400">
+                  {(e.details.agent_name || e.details.agent) && (
+                    <span>{e.details.agent_name || e.details.agent}</span>
+                  )}
+                  {e.details.reason && <span> — {e.details.reason}</span>}
+                  {Array.isArray(e.details.signals) && e.details.signals.length > 0 && (
+                    <span> ({e.details.signals.join(', ')})</span>
+                  )}
+                  {e.details.host && <span> · host: {e.details.host}</span>}
+                </div>
+              )}
             </li>
           ))}
         </ul>

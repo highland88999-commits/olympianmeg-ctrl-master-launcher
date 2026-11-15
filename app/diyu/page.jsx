@@ -1,8 +1,9 @@
 // app/diyu/page.jsx — DIYU: the world itself, base shell only.
 //
 // BASE SHELL (Merlin, Nov 12, 2026): The ten courts of hell — King Yama judges, the bridge crosses, the wheel turns.
-// No game mechanics yet: no trial, no judgment, no wheel — those come
-// later. First-person walk. WebGL via @react-three/fiber + drei (the
+// TRANCHE 1 (Merlin, Nov 15 ~02:15): the Wheel of Rebirth rides —
+// the rebirth gate (souls spine). No trial, no judgment yet —
+// those come later. First-person walk. WebGL via @react-three/fiber + drei (the
 // Erebus / Cerberus stack), SceneContextGuard on the canvas, vortex
 // travel on the arches (the Styx pattern). Plain-English HUD,
 // mobile-first: touch stick on the left, drag-to-look on the right, no
@@ -16,8 +17,18 @@ import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { useRealmInfoFade } from '@/components/useRealmInfoFade';
+import { RealmLifeLine } from '@/components/RealmLifeLine';
 import { DiyuScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/diyu/world';
+import { ANTI_LIFE_PORTAL_NAME, ANTI_LIFE_ROUTE } from '@/lib/afterlife/anti-life-portal';
+import {
+  newNonce,
+  readRebirthPoint,
+  recordRealmVisit,
+  soulsApi,
+  writeRebirthPoint,
+} from '@/lib/afterlife/souls';
+import { REBIRTH_DESTINATION } from '@/lib/afterlife/rebirth';
 
 const STICK_RADIUS = 60;
 
@@ -39,9 +50,28 @@ export default function DiyuPage() {
   const { infoHidden, fadeInfo, restoreInfo, infoStyle } = useRealmInfoFade({ reduced });
   const [stick, setStick] = useState({ dx: 0, dy: 0, active: false });
 
+  // THE WHEEL OF REBIRTH (tranche 1): the rebirth gate. Riding it
+  // attunes this wheel as your rebirth point and returns you to the
+  // world above (the hub). The point is device-local first; the
+  // server mirror is best-effort and never blocks the ride.
+  const [rebirthPoint, setRebirthPoint] = useState(null);
+  const [wheelBusy, setWheelBusy] = useState(false);
+  const [wheelNotice, setWheelNotice] = useState(null);
+
   useEffect(() => {
     regionRef.current = region;
   }, [region]);
+
+  useEffect(() => {
+    if (!wheelNotice) return undefined;
+    const t = setTimeout(() => setWheelNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [wheelNotice]);
+
+  useEffect(() => {
+    recordRealmVisit('diyu');
+    setRebirthPoint(readRebirthPoint());
+  }, []);
 
   useEffect(() => {
     try {
@@ -102,10 +132,50 @@ export default function DiyuPage() {
   const onPortal = useCallback((portal) => {
     travel(portal.route, portal.label);
   }, [travel]);
+  // ANTI-LIFE PORTAL (Merlin, 2026-11-15): the fall-through floor
+  // portal in this realm drops the walker into Anti-Life — where the
+  // 10-minute decay effect is granted. Same vortex travel as the
+  // arches; the tube is the fall.
+  const onAntiLife = useCallback(() => {
+    travel(ANTI_LIFE_ROUTE, ANTI_LIFE_PORTAL_NAME);
+  }, [travel]);
 
   const onRegion = useCallback((name) => {
     setRegion(name);
   }, []);
+
+  // Ride the Wheel: attune it as your rebirth point (server mirror
+  // best-effort) and return to the world above. Signed out? The
+  // ride still goes — the point is kept on this device instead.
+  const rideWheel = useCallback(async () => {
+    if (wheelBusy) return;
+    setWheelBusy(true);
+    const ride = () => {
+      const first = !rebirthPoint;
+      writeRebirthPoint('diyu');
+      setRebirthPoint(readRebirthPoint());
+      setWheelNotice(first ? 'The Wheel remembers you — this is your rebirth point now.' : 'The Wheel turns — back to the world above.');
+      travel(REBIRTH_DESTINATION.route, REBIRTH_DESTINATION.label);
+    };
+    try {
+      const res = await soulsApi('/api/afterlife/rebirth', { method: 'POST', body: { realm: 'diyu', action: 'ride', nonce: newNonce() } });
+      if (res.ok || res.status === 401) {
+        if (res.status === 401) {
+          setWheelNotice('The Wheel remembers you on this device — sign in to keep the point on your account.');
+          writeRebirthPoint('diyu');
+          setRebirthPoint(readRebirthPoint());
+          travel(REBIRTH_DESTINATION.route, REBIRTH_DESTINATION.label);
+        } else {
+          ride();
+        }
+      } else {
+        setWheelNotice('The Wheel did not turn. Try again.');
+      }
+    } catch {
+      setWheelNotice('The Wheel did not turn. Try again.');
+    }
+    setWheelBusy(false);
+  }, [wheelBusy, rebirthPoint, travel]);
 
   // --- mouse drag to look (desktop) ---------------------------------------
   const onPointerDown = (e) => {
@@ -201,6 +271,7 @@ export default function DiyuPage() {
             playerRef={playerRef}
             inputRef={inputRef}
             onPortal={onPortal}
+            onAntiLife={onAntiLife}
             onRegion={onRegion}
             reduced={reduced}
           />
@@ -254,11 +325,34 @@ export default function DiyuPage() {
         <p className="mt-1 text-sm font-semibold text-amber-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
           You are in: {region}
         </p>
+        {rebirthPoint?.realm === 'diyu' && (
+          <p className="mt-1 text-sm text-violet-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+            Your rebirth point: the Wheel of Rebirth
+          </p>
+        )}
         <p className="mt-3 rounded-full bg-black/55 px-4 py-2 text-xs text-stone-200">
           {touchUI
-            ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel'
-            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel'}
+            ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel · step onto the dark Anti-Life disc to fall through'
+            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel · step onto the dark Anti-Life disc to fall through'}
         </p>
+        {region === 'The Wheel of Rebirth' && (
+          <div className="pointer-events-auto mt-3 flex flex-col items-center gap-2">
+            <button
+              type="button"
+              onClick={rideWheel}
+              disabled={wheelBusy}
+              className="rounded-full border border-violet-300/60 bg-black/60 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-50"
+            >
+              ☸ Ride the Wheel of Rebirth — return to the world above
+            </button>
+          </div>
+        )}
+        {wheelNotice && (
+          <p className="mt-3 max-w-md rounded-full bg-black/55 px-4 py-2 text-xs text-stone-200">
+            {wheelNotice}
+          </p>
+        )}
+        <RealmLifeLine realmKey="diyu" />
       </div>
 
       <div className="absolute left-4 top-4 z-30">

@@ -108,7 +108,7 @@ export const WORLDS = [
   { key: "hygieia", title: "Health Reminders", route: "/hygieia", god: "HESTIA" },
   { key: "meaning-of-life", title: "Life Visualizer", route: "/meaning-of-life", god: "HESTIA" },
   { key: "magic-mirror", title: "Mirror", route: "/magic-mirror", god: "HESTIA" },
-  { key: "medusa-lair", title: "Sanctuary", route: "/medusa/lair", god: "HESTIA" },
+  { key: "sanctuary", title: "Sanctuary", route: "/sanctuary", god: "HESTIA" },
   { key: "life", title: "Spark Flight", route: "/life", god: "HESTIA" },
   { key: "styx", title: "The Passage", route: "/styx", god: "HESTIA" },
   { key: "dk-hero", title: "Arcade Climber", route: "/dk-hero", god: "DIONYSUS" },

@@ -43,7 +43,7 @@ test('full tour: every program, registry order, nothing invented', () => {
 test('cadence is five seconds and keys prettify', () => {
   assert.equal(GATE_SECONDS, 5);
   assert.equal(prettifyKey('hollow-earth'), 'Hollow Earth');
-  assert.equal(prettifyKey('medusa-lair'), 'Medusa Lair');
+  assert.equal(prettifyKey('sanctuary'), 'Sanctuary');
 });
 
 test('concourse: tour tile opens the ride, SOON badge removed (Merlin 2026-10-29)', () => {

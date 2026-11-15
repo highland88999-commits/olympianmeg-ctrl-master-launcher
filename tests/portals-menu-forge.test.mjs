@@ -15,8 +15,8 @@ const page = readFileSync('app/page.jsx', 'utf8');
 const menu = readFileSync('components/SatelliteMenu.jsx', 'utf8');
 const search = readFileSync('lib/menu-search.js', 'utf8');
 
-test('registry untouched: still 213, no agent-forge', () => {
-  assert.equal(registryKeys.length, 213); // 181 at this test's writing; Hades seats: →198; nether-realms homes: →210 (Nov 12, 2026); Earth 4 seat: →211 (Nov 14, 2026); Moon + Sun Base seats: →213 (Nov 14, 2026). The point stands: agent-forge is NOT in the registry.
+test('registry untouched: still 215, no agent-forge', () => {
+  assert.equal(registryKeys.length, 216); // 181 at this test's writing; Hades seats: →198; nether-realms homes: →210 (Nov 12, 2026); Earth 4 seat: →211 (Nov 14, 2026); Moon + Sun Base seats: →213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: →215 (Nov 15, 2026); Ghost Rider seat: →216 (Nov 15, 2026). The point stands: agent-forge is NOT in the registry.
   assert.equal(registryKeys.includes('agent-forge'), false);
 });
 

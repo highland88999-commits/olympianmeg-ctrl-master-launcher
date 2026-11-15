@@ -17,6 +17,7 @@ import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { buildZone } from './zone';
 import * as T from './textures';
 import * as DATA from './data';
+import { podGraphic, neutralGraphic } from '../../lib/middle-earth/menu-graphics.js';
 import { PLAYABLE, PLAYABLE_ORDER, buildFigure } from './characters.js';
 import {
   createCampaign, loadCampaign, saveCampaign, recordKill, gateOpen,
@@ -36,18 +37,24 @@ import {
   cgiForWeapon, rangedFiringFor, meleeFiringFor,
   spawnProjectile, stepProjectile,
   buildProjectileMesh, buildSwingArc, buildMuzzleFlash,
-  loadWeaponGroup, mountWeaponInHand,
+  loadWeaponGroup, mountWeaponInHand, mountWeaponSheathed,
 } from '../../lib/weapons/cgi.js';
 import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
 import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
-import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
+import { createWalker, stepWalker, applyLook, resolveColliders, clampBounds } from '@/lib/world/walk-controls';
+import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { followCameraPose } from '@/lib/world/follow-camera';
 import { goalArrowDeg } from './goal-compass';
 import {
-  heroMotionPose, shouldTuckMissionCard, MISSION_RETUCK_AFTER_S,
+  heroMotionPose, heroPhaseRate, heroSeatPose, horseGallopPose, gallopPhaseRate,
+  blendPoses, MOUNT_BLEND_S, shouldTuckMissionCard, MISSION_RETUCK_AFTER_S,
 } from './figure-motion';
+import {
+  RIDE_SPEED_MPS, nearestHorseInRange, riderSeatOffsetY,
+  dismountSpot, horseYawForWalker,
+} from './riding';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, triggerRisingEdge, triggerValue, GAMEPAD_BUTTONS } from '@/lib/gamepad';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -121,6 +128,16 @@ export default function MiddleEarthPage() {
   const beatOverlayRef = useRef(false);
   const fallenRef = useRef(false);
   const finaleRef = useRef(false);
+  /* HORSES RIDEABLE (Merlin, Nov 15 ~00:57): Rohan's horses mount.
+   * rideRef is the frame loop's truth ({ horse } while mounted);
+   * the blend eases the hero between the walk pose and the seat
+   * pose over MOUNT_BLEND_S so mounting never snaps. */
+  const rideRef = useRef(null);
+  const ridePhaseRef = useRef(0); // gallop-cycle phase, radians
+  const rideBlendRef = useRef(0); // 0 = walk pose, 1 = seat pose
+  const seatHeightRef = useRef(0); // saddle height above ground, metres
+  const mountPromptRef = useRef(null); // horse id with a live prompt
+  const rideApiRef = useRef(null); // { mountPrompted, dismount } for the buttons
 
   const [mode, setMode] = useState('menu'); // menu | map | zone
   const [podId, setPodId] = useState(null);
@@ -152,6 +169,10 @@ export default function MiddleEarthPage() {
   /* Goal compass: the active travel goal's label, distance, arrow. */
   const [goalHud, setGoalHud] = useState(null);
   const [sprintHeld, setSprintHeld] = useState(false);
+  /* Mount prompt (nearest horse in range) and mounted state —
+   * React mirrors of rideRef/mountPromptRef, for the buttons. */
+  const [mountPrompt, setMountPrompt] = useState(null); // { id, name } | null
+  const [mounted, setMounted] = useState(null); // { id, name } | null
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -411,8 +432,14 @@ export default function MiddleEarthPage() {
      * mace for the dwarf's axe, sword for the rest. The GLB when
      * one exists, the procedural build when it does not or fails
      * to load. Swaps live through handWeaponRef (the pack/weapon
-     * effect above calls swap); the zone cleanup disposes it. */
-    const handWeapon = { group: null, token: 0 };
+     * effect above calls swap); the zone cleanup disposes it.
+     * Nothing the hero carries ever vanishes: the weapon that
+     * leaves the hand is SHEATHED on the body (mountWeaponSheathed),
+     * and so is the other hand's weapon — the sheathed set is
+     * always the hero's actual carried weapons, at their fitted
+     * size, on the hip or the back, never floating. */
+    const handWeapon = { group: null, spec: null, token: 0 };
+    const sheathed = { groups: new Map(), lastOut: null, token: 0 };
     const disposeHandGroup = (group) => {
       if (!group) return;
       group.traverse((o) => {
@@ -435,32 +462,85 @@ export default function MiddleEarthPage() {
           : wc === 'blunt' ? 'preset-mace'
             : 'preset-sword'
     );
+    /* The weapon a hand carries: the equipped weapon when it arms
+     * that hand, else the hero's native weapon for the hand. The
+     * one place that decision lives, for the hand and the sheathe. */
+    const specForHand = (hand) => {
+      const hero = heroRef.current;
+      if (!hero) return null;
+      const eq = equippedRef.current;
+      if (eq && weaponHand(eq) === hand) {
+        return {
+          wc: (eq.meta && eq.meta.weaponClass) || nativeWeaponClassFor(hero, hand),
+          id: eq.id,
+        };
+      }
+      const wc = nativeWeaponClassFor(hero, hand);
+      return { wc, id: nativePresetIdFor(wc) };
+    };
+    /* The sheathed set, kept in step with the hand: the other
+     * hand's weapon, plus the weapon just swapped out. A weapon
+     * is never sheathed while it is in the hand, never twice,
+     * and never at the wrong size — every sheathed group is a
+     * fitted loadWeaponGroup, mounted by mountWeaponSheathed.
+     * Async loads are token-guarded like the hand swap, so a
+     * fast double-swap cannot leave a stale weapon on the body. */
+    const syncSheathe = async (activeHand, activeSpec) => {
+      const myToken = ++sheathed.token;
+      const hero = heroRef.current;
+      if (!hero || !playerBody) return;
+      const activeKey = activeSpec ? (activeSpec.wc + ':' + (activeSpec.id || '')) : '';
+      const desired = new Map();
+      const addDesired = (spec) => {
+        if (!spec || !spec.wc) return;
+        const key = spec.wc + ':' + (spec.id || '');
+        if (key === activeKey) return;
+        if (!desired.has(key)) desired.set(key, spec);
+      };
+      addDesired(specForHand(activeHand === 'ranged' ? 'melee' : 'ranged'));
+      addDesired(sheathed.lastOut);
+      for (const [key, g] of [...sheathed.groups]) {
+        if (!desired.has(key)) {
+          playerBody.remove(g);
+          disposeHandGroup(g);
+          sheathed.groups.delete(key);
+        }
+      }
+      for (const [key, spec] of desired) {
+        if (sheathed.groups.has(key)) continue;
+        const group = await loadWeaponGroup(THREE, cgiForWeapon({ id: spec.id, weaponClass: spec.wc }));
+        if (cancelled || myToken !== sheathed.token || !playerBody || !group) {
+          if (group) disposeHandGroup(group);
+          continue;
+        }
+        if (sheathed.groups.has(key)) { disposeHandGroup(group); continue; }
+        mountWeaponSheathed(THREE, playerBody, group, { weaponClass: spec.wc, height: hero.height });
+        sheathed.groups.set(key, group);
+      }
+    };
     const mountHandWeapon = async () => {
       const myToken = ++handWeapon.token;
       const hero = heroRef.current;
       if (!hero || !playerBody) return;
-      const eq = equippedRef.current;
       const hand = weaponRef.current;
-      let wc;
-      let id;
-      if (eq && weaponHand(eq) === hand) {
-        wc = (eq.meta && eq.meta.weaponClass) || nativeWeaponClassFor(hero, hand);
-        id = eq.id;
-      } else {
-        wc = nativeWeaponClassFor(hero, hand);
-        id = nativePresetIdFor(wc);
-      }
+      const spec = specForHand(hand);
+      if (!spec) return;
+      const { wc, id } = spec;
       const group = await loadWeaponGroup(THREE, cgiForWeapon({ id, weaponClass: wc }));
       if (cancelled || myToken !== handWeapon.token || !playerBody || !group) {
         if (group) disposeHandGroup(group);
         return;
       }
       if (handWeapon.group) {
+        // The outgoing weapon goes on the body, not into the void.
+        sheathed.lastOut = handWeapon.spec;
         playerBody.remove(handWeapon.group);
         disposeHandGroup(handWeapon.group);
       }
       mountWeaponInHand(THREE, playerBody, group, { weaponClass: wc, height: hero.height });
       handWeapon.group = group;
+      handWeapon.spec = spec;
+      void syncSheathe(hand, spec);
     };
     handWeaponRef.current = { swap: mountHandWeapon };
     mountHandWeapon();
@@ -468,6 +548,60 @@ export default function MiddleEarthPage() {
     const detachers = [];
     const spawn = zone.spawn || { x: 0, z: 95, yaw: Math.PI };
     const walker = createWalker({ x: spawn.x, z: spawn.z, yaw: spawn.yaw || 0, pitch: 0 });
+
+    // ── Horses rideable (Merlin, 2026-11-15) ────────────────
+    // Mounting steps the walker onto the horse (the gap is at most
+    // the 4 m prompt range — never a teleport across the pod); the
+    // horse turns to face the way the rider faces and travels with
+    // the walker from then on. Dismounting sets the walker beside
+    // the horse, settled by the walker's own push-out, and the
+    // horse waits exactly where it was left, still rideable.
+    const resetHorseBody = (horse) => {
+      if (!horse || !horse.group) return;
+      const hb = horse.group.getObjectByName('figure-body');
+      if (hb) { hb.rotation.x = 0; hb.rotation.z = 0; }
+    };
+    const mountHorse = (horse) => {
+      if (!horse || rideRef.current || !hunter.alive) return;
+      walker.pos.x = horse.x;
+      walker.pos.z = horse.z;
+      walker.jumpY = 0; walker.jumpV = 0; walker.grounded = true;
+      prevPlayerRef.current = { x: horse.x, z: horse.z };
+      horse.yaw = horseYawForWalker(walker.yaw);
+      horse.group.rotation.y = horse.yaw;
+      rideRef.current = { horse };
+      ridePhaseRef.current = 0;
+      setMounted({ id: horse.id, name: horse.name });
+      setMountPrompt(null);
+      mountPromptRef.current = null;
+      showToast(`🐎 Mounted — ${horse.name}. Ride with the stick; strike from the saddle.`);
+    };
+    const dismountHorse = () => {
+      const ride = rideRef.current;
+      if (!ride) return;
+      const horse = ride.horse;
+      const spot = dismountSpot(horse);
+      const settled = { x: spot.x, z: spot.z };
+      resolveColliders(settled, zone.colliders);
+      clampBounds(settled, zone.bounds);
+      walker.pos.x = settled.x;
+      walker.pos.z = settled.z;
+      walker.jumpY = 0; walker.jumpV = 0; walker.grounded = true;
+      prevPlayerRef.current = { x: settled.x, z: settled.z };
+      resetHorseBody(horse);
+      rideRef.current = null;
+      setMounted(null);
+      showToast(`🚶 Dismounted — ${horse.name} waits where you left it.`);
+    };
+    rideApiRef.current = {
+      mountPrompted: () => {
+        const id = mountPromptRef.current;
+        if (!id) return;
+        const hh = (zone.horses || []).find((x) => x.id === id);
+        if (hh) mountHorse(hh);
+      },
+      dismount: dismountHorse,
+    };
 
     // ── Dino companions (Merlin, 2026-11-14) ───────────────
     // Raised dinos ride the backpack: 'out' dinos from the pack
@@ -686,11 +820,29 @@ export default function MiddleEarthPage() {
       if (e.key === '1') setWeapon('melee');
       if (e.key === '2') setWeapon('ranged');
       if (e.key === 'f' || e.key === 'F') onTap();
+      /* E mounts the prompted horse / dismounts (desktop parity
+       * with the Mount / Dismount buttons) */
+      if (e.key === 'e' || e.key === 'E') {
+        if (rideRef.current) dismountHorse();
+        else if (mountPromptRef.current) {
+          const hh = (zone.horses || []).find((x) => x.id === mountPromptRef.current);
+          if (hh) mountHorse(hh);
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     detachers.push(() => window.removeEventListener('keydown', onKey));
 
     respawnRef.current = () => {
+      /* fallen off the horse: the horse waits where it was left,
+       * still rideable — the rider wakes at the pod's edge alone */
+      if (rideRef.current) {
+        resetHorseBody(rideRef.current.horse);
+        rideRef.current = null;
+      }
+      setMounted(null);
+      setMountPrompt(null);
+      mountPromptRef.current = null;
       walker.pos.x = spawn.x; walker.pos.z = spawn.z; walker.yaw = spawn.yaw || 0;
       reviveHunter(hunter);
       setHp(hunter.hp);
@@ -707,6 +859,7 @@ export default function MiddleEarthPage() {
 
     let raf = 0;
     let last = performance.now();
+    let lastDecayReport = 0;
     // Gamepad strike state: rising-edge sets, reset when no pad is
     // attached so a held button can never fire stale on reconnect.
     let gpButtons = new Set();
@@ -737,24 +890,79 @@ export default function MiddleEarthPage() {
       if (!paused) {
         const boss = zone.hunt.boss;
         const h = heroRef.current;
-        let speed = 10 * (h ? h.speedMult : 1);
-        if (boss && boss.state === 'combat') {
-          const d = Math.hypot(walker.pos.x - boss.x, walker.pos.z - boss.z);
-          speed = 10 * (h ? h.speedMult : 1) * bossSlowFactor(boss, d);
+        const ride = rideRef.current;
+        if (ride) {
+          /* RIDING: the horse goes where the rider steers it, at
+           * the gallop — sprint and jump are ignored from the
+           * saddle (the gallop IS the fast speed; stacking the
+           * sprint multiplier on it would pass 39 m/s). The
+           * horse's own collider is left out of the step so the
+           * rider is never pushed off their own horse; every
+           * other collider still stops the horse dead, like any
+           * solid thing. The boss's Voice slows the gallop too. */
+          let rideSpeed = RIDE_SPEED_MPS;
+          if (boss && boss.state === 'combat') {
+            const d = Math.hypot(walker.pos.x - boss.x, walker.pos.z - boss.z);
+            rideSpeed = RIDE_SPEED_MPS * bossSlowFactor(boss, d);
+          }
+          keys.consumeJump();
+          touchRef.current.jump = false; // no jumping from the saddle
+          stepWalker(walker, {
+            fwd: keys.state.fwd + joyRef.current.y,
+            strafe: keys.state.strafe + joyRef.current.x,
+            sprint: false, jump: false,
+          }, dt, {
+            groundHeight: zone.groundHeight,
+            colliders: zone.colliders.filter((c) => c !== ride.horse.collider),
+            bounds: zone.bounds,
+            snapY: true,
+            speed: rideSpeed,
+          });
+          /* the horse travels with the rider: its facing follows
+           * travel, its solid circle travels with it, and the
+           * figure group rides at the walker's feet */
+          ride.horse.x = walker.pos.x;
+          ride.horse.z = walker.pos.z;
+          ride.horse.yaw = horseYawForWalker(walker.yaw);
+          ride.horse.collider.x = walker.pos.x;
+          ride.horse.collider.z = walker.pos.z;
+          ride.horse.group.position.set(walker.pos.x, zone.groundHeight(walker.pos.x, walker.pos.z), walker.pos.z);
+          ride.horse.group.rotation.y = ride.horse.yaw;
+        } else {
+          let speed = 10 * (h ? h.speedMult : 1);
+          if (boss && boss.state === 'combat') {
+            const d = Math.hypot(walker.pos.x - boss.x, walker.pos.z - boss.z);
+            speed = 10 * (h ? h.speedMult : 1) * bossSlowFactor(boss, d);
+          }
+          const jump = keys.consumeJump() || touchRef.current.jump;
+          touchRef.current.jump = false;
+          stepWalker(walker, {
+            fwd: keys.state.fwd + joyRef.current.y,
+            strafe: keys.state.strafe + joyRef.current.x,
+            sprint: keys.state.sprint || touchRef.current.sprint, jump,
+          }, dt, {
+            groundHeight: zone.groundHeight,
+            colliders: zone.colliders,
+            bounds: zone.bounds,
+            snapY: true,
+            speed,
+          });
         }
-        const jump = keys.consumeJump() || touchRef.current.jump;
-        touchRef.current.jump = false;
-        stepWalker(walker, {
-          fwd: keys.state.fwd + joyRef.current.y,
-          strafe: keys.state.strafe + joyRef.current.x,
-          sprint: keys.state.sprint || touchRef.current.sprint, jump,
-        }, dt, {
-          groundHeight: zone.groundHeight,
-          colliders: zone.colliders,
-          bounds: zone.bounds,
-          snapY: true,
-          speed,
-        });
+        /* mount prompt: the nearest horse in range, threshold
+         * crossings only (the Earth 2 board-prompt pattern) — the
+         * button appears before the walker is pressed against the
+         * horse, and never while mounted, dead, or mid-overlay */
+        if (!rideRef.current && zone.horses && zone.horses.length && hunter.alive) {
+          const near = nearestHorseInRange(zone.horses, walker.pos.x, walker.pos.z);
+          const nearId = near ? near.id : null;
+          if (nearId !== mountPromptRef.current) {
+            mountPromptRef.current = nearId;
+            setMountPrompt(near ? { id: near.id, name: near.name } : null);
+          }
+        } else if (mountPromptRef.current) {
+          mountPromptRef.current = null;
+          setMountPrompt(null);
+        }
       }
       /* THIRD-PERSON FOLLOW (the honest nearest thing): the
        * walker's first-person eye is replaced by a camera that
@@ -765,40 +973,92 @@ export default function MiddleEarthPage() {
        * framing wildly on look-drag). No collision-swept shoulder
        * cam — that is a bigger camera system, not smuggled in here. */
       const h2 = heroRef.current;
-      const headY = zone.groundHeight(walker.pos.x, walker.pos.z) + (h2 ? h2.height * 0.9 : 1.6);
+      /* mounted, the head rides a saddle-height higher — the blend
+       * keeps the camera from snapping up or down on mount/dismount */
+      const seatY = seatHeightRef.current * rideBlendRef.current;
+      const headY = zone.groundHeight(walker.pos.x, walker.pos.z) + seatY + (h2 ? h2.height * 0.9 : 1.6);
       const cam = followCameraPose({
         x: walker.pos.x, z: walker.pos.z, yaw: walker.yaw, pitch: walker.pitch,
         headY, groundHeight: zone.groundHeight,
       });
       camera.position.set(cam.cx, cam.cy, cam.cz);
       camera.lookAt(cam.lookX, cam.lookY, cam.lookZ);
+      /* the ridden horse's gallop pose, computed with the hero
+       * pose below (pure math) and applied to the horse body after
+       * zone.update() — the zone's figure update owns the body
+       * absolutely, so the gallop is added on top of it */
+      let gallopPose = null;
       if (playerFig) {
-        playerFig.group.position.set(walker.pos.x, zone.groundHeight(walker.pos.x, walker.pos.z), walker.pos.z);
+        const ride = rideRef.current;
+        /* mount/dismount blend: the hero rises into the saddle
+         * (and sinks back down) over MOUNT_BLEND_S, never snapping */
+        const blendTarget = ride ? 1 : 0;
+        const b0 = rideBlendRef.current;
+        rideBlendRef.current = blendTarget > b0
+          ? Math.min(1, b0 + dt / MOUNT_BLEND_S)
+          : Math.max(0, b0 - dt / MOUNT_BLEND_S);
+        const blend = rideBlendRef.current;
+        if (ride) seatHeightRef.current = riderSeatOffsetY(ride.horse.height, h2 ? h2.height : 1.85);
+        playerFig.group.position.set(walker.pos.x, zone.groundHeight(walker.pos.x, walker.pos.z) + seatHeightRef.current * blend, walker.pos.z);
         playerFig.group.rotation.y = walker.yaw + Math.PI;
-        /* Hero motion (round 2): the hero is an unrigged GLB, so the
-         * body group bobs, leans, rolls, and twists instead of legs
-         * swinging. Travel speed comes from real feet movement per
-         * frame (a teleport-sized jump reads as standing, never as
-         * a sprint). The figure's own breathing runs in update()
-         * first; this pose is ADDED on top of it, never fighting it. */
+        /* Hero motion (round 3, 2026-11-15 — the glide fix): the
+         * hero is an unrigged GLB (one fused mesh, no separable
+         * legs), so the walk is a STEP RHYTHM on the whole body —
+         * two bobs per cycle, a lateral weight shift onto the
+         * planted foot, roll + pelvis/shoulder counter-twist in
+         * counter-phase, a small forward surge per step. Travel
+         * speed comes from real feet movement per frame (a
+         * teleport-sized jump reads as standing, never as a
+         * sprint); the phase advances at a readable step rate
+         * (heroPhaseRate — ~4.5 steps/s at the 10 m/s walk, not
+         * the old 7 sway cycles/s that blurred into a glide).
+         * The figure's own breathing runs in update() first;
+         * this pose is ADDED on top of it, never fighting it:
+         * leanX/rollZ/swayX/stepZ are set before update()
+         * (it owns position.y and rotation.y only), bobY/twistY
+         * are added after it. */
         const prev = prevPlayerRef.current;
         const moved = prev ? Math.hypot(walker.pos.x - prev.x, walker.pos.z - prev.z) : 0;
         prevPlayerRef.current = { x: walker.pos.x, z: walker.pos.z };
         let speed = dt > 0 ? moved / dt : 0;
         if (moved > 2) speed = 0; // respawn/teleport, not a stride
-        if (speed > 0.5) walkPhaseRef.current += dt * speed * 4.4;
+        if (speed > 0.5) walkPhaseRef.current += dt * heroPhaseRate(speed);
+        if (ride && speed > 0.5) ridePhaseRef.current += dt * gallopPhaseRate(speed);
         let swingP = 0;
         if (playerSwingRef.current > 0) {
           playerSwingRef.current = Math.max(0, playerSwingRef.current - dt);
           const p = 1 - playerSwingRef.current / 0.25;
           swingP = Math.sin(p * Math.PI);
         }
-        const pose = heroMotionPose({
+        const walkPose = heroMotionPose({
           speed, phase: walkPhaseRef.current, swingP, kind: playerSwingKindRef.current,
         });
+        let pose = walkPose;
+        if (ride || blend > 0) {
+          /* SEATED: the rider borrows the horse's own bob so the
+           * two never detach, and the walk pose blends into the
+           * seat pose over the mount blend. The strike still
+           * swings from the saddle — the walk pose already
+           * carries the swing, so the blend would thin it by the
+           * blend factor; add that share back on top. */
+          gallopPose = horseGallopPose({ speed: ride ? speed : 0, phase: ridePhaseRef.current });
+          const seatPose = heroSeatPose({
+            speed: ride ? speed : 0, phase: ridePhaseRef.current, horseBobY: gallopPose.bobY,
+          });
+          pose = blendPoses(walkPose, seatPose, blend);
+          if (swingP > 0 && blend > 0) {
+            if (playerSwingKindRef.current === 'ranged') {
+              pose = { ...pose, leanX: pose.leanX + 0.2 * swingP * blend, twistY: pose.twistY + 0.15 * swingP * blend };
+            } else {
+              pose = { ...pose, twistY: pose.twistY + 0.55 * swingP * blend, leanX: pose.leanX - 0.35 * swingP * blend };
+            }
+          }
+        }
         if (playerBody) {
           playerBody.rotation.x = pose.leanX;
           playerBody.rotation.z = pose.rollZ;
+          playerBody.position.x = pose.swayX;
+          playerBody.position.z = pose.stepZ;
         }
         playerFig.update(t, dt, 6);
         if (playerBody) {
@@ -910,6 +1170,26 @@ export default function MiddleEarthPage() {
       // Dino companions follow the walker (their own step).
       updateCompanions(companions, dt);
       zone.update(t, dt);
+      /* GALLOP: the ridden horse's body rocks AFTER the zone's own
+       * figure update (which owns body y/rotation absolutely) —
+       * the same add-on-top pattern as the hero pose. Standing
+       * mounted is all zeros: the horse stands, breathing only. */
+      if (rideRef.current && gallopPose) {
+        const hb = rideRef.current.horse.group.getObjectByName('figure-body');
+        if (hb) {
+          hb.position.y += gallopPose.bobY;
+          hb.rotation.x = gallopPose.pitchX;
+          hb.rotation.z = gallopPose.rollZ;
+        }
+      }
+      // LINGERING DECAY (Merlin, 2026-11-15): report the walker to
+      // the decay bus, throttled — the heartbeat turns movement into
+      // decayed spots (while a carrier) and infection checks.
+      const nowMs = performance.now();
+      if (nowMs - lastDecayReport > 2500) {
+        lastDecayReport = nowMs;
+        reportDecayPosition('/middle-earth', walker.pos.x, walker.pos.z);
+      }
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
     };
@@ -921,6 +1201,10 @@ export default function MiddleEarthPage() {
       window.removeEventListener('resize', resize);
       detachers.forEach((d) => { try { d(); } catch (e) { /* noop */ } });
       strikeRef.current = () => {};
+      rideRef.current = null;
+      rideApiRef.current = null;
+      setMounted(null);
+      setMountPrompt(null);
       try { if (playerFig) playerFig.dispose(); } catch (e) { /* noop */ }
       /* carry the hunt meter back to the campaign store */
       try {
@@ -953,6 +1237,11 @@ export default function MiddleEarthPage() {
         disposeHandGroup(handWeapon.group);
         handWeapon.group = null;
       }
+      for (const g of sheathed.groups.values()) {
+        if (playerBody) playerBody.remove(g);
+        disposeHandGroup(g);
+      }
+      sheathed.groups.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, podId, entry]);
@@ -1005,7 +1294,7 @@ export default function MiddleEarthPage() {
               <span>⚔ Orcs hunted: <b>{campaign.totalKills}</b></span>
               <span>{campaign.saruman === 'dead' ? '🏆 Saruman has fallen' : gate.open ? '🗼 The way to Isengard is open' : `🗼 Saruman stirs at ${gate.total}/${gate.needed} kills`}</span>
             </div>
-            <button style={styles.primaryBtn} onClick={() => setMode('map')}>View the Map</button>
+            <button style={{ ...styles.primaryBtn, ...neutralGraphic(), color: '#f5ecc9' }} onClick={() => setMode('map')}>View the Map</button>
           </div>
         </div>
       )}
@@ -1014,7 +1303,7 @@ export default function MiddleEarthPage() {
       {mode === 'map' && (
         <div style={styles.mapWrap}>
           <div style={styles.mapHead}>
-            <button style={styles.ghostBtn} onClick={() => setMode('menu')}>← Back</button>
+            <button style={{ ...styles.ghostBtn, ...neutralGraphic() }} onClick={() => setMode('menu')}>← Back</button>
             <div style={styles.mapTitle}>The Map of Middle-earth</div>
             <div style={{ width: 74 }} />
           </div>
@@ -1052,7 +1341,7 @@ export default function MiddleEarthPage() {
                 const picked = hero.key === key;
                 return (
                   <button key={key}
-                    style={{ ...styles.heroBtn, ...(picked ? styles.heroBtnOn : null) }}
+                    style={{ ...styles.heroBtn, ...(picked ? styles.heroBtnOn : null), ...neutralGraphic() }}
                     onClick={() => {
                       const np = DATA.setHero(progress, key);
                       DATA.saveProgress(np);
@@ -1079,7 +1368,7 @@ export default function MiddleEarthPage() {
               const selected = selectedId === id;
               return (
                 <div key={id} style={{ ...styles.podCard, ...(selected ? styles.podCardSel : null) }}>
-                  <button style={styles.podCardMain} onClick={() => setSelectedId(selected ? null : id)}>
+                  <button style={{ ...styles.podCardMain, ...podGraphic(id) }} onClick={() => setSelectedId(selected ? null : id)}>
                     <span style={styles.podName}>{d.name}</span>
                     <span style={styles.podMeta}>
                       {done}/{d.missions.length} missions{progress.beatsDone[id] ? ' · ✓ first tale told' : ''}
@@ -1092,7 +1381,7 @@ export default function MiddleEarthPage() {
                       {(d.missions || []).map((m) => {
                         const isDone = DATA.isMissionDone(progress, id, m);
                         return (
-                          <button key={m.id} style={styles.missionBtn}
+                          <button key={m.id} style={{ ...styles.missionBtn, ...podGraphic(id) }}
                             onClick={() => enterPod(id, { kind: 'mission', missionId: m.id })}>
                             <span>🎯 {m.title} {isDone ? '✓' : ''}</span>
                             <span style={styles.missionMeta}>
@@ -1101,7 +1390,7 @@ export default function MiddleEarthPage() {
                           </button>
                         );
                       })}
-                      <button style={styles.roamBtn} onClick={() => enterPod(id, { kind: 'roam' })}>
+                      <button style={{ ...styles.roamBtn, ...podGraphic(id) }} onClick={() => enterPod(id, { kind: 'roam' })}>
                         🧭 Free Roam — no objectives, progress untouched
                       </button>
                       {id === 'rohan' && (
@@ -1114,7 +1403,7 @@ export default function MiddleEarthPage() {
                         </div>
                       )}
                       {id === 'gondor' && (
-                        <a href="/weapons-forge" style={{ ...styles.roamBtn, display: 'block', marginTop: '0.5rem', textDecoration: 'none' }}>
+                        <a href="/weapons-forge" style={{ ...styles.roamBtn, ...podGraphic('gondor'), display: 'block', marginTop: '0.5rem', textDecoration: 'none' }}>
                           ⚒️ The Dwarven Smith keeps a forge by the White Tree — commission a weapon
                         </a>
                       )}
@@ -1179,6 +1468,26 @@ export default function MiddleEarthPage() {
                 🔥 The hunt: {huntHud.level} · {huntHud.heat}
                 {senseHud ? <span style={styles.senseText}> · {senseHud}</span> : null}
               </div>
+            )}
+
+            {/* HORSES RIDEABLE (Merlin, Nov 15 ~00:57): the mount
+                prompt lives here, in the top band's own flow — a
+                visible top-centre button in reach, like the
+                egg-steal button, never hidden inside a collapsed
+                panel and never overlapping the HUD rows above it
+                or the action column. While mounted it becomes the
+                Dismount control; walking away is NOT dismount. */}
+            {mountPrompt && !mounted && (
+              <button style={styles.mountBtn}
+                onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}>
+                🐎 Mount {mountPrompt.name}
+              </button>
+            )}
+            {mounted && (
+              <button style={styles.mountBtn}
+                onClick={() => { if (rideApiRef.current) rideApiRef.current.dismount(); }}>
+                ⬇ Dismount
+              </button>
             )}
           </div>
 
@@ -1367,6 +1676,9 @@ const styles = {
   hpOuter: { width: 110, height: 9, background: 'rgba(0,0,0,0.5)', borderRadius: 5, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.25)' },
   hpInner: { height: '100%', background: '#c8452c', transition: 'width 0.25s ease' },
   huntChip: { background: 'rgba(16,20,12,0.78)', border: '1px solid rgba(216,178,92,0.45)', borderRadius: 999, padding: '0.35rem 0.9rem', fontSize: '0.88rem', color: '#e8d9a8', maxWidth: '100%', textAlign: 'center', lineHeight: 1.45, pointerEvents: 'none' },
+  /* mount / dismount: a gold pill in the top band's own flow —
+   * pointer-events back on (the band itself is pointer-events-none) */
+  mountBtn: { background: 'rgba(216,178,92,0.95)', color: '#221a08', border: `1px solid ${GOLD}`, borderRadius: 999, padding: '0.55rem 1.1rem', fontSize: '0.95rem', fontWeight: '700', fontFamily: 'Georgia, serif', cursor: 'pointer', pointerEvents: 'auto', minHeight: 44 },
   senseText: { color: '#bcd6ff' },
   roamCardFull: { maxWidth: 420, width: '100%', background: 'rgba(16,20,12,0.9)', border: `1px solid ${GOLD}`, borderRadius: 14, padding: '1rem 1.2rem', textAlign: 'center', animation: 'meFade 0.4s ease', lineHeight: 1.5 },
   roamCardTitle: { color: '#f5ecc9', marginBottom: '0.3rem', fontSize: '1.05rem' },

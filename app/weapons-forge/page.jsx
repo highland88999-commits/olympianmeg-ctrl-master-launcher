@@ -31,7 +31,7 @@ import {
   forgeWeaponById,
   forgeWeaponReticle,
 } from '@/lib/backpack/weapons';
-import { cgiForWeapon } from '@/lib/weapons/cgi';
+import { cgiForWeapon, normaliseWeaponGroup } from '@/lib/weapons/cgi';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
 import { PATRONS, PATRON_IDS } from '@/lib/backpack/patrons';
 import {
@@ -193,10 +193,14 @@ function buildProcedural(THREE, build) {
  * on mount, so the page costs nothing until this renders. The
  * selected weapon's CGI spec drives it: a GLB file when the spec
  * says glb (the revolver shows the real revolver-handgun.glb),
- * a procedural primitive build otherwise. Auto-rotates; drag to
- * orbit. Fully disposes on unmount and when the model changes.
+ * a procedural primitive build otherwise. The model is run
+ * through the shared normaliseWeaponGroup first, so the preview
+ * shows each weapon the way it is held — the revolver upright
+ * and revolver-sized, the spear without its Tripo display disc
+ * — and the camera then frames whatever that leaves. Auto-rotates;
+ * drag to orbit. Fully disposes on unmount and when the model changes.
  */
-function WeaponPreview({ cgi, name }) {
+function WeaponPreview({ cgi, name, weaponClass }) {
   const mountRef = useRef(null);
   const stageRef = useRef(null);
   const [stage, setStage] = useState(null);
@@ -289,6 +293,12 @@ function WeaponPreview({ cgi, name }) {
         } else {
           model = buildProcedural(THREE, cgi.model.build);
         }
+        // The shared fit: grip at the origin, long axis on the
+        // aim axis, true in-hand size. A failure here must never
+        // blank the preview — the raw model still shows.
+        try {
+          normaliseWeaponGroup(THREE, model, { weaponClass, src: cgi.model.src });
+        } catch (e) { /* raw model stands */ }
         if (cancelled) { disposeGroup(model); return; }
         if (stage.model) { scene.remove(stage.model); disposeGroup(stage.model); }
         stage.model = model;
@@ -611,7 +621,7 @@ export default function WeaponsForgePage() {
             build where it does not. */}
         <section aria-label="Weapon viewer" ref={previewRef} className="flex flex-col gap-2">
           <h2 className="text-xl font-black tracking-tight">🔍 Inspect the steel</h2>
-          <WeaponPreview cgi={previewCgi} name={previewWeapon.name} />
+          <WeaponPreview cgi={previewCgi} name={previewWeapon.name} weaponClass={previewWeapon.weaponClass} />
         </section>
 
         {/* The shelf. */}

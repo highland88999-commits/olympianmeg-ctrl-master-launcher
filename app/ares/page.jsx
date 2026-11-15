@@ -5,6 +5,7 @@ import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { summarize } from '@/lib/ares/intel';
 import ThreatGauge from '@/components/ares/ThreatGauge';
+import HivePanel from '@/components/ares/HivePanel';
 import EventsFeed from '@/components/ares/EventsFeed';
 import TopLists from '@/components/ares/TopLists';
 import ListsManager from '@/components/ares/ListsManager';
@@ -188,6 +189,7 @@ export default function AresConsole() {
     setPinChecking(false);
   }, []);
   const [events, setEvents] = useState([]);
+  const [hive, setHive] = useState(null);
   const [blocks, setBlocks] = useState([]);
   const [whitelist, setWhitelist] = useState([]);
   const [regUsers, setRegUsers] = useState([]);
@@ -253,8 +255,9 @@ export default function AresConsole() {
     const silent = !!opts.silent;
     if (!silent) setLoading(true);
     try {
-      const [ev, bl, wl, st, us, tr] = await Promise.all([
+      const [ev, hv, bl, wl, st, us, tr] = await Promise.all([
         authedFetch('/api/ares/events?limit=100').then((r) => r.json()),
+        authedFetch('/api/ares/agents').then((r) => r.json()).catch(() => ({})),
         authedFetch('/api/ares/blocks').then((r) => r.json()),
         authedFetch('/api/ares/whitelist').then((r) => r.json()),
         authedFetch('/api/ares/settings').then((r) => r.json()),
@@ -262,6 +265,7 @@ export default function AresConsole() {
         authedFetch('/api/ares/trapped').then((r) => r.json()).catch(() => ({})),
       ]);
       setEvents(ev.events || []);
+      if (Array.isArray(hv.agents)) setHive(hv);
       setBlocks(bl.blocks || []);
       setWhitelist(wl.whitelist || []);
       setRegUsers(us.users || []);
@@ -390,6 +394,7 @@ export default function AresConsole() {
               </div>
             </div>
             <div className="ares-panel"><TopLists events={events} /></div>
+            <div className="ares-panel"><HivePanel hive={hive} /></div>
             <div className="ares-panel"><EventsFeed events={events} /></div>
             <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
             <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>

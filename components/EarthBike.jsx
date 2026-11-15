@@ -29,6 +29,12 @@ import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 // its place (Merlin, 2026-10-26) — the character is hidden while
 // riding (EarthWalker) and reappears exactly where the bike was.
 // Dismiss with B also clears it; summoning again brings a fresh bike.
+//
+// Mount config: EARTH_BIKE_MOUNT_CONFIG in lib/earth/parachute.js
+// (the shared mounting shape, this bike's own numbers). The globe
+// is lat/lon, not the shared module's flat x/z plane, so no shared
+// function is called here — the config is the registry entry, and
+// it records the dismount law (exact place, side 0: mountSpot).
 
 const UPM = DISPLAY_UNITS_PER_METRE;
 const HOVER_MIN_M = 0.6; // never below this altitude
@@ -82,8 +88,10 @@ export function toggleMount() {
   if (bikeState.mounted) {
     bikeState.yawDeg = roamState.yawDeg;
   } else {
-    // Dismount: walker takes the bike's position — and the bike
-    // vanishes (Merlin, 2026-10-26). The walker reappears exactly
+    // Dismount (shared mounting law — Earth 1 variant): the walker
+    // takes the bike's exact place (EARTH_BIKE_MOUNT_CONFIG.
+    // dismountSideM is 0: mountSpot, not a flank dismount) and the
+    // bike vanishes (Merlin, 2026-10-26). The walker reappears exactly
     // where the bike was; summoning again brings a fresh bike.
     roamState.lat = bikeState.lat;
     roamState.lon = bikeState.lon;

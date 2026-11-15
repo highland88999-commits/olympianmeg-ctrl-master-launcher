@@ -44,6 +44,13 @@ const publicModel = (key) => fileURLToPath(
 
 const approx = (a, b, eps) => Math.abs(a - b) < (eps == null ? 1e-6 : eps);
 
+// Checkpoint/target records now carry their meshes — beam + zone on a
+// checkpoint, pillar + zone on the target (rings -> beams, Nov 15, 2026,
+// so page.jsx can recolour them green on reach). assert.deepEqual on a
+// record would walk the whole scene graph through mesh.parent (and OOM
+// the runner on the Tatooine zone), so compare the plain data fields.
+const markerFields = (m) => ({ x: m.x, z: m.z, r: m.r, label: m.label });
+
 describe('textures', () => {
   it('makeCanvasTexture runs drawFn and returns a CanvasTexture with Repeat wrap', () => {
     let called = 0;
@@ -71,13 +78,14 @@ describe('landmarks', () => {
     // 29 + 'cantina' + 'landspeeder' (procedural stand-ins for the
     // Tatooine GLB seats, added with the ever-expanding Tatooine build)
     // + 'kyber-forge' (the Kyber Smith's seat at the Jedi Temple)
-    // + 'rover' (procedural stand-in for the Tatooine rover GLB seat,
-    // added 2026-10-26 with the batch-4 rover)
+    // + 'crashed-ship' (the Nov 15, 2026 crash site that replaced the
+    // army-truck rover — the rover builder + GLB seat are gone)
     assert.equal(LM.LANDMARK_TYPES.length, 33);
     assert.ok(LM.LANDMARK_TYPES.includes('cantina'));
     assert.ok(LM.LANDMARK_TYPES.includes('landspeeder'));
     assert.ok(LM.LANDMARK_TYPES.includes('kyber-forge'));
-    assert.ok(LM.LANDMARK_TYPES.includes('rover'));
+    assert.ok(LM.LANDMARK_TYPES.includes('crashed-ship'));
+    assert.ok(!LM.LANDMARK_TYPES.includes('rover'), 'the rover landmark type is gone');
   });
 
   for (const type of LM.LANDMARK_TYPES) {
@@ -177,8 +185,8 @@ describe('zone (walk)', () => {
     assert.deepEqual(z.bounds, { kind: 'circle', max: 115 });
     assert.equal(typeof z.groundHeight, 'function');
     assert.equal(z.checkpoints.length, 1);
-    assert.deepEqual(z.checkpoints[0], { x: 20, z: -20, r: 5, label: 'CP1' });
-    assert.deepEqual(z.target, { x: -20, z: -60, r: 6, label: 'FINISH' });
+    assert.deepEqual(markerFields(z.checkpoints[0]), { x: 20, z: -20, r: 5, label: 'CP1' });
+    assert.deepEqual(markerFields(z.target), { x: -20, z: -60, r: 6, label: 'FINISH' });
     assert.equal(typeof z.update, 'function');
     assert.equal(typeof z.dispose, 'function');
     assert.equal(z.kind, 'walk');
@@ -263,8 +271,8 @@ describe('zone (fly)', () => {
     assert.equal(z.groundHeight(0, 0), 0);
     assert.equal(z.groundHeight(50, 50), 0);
     assert.ok(z.colliders.length >= 20, 'trench wall colliders missing');
-    assert.deepEqual(z.checkpoints[0], { x: 0, z: 40, r: 5, label: 'TRENCH 1' });
-    assert.deepEqual(z.target, { x: 0, z: -80, r: 6, label: 'CORE' });
+    assert.deepEqual(markerFields(z.checkpoints[0]), { x: 0, z: 40, r: 5, label: 'TRENCH 1' });
+    assert.deepEqual(markerFields(z.target), { x: 0, z: -80, r: 6, label: 'CORE' });
     assert.doesNotThrow(() => z.update(2, 0.016));
     z.dispose();
   });
@@ -286,15 +294,11 @@ describe('zone (fly)', () => {
 
 describe('GLB seats (landmarks.js)', () => {
   it('registry covers the finished Tatooine assets', () => {
-    assert.deepEqual(Object.keys(LM.GLB_MODELS).sort(), ['cantina', 'homestead', 'landspeeder', 'tatooine-rover']);
+    // the 'tatooine-rover' seat was removed with the rover (Nov 15,
+    // 2026) — every remaining seat lives under /models/star-wars/
+    assert.deepEqual(Object.keys(LM.GLB_MODELS).sort(), ['cantina', 'homestead', 'landspeeder']);
     for (const [key, def] of Object.entries(LM.GLB_MODELS)) {
-      // the rover is the one exception: it lives on the shared vehicle
-      // shelf (/models/vehicles/), not under /models/star-wars/
-      if (key === 'tatooine-rover') {
-        assert.equal(def.url, '/models/vehicles/tatooine-rover.glb', key);
-      } else {
-        assert.ok(def.url.startsWith('/models/star-wars/') && def.url.endsWith('.glb'), key);
-      }
+      assert.ok(def.url.startsWith('/models/star-wars/') && def.url.endsWith('.glb'), key);
       assert.ok(def.meters > 0, key);
       assert.ok(Array.isArray(def.colliders) && def.colliders.length >= 1, key);
       for (const c of def.colliders) {
@@ -355,14 +359,14 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
     assert.deepEqual(z.bounds, { kind: 'circle', max: 460 });
     assert.deepEqual(z.spawn, { x: 0, z: 95, yaw: Math.PI });
     // the podrace circuit is untouched — gates re-seated on the canyon
-    assert.deepEqual(z.checkpoints, PLANETS.tatooine.beat.checkpoints);
+    assert.deepEqual(z.checkpoints.map(markerFields), PLANETS.tatooine.beat.checkpoints);
     for (const cp of z.checkpoints) {
       assert.equal(distToPath(cp.x, cp.z, PLANETS.tatooine.canyon.path), 0,
         `gate '${cp.label}' sits on the canyon run`);
     }
     // the expanded podrace finishes at a target on the mesa circuit —
     // also a canyon path point, so the pillar stands in the carve
-    assert.deepEqual(z.target, PLANETS.tatooine.beat.target);
+    assert.deepEqual(markerFields(z.target), PLANETS.tatooine.beat.target);
     assert.equal(distToPath(z.target.x, z.target.z, PLANETS.tatooine.canyon.path), 0,
       'finish target sits on the canyon run');
     // GLB seats contribute the REGISTRY colliders, not the stand-ins'
@@ -397,7 +401,7 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
     }, T);
     assert.deepEqual(z.bounds, { kind: 'circle', max: 115 });
     assert.deepEqual(z.checkpoints, []); // target-only beat
-    assert.deepEqual(z.target, { x: 0, z: -30, r: 10, label: 'Plaza' });
+    assert.deepEqual(markerFields(z.target), { x: 0, z: -30, r: 10, label: 'Plaza' });
     z.dispose();
   });
 
@@ -405,7 +409,7 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
     const z = buildZone(THREE, PLANETS.naboo, T);
     assert.deepEqual(z.bounds, { kind: 'circle', max: 460 });
     assert.deepEqual(z.checkpoints, []); // Naboo's first mission is a target
-    assert.deepEqual(z.target, PLANETS.naboo.beat.target);
+    assert.deepEqual(markerFields(z.target), PLANETS.naboo.beat.target);
     let instanced = 0;
     z.group.traverse((o) => { if (o.isInstancedMesh) instanced++; });
     assert.ok(instanced >= 4, `foliage + horizon instancing present, got ${instanced}`);
@@ -435,7 +439,7 @@ describe('saga expansion: modes + missions in the zone builder', () => {
       for (const m of def.missions) {
         const zm = buildZone(THREE, def, T, { mission: m });
         assert.equal(zm.checkpoints.length, (m.checkpoints || []).length, `${def.id}/${m.id}`);
-        if (m.target) assert.deepEqual(zm.target, { x: m.target.x, z: m.target.z, r: m.target.r, label: m.target.label }, `${def.id}/${m.id} target`);
+        if (m.target) assert.deepEqual(markerFields(zm.target), { x: m.target.x, z: m.target.z, r: m.target.r, label: m.target.label }, `${def.id}/${m.id} target`);
         else assert.equal(zm.target, null, `${def.id}/${m.id} no target`);
         zm.dispose();
       }
@@ -944,18 +948,17 @@ describe('QA items 4+5 — small label, holstered saber, measured mounts', () =>
 });
 
 describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
-  it('tatooine stages five rideables, the winner pod and the rover included', () => {
+  it('tatooine stages four rideables — the rover is gone, the crash site is not a ride', () => {
     const z = buildZone(THREE, PLANETS.tatooine, T);
     // The QA round left the winner's pod as dressing; the all-worlds
     // pass (2026-10-23) wires it — same type as its grid siblings.
-    // The batch-4 rover joins them (2026-10-26), parked in the
-    // vehicle area beside the speeder.
+    // The rover is GONE (Nov 15, 2026 rework): its GLB's broken
+    // skinning made the truck sit on its own mangled undercarriage,
+    // and the crash site that replaced it is dressing, not a vehicle.
     assert.deepEqual(z.vehicles.map((v) => v.id).sort(),
-      ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner', 'tatooine-rover']);
-    const rover = z.vehicles.find((v) => v.id === 'tatooine-rover');
-    assert.equal(rover.type, 'rover');
-    assert.equal(rover.state.x, 76); assert.equal(rover.state.z, 40);
-    assert.ok(VH.VEHICLE_TYPES.rover, 'rover drive type exists');
+      ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner']);
+    assert.equal(z.vehicles.find((v) => v.id === 'tatooine-rover'), undefined);
+    assert.ok(VH.VEHICLE_TYPES.rover, 'rover drive type stays in vehicles.js (inert, unseated)');
     assert.ok(VH.VEHICLE_TYPES.rover.cruise < VH.VEHICLE_TYPES.landspeeder.cruise,
       'the rover is slower than the speeder');
     for (const v of z.vehicles) {
@@ -990,8 +993,7 @@ describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
     VH.parkVehicle(speeder.state, () => 0);
     z.update(2, 0.016);
     assert.equal(speeder.flame.group.visible, false, 'parked again: flame off');
-    const rover = z.vehicles.find((v) => v.id === 'tatooine-rover');
-    assert.equal(rover.flame, null, 'the flame belongs to the speeder only');
+    assert.equal(z.vehicles.filter((v) => v.flame).length, 1, 'the flame belongs to the speeder only');
     z.dispose();
   });
 
@@ -1486,15 +1488,15 @@ describe('ALL-WORLDS QA 4 — characters: measured anchors + holster law, every 
 });
 
 describe('ALL-WORLDS QA 5+6 — rideable inventory per world + shared page laws', () => {
-  it('vehicle inventory: tatooine stages five rideables; every other world none (audited)', () => {
+  it('vehicle inventory: tatooine stages four rideables; every other world none (audited)', () => {
     /* Audit basis (2026-10-23): Endor's "Speeder-Bike Run" beat, Crait's
      * ski speeders, Hoth's tauntauns, Jakku's wreckage, Kamino's stilts
      * and Coruscant's spires are narrative/ambient/dressing — no
      * rideable-class prop exists in their landmark sets. The fly
      * worlds need none (the player already flies). Tatooine is the
-     * only world with vehicle-class props, and all five are wired
-     * (the rover joined 2026-10-26). */
-    const expect = { tatooine: ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner', 'tatooine-rover'] };
+     * only world with vehicle-class props — four since the Nov 15,
+     * 2026 rover rework (the rover left; the crash site is not a ride). */
+    const expect = { tatooine: ['landspeeder', 'pod-grid-a', 'pod-grid-b', 'pod-winner'] };
     for (const def of Object.values(PLANETS)) {
       const vids = (def.landmarks || []).filter((l) => l.vehicle).map((l) => l.vid).sort();
       assert.deepEqual(vids, (expect[def.id] || []).slice().sort(), `${def.id} vehicle inventory`);

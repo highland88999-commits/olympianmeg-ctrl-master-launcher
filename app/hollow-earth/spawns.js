@@ -520,6 +520,10 @@ export function strike(monsters, px, pz, yaw, spec) {
   const fz = -Math.cos(yaw);
   for (const m of monsters) {
     if (m.dead || !m.active) continue;
+    // RIDING (2026-11-15): a mounted monster is the rider's own
+    // mount — it is never a strike target, so the rider can
+    // never hit the thing they are sitting on.
+    if (m.mounted) continue;
     const dx = m.x - px;
     const dz = m.z - pz;
     const dist = Math.hypot(dx, dz);

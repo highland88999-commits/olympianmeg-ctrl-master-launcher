@@ -6,7 +6,19 @@ import { NextResponse } from 'next/server';
 import { checkInternal, logEvent } from '@/lib/ares/server';
 import { EVENT_TYPES } from '@/lib/ares/config';
 import { validateVector, FEATURE_VERSION } from '@/lib/ares/features';
+import { scoreEvent, drainReports } from '@/lib/ares/hive';
 import { apiGuard } from '@/lib/api-guard';
+
+// The host this request arrived on (bare hostname, no port). Behind
+// Vercel the public host comes via x-forwarded-host; fall back to the
+// Host header. Null when neither is present — the hive then skips the
+// host signal rather than firing on a missing header.
+function requestHost(request) {
+  const forwarded = request.headers.get('x-forwarded-host');
+  const raw = String(forwarded || request.headers.get('host') || '').split(',')[0].trim();
+  if (!raw) return null;
+  return raw.split(':')[0].toLowerCase() || null;
+}
 
 export const POST = apiGuard(async function POST(request) {
   if (!checkInternal(request)) {
@@ -35,6 +47,32 @@ export const POST = apiGuard(async function POST(request) {
     ml && Array.isArray(ml.features) && validateVector(ml.features) && ml.feature_version === FEATURE_VERSION
       ? { features: ml.features, feature_version: ml.feature_version }
       : null;
-  const result = await logEvent({ ip, eventType, path, userAgent, details: details || {}, ml: cleanMl });
+  // Hive mind: score every event that carries a clean vector, and attach
+  // the readings to the event details BEFORE logEvent, so the console
+  // shows what the agents thought of each event. The hive must never
+  // block logging: if scoring throws, the event logs exactly as before.
+  let agentReadings = null;
+  if (cleanMl) {
+    try {
+      const reading = scoreEvent({ vector: cleanMl.features, host: requestHost(request) });
+      agentReadings = { agents: reading.agents, hub: reading.hub };
+      if (reading.terminated.length > 0) agentReadings.terminated = reading.terminated;
+    } catch {
+      agentReadings = null;
+    }
+  }
+  const detailsToLog = agentReadings
+    ? { ...(details || {}), ares_agents: agentReadings }
+    : (details || {});
+  let result;
+  try {
+    result = await logEvent({ ip, eventType, path, userAgent, details: detailsToLog, ml: cleanMl });
+  } finally {
+    // Delivery confirmation: if scoring fired a self-terminate report,
+    // await it before responding so the report is confirmed landed.
+    // drainReports settles even on delivery failure and is a no-op
+    // when nothing was fired.
+    await drainReports();
+  }
   return NextResponse.json(result);
 });

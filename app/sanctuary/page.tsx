@@ -7,7 +7,7 @@ import Image from 'next/image';
 import { supabase } from '@/lib/supabase';
 import { useAmbience, AmbienceToggle, panelTileStyle } from '@/lib/hestia/ambience';
 
-// Chambers of the lair — the MEDUSA section hub docks every MEDUSA-wave module here.
+// Chambers of the sanctuary — the HESTIA section hub docks every therapy module here.
 const CHAMBERS = [
   { name: 'ANTI-LIFE', route: '/anti-life', epithet: 'Entropy Core',
     desc: 'An interactive study of impermanence. Drag through a world that withers — then begin again.' },
@@ -64,7 +64,7 @@ function Glyph({ d, size = 13 }) {
   );
 }
 
-export default function MedusasLair() {
+export default function Sanctuary() {
   const router = useRouter();
   const canvasRef = useRef(null);
   const videoRef = useRef(null);
@@ -77,7 +77,7 @@ export default function MedusasLair() {
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [isVideoActive, setIsVideoActive] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
-  const amb = useAmbience('medusa-lair', 'video');
+  const amb = useAmbience('sanctuary', 'video');
 
   // Universal Auth Check (telemetry phone-home removed 2026-09-28).
   // If the database connection is missing, the lair still opens with an
@@ -275,7 +275,7 @@ export default function MedusasLair() {
                   const blob = await (await fetch(`data:image/png;base64,${base64}`)).blob();
                   
                   // Upload to Supabase Artifacts bucket
-                  const fileName = `medusa_${Date.now()}.png`;
+                  const fileName = `sanctuary_${Date.now()}.png`;
                   const { error: uploadError } = await supabase.storage.from('artifacts').upload(fileName, blob, { contentType: 'image/png' });
                   if (uploadError) throw uploadError;
 
@@ -311,18 +311,18 @@ export default function MedusasLair() {
 
   return (
     <>
-      {/* Ambient lair background — Video → Still → Off, persisted. Sits behind the vortex canvas. */}
+      {/* Ambient sanctuary background — Video → Still → Off, persisted. Sits behind the vortex canvas. */}
       {amb.hydrated && amb.mode !== 'off' && (
         <div className="fixed inset-0 z-0 pointer-events-none" aria-hidden="true">
           {amb.mode === 'video' ? (
             <video
               autoPlay muted loop playsInline preload="metadata"
-              poster="/images/medusa-lair/bg-ambient.webp"
-              src="/images/medusa-lair/bg-ambient.mp4"
+              poster="/images/sanctuary/bg-ambient.webp"
+              src="/images/sanctuary/bg-ambient.mp4"
               className="w-full h-full object-cover opacity-50"
             />
           ) : (
-            <img src="/images/medusa-lair/bg-ambient.webp" alt="" className="w-full h-full object-cover opacity-50" />
+            <img src="/images/sanctuary/bg-ambient.webp" alt="" className="w-full h-full object-cover opacity-50" />
           )}
           <div className="absolute inset-0 bg-gradient-to-b from-[#030305]/60 via-transparent to-[#030305]/80" />
         </div>
@@ -335,17 +335,17 @@ export default function MedusasLair() {
           className="px-4 py-2 text-[10px] font-bold tracking-widest text-[#00f2ff] uppercase transition-colors border rounded bg-black/80 border-[#00f2ff] hover:text-black hover:bg-[#00f2ff] inline-flex items-center gap-2"
         >
           <Glyph d={<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></>} />
-          EXIT LAIR
+          EXIT SANCTUARY
         </button>
       </div>
 
       {/* 2D Vortex Background (hand-rolled canvas — no three.js) */}
       <canvas ref={canvasRef} className="absolute inset-0 z-[1] w-full h-full pointer-events-none" />
       
-      {/* Medusa Video Layer (Fades in/out) */}
+      {/* Sanctuary Video Layer (Fades in/out) */}
       <video 
         ref={videoRef} 
-        src="/medusa.mp4" 
+        src="/sanctuary.mp4" 
         muted 
         playsInline 
         className={`absolute inset-0 z-[2] w-full h-full object-cover pointer-events-none transition-opacity duration-[1200ms] ease-in-out ${isVideoActive ? 'opacity-100' : 'opacity-0'}`}
@@ -355,11 +355,11 @@ export default function MedusasLair() {
       <div className="absolute inset-0 z-[10] flex flex-col items-center overflow-y-auto pb-20 custom-scrollbar">
         
         <header className="relative w-full p-4 bg-gradient-to-r from-black to-[#030305] border-b-2 border-[#00f2ff] overflow-hidden shadow-[0_0_15px_rgba(0,243,255,0.2)]">
-            <img src="/images/medusa-lair/header-serpent.webp" alt="" aria-hidden="true"
+            <img src="/images/sanctuary/header-serpent.webp" alt="" aria-hidden="true"
               className="absolute inset-0 w-full h-full object-cover opacity-30 pointer-events-none" />
             <div className="absolute inset-0 bg-gradient-to-r from-black via-black/60 to-[#030305]/90 pointer-events-none" aria-hidden="true" />
             <div className="relative flex justify-between items-center">
-              <div className="text-2xl font-bold text-white drop-shadow-[0_0_8px_#00f2ff] tracking-widest">MEDUSA'S ⚡ LAIR</div>
+              <div className="text-2xl font-bold text-white drop-shadow-[0_0_8px_#00f2ff] tracking-widest">SANCTUARY</div>
               <div className="text-sm text-[#bc00ff] drop-shadow-[0_0_5px_#bc00ff] hidden sm:block">[ AUTH: ARTEMIS ] // SYSTEM: ONLINE</div>
             </div>
         </header>
@@ -375,12 +375,12 @@ export default function MedusasLair() {
                 </div>
             )}
 
-            {/* Chambers of the Lair — MEDUSA section hub */}
+            {/* Chambers of the Sanctuary — HESTIA section hub */}
             <div className="relative bg-[rgba(10,10,15,0.85)] border border-[#bc00ff] p-5 backdrop-blur-md overflow-hidden">
                 <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
                 <div className="relative">
-                <div className="text-lg text-[#bc00ff] border-b border-[#bc00ff] pb-1">CHAMBERS OF THE LAIR // MEDUSA SECTION HUB</div>
-                <p className="text-zinc-400 text-sm mt-2">Eight chambers orbit this lair — each a pocket universe of its own. Enter where you are called.</p>
+                <div className="text-lg text-[#bc00ff] border-b border-[#bc00ff] pb-1">CHAMBERS OF THE SANCTUARY // HESTIA SECTION HUB</div>
+                <p className="text-zinc-400 text-sm mt-2">Eight chambers orbit this sanctuary — each a pocket universe of its own. Enter where you are called.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
                     {CHAMBERS.map((c) => (
                         <button
@@ -411,7 +411,7 @@ export default function MedusasLair() {
                         value={promptText}
                         onChange={(e) => setPromptText(e.target.value)}
                         rows={4} 
-                        placeholder="Command Medusa... (e.g., 'Turn to stone a cyberpunk warrior')"
+                        placeholder="Ask Sanctuary... (e.g., 'Turn to stone a cyberpunk warrior')"
                         className="bg-black/50 border border-[#00f2ff] text-[#00f2ff] p-3 resize-y outline-none focus:shadow-[0_0_8px_rgba(0,243,255,0.5)]"
                     />
                     <input 
@@ -426,7 +426,7 @@ export default function MedusasLair() {
                         className="bg-transparent text-[#bc00ff] border-2 border-[#bc00ff] p-3 text-lg font-bold uppercase transition-all hover:bg-[#bc00ff] hover:text-black hover:shadow-[0_0_10px_rgba(188,0,255,0.4)] disabled:opacity-50 inline-flex items-center justify-center gap-3"
                     >
                         <Glyph size={18} d={<><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></>} />
-                        {cloudOffline ? 'CLOUD OFFLINE' : loading ? 'TRANSMITTING...' : 'TRANSMIT TO MEDUSA'}
+                        {cloudOffline ? 'CLOUD OFFLINE' : loading ? 'TRANSMITTING...' : 'TRANSMIT TO SANCTUARY'}
                     </button>
                 </div>
 
@@ -452,7 +452,7 @@ export default function MedusasLair() {
             <div className="relative bg-[rgba(10,10,15,0.85)] border border-[#00f2ff] p-5 flex flex-col gap-4 backdrop-blur-md mb-10 overflow-hidden">
                 <div aria-hidden="true" className="absolute inset-0 opacity-20 pointer-events-none" style={panelTileStyle()} />
                 <div className="relative flex flex-col gap-4">
-                <div className="text-lg text-[#00f2ff] border-b border-[#00f2ff] pb-1">LAIR ARTIFACTS // CLOUD ARCHIVE</div>
+                <div className="text-lg text-[#00f2ff] border-b border-[#00f2ff] pb-1">SANCTUARY ARTIFACTS // CLOUD ARCHIVE</div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {galleryLoading ? (
                         [0, 1, 2, 3, 4].map((i) => (

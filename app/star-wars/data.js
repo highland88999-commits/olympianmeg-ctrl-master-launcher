@@ -186,12 +186,17 @@ export const PLANETS = {
        * law — a champion's machine you can actually take out. */
       { type: 'podracer', x: -92, z: 58, s: 1.2, ry: 2.4, vehicle: 'podracer', vid: 'pod-winner' },
       { type: 'landspeeder', x: 60, z: 26, s: 1, ry: -0.7, model: 'landspeeder', vehicle: 'landspeeder', vid: 'landspeeder' },
-      /* THE ROVER — parked beside the speeder in the vehicle area,
-       * clear of the farm (37 m) and the speeder (21 m). Rideable
-       * (vehicle: 'rover'); its GLB is the rigged batch-4 rover,
-       * optimized, at /models/vehicles/tatooine-rover.glb — the old
-       * vehicles/rover.glb is untouched. */
-      { type: 'rover', x: 76, z: 40, s: 1, ry: 0.6, model: 'tatooine-rover', vehicle: 'rover', vid: 'tatooine-rover' },
+      /* THE CRASH SITE (Nov 15, 2026 rework — Merlin: "the rover with
+       * a chunk of god knows what under it?"). The old 'rover' seat
+       * is GONE, not moved: its GLB (the rigged batch-4 rover at
+       * /models/vehicles/tatooine-rover.glb) was a modern army truck
+       * whose broken skinning twisted its own undercarriage into the
+       * spiky mass the truck sat on — no placement fix could save
+       * that file. In its place, a deliberate crash site at the same
+       * vehicle-area spot: a downed starship hull settled into the
+       * dunes, half-buried, debris scattered — no ride, no pedestal.
+       * The landspeeder + three pods stay rideable. */
+      { type: 'crashed-ship', x: 76, z: 40, s: 1, ry: 0.6 },
     ],
     ambient: [
       { type: 'bantha', count: 4 },

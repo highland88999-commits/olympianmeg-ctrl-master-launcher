@@ -38,7 +38,7 @@
  *         playerQuiet?, initialHeat?,
  *         onPlayerHit(dmg), onOrcKilled(orc, loot), onBossEvent(ev) }
  * Returns { group, colliders, spawn, bounds, groundHeight,
- *   checkpoints, target, characters, hunt: { orcs, boss, heat,
+ *   checkpoints, target, characters, horses, hunt: { orcs, boss, heat,
  *   level, records, noteKill, noteLoud, markDead, setHeat,
  *   resetHunt }, setObserver, update, dispose, kind, sky, fog }.
  */
@@ -418,6 +418,14 @@ export function buildZone(THREE, podDef, T, opts) {
    * that hero's NPC seat in its home pod stands empty — no
    * second wizard in the Shire. The seat's collider goes with it. */
   const characters = [];
+  /* HORSES RIDEABLE (Merlin, Nov 15 ~00:57): the page needs the
+   * horse FIGURE groups (not just the plain {id,name,x,z} in
+   * `characters`) so it can mount the rider on the saddle and
+   * move the horse with the rider. A handle carries the live
+   * position + yaw, the figure group, and the collider object
+   * itself (the same object in `colliders`, so the page can
+   * exclude it while mounted and move it with the horse). */
+  const horses = [];
   if (Array.isArray(def.characters)) {
     for (const cd of def.characters) {
       if (!cd || !Array.isArray(cd.at)) continue;
@@ -432,10 +440,22 @@ export function buildZone(THREE, podDef, T, opts) {
           : cd;
         const fig = buildFigure(R, figDef, heightAt);
         group.add(fig.group);
-        colliders.push({ x: cd.at[0], z: cd.at[1], r: cd.creature ? Math.max(0.8, cd.height * 0.3) : 0.45 });
+        const col = { x: cd.at[0], z: cd.at[1], r: cd.creature ? Math.max(0.8, cd.height * 0.3) : 0.45 };
+        colliders.push(col);
         characters.push({ id: cd.id || cd.model, name: cd.name || '', x: cd.at[0], z: cd.at[1] });
-        const cx = cd.at[0], cz = cd.at[1];
-        updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - cx, observer.z - cz)); });
+        if (cd.model === 'horse') {
+          const horse = {
+            id: cd.id || 'horse', model: 'horse', name: cd.name || '',
+            x: cd.at[0], z: cd.at[1], height: cd.height || 2.2,
+            faceYaw: cd.faceYaw || 0, yaw: cd.faceYaw || 0,
+            group: fig.group, figure: fig, collider: col,
+          };
+          horses.push(horse);
+          updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - horse.x, observer.z - horse.z)); });
+        } else {
+          const cx = cd.at[0], cz = cd.at[1];
+          updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - cx, observer.z - cz)); });
+        }
         disposers.push(function () { fig.dispose(); });
       } catch (e) { /* a bad figure def never kills the zone */ }
     }
@@ -457,9 +477,21 @@ export function buildZone(THREE, podDef, T, opts) {
         height: ex.height, creature: true, lifeLine: placedCreatureLifeFor(ex).line,
       }, heightAt);
       group.add(fig.group);
-      colliders.push({ x: ex.x, z: ex.z, r: Math.max(0.8, ex.height * 0.3) });
+      const col = { x: ex.x, z: ex.z, r: Math.max(0.8, ex.height * 0.3) };
+      colliders.push(col);
       characters.push({ id: ex.id, name: ex.name, x: ex.x, z: ex.z, operatorExtra: true });
-      updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - ex.x, observer.z - ex.z)); });
+      if (ex.model === 'horse') {
+        const horse = {
+          id: ex.id, model: 'horse', name: ex.name,
+          x: ex.x, z: ex.z, height: ex.height || 2.2,
+          faceYaw: 0, yaw: 0,
+          group: fig.group, figure: fig, collider: col,
+        };
+        horses.push(horse);
+        updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - horse.x, observer.z - horse.z)); });
+      } else {
+        updaters.push(function (t, dt) { fig.update(t, dt, Math.hypot(observer.x - ex.x, observer.z - ex.z)); });
+      }
       disposers.push(function () { fig.dispose(); });
     } catch (e) { /* a bad extra never kills the zone */ }
   }
@@ -652,7 +684,15 @@ export function buildZone(THREE, podDef, T, opts) {
     slot.mesh.visible = true;
   }
 
-  /* checkpoint rings + target pillar (mission mode only) */
+  /* checkpoint beams + target pillar (mission mode only)
+   * rings -> beams, 2026-11-15: checkpoint rings were golden toruses;
+   * they are now vertical gold beams in the target pillar's style.
+   * Labels, positions, trigger radii (cp.r) and mission gating are
+   * unchanged; the target's ground ring is gone (its beam stays).
+   * Ground zones, 2026-11-15 (Merlin: beam WITH ground zone, never
+   * a vertical ring with a ground zone): every marker also carries a
+   * flat gold disc on the terrain showing its trigger radius — a
+   * disc, not a torus ring (precedent: the pit marker's flat disc). */
   const checkpoints = [];
   const cpDefs = !freeRoam && Array.isArray(beat.checkpoints) ? beat.checkpoints : [];
   function makeGateLabel(text) {
@@ -678,13 +718,21 @@ export function buildZone(THREE, podDef, T, opts) {
   }
   for (const cp of cpDefs) {
     const cy = heightAt(cp.x, cp.z) + 6;
-    const ring = new R.Mesh(
-      new R.TorusGeometry(4, 0.28, 10, 40),
-      new R.MeshStandardMaterial({ color: 0xd8b25c, emissive: 0x9a7414, emissiveIntensity: 1.2, roughness: 0.4, metalness: 0.3 })
+    const beam = new R.Mesh(
+      new R.CylinderGeometry(1.4, 2.2, 70, 12, 1, true),
+      new R.MeshBasicMaterial({ color: 0xd8b25c, transparent: true, opacity: 0.26, blending: R.AdditiveBlending, side: R.DoubleSide, depthWrite: false, fog: false })
     );
-    ring.position.set(cp.x, cy, cp.z);
-    ring.castShadow = false; ring.receiveShadow = false;
-    group.add(ring);
+    beam.position.set(cp.x, cy + 26, cp.z);
+    beam.castShadow = false; beam.receiveShadow = false;
+    group.add(beam);
+    const zoneDisc = new R.Mesh(
+      new R.CircleGeometry(cp.r || 5, 48),
+      new R.MeshBasicMaterial({ color: 0xd8b25c, transparent: true, opacity: 0.16, side: R.DoubleSide, depthWrite: false, fog: false })
+    );
+    zoneDisc.rotation.x = -Math.PI / 2;
+    zoneDisc.position.set(cp.x, heightAt(cp.x, cp.z) + 0.4, cp.z);
+    zoneDisc.castShadow = false; zoneDisc.receiveShadow = false;
+    group.add(zoneDisc);
     let label = null;
     if (cp.label) {
       label = makeGateLabel(cp.label);
@@ -692,12 +740,11 @@ export function buildZone(THREE, podDef, T, opts) {
       group.add(label);
     }
     const phase = cp.x * 1.7 + cp.z;
-    updaters.push(function (t, dt) {
-      ring.rotation.y += dt * 1.2;
-      ring.position.y = cy + Math.sin(t * 1.6 + phase) * 0.5;
-      if (label) label.position.y = cy + 5.5 + Math.sin(t * 1.6 + phase) * 0.5;
+    updaters.push(function (t) {
+      beam.material.opacity = 0.2 + Math.sin(t * 2.2 + phase) * 0.07;
+      zoneDisc.material.opacity = 0.12 + Math.sin(t * 2.2 + phase) * 0.04;
     });
-    checkpoints.push({ x: cp.x, z: cp.z, r: cp.r || 5, label: cp.label || '' });
+    checkpoints.push({ x: cp.x, z: cp.z, r: cp.r || 5, label: cp.label || '', zone: zoneDisc });
   }
   let target = null;
   if (!freeRoam && beat.target) {
@@ -709,20 +756,20 @@ export function buildZone(THREE, podDef, T, opts) {
     );
     pillar.position.set(tg.x, ty + 32, tg.z);
     group.add(pillar);
-    const gring = new R.Mesh(
-      new R.TorusGeometry(tg.r || 6, 0.3, 8, 48),
-      new R.MeshBasicMaterial({ color: 0xd8b25c, transparent: true, opacity: 0.7, fog: false })
+    const targetZone = new R.Mesh(
+      new R.CircleGeometry(tg.r || 6, 48),
+      new R.MeshBasicMaterial({ color: 0xd8b25c, transparent: true, opacity: 0.16, side: R.DoubleSide, depthWrite: false, fog: false })
     );
-    gring.rotation.x = -Math.PI / 2;
-    gring.position.set(tg.x, ty + 0.4, tg.z);
-    group.add(gring);
+    targetZone.rotation.x = -Math.PI / 2;
+    targetZone.position.set(tg.x, ty + 0.4, tg.z);
+    targetZone.castShadow = false; targetZone.receiveShadow = false;
+    group.add(targetZone);
     updaters.push(function (t) {
       pillar.material.opacity = 0.2 + Math.sin(t * 2.2) * 0.07;
-      gring.rotation.z += 0.004;
+      targetZone.material.opacity = 0.12 + Math.sin(t * 2.2) * 0.04;
     });
-    target = { x: tg.x, z: tg.z, r: tg.r || 6, label: tg.label || '' };
+    target = { x: tg.x, z: tg.z, r: tg.r || 6, label: tg.label || '', zone: targetZone };
   }
-
   /* emissive pulse (tagged accents: beacon flame, Orthanc eye...) */
   group.traverse(function (o) {
     if ((o.isMesh || o.isSprite) && o.userData && o.userData.pulse && o.material) {
@@ -840,6 +887,7 @@ export function buildZone(THREE, podDef, T, opts) {
     checkpoints,
     target,
     characters,
+    horses,
     hunt: {
       get orcs() { return orcs; },
       boss,

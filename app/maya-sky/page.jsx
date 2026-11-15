@@ -20,6 +20,7 @@ import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { useRealmInfoFade } from '@/components/useRealmInfoFade';
+import { RealmLifeLine } from '@/components/RealmLifeLine';
 import { MayaSkyScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/maya-sky/world';
 
@@ -263,6 +264,7 @@ export default function MayaSkyPage() {
             ? 'Left stick to walk · drag the right side to look around · walk through a glowing arch to travel'
             : 'WASD or arrows to walk · drag to look around · Shift to run · walk through a glowing arch to travel'}
         </p>
+        <RealmLifeLine realmKey="maya-sky" />
       </div>
 
       <div className="absolute left-4 top-4 z-30">

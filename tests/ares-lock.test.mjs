@@ -68,6 +68,7 @@ t('requireOwner is exported for routes', typeof requireOwner === 'function');
 // --- every dashboard data route enforces the owner check ---
 const DATA_ROUTES = [
   ['../app/api/ares/events/route.js', 1],   // GET
+  ['../app/api/ares/agents/route.js', 1],   // GET
   ['../app/api/ares/blocks/route.js', 2],   // GET, DELETE
   ['../app/api/ares/whitelist/route.js', 3], // GET, POST, DELETE
   ['../app/api/ares/settings/route.js', 2],  // GET, POST

@@ -12,6 +12,7 @@ import {
   GATES,
   PALACE,
   REGIONS,
+  MEDUSA_LAIR,
   PORTALS,
   PORTAL_TRIGGER_RADIUS,
   TORCH_COLORS,
@@ -72,18 +73,31 @@ test('the Gates stand at the bridge, the palace on the far bank', () => {
   assert.ok(PALACE.z < RIVER.zMin, 'Palace is on the far (north) bank');
 });
 
-test('seven portal arches, unique keys/routes/labels, all live routes', () => {
+test('seven portal arches, unique keys/labels; six live routes + one local arch', () => {
   assert.equal(PORTALS.length, 7);
   const keys = new Set(PORTALS.map((p) => p.key));
-  const routes = new Set(PORTALS.map((p) => p.route));
   assert.equal(keys.size, 7);
-  assert.equal(routes.size, 7);
+  // Six arches walk to live routes; Medusa's (Merlin, 2026-11-15) walks
+  // to the boss chamber inside Hades — it carries a local gate, no route.
+  const routed = PORTALS.filter((p) => p.route);
+  const local = PORTALS.filter((p) => p.local);
+  assert.equal(routed.length, 6);
+  assert.equal(local.length, 1);
+  assert.equal(new Set(routed.map((p) => p.route)).size, 6);
   for (const p of PORTALS) {
     assert.ok(p.label.length > 0, `${p.key} has a plain-words label`);
-    assert.ok(p.route.startsWith('/'), `${p.key} route starts with /`);
-    // The route's page must exist in the repo.
-    const dir = `app${p.route}`;
-    assert.ok(existsSync(dir), `${p.route} resolves to ${dir}`);
+    if (p.local) {
+      assert.equal(p.key, 'medusa');
+      assert.deepEqual({ x: p.local.x, z: p.local.z },
+        { x: MEDUSA_LAIR.gate.x, z: MEDUSA_LAIR.gate.z },
+        'Medusa arch lands on the lair gate');
+      assert.ok(typeof p.local.yaw === 'number', 'Medusa arch faces the lair');
+    } else {
+      assert.ok(p.route.startsWith('/'), `${p.key} route starts with /`);
+      // The route's page must exist in the repo.
+      const dir = `app${p.route}`;
+      assert.ok(existsSync(dir), `${p.route} resolves to ${dir}`);
+    }
   }
 });
 
@@ -252,11 +266,12 @@ test('scene carries the Earth 2 fire: torches, flicker, both hues', () => {
   assert.ok(sceneSrc.includes('0.88 + 0.12'), 'Earth 2 flicker wave');
   assert.ok(sceneSrc.includes('TORCH_LIGHT'), 'torch-post light mapping');
   assert.ok(sceneSrc.includes('TORCH_COLORS'), 'yellow + blue hues');
-  // Runtime point lights: 4 region lights + the 8 lit torches = 12.
-  // The file holds 5 <pointLight> tags (4 region + 1 inside the torch map).
+  // Runtime point lights: 4 region lights + the 8 lit torches + the
+  // 1 green lair light above Medusa = 13. The file holds 6
+  // <pointLight> tags (4 region + 1 inside the torch map + 1 lair).
   const tags = (sceneSrc.match(/<pointLight/g) || []).length;
-  assert.equal(tags, 5);
-  assert.equal(makeTorches().filter((t) => t.lit).length + 4, 12);
+  assert.equal(tags, 6);
+  assert.equal(makeTorches().filter((t) => t.lit).length + 4 + 1, 13);
 });
 
 // --- static audits: the page -----------------------------------------------
@@ -274,10 +289,14 @@ test('page is a client route with the house 3D stack', () => {
 });
 
 test('page has no auth gate and no router.push (arches use vortex travel)', () => {
-  assert.ok(!pageSrc.includes('supabase'), 'no Supabase gate — a public world');
   assert.ok(!pageSrc.includes('router.push'), 'arches navigate via travel(), not router.push');
   assert.ok(pageSrc.includes('travel(portal.route, portal.label)'));
   assert.ok(pageSrc.includes('vortexOverlay'));
+  // Medusa (2026-11-15) reads the session for the head + presence,
+  // but never gates entry: guests still walk Hades, they just cannot
+  // earn the head or petrify anyone. No UNAUTHORIZED wall anywhere.
+  assert.ok(!pageSrc.includes('UNAUTHORIZED'), 'no blocking gate');
+  assert.ok(pageSrc.includes("sector: 'hades'"), 'presence, not a gate');
 });
 
 test('page is mobile-first with a plain-English HUD', () => {

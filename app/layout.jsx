@@ -1,6 +1,7 @@
 import { Inter } from "next/font/google";
 import './globals.css';
 import EconomyHeartbeat from '@/components/economy/EconomyHeartbeat';
+import LingeringDecayHeartbeat from '@/components/anti-life/LingeringDecay';
 import { RadioProvider } from '@/components/radio/RadioProvider';
 import RadioBar from '@/components/radio/RadioBar';
 import BroadcastListener from '@/components/broadcast/BroadcastListener';
@@ -108,6 +109,11 @@ export default function RootLayout({ children }) {
         <RadioProvider>
           <NativeBridge />
           <EconomyHeartbeat />
+          {/* Lingering decay (Merlin, 2026-11-15): a visit to
+              Anti-Life leaves a 10-minute decay that follows the
+              user everywhere — the heartbeat owns the timer, the
+              drain overlay, the shared spots, and infection. */}
+          <LingeringDecayHeartbeat />
           {/* The Doomsday countdown moved into the top of the
               Concourse, styled gold (Merlin, 2026-10-20) — see
               DoomsdayStrip in components/DoomsdayBanner.jsx, rendered

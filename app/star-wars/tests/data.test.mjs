@@ -33,7 +33,7 @@ const LANDMARK_TYPES = [
   'shield-generator', 'ewok-village', 'niima-outpost', 'maz-castle',
   'starkiller-cannon', 'jedi-village', 'salt-arch', 'sith-citadel',
   'sith-throne', 'death-star', 'debris-field', 'star-destroyer',
-  'cantina', 'landspeeder', 'rover',
+  'cantina', 'landspeeder', 'crashed-ship',
 ];
 const AMBIENT_TYPES = [
   'bantha', 'jawa', 'bird', 'wampa', 'tauntaun',

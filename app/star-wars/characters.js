@@ -34,6 +34,7 @@
  * pattern).
  */
 import { createSaberState } from './saber.js';
+import { characterLifeFor } from './operators.js';
 
 /*
  * Generated character models, height-fitted (unlike GLB_MODELS in
@@ -182,27 +183,53 @@ export function labelOpacity(dist) {
   return 0.95;
 }
 
-function makeNameLabel(R, text) {
+/* Name + life line — a SMALL two-line tag above the head (max
+ * ~2 m wide), never the old 6.4 m billboard that filled the whole
+ * screen up close (Merlin walked through it on device,
+ * 2026-10-23). Line 1 is the name, line 2 is the operator life
+ * line (operators.js lifeLine: stage · activity · saber). Sprites
+ * are camera-facing by construction; the fade law keeps it out of
+ * the player's face: gone inside 4 m, full through the mid-range,
+ * gone again beyond 60 m. setLine redraws only when the line
+ * changes, so a refresh costs nothing most seconds. */
+export function makeLifeLabel(R, name, line) {
   const cv = document.createElement('canvas');
-  cv.width = 256; cv.height = 64;
-  const ctx = cv.getContext('2d');
-  if (ctx) {
-    ctx.fillStyle = 'rgba(8,10,18,0.72)';
-    ctx.fillRect(0, 8, 256, 48);
-    ctx.strokeStyle = '#ffcf5e'; ctx.lineWidth = 3;
-    ctx.strokeRect(2, 10, 252, 44);
-    ctx.fillStyle = '#ffe9b0';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(String(text).slice(0, 18), 128, 33);
-  }
+  cv.width = 256; cv.height = 96;
   const tex = new R.CanvasTexture(cv);
   tex.colorSpace = R.SRGBColorSpace;
   const sp = new R.Sprite(new R.SpriteMaterial({
     map: tex, transparent: true, depthWrite: false, fog: false,
   }));
-  sp.scale.set(2.0, 0.5, 1);
-  return sp;
+  sp.scale.set(2.0, 0.75, 1);
+  let current = null;
+  function draw(text) {
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, 256, 96);
+    ctx.fillStyle = 'rgba(8,10,18,0.72)';
+    ctx.fillRect(0, 6, 256, 84);
+    ctx.strokeStyle = '#ffcf5e'; ctx.lineWidth = 3;
+    ctx.strokeRect(2, 8, 252, 80);
+    ctx.fillStyle = '#ffe9b0';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(name || '').slice(0, 18), 128, 30);
+    ctx.fillStyle = '#cfe3ff';
+    ctx.font = '20px sans-serif';
+    ctx.fillText(String(text || '').slice(0, 30), 128, 64);
+    tex.needsUpdate = true;
+  }
+  draw(line);
+  current = line;
+  return {
+    sprite: sp,
+    setLine(next) {
+      if (next === current) return false;
+      current = next;
+      draw(next);
+      return true;
+    },
+  };
 }
 
 /**
@@ -395,12 +422,17 @@ export function buildCharacter(R, charDef, groundHeight) {
   body.add(slot);
 
   /* Label + saber stay hidden until the model actually arrives —
-   * a floating name or a hilt with nobody holding it reads broken. */
-  const label = makeNameLabel(R, def.name || def.id || '');
-  label.position.y = height + 0.38;
+   * a floating name or a hilt with nobody holding it reads broken.
+   * The label carries the operator life line under the name
+   * (operators.js), refreshed about once a second in update(). */
+  const lifeLabel = makeLifeLabel(R, def.name || def.id || '',
+    characterLifeFor(def, Date.now()).line);
+  const label = lifeLabel.sprite;
+  label.position.y = height + 0.55;
   label.visible = false;
   group.add(label);
   let arrived = false;
+  let lastLifeRefresh = -10;
 
   let saber = null;
   let saberState = null;
@@ -448,11 +480,17 @@ export function buildCharacter(R, charDef, groundHeight) {
     body.rotation.y = Math.sin(t * 0.23 + phase * 1.3) * 0.13;
 
     /* The name tag fades by distance (see labelOpacity): never in
-     * the player's face, never a billboard on the horizon. */
+     * the player's face, never a billboard on the horizon. The
+     * life line under the name refreshes about once a second from
+     * the operators — same inputs, same line, no stored state. */
     if (arrived) {
       const op = labelOpacity(dist);
       label.material.opacity = op;
       label.visible = op > 0.02;
+      if (typeof t === 'number' && Number.isFinite(t) && t - lastLifeRefresh >= 1) {
+        lastLifeRefresh = t;
+        lifeLabel.setLine(characterLifeFor(def, Date.now()).line);
+      }
     }
 
     if (saber && saberState) {

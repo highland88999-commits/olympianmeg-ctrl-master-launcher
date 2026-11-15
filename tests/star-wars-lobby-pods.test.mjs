@@ -41,12 +41,19 @@ describe('star-wars pods', () => {
     return import('three').then((THREE) => {
       const built = LM.buildLandmark('podracer', THREE, fakeT);
       assert.ok(built.group instanceof THREE.Group);
-      assert.equal(built.colliders.length, 3);
+      // seven, not three: the Oct 23 walk-through fix replaced the
+      // old three circles (engine centres + pod) with an overlapping
+      // chain — two per engine, one on the beam, one amidships, one
+      // on the pod — because Merlin walked straight through an
+      // engine block on device. Pinned by builders.test QA item 2.
+      assert.equal(built.colliders.length, 7);
       for (const c of built.colliders) assert.ok(c.r > 0);
     });
   });
-  it('Tatooine carries two podracers (the pods)', () => {
+  it('Tatooine carries three podracers (two grid pods + the winner pod)', () => {
     const pods = PLANETS.tatooine.landmarks.filter((l) => l.type === 'podracer');
-    assert.equal(pods.length, 2);
+    // the winner's pod joined the two grid pods in the Oct 23
+    // all-worlds pass; builders.test pins "three pods staged"
+    assert.equal(pods.length, 3);
   });
 });

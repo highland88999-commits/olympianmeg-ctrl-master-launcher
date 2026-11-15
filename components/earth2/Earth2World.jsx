@@ -66,6 +66,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EARTH2_MODEL_BY_SLUG, modelDeliveryUrls, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
+import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings, resolveScarabLegs } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
@@ -8007,6 +8008,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         // Staged objects: refresh who's near enough to see, once a
         // second (every 60th frame). Keeps the phone alive.
         if (frameNo % 60 === 1) updateStagedVisibility();
+        // LINGERING DECAY (Merlin, 2026-11-15): report the walker to
+        // the decay bus every ~2.5 s (every 150th frame) — the
+        // heartbeat turns movement into decayed spots (while a
+        // carrier) and infection checks.
+        if (frameNo % 150 === 1) reportDecayPosition('/earth-2', walker.x, walker.z);
         // GARAGE (Merlin, 2026-11-13): the rooms build once the
         // land titles arrive (the owners may land after the world
         // mounts), and the last-left spot saves every 15 seconds

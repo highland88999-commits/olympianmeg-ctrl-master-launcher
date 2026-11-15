@@ -47,7 +47,8 @@ import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK,
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { roarToneFor, GHORRUM_LAUGH_TONE } from './behavior.js';
 import { playRoarTone } from './roar-audio.js';
-import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
+import { createWalker, stepWalker, applyLook, walkerCamera, resolveColliders, clampBounds, WALK_EYE } from '@/lib/world/walk-controls';
+import { nearestMountInRange, riderSeatOffsetY, mountYawForWalker, dismountSpot, rideSpeedForMount, MOUNT_BLEND_S, mountSpot, tryMount, dismountRide } from './riding';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, triggerRisingEdge, triggerValue, GAMEPAD_BUTTONS } from '@/lib/gamepad';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -90,6 +91,15 @@ export default function HollowEarthPage() {
   const missionKillsRef = useRef(0);
   const noiseRef = useRef(null);
   const weaponRef = useRef('melee');
+  /* MOUNTS (Merlin, Nov 15 ~01:29): Embermane + Frostbite ride.
+   * rideRef is the frame loop's truth ({ mount } while mounted — the shared lib/mounting.js ride shape);
+   * the blend eases the hero between the walk pose and the seat
+   * pose over MOUNT_BLEND_S so mounting never snaps. */
+  const rideRef = useRef(null);
+  const rideBlendRef = useRef(0); // 0 = walk pose, 1 = seat pose
+  const seatHeightRef = useRef(0); // saddle height above ground, metres
+  const mountPromptRef = useRef(null); // monster id with a live prompt
+  const rideApiRef = useRef(null); // { mountPrompted, dismount } for the buttons
   // The backpack's equipped weapon, read at strike time (a ref so
   // the zone effect's attack closure never goes stale when the
   // traveller equips mid-hunt).
@@ -113,6 +123,10 @@ export default function HollowEarthPage() {
   const [videoFailed, setVideoFailed] = useState(false); // intro video; falls back to the banner image, then the orbs
   const [toast, setToast] = useState('');
   const [korusDead, setKorusDead] = useState(false);
+  /* Mount prompt (nearest mountable monster in range) and mounted
+   * state — React mirrors of rideRef/mountPromptRef, for the buttons. */
+  const [mountPrompt, setMountPrompt] = useState(null); // { id, name } | null
+  const [mounted, setMounted] = useState(null); // { id, name } | null
 
   const hero = useMemo(() => heroDef(heroKey), [heroKey]);
   const gateIsOpen = useMemo(() => DATA.gateOpen(campaign), [campaign]);
@@ -141,6 +155,9 @@ export default function HollowEarthPage() {
   const spawnToBase = useCallback(() => {
     const w = walkerRef.current;
     if (!w) return;
+    // Riding home still means getting off first — the mount
+    // waits where it was left, it does not teleport with you.
+    if (rideApiRef.current) rideApiRef.current.dismount();
     if (!canTeleport(lastTeleportRef.current, Date.now())) {
       notice('🏠 The Haven call needs a moment to recharge (10 s).');
       return;
@@ -196,6 +213,9 @@ export default function HollowEarthPage() {
         setCampaign((c) => { const nc = DATA.setShield(c, h.shield); DATA.saveCampaign(nc); return nc; });
         if (h.hp <= 0) {
           // Death respawns at The Haven, full HP, kills + shield kept.
+          // The mount stays where it fell — dismount first, or the
+          // rider would respawn still sitting on it.
+          if (rideApiRef.current) rideApiRef.current.dismount();
           walker.pos.x = SAFE_BASE.x;
           walker.pos.z = SAFE_BASE.z;
           h.hp = hero.maxHp;
@@ -275,6 +295,61 @@ export default function HollowEarthPage() {
     const heroFig = buildHeroFigure(THREE, heroKey);
     heroFigRef.current = heroFig;
     scene.add(heroFig);
+
+    // ── Mounts (Merlin, 2026-11-15) ────────────────────────
+    // Embermane + Frostbite (families.js mount: true) ride
+    // through the shared mounting idiom: walk up, a top-centre
+    // Mount button appears, tap to get on; ride at the mount's
+    // own pace; dismount beside it, and it waits where left.
+    // The zone skips the hunt AI for a mounted monster
+    // (zone.js: m.mounted) and strike() never targets it, so
+    // the rider can never strike their own mount.
+    const mountMonster = (m) => {
+      if (!m || rideRef.current) return;
+      const spot = mountSpot(m);
+      walker.pos.x = spot.x;
+      walker.pos.z = spot.z;
+      walker.jumpY = 0; walker.jumpV = 0; walker.grounded = true;
+      m.faceYaw = mountYawForWalker(walker.yaw);
+      m.mounted = true;
+      rideRef.current = tryMount(rideRef.current, m);
+      rideBlendRef.current = 0;
+      seatHeightRef.current = riderSeatOffsetY(m.stats.scaleM, hero.height);
+      const name = (MONSTER_TYPES[m.type] && MONSTER_TYPES[m.type].name) || m.type;
+      setMounted({ id: m.id, name });
+      setMountPrompt(null);
+      mountPromptRef.current = null;
+      notice(`🐎 Mounted — ${name}. Ride with the stick; strike from the saddle.`);
+    };
+    const dismountMonster = () => {
+      const ride = rideRef.current;
+      if (!ride) return;
+      const m = ride.mount;
+      const spot = dismountSpot(m);
+      // Settle the landing spot out of solid geometry with the
+      // walker's own push-out — never inside the mount, never
+      // inside a landmark.
+      const settled = { x: spot.x, z: spot.z };
+      resolveColliders(settled, [...world.colliders, ...monsterColliders(world.monsters.filter((mm) => mm !== m), world.korus)]);
+      clampBounds(settled, world.bounds);
+      walker.pos.x = settled.x;
+      walker.pos.z = settled.z;
+      walker.jumpY = 0; walker.jumpV = 0; walker.grounded = true;
+      m.mounted = false;
+      rideRef.current = dismountRide(rideRef.current);
+      setMounted(null);
+      const name = (MONSTER_TYPES[m.type] && MONSTER_TYPES[m.type].name) || m.type;
+      notice(`🚶 Dismounted — ${name} waits where you left it.`);
+    };
+    rideApiRef.current = {
+      mountPrompted: () => {
+        const id = mountPromptRef.current;
+        if (!id) return;
+        const mm = world.monsters.find((x) => x.id === id);
+        if (mm) mountMonster(mm);
+      },
+      dismount: dismountMonster,
+    };
 
     const keys = createKeyInput();
     keys.attach();
@@ -493,21 +568,52 @@ export default function HollowEarthPage() {
           gpPrevRt = triggerValue(Array.isArray(pad.buttons) ? pad.buttons[GAMEPAD_BUTTONS.RT] : null);
         } else { gpButtons = new Set(); gpPrevRt = 0; }
       }
+      const ride = rideRef.current;
+      // RIDING: the mount travels with the rider — its own
+      // collider is excluded (the rider rides it, not collides
+      // with it), sprint is ignored (the ride IS the fast
+      // speed), and the mount's x/z/faceYaw are driven from the
+      // walker before world.update so its figure syncs in the
+      // same frame.
       stepWalker(walker, {
         fwd: keys.state.fwd + joyRef.current.y,
         strafe: keys.state.strafe + joyRef.current.x,
-        sprint: keys.state.sprint,
+        sprint: ride ? false : keys.state.sprint,
       }, dt, {
         groundHeight: world.groundHeight,
         // Solid characters: landmarks + scatter colliders PLUS
         // every active monster and Korus, rebuilt each frame
         // (monsters move; world.colliders itself is never
-        // mutated, so the zone's own data stays clean).
-        colliders: [...world.colliders, ...monsterColliders(world.monsters, world.korus)],
+        // mutated, so the zone's own data stays clean) — minus
+        // the ridden mount, which the rider sits on.
+        colliders: ride
+          ? [...world.colliders, ...monsterColliders(world.monsters.filter((m) => m !== ride.mount), world.korus)]
+          : [...world.colliders, ...monsterColliders(world.monsters, world.korus)],
         bounds: world.bounds,
         snapY: true,
-        speed: 10 * (hero.speedMult || 1),
+        speed: ride ? rideSpeedForMount(ride.mount.stats) : 10 * (hero.speedMult || 1),
       });
+      if (ride) {
+        const mm = ride.mount;
+        mm.x = walker.pos.x;
+        mm.z = walker.pos.z;
+        mm.faceYaw = mountYawForWalker(walker.yaw);
+      }
+      /* mount prompt: the nearest mountable monster in range,
+       * threshold crossings only (the Earth 2 board-prompt
+       * pattern) — the button appears before the walker is
+       * pressed against the mount, and never while mounted */
+      if (!rideRef.current) {
+        const near = nearestMountInRange(world.monsters, walker.pos.x, walker.pos.z);
+        const nearId = near ? near.id : null;
+        if (nearId !== mountPromptRef.current) {
+          mountPromptRef.current = nearId;
+          setMountPrompt(near ? { id: near.id, name: (MONSTER_TYPES[near.type] && MONSTER_TYPES[near.type].name) || near.type } : null);
+        }
+      } else if (mountPromptRef.current) {
+        mountPromptRef.current = null;
+        setMountPrompt(null);
+      }
       world.setObserver({
         x: walker.pos.x, z: walker.pos.z,
         quiet: hero.quiet || 1,
@@ -540,6 +646,7 @@ export default function HollowEarthPage() {
             if (res.hpLost > 0) flashDamage();
             setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield }));
             if (h.hp <= 0) {
+              if (rideApiRef.current) rideApiRef.current.dismount();
               walker.pos.x = SAFE_BASE.x;
               walker.pos.z = SAFE_BASE.z;
               h.hp = hero.maxHp;
@@ -549,14 +656,33 @@ export default function HollowEarthPage() {
         }
         return false;
       });
-      const cam = walkerCamera(walker, { groundHeight: world.groundHeight });
+      // Mounted, the eye rides a saddle-height higher — the
+      // blend keeps the camera from snapping up or down on
+      // mount/dismount. (This world is first-person: the rider
+      // keeps the hunter's own eye, raised by the seat.)
+      const seatY = seatHeightRef.current * rideBlendRef.current;
+      const cam = walkerCamera(walker, { groundHeight: world.groundHeight, eye: WALK_EYE + seatY });
       camera.position.set(cam.x, cam.y, cam.z);
       camera.rotation.set(walker.pitch, walker.yaw, 0);
-      // Hero figure trails a step behind the walker.
+      // Mount/dismount blend: the hero rises into the saddle
+      // (and sinks back down) over MOUNT_BLEND_S, never
+      // snapping — and slides from trailing a step behind the
+      // walker to sitting on the mount as the blend rises.
+      const rideNow = rideRef.current;
+      const blendTarget = rideNow ? 1 : 0;
+      const b0 = rideBlendRef.current;
+      rideBlendRef.current = blendTarget > b0
+        ? Math.min(1, b0 + dt / MOUNT_BLEND_S)
+        : Math.max(0, b0 - dt / MOUNT_BLEND_S);
+      const blend = rideBlendRef.current;
+      if (rideNow) seatHeightRef.current = riderSeatOffsetY(rideNow.mount.stats.scaleM, hero.height);
+      const trail = 1.2 * (1 - blend);
+      // Hero figure trails a step behind the walker on foot,
+      // and sits on the mount while riding.
       heroFig.position.set(
-        walker.pos.x + Math.sin(walker.yaw) * 1.2,
-        world.groundHeight(walker.pos.x, walker.pos.z),
-        walker.pos.z + Math.cos(walker.yaw) * 1.2
+        walker.pos.x + Math.sin(walker.yaw) * trail,
+        world.groundHeight(walker.pos.x, walker.pos.z) + seatHeightRef.current * blend,
+        walker.pos.z + Math.cos(walker.yaw) * trail
       );
       heroFig.rotation.y = walker.yaw;
       if (++hudTick % 15 === 0) {
@@ -640,6 +766,13 @@ export default function HollowEarthPage() {
       // their state, so they rejoin in the next realm.
       for (const h of companionsRef.current.splice(0)) { try { h.dispose(); } catch (e) { /* noop */ } }
       dinoApiRef.current = null;
+      // A mount never survives leaving the world: the ride refs
+      // die with the effect, and the next entry starts on foot.
+      rideRef.current = null;
+      rideApiRef.current = null;
+      mountPromptRef.current = null;
+      setMounted(null);
+      setMountPrompt(null);
       renderer.dispose();
       worldRef.current = null;
       walkerRef.current = null;
@@ -792,6 +925,25 @@ export default function HollowEarthPage() {
         )}
         {toast && (
           <div style={{ alignSelf: 'center', background: 'rgba(0,0,0,0.7)', borderRadius: 999, padding: '0.4rem 1rem', color: '#fff', fontSize: 14, textAlign: 'center', maxWidth: '90vw' }}>{toast}</div>
+        )}
+        {/* MOUNTS (Merlin, 2026-11-15): the mount prompt lives
+            here, in the HUD column's own flow — a visible
+            top-centre button in reach, like the egg-steal
+            button, never hidden inside a collapsed panel and
+            never overlapping the HUD rows above it. While
+            mounted it becomes the Dismount control; walking
+            away is NOT dismount. */}
+        {mountPrompt && !mounted && (
+          <button type="button" onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}
+            style={{ alignSelf: 'center', background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.5rem 1.2rem', fontWeight: 800, fontSize: 14, cursor: 'pointer', pointerEvents: 'auto' }}>
+            🐎 Mount {mountPrompt.name}
+          </button>
+        )}
+        {mounted && (
+          <button type="button" onClick={() => { if (rideApiRef.current) rideApiRef.current.dismount(); }}
+            style={{ alignSelf: 'center', background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.5rem 1.2rem', fontWeight: 800, fontSize: 14, cursor: 'pointer', pointerEvents: 'auto' }}>
+            ⬇ Dismount
+          </button>
         )}
       </div>
       {korusDead && (

@@ -8,7 +8,7 @@
 // everywhere. No game mechanics in the base shell — the arches only
 // navigate, nothing fights, nothing charges.
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -31,6 +31,8 @@ import {
   right,
   stepPosition,
 } from '@/lib/hell/world';
+import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
+import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
 import {
@@ -43,6 +45,14 @@ import {
   LAVA_GLOW_VEIN_SHADOW_BLUR,
 } from '@/lib/nether-realm/lava-glow';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
+import { nearRiver } from '@/lib/afterlife/ferry';
+import {
+  GUIDE_BREAK_M,
+  GUIDE_FOLLOW_SPEED_MPS,
+  bankAt,
+  followStep,
+  nearestGuidable,
+} from '@/lib/afterlife/guide';
 
 const ROCK = '#141118';
 const STONE = '#2a2a32';
@@ -267,8 +277,11 @@ function Landmark() {
   );
 }
 
-function WestRegion({dressing, shades, reduced}) {
-  const westShades = useMemo(() => shades.filter((s) => s.id.startsWith('a')), [shades]);
+function WestRegion({dressing, shades, reduced, hiddenIds}) {
+  const westShades = useMemo(
+    () => shades.filter((s) => s.id.startsWith('a') && !(hiddenIds || []).includes(s.id)),
+    [shades, hiddenIds],
+  );
   const shadeRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -307,7 +320,7 @@ function WestRegion({dressing, shades, reduced}) {
   );
 }
 
-function EastRegion({dressing, reduced, shades}) {
+function EastRegion({dressing, reduced, shades, hiddenIds, forgeFlash = 0}) {
   // Five flames breathing over the lake surface, same wave as the
   // Tartarus pit cones — fixed offsets inside the lake disc so the
   // fire reads from every side, not just from the bright spot.
@@ -319,7 +332,15 @@ function EastRegion({dressing, reduced, shades}) {
     { x: 7.7, z: -23.8 },
   ];
   const flameRefs = useRef([]);
-  useFrame((state) => {
+  // THE FORGE (tranche 1): a cast soul bursts out of the lake — an
+  // expanding ring of light that fades in ~1.2 s. forgeFlash counts
+  // casts; the burst starts on each change.
+  const burstRef = useRef(null);
+  const burstAgeRef = useRef(null);
+  useEffect(() => {
+    if (forgeFlash > 0) burstAgeRef.current = 0;
+  }, [forgeFlash]);
+  useFrame((state, dt) => {
     if (reduced) return;
     const t = state.clock.elapsedTime;
     flameRefs.current.forEach((m, i) => {
@@ -327,6 +348,17 @@ function EastRegion({dressing, reduced, shades}) {
       const s = 1 + Math.sin(t * 3 + i * 2.1) * 0.12;
       m.scale.set(s, 1 + Math.sin(t * 4 + i) * 0.15, s);
     });
+    if (burstAgeRef.current != null) {
+      burstAgeRef.current += Math.min(dt, 0.05);
+      const m = burstRef.current;
+      const age = burstAgeRef.current;
+      if (m) {
+        const s = 1 + age * 26;
+        m.scale.set(s, s, 1);
+        m.material.opacity = Math.max(0, 0.9 - age * 0.75);
+      }
+      if (age > 1.2) burstAgeRef.current = null;
+    }
   });
   return (
     <group>
@@ -363,13 +395,18 @@ function EastRegion({dressing, reduced, shades}) {
           <meshBasicMaterial color="#ff7a1a" transparent opacity={0.9} />
         </mesh>
       ))}
+      {/* Forge burst: an expanding ring over the lake on a cast. */}
+      <mesh ref={burstRef} rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.5, -70]}>
+        <ringGeometry args={[0.9, 1, 32]} />
+        <meshBasicMaterial color="#ffd98a" transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
       {dressing.map((p) => (
         <mesh key={p.id} position={[p.x, p.h / 2, p.z]}>
           <cylinderGeometry args={[0.9, 1.1, p.h, 10]} />
           <meshStandardMaterial color="#d8d2c0" roughness={0.9} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
+      {shades.filter((s) => s.id.startsWith('e') && !(hiddenIds || []).includes(s.id)).map((s) => (
         <mesh key={s.id} position={[s.x, 1.2, s.z]}>
           <coneGeometry args={[0.7, 2.4, 8]} />
           <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
@@ -382,7 +419,7 @@ function EastRegion({dressing, reduced, shades}) {
   );
 }
 
-function NorthRegion({dressing, shades, reduced}) {
+function NorthRegion({dressing, shades, reduced, hiddenIds}) {
   const pitRefs = useRef([]);
   useFrame((state) => {
     if (reduced) return;
@@ -416,7 +453,7 @@ function NorthRegion({dressing, shades, reduced}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('t')).map((s) => (
+      {shades.filter((s) => s.id.startsWith('t') && !(hiddenIds || []).includes(s.id)).map((s) => (
         <mesh key={s.id} position={[s.x, 1.2, s.z]}>
           <coneGeometry args={[0.7, 2.4, 8]} />
           <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
@@ -642,11 +679,46 @@ function Embers({reduced}) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
+// The guided soul (tranche 1): a fading shade that follows the
+// walker to the river bank. The page owns the guide state; this
+// mesh only walks the position in guidedPosRef toward the player.
+function GuidedShade({ guiding, guidedPosRef, playerRef, reduced }) {
+  const ref = useRef(null);
+  useFrame((state, dt) => {
+    if (reduced || !guiding || !guidedPosRef.current) return;
+    const p = playerRef.current;
+    const g = guidedPosRef.current;
+    const next = followStep(g.x, g.z, p.x, p.z, GUIDE_FOLLOW_SPEED_MPS, Math.min(dt, 0.05));
+    guidedPosRef.current = { x: next.x, z: next.z };
+    const m = ref.current;
+    if (m) {
+      m.position.set(next.x, 1.2 + Math.sin(state.clock.elapsedTime * 1.5) * 0.3, next.z);
+    }
+  });
+  if (!guiding || !guidedPosRef.current) return null;
+  // The guided soul is NOT a drift figure: its cone carries its
+  // own geometry ([0.75, 2.4, 6]) so the drift census stays exact —
+  // the humanoid suite counts exactly three [0.7, 2.4, 8] drift
+  // cones per realm, one per disc, and this soul is none of them.
+  return (
+    <mesh ref={ref} position={[guidedPosRef.current.x, 1.2, guidedPosRef.current.z]}>
+      <coneGeometry args={[0.75, 2.4, 6]} />
+      <meshStandardMaterial color="#f2f2fa" transparent opacity={0.65} roughness={0.6} />
+    </mesh>
+  );
+}
+
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, shades, guiding, guidedPosRef, deliveredIds, onFerryZone, onGuidable, onGuideBroken, onDelivered, onAntiLife}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
+  const lastAntiLifeRef = useRef(0);
+  const antiLifeTravelingRef = useRef(false);
   const lastRegionRef = useRef('');
+  const lastFerryRef = useRef(null);
+  const lastGuidableRef = useRef(null);
+  const lastGuideCheckRef = useRef(0);
+  const deliveringRef = useRef(null);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 0.05);
@@ -700,6 +772,63 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
     } else {
       travelingRef.current = false;
     }
+    // ANTI-LIFE PORTAL (Merlin, 2026-11-15): a fall-through-the-floor
+    // portal to Anti-Life — the same once-per-entry guard as the
+    // arches and the Hades lava drop, so standing on the disc re-fires
+    // the fall only after stepping back out. The fall rides the same
+    // vortex travel; the tube is the fall.
+    if (onAntiLife && isOnAntiLifePortal(player.x, player.z)) {
+      if (!antiLifeTravelingRef.current && now - lastAntiLifeRef.current > 1500) {
+        antiLifeTravelingRef.current = true;
+        lastAntiLifeRef.current = now;
+        onAntiLife();
+      }
+    } else {
+      antiLifeTravelingRef.current = false;
+    }
+
+    // THE FERRY (tranche 1): near the river, Charon can be called.
+    // Reported on change only, like the region.
+    if (onFerryZone) {
+      const near = nearRiver(player.x, player.z, RIVER, 30);
+      if (near !== lastFerryRef.current) {
+        lastFerryRef.current = near;
+        onFerryZone(near);
+      }
+    }
+
+    // SOUL-GUIDING (tranche 1): a fading soul within reach can be
+    // guided; a guided soul that falls behind is lost, and one
+    // walked to the bank is delivered. The guidable scan runs twice
+    // a second — lifeFor is pure, but 18 calls a frame is wasteful.
+    // Delivered souls are excluded from the scan, so a banked soul
+    // is never offered twice.
+    const nowMs = Date.now();
+    if (guiding && guidedPosRef && guidedPosRef.current) {
+      const g = guidedPosRef.current;
+      if (Math.hypot(player.x - g.x, player.z - g.z) > GUIDE_BREAK_M) {
+        if (onGuideBroken) onGuideBroken();
+      } else if (bankAt(RIVER, player.x, player.z)) {
+        if (onDelivered && deliveringRef.current !== guiding.id) {
+          deliveringRef.current = guiding.id;
+          onDelivered(guiding);
+        }
+      }
+    } else {
+      deliveringRef.current = null;
+      if (onGuidable && shades && nowMs - lastGuideCheckRef.current > 500) {
+        lastGuideCheckRef.current = nowMs;
+        const open = (deliveredIds || []).length
+          ? shades.filter((s) => !deliveredIds.includes(s.id))
+          : shades;
+        const found = nearestGuidable('hell', open, player.x, player.z, nowMs);
+        const key = found ? `${found.id}:${found.generation}` : null;
+        if (key !== lastGuidableRef.current) {
+          lastGuidableRef.current = key;
+          onGuidable(found ? { id: found.id, generation: found.generation } : null);
+        }
+      }
+    }
   });
 
   return null;
@@ -707,8 +836,25 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
 
 // --- the whole scene ---------------------------------------------------------
 
-export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, guiding, deliveredIds, forgeFlash, onFerryZone, onGuidable, onGuideBroken, onDelivered, onAntiLife}) {
   const world = useMemo(() => makeWorld(1338), []);
+
+  // The guided soul's live position, shared between the CameraRig
+  // (break/delivery checks) and the GuidedShade mesh (the walk).
+  const guidedPosRef = useRef(null);
+  useEffect(() => {
+    if (!guiding) {
+      guidedPosRef.current = null;
+      return;
+    }
+    const shade = world.shades.find((s) => s.id === guiding.id);
+    guidedPosRef.current = shade ? { x: shade.x, z: shade.z } : null;
+  }, [guiding, world]);
+
+  // Shades already delivered — or being guided — are not rendered
+  // in their region disc: a delivered soul has passed on, and the
+  // guided one walks beside the player instead.
+  const hiddenIds = [...(deliveredIds || []), guiding ? guiding.id : null].filter(Boolean);
 
   // DAY / NIGHT STORM (Merlin, 2026-11-14): a strike sometimes sets a
   // ground fire — open ground only. Never on the walker (5 m), never
@@ -746,10 +892,12 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
       <Bridge />
       <Gates />
       <Landmark />
-      <WestRegion dressing={world.plainStones} shades={world.shades} reduced={reduced} />
-      <EastRegion dressing={world.lakeFlames} reduced={reduced}  shades={world.shades}/>
-      <NorthRegion dressing={world.frozenSpikes} shades={world.shades} reduced={reduced} />
+      <WestRegion dressing={world.plainStones} shades={world.shades} reduced={reduced} hiddenIds={hiddenIds} />
+      <EastRegion dressing={world.lakeFlames} reduced={reduced} shades={world.shades} hiddenIds={hiddenIds} forgeFlash={forgeFlash} />
+      <NorthRegion dressing={world.frozenSpikes} shades={world.shades} reduced={reduced} hiddenIds={hiddenIds} />
+      <GuidedShade guiding={guiding} guidedPosRef={guidedPosRef} playerRef={playerRef} reduced={reduced} />
       <PortalArches />
+      <AntiLifePortalDisc />
       <DescentPortal />
       <Torches reduced={reduced} />
       <Embers reduced={reduced} />
@@ -757,8 +905,17 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
         playerRef={playerRef}
         inputRef={inputRef}
         onPortal={onPortal}
+        onAntiLife={onAntiLife}
         onRegion={onRegion}
         reduced={reduced}
+        shades={world.shades}
+        guiding={guiding}
+        guidedPosRef={guidedPosRef}
+        deliveredIds={deliveredIds}
+        onFerryZone={onFerryZone}
+        onGuidable={onGuidable}
+        onGuideBroken={onGuideBroken}
+        onDelivered={onDelivered}
       />
     </>
   );
