@@ -9,9 +9,17 @@
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { dayNightFor, getDayNightPlace, requestDayNightPlace, applyDayNightRig } from '../../lib/day-night.js';
-import { dinosNear, stepDino, shouldDespawn, showcaseGround, SPAWN_RADIUS_M, REFRESH_SECONDS } from '../../lib/earth3/spawner.js';
-import { plantTrees, islandTreeSpeciesForIndex } from '../../lib/earth3/trees.js';
-import { tileToWorld, TILE_M } from '../../lib/earth3/terrain.js';
+import { dinosNear, stepDino, shouldDespawn, SPAWN_RADIUS_M, REFRESH_SECONDS } from '../../lib/earth3/spawner.js';
+import { plantTrees, loadTreeModel, treeSpeciesForIndex, islandTreeSpeciesForIndex } from '../../lib/earth3/trees.js';
+import { tileToWorld, heightAt as terrainHeightAt, biomeAt as terrainBiomeAt, TILE_M, WATER_Y } from '../../lib/earth3/terrain.js';
+// Full-world streaming (Merlin, 2026-11-14): the frozen law in
+// lib/earth3/streaming.js — chunks around the walker, origin
+// rebase, the true edge. The scene builds against these exact
+// names; the pure law lives in the lib, the meshes live here.
+import {
+  CHUNK_M, CHUNK_TILES, STREAM_RADIUS_CHUNKS,
+  chunkBounds, chunksAround, chunkSetDiff, needsRebase, atEdge, clampToWorld, isWaterAt,
+} from '../../lib/earth3/streaming.js';
 import { tileIndexFromId } from '../../lib/earth3/claims.js';
 import { modelDeliveryUrls, fetchEarth2ModelUrls } from '../../lib/earth2/models.js';
 import { resolveBones, normalizeJointName } from '../../lib/earth2/bones.js';
@@ -118,7 +126,16 @@ export const TOUR = ['plaza', 'aetheris', 'housing', 'factory', 'mordor', 'islan
    Internal constants
    ============================================================ */
 
-const WORLD_R = 250;        // walk/fly XZ clamp radius
+// The showcase: the built diorama at world (0, 0) — the front
+// door. Walkers start here; outside it the real heightfield
+// takes over (see groundHeightAt). The disc itself is 260 m
+// across (buildGround); the feather blends the two over 50 m.
+const SHOWCASE_R = 260;
+const FEATHER_M = 50;
+const FLY_CEIL = 260;       // real terrain peaks near 193 m
+const ROAM_WATER_M = 1792;  // roaming open-water plane, 4 chunks
+const CHUNK_TREES_MAX = 20; // trees planted per streamed chunk
+const ROAM_FLOWERS = 200;   // roaming wildflower instances
 const EYE = 2.4;            // walk eye height
 const WALK_SPEED = 10;
 const FLY_SPEED = 22;
@@ -186,6 +203,244 @@ function yawPitchFrom(pos, target) {
     yaw: Math.atan2(-dx, -dz),
     pitch: Math.atan2(dy, Math.hypot(dx, dz)),
   };
+}
+
+/* ============================================================
+   Full-world ground law (Merlin, 2026-11-14). Inside the
+   showcase disc the ground is the flat painted diorama (y = 0);
+   outside it the ground is lib/earth3/terrain.js, blended in
+   over a 50 m feather so there is no seam or cliff at the disc
+   edge. The showcase's own water — the south ocean plane and
+   the ocean-dome lagoon — keeps its ground below the waterline
+   through the feather, so no hill pokes through the sea.
+   The real terrain around the showcase runs 12–22 m high (the
+   south "ocean" sector included), which is why the feather
+   starts from the waterline instead of from the terrain.
+   ============================================================ */
+
+// smoothstep 0..1
+function smooth01(t) {
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return c * c * (3 - 2 * c);
+}
+
+// Small deterministic hash for placement (chunk trees, roaming
+// flowers) — integer arithmetic, the same spot every visit.
+function hash2(ix, iz, seed) {
+  let h = Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x165667b1) ^ Math.imul(seed | 0, 0x9e3779b9);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+// Distance outside an axis-aligned rectangle (0 inside it).
+function distOutsideRect(x, z, x0, z0, x1, z1) {
+  const dx = Math.max(x0 - x, 0, x - x1);
+  const dz = Math.max(z0 - z, 0, z - z1);
+  return Math.hypot(dx, dz);
+}
+
+// Distance outside the showcase footprint: the disc, the south
+// ocean rectangle (x -380..380, z 140..420), the lagoon circle
+// (r 78 around -235, 55) — 0 anywhere inside.
+function showcaseUnionDist(x, z) {
+  const dDisc = Math.hypot(x, z) - SHOWCASE_R;
+  const dOcean = distOutsideRect(x, z, -380, 140, 380, 420);
+  const dLagoon = Math.hypot(x + 235, z - 55) - 78;
+  return Math.min(dDisc, dOcean, dLagoon);
+}
+
+// 1 inside the showcase water, fading to 0 fifty metres out.
+function showcaseWaterWeight(x, z) {
+  const d = Math.min(
+    distOutsideRect(x, z, -380, 140, 380, 420),
+    Math.hypot(x + 235, z - 55) - 78,
+  );
+  return 1 - Math.min(1, Math.max(0, d) / FEATHER_M);
+}
+
+// The ground the walker (and the dinos) stand on, anywhere on
+// the grid: flat 0 on the showcase disc, the real heightfield
+// beyond a 50 m feather. Under showcase water the blend starts
+// a metre down, so the sea stays a sea.
+function groundHeightAt(x, z) {
+  if (Math.hypot(x, z) <= SHOWCASE_R) return 0;
+  const t = smooth01(showcaseUnionDist(x, z) / FEATHER_M);
+  const base = -showcaseWaterWeight(x, z);
+  return base + (terrainHeightAt(x, z) - base) * t;
+}
+
+// The biome at (x, z) on the same law: the showcase rule on
+// the disc (water past the south beach), water wherever the
+// blended ground dips below the waterline, the terrain law
+// everywhere else.
+function groundBiomeAt(x, z) {
+  if (Math.hypot(x, z) <= SHOWCASE_R) return z > 200 ? 'water' : 'plains';
+  if (groundHeightAt(x, z) < WATER_Y) return 'water';
+  return terrainBiomeAt(x, z);
+}
+
+// The one ground object the spawner, the walker and the claim
+// marker all read: the blended world, not the flat diorama.
+const worldGround = { heightAt: groundHeightAt, biomeAt: groundBiomeAt };
+
+// True when the walker may not step here on foot: real water
+// (streaming's isWaterAt) or showcase water — the south beach
+// past z 200 on the disc, the ocean and lagoon beyond it.
+function isWaterHere(x, z) {
+  if (isWaterAt(x, z)) return true;
+  if (Math.hypot(x, z) <= SHOWCASE_R) return z > 200;
+  return groundHeightAt(x, z) < WATER_Y;
+}
+
+// The showcase disc's painted colour law, factored out of
+// buildGround so chunk ground can feather into it at the disc
+// edge: green base, sand on the south beach and lagoon shores,
+// snow on the arctic patch. `vary` is one 0..1 draw per vertex
+// (the disc draws it from the scene rng; chunks hash it).
+const SHOWCASE_SAND = new THREE.Color(0xd9c08a);
+const SHOWCASE_SNOW = new THREE.Color(0xf4f8fb);
+function showcaseGroundColor(x, z, vary, out) {
+  out.setHSL(0.29 + vary * 0.035, 0.52, 0.3 + vary * 0.09);
+  const dDome = Math.hypot(x + 235, z - 55), dIsl = Math.hypot(x + 50, z - 175);
+  let s = 0;
+  if (z > 168) s = Math.min(1, (z - 168) / 28);
+  s = Math.max(s, 1 - clamp((dDome - 62) / 18, 0, 1));
+  s = Math.max(s, 1 - clamp((dIsl - 52) / 16, 0, 1));
+  const dArc = Math.hypot(x - 175, z + 175);
+  const sn = 1 - clamp((dArc - 50) / 16, 0, 1);
+  out.lerp(SHOWCASE_SAND, s).lerp(SHOWCASE_SNOW, sn * 0.95);
+  return out;
+}
+
+const _chunkCol = new THREE.Color();
+const _showCol = new THREE.Color();
+
+// Open-world ground colour at (x, z) for a vertex standing at
+// blended height h: biome tints over the real terrain, shore
+// sand where the ground runs low, seabed where it runs wet —
+// feathered into the showcase palette across the same 50 m
+// the heights blend over, so the disc edge has no colour seam.
+function chunkGroundColor(x, z, h, vary, out) {
+  if (h < WATER_Y) out.setRGB(0.05, 0.27, 0.45); // seabed
+  else if (h < 2.5) out.setHSL(0.11, 0.45, 0.6 + vary * 0.06); // shore sand
+  else {
+    const biome = terrainBiomeAt(x, z);
+    if (biome === 'mountains') out.setHSL(0.08, 0.06, 0.42 + vary * 0.08);
+    else if (biome === 'hills') out.setHSL(0.19, 0.42, 0.3 + vary * 0.06);
+    else if (biome === 'forest') out.setHSL(0.32, 0.5, 0.22 + vary * 0.05);
+    else out.setHSL(0.29, 0.52, 0.32 + vary * 0.06);
+  }
+  const d = showcaseUnionDist(x, z);
+  if (d < FEATHER_M) {
+    showcaseGroundColor(x, z, vary, _showCol);
+    out.lerp(_showCol, 1 - smooth01(d / FEATHER_M));
+  }
+  return out;
+}
+
+// One streamed chunk: 16x16 quads over 448 m (28 m per quad,
+// one per tile), heights + biome colours from the blended
+// ground law, the CGI grain detail maps shared with the disc.
+// Vertices under the showcase disc sit 0.5 m below it, hidden.
+function buildChunkMesh(cx, cz) {
+  const b = chunkBounds(cx, cz);
+  const geo = new THREE.PlaneGeometry(CHUNK_M, CHUNK_M, CHUNK_TILES, CHUNK_TILES);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const cx0 = b.x0 + CHUNK_M / 2, cz0 = b.z0 + CHUNK_M / 2;
+  for (let i = 0; i < pos.count; i++) {
+    const wx = cx0 + pos.getX(i), wz = cz0 + pos.getZ(i);
+    const r = Math.hypot(wx, wz);
+    const h = r <= SHOWCASE_R ? -0.5 : groundHeightAt(wx, wz);
+    pos.setY(i, h);
+    chunkGroundColor(wx, wz, h, hash2(Math.round(wx), Math.round(wz), 0x51ab), _chunkCol);
+    colors[i * 3] = _chunkCol.r; colors[i * 3 + 1] = _chunkCol.g; colors[i * 3 + 2] = _chunkCol.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  // The detail maps are cached per seed (lib/earth3/cgi.js) —
+  // every chunk shares the disc's grain at the same ~20 m tile.
+  const detail = groundDetailMaps('earth3-ground');
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 1, metalness: 0,
+    map: detail.map, bumpMap: detail.bumpMap, bumpScale: detail.bumpScale,
+  }));
+  mesh.position.set(cx0, 0, cz0);
+  return mesh;
+}
+
+// ── Chunk trees ───────────────────────────────────────────────
+// Earth 2's real trees, planted per chunk from the same
+// deterministic scatter the showcase uses (uniform positions,
+// clear of structures, dry ground only, forests hold the
+// trees, plains stay mostly open) — but seeded per chunk, so
+// the forest is identical on every visit and never moves.
+// The GLBs decode once per species for the whole session:
+// plantTrees takes an injectable loader, and this cache hands
+// every chunk the same decoded scene (cloned, so each chunk's
+// normalize starts from the raw model).
+const treeModelCache = new Map();
+async function cachedTreeModel(entry) {
+  let p = treeModelCache.get(entry.slug);
+  if (!p) {
+    p = loadTreeModel(entry);
+    treeModelCache.set(entry.slug, p);
+  }
+  const raw = await p;
+  return raw.clone(true);
+}
+
+// Deterministic placements for one chunk: up to
+// CHUNK_TREES_MAX trees, uniform in the chunk, kept only on
+// dry land outside the showcase (which keeps its own trees),
+// clear of the landmark exclusion zones.
+function chunkTreePlacements(cx, cz) {
+  const b = chunkBounds(cx, cz);
+  const rng = mulberry32(Math.floor(hash2(cx, cz, 0x9e3779b9) * 4294967296));
+  const out = [];
+  let guard = 0;
+  while (out.length < CHUNK_TREES_MAX && guard++ < 240) {
+    const x = b.x0 + rng() * CHUNK_M;
+    const z = b.z0 + rng() * CHUNK_M;
+    if (Math.hypot(x, z) < SHOWCASE_R + 10) continue;
+    let clear = true;
+    for (const [ex, ez, er] of EXCLUDE) {
+      if (Math.hypot(x - ex, z - ez) < er) { clear = false; break; }
+    }
+    if (!clear) continue;
+    if (groundHeightAt(x, z) < 0.5) continue;
+    const biome = terrainBiomeAt(x, z);
+    if (biome === 'water' || biome === 'mountains') continue;
+    if (biome === 'plains' && rng() < 0.75) continue;
+    out.push({ x, z, scale: 0.8 + rng() * 0.7, heading: rng() * Math.PI * 2 });
+  }
+  return out;
+}
+
+// Plant one chunk's trees under the world group. Species vary
+// by chunk (the index offset is hashed from the chunk), and
+// each tree is seated on the real ground once its species
+// lands — plantTrees seats a batch at one height, the terrain
+// does not sit flat.
+function plantChunkTrees(ctx, cx, cz) {
+  const placements = chunkTreePlacements(cx, cz);
+  const offset = Math.floor(hash2(cx, cz, 0x51f7) * 1000);
+  const handle = plantTrees({
+    parent: ctx.world,
+    placements,
+    speciesForIndex: (i) => treeSpeciesForIndex(i + offset),
+    groundY: 0,
+    loadModel: cachedTreeModel,
+  });
+  handle.done.then(() => {
+    if (ctx.destroyed) return;
+    for (const child of handle.group.children) {
+      child.position.y = groundHeightAt(child.position.x, child.position.z) - 0.1;
+    }
+  }).catch(() => {});
+  return handle;
 }
 
 // Flat disc geometry with concentric rings (for smooth vertex-color ground)
@@ -358,26 +613,18 @@ function buildSky(ctx) {
 }
 
 function buildGround(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const geo = makeDisc(260, 24, 96);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const green = new THREE.Color(), sand = new THREE.Color(0xd9c08a), snow = new THREE.Color(0xf4f8fb);
   const tmp = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
-    const v = ctx.rng();
-    green.setHSL(0.29 + v * 0.035, 0.52, 0.3 + v * 0.09);
-    // sand: south beach ring + lagoon shores
-    const dDome = Math.hypot(x + 235, z - 55), dIsl = Math.hypot(x + 50, z - 175);
-    let s = 0;
-    if (z > 168) s = Math.min(1, (z - 168) / 28);
-    s = Math.max(s, 1 - clamp((dDome - 62) / 18, 0, 1));
-    s = Math.max(s, 1 - clamp((dIsl - 52) / 16, 0, 1));
-    // snow: arctic patch
-    const dArc = Math.hypot(x - 175, z + 175);
-    const sn = 1 - clamp((dArc - 50) / 16, 0, 1);
-    tmp.copy(green).lerp(sand, s).lerp(snow, sn * 0.95);
+    // One rng draw per vertex, in vertex order — the stream
+    // after buildGround (trees, flowers, plaques) depends on
+    // it, so the draw stays even though the law itself lives
+    // in showcaseGroundColor now.
+    showcaseGroundColor(x, z, ctx.rng(), tmp);
     colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -386,14 +633,14 @@ function buildGround(ctx) {
   // zones keep their colours and layout, the ground just gains
   // real grain and relief under the sun.
   const detail = groundDetailMaps('earth3-ground');
-  scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+  world.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
     vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide,
     map: detail.map, bumpMap: detail.bumpMap, bumpScale: detail.bumpScale,
   })));
 }
 
 function buildWater(ctx) {
-  const { scene, anim } = ctx;
+  const { world, anim } = ctx;
   const mkMat = (op) => new THREE.MeshStandardMaterial({
     color: 0x2f9fd8, transparent: true, opacity: op, roughness: 0.25, metalness: 0.1, depthWrite: false,
   });
@@ -402,7 +649,7 @@ function buildWater(ctx) {
   sg.rotateX(-Math.PI / 2);
   const south = new THREE.Mesh(sg, mkMat(0.82));
   south.position.set(0, 0.22, 280);
-  scene.add(south);
+  world.add(south);
   const sp = sg.attributes.position;
   const base = Float32Array.from(sp.array);
   const southMat = south.material;
@@ -418,7 +665,7 @@ function buildWater(ctx) {
   const dg = new THREE.CircleGeometry(75, 48); dg.rotateX(-Math.PI / 2);
   const dome = new THREE.Mesh(dg, mkMat(0.8));
   dome.position.set(-235, 0.26, 55);
-  scene.add(dome);
+  world.add(dome);
   const domeMat = dome.material;
   anim.push((t) => { domeMat.opacity = 0.76 + Math.sin(t * 0.9 + 2) * 0.05; });
 
@@ -436,7 +683,7 @@ function buildWater(ctx) {
     const mesh = new THREE.Mesh(geo, m);
     mesh.position.set(x, y, z);
     mesh.renderOrder = 1;
-    scene.add(mesh);
+    world.add(mesh);
     return mesh;
   };
   mkShimmer(new THREE.PlaneGeometry(760, 280), 0, 280, 0.95);
@@ -445,6 +692,29 @@ function buildWater(ctx) {
     const o = waterShimmerOffset(Date.now());
     shimmerTex.offset.set(o.u, o.v);
   });
+
+  // Roaming open water (Merlin, 2026-11-14): one flat water
+  // surface + shimmer sheet that follows the walker outside
+  // the showcase, so the real seas and lakes read as water
+  // instead of bare coloured seabed. It rides at y 0.9 with
+  // its shimmer at 0.98 — above the south ocean's tallest wave
+  // (0.87) — and stays hidden on the showcase itself, where
+  // the built water bodies serve. Repositioned (snapped to the
+  // 28 m tile grid) by the streaming tick, never rebuilt.
+  const roamWater = new THREE.Group();
+  const roamSea = new THREE.Mesh(new THREE.PlaneGeometry(ROAM_WATER_M, ROAM_WATER_M), mkMat(0.82));
+  roamSea.rotation.x = -Math.PI / 2;
+  roamSea.position.y = 0.9;
+  roamWater.add(roamSea);
+  const roamShimmer = mkShimmer(new THREE.PlaneGeometry(ROAM_WATER_M, ROAM_WATER_M), 0, 0, 0.98);
+  // mkShimmer adds to the world; re-parent under the roaming
+  // group so the sheet travels with the water (add() detaches
+  // it from the world first).
+  roamShimmer.position.set(0, 0.98, 0);
+  roamWater.add(roamShimmer);
+  roamWater.visible = false;
+  world.add(roamWater);
+  ctx.roamWater = roamWater;
 }
 
 // Cheap blob shadow helper (no shadow maps anywhere)
@@ -452,36 +722,36 @@ function addBlob(ctx, x, z, r, opacity = 0.25) {
   const m = new THREE.Mesh(new THREE.CircleGeometry(r, 24),
     new THREE.MeshBasicMaterial({ color: 0x0a2010, transparent: true, opacity, depthWrite: false }));
   m.rotation.x = -Math.PI / 2; m.position.set(x, 0.06, z);
-  ctx.scene.add(m);
+  ctx.world.add(m);
   return m;
 }
 
 function buildPlaza(ctx) {
-  const { scene, anim } = ctx;
+  const { world, anim } = ctx;
   const stone = new THREE.MeshStandardMaterial({ color: 0xb9b3a6, roughness: 0.95 });
   const disc = new THREE.Mesh(new THREE.CylinderGeometry(13, 13, 0.5, 48), stone);
-  disc.position.y = 0.25; scene.add(disc);
+  disc.position.y = 0.25; world.add(disc);
   const gold = new THREE.MeshStandardMaterial({ color: 0xc9a24a, roughness: 0.4, metalness: 0.7 });
   for (const r of [6, 10]) {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.18, 8, 64), gold);
-    ring.rotation.x = Math.PI / 2; ring.position.y = 0.52; scene.add(ring);
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.52; world.add(ring);
   }
   // Fountain
   const base = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.4, 1.1, 24), stone);
-  base.position.y = 1.05; scene.add(base);
+  base.position.y = 1.05; world.add(base);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(3, 0.25, 10, 32), stone);
-  rim.rotation.x = Math.PI / 2; rim.position.y = 1.65; scene.add(rim);
+  rim.rotation.x = Math.PI / 2; rim.position.y = 1.65; world.add(rim);
   const waterMat = new THREE.MeshStandardMaterial({
     color: 0x4fc3e8, transparent: true, opacity: 0.75, roughness: 0.15,
   });
   const water = new THREE.Mesh(new THREE.CircleGeometry(2.7, 24), waterMat);
-  water.rotation.x = -Math.PI / 2; water.position.y = 1.5; scene.add(water);
+  water.rotation.x = -Math.PI / 2; water.position.y = 1.5; world.add(water);
   const col = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.5, 2.4, 12), stone);
-  col.position.y = 2.2; scene.add(col);
+  col.position.y = 2.2; world.add(col);
   const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 0.8, 0.5, 16), stone);
-  bowl.position.y = 3.5; scene.add(bowl);
+  bowl.position.y = 3.5; world.add(bowl);
   const topWater = new THREE.Mesh(new THREE.CircleGeometry(1.1, 16), waterMat);
-  topWater.rotation.x = -Math.PI / 2; topWater.position.y = 3.78; scene.add(topWater);
+  topWater.rotation.x = -Math.PI / 2; topWater.position.y = 3.78; world.add(topWater);
   // Fountain droplets
   const drops = [];
   for (let i = 0; i < 8; i++) {
@@ -489,7 +759,7 @@ function buildPlaza(ctx) {
       map: ctx.tex.soft, color: 0xbfeaff, transparent: true, opacity: 0.7, depthWrite: false,
     }));
     s.userData = { life: ctx.rng(), x: (ctx.rng() - 0.5) * 1.4, z: (ctx.rng() - 0.5) * 1.4 };
-    s.scale.set(0.7, 0.7, 1); scene.add(s); drops.push(s);
+    s.scale.set(0.7, 0.7, 1); world.add(s); drops.push(s);
   }
   anim.push((t, dt) => {
     waterMat.opacity = 0.68 + Math.sin(t * 2.2) * 0.12;
@@ -508,7 +778,7 @@ function buildPlaza(ctx) {
     const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
     const b = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.5, 0.8), benchMat);
     b.position.set(Math.cos(a) * 11, 0.75, Math.sin(a) * 11);
-    b.rotation.y = -a + Math.PI / 2; scene.add(b);
+    b.rotation.y = -a + Math.PI / 2; world.add(b);
   }
   addBlob(ctx, 0, 0, 14, 0.18);
 }
@@ -526,7 +796,7 @@ function makeRiseColumn(ctx, x, z, height, color, size, opacity, count) {
     map: ctx.tex.soft, color, size, transparent: true, opacity, depthWrite: false, sizeAttenuation: true,
   });
   const pts = new THREE.Points(geo, mat);
-  ctx.scene.add(pts);
+  ctx.world.add(pts);
   ctx.anim.push((t, dt) => {
     const p = geo.attributes.position;
     for (let i = 0; i < count; i++) {
@@ -551,7 +821,7 @@ function makePuffs(ctx, ox, oy, oz, n, rise, startS, endS, opacity, dur) {
       map: ctx.tex.soft, color: 0xffffff, transparent: true, opacity, depthWrite: false,
     }));
     s.userData = { life: ctx.rng(), jx: (ctx.rng() - 0.5) * 3, jz: (ctx.rng() - 0.5) * 3 };
-    ctx.scene.add(s); puffs.push(s);
+    ctx.world.add(s); puffs.push(s);
   }
   ctx.anim.push((t, dt) => {
     for (const p of puffs) {
@@ -571,7 +841,7 @@ function makePuffs(ctx, ox, oy, oz, n, rise, startS, endS, opacity, dur) {
 }
 
 function buildAetheris(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const white = new THREE.MeshStandardMaterial({ color: 0xf2f5f7, roughness: 0.45 });
   const ringMat = new THREE.MeshStandardMaterial({
     color: 0x0a2a33, emissive: 0x35e0ff, emissiveIntensity: 2.2, roughness: 0.4,
@@ -580,22 +850,22 @@ function buildAetheris(ctx) {
   const radiusAt = (y) => 4.6 - (4.6 - 2.2) * (y / H);
   for (const tx of towerXs) {
     const tower = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 4.6, H, 20), white);
-    tower.position.set(tx, H / 2, cz); scene.add(tower);
+    tower.position.set(tx, H / 2, cz); world.add(tower);
     const foot = new THREE.Mesh(new THREE.CylinderGeometry(6, 7, 2, 20), white);
-    foot.position.set(tx, 1, cz); scene.add(foot);
+    foot.position.set(tx, 1, cz); world.add(foot);
     for (const ry of [18, 25, 31]) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(radiusAt(ry) + 0.55, 0.35, 10, 32), ringMat);
-      ring.rotation.x = Math.PI / 2; ring.position.set(tx, ry, cz); scene.add(ring);
+      ring.rotation.x = Math.PI / 2; ring.position.set(tx, ry, cz); world.add(ring);
     }
     const crown = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), ringMat);
-    crown.position.set(tx, H + 0.6, cz); scene.add(crown);
+    crown.position.set(tx, H + 0.6, cz); world.add(crown);
     makeRiseColumn(ctx, tx, cz, 40, 0xbdf3ff, 2.6, 0.32, 60);
   }
   addBlob(ctx, 0, -140, 24, 0.22);
 }
 
 function buildHousing(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const HX = -115, HZ = -35;
   const mastMat = new THREE.MeshStandardMaterial({ color: 0xd7dce0, roughness: 0.4, metalness: 0.6 });
   const podCols = [0xf5efe4, 0xdfe8d8, 0xe8ddc8, 0xe4eef2];
@@ -631,12 +901,12 @@ function buildHousing(ctx) {
       new THREE.MeshStandardMaterial({ color: 0x3f8f3f, roughness: 1 }));
     garden.rotation.x = -Math.PI / 2; garden.position.set(gx - hx, 0.06, gz - hz); g.add(garden);
     ctx.gardens.push([gx, gz]);
-    scene.add(g);
+    world.add(g);
     addBlob(ctx, hx, hz, 8, 0.2);
   }
   const cableGeo = new THREE.BufferGeometry();
   cableGeo.setAttribute('position', new THREE.Float32BufferAttribute(cablePts, 3));
-  scene.add(new THREE.LineSegments(cableGeo, new THREE.LineBasicMaterial({
+  world.add(new THREE.LineSegments(cableGeo, new THREE.LineBasicMaterial({
     color: 0x8a8f96, transparent: true, opacity: 0.85,
   })));
   // curved path ribbons through the district
@@ -644,26 +914,26 @@ function buildHousing(ctx) {
   for (let i = 0; i < 3; i++) {
     const arc = new THREE.Mesh(new THREE.RingGeometry(20 + i * 9, 23 + i * 9, 40, 1, i * 0.7, 2.1), pathMat);
     arc.rotation.x = -Math.PI / 2; arc.position.set(HX, 0.07, HZ);
-    scene.add(arc);
+    world.add(arc);
   }
   addBlob(ctx, HX, HZ, 44, 0.12);
 }
 
 function buildFactory(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const FX = 115, FZ = -55;
   const wall = new THREE.MeshStandardMaterial({ color: 0xe8ecef, roughness: 0.8 });
   const hall1 = new THREE.Mesh(new THREE.BoxGeometry(26, 10, 16), wall);
-  hall1.position.set(FX, 5, FZ); scene.add(hall1);
+  hall1.position.set(FX, 5, FZ); world.add(hall1);
   const hall2 = new THREE.Mesh(new THREE.BoxGeometry(18, 7, 12),
     new THREE.MeshStandardMaterial({ color: 0xdfe5ea, roughness: 0.8 }));
-  hall2.position.set(FX - 15, 3.5, FZ - 17); scene.add(hall2);
+  hall2.position.set(FX - 15, 3.5, FZ - 17); world.add(hall2);
   // glass fronts
   const glass = new THREE.MeshStandardMaterial({
     color: 0x9fd8e8, transparent: true, opacity: 0.45, roughness: 0.1, metalness: 0.3,
   });
   const gf = new THREE.Mesh(new THREE.BoxGeometry(24, 3.4, 0.3), glass);
-  gf.position.set(FX, 4.5, FZ + 8.05); scene.add(gf);
+  gf.position.set(FX, 4.5, FZ + 8.05); world.add(gf);
   // rooftop solar panels
   const panelMat = new THREE.MeshStandardMaterial({ color: 0x14386e, roughness: 0.35, metalness: 0.6 });
   const panelGeo = new THREE.PlaneGeometry(3.4, 2.2);
@@ -671,47 +941,47 @@ function buildFactory(ctx) {
     const p = new THREE.Mesh(panelGeo, panelMat);
     p.rotation.x = -Math.PI / 2 + 0.5;
     p.position.set(FX - 9 + (i % 4) * 6, 10.7, FZ - 4 + Math.floor(i / 4) * 5);
-    scene.add(p);
+    world.add(p);
   }
   // forge glow window (contained)
   const frame = new THREE.Mesh(new THREE.BoxGeometry(6.6, 3.6, 0.25),
     new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.7 }));
-  frame.position.set(FX - 7, 3, FZ + 8.05); scene.add(frame);
+  frame.position.set(FX - 7, 3, FZ + 8.05); world.add(frame);
   const forge = new THREE.Mesh(new THREE.PlaneGeometry(6, 3),
     new THREE.MeshStandardMaterial({ color: 0x1a0d05, emissive: 0xff7b2a, emissiveIntensity: 2.5 }));
-  forge.position.set(FX - 7, 3, FZ + 8.2); scene.add(forge);
+  forge.position.set(FX - 7, 3, FZ + 8.2); world.add(forge);
   ctx.anim.push((t) => { forge.material.emissiveIntensity = 2.2 + Math.sin(t * 3.1) * 0.5; });
   // chimney — WHITE vapor only
   const chim = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.4, 15, 12),
     new THREE.MeshStandardMaterial({ color: 0xc9ced4, roughness: 0.7 }));
-  chim.position.set(FX + 13, 7.5, FZ - 7); scene.add(chim);
+  chim.position.set(FX + 13, 7.5, FZ - 7); world.add(chim);
   makePuffs(ctx, FX + 13, 15.5, FZ - 7, 10, 22, 2.5, 7, 0.55, 5);
   addBlob(ctx, FX, FZ, 20, 0.22);
   addBlob(ctx, FX - 15, FZ - 17, 12, 0.2);
 }
 
 function buildMordor(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const MX = 95, MZ = 95;
   const basalt = new THREE.MeshStandardMaterial({ color: 0x20232a, roughness: 0.9 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x17191e, roughness: 0.85 });
   const main = new THREE.Mesh(new THREE.BoxGeometry(18, 13, 14), basalt);
-  main.position.set(MX, 6.5, MZ); main.rotation.y = 0.35; scene.add(main);
+  main.position.set(MX, 6.5, MZ); main.rotation.y = 0.35; world.add(main);
   const shard = new THREE.Mesh(new THREE.ConeGeometry(5.5, 20, 5), dark);
-  shard.position.set(MX - 9, 10, MZ + 5); shard.rotation.z = 0.15; scene.add(shard);
+  shard.position.set(MX - 9, 10, MZ + 5); shard.rotation.z = 0.15; world.add(shard);
   const slab = new THREE.Mesh(new THREE.BoxGeometry(10, 6, 16), dark);
-  slab.position.set(MX + 10, 3, MZ - 7); slab.rotation.y = -0.3; scene.add(slab);
+  slab.position.set(MX + 10, 3, MZ - 7); slab.rotation.y = -0.3; world.add(slab);
   // glowing orange intake arch
   const archMat = new THREE.MeshStandardMaterial({
     color: 0x2a1a0a, emissive: 0xff6a1a, emissiveIntensity: 2.2, roughness: 0.5,
   });
   const arch = new THREE.Mesh(new THREE.TorusGeometry(5, 1.15, 12, 28, Math.PI), archMat);
-  arch.position.set(MX, 0.5, MZ + 9.5); scene.add(arch);
+  arch.position.set(MX, 0.5, MZ + 9.5); world.add(arch);
   const throat = new THREE.Mesh(new THREE.CircleGeometry(4.2, 24),
     new THREE.MeshStandardMaterial({ color: 0x140a04, emissive: 0xff7a1e, emissiveIntensity: 1.6 }));
-  throat.position.set(MX, 4.8, MZ + 9.2); scene.add(throat);
+  throat.position.set(MX, 4.8, MZ + 9.2); world.add(throat);
   const glow = new THREE.PointLight(0xff7a2a, 80, 70, 2);
-  glow.position.set(MX, 6, MZ + 11); scene.add(glow);
+  glow.position.set(MX, 6, MZ + 11); world.add(glow);
   ctx.anim.push((t) => { archMat.emissiveIntensity = 2.0 + Math.sin(t * 2.4) * 0.4; });
   // clean white vapor column
   makePuffs(ctx, MX, 14, MZ, 14, 45, 3, 11, 0.5, 7);
@@ -725,7 +995,7 @@ function buildMordor(ctx) {
       for (let b = 0; b < nB; b++) {
         const blk = new THREE.Mesh(blockGeo, karb);
         blk.position.set(px + (b - (nB - 1) / 2) * 2.5, 0.6 + li * 1.25, pz);
-        scene.add(blk);
+        world.add(blk);
       }
     });
   }
@@ -733,8 +1003,8 @@ function buildMordor(ctx) {
 }
 
 function buildIsland(ctx) {
-  const { scene, anim } = ctx;
-  const g = new THREE.Group(); g.position.set(-50, 8, 175); scene.add(g);
+  const { world, anim } = ctx;
+  const g = new THREE.Group(); g.position.set(-50, 8, 175); world.add(g);
   const rock = new THREE.Mesh(new THREE.CylinderGeometry(28, 14, 12, 20),
     new THREE.MeshStandardMaterial({ color: 0x6f665c, roughness: 1 }));
   g.add(rock);
@@ -763,6 +1033,7 @@ function buildIsland(ctx) {
     })),
     speciesForIndex: islandTreeSpeciesForIndex,
     groundY: 6.05,
+    loadModel: cachedTreeModel,
   }));
   ctx.gardens.push([-42, 179], [-58, 171]);
   // gentle bobbing
@@ -774,17 +1045,17 @@ function buildIsland(ctx) {
 }
 
 function buildOceanDome(ctx) {
-  const { scene, anim } = ctx;
+  const { world, anim } = ctx;
   const OX = -235, OZ = 55;
   const domeMat = new THREE.MeshStandardMaterial({
     color: 0xbfe6f5, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.1,
     side: THREE.DoubleSide, depthWrite: false,
   });
   const dome = new THREE.Mesh(new THREE.SphereGeometry(30, 32, 20, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
-  dome.position.set(OX, 0.3, OZ); scene.add(dome);
+  dome.position.set(OX, 0.3, OZ); world.add(dome);
   const rim = new THREE.Mesh(new THREE.TorusGeometry(30, 1.4, 10, 48),
     new THREE.MeshStandardMaterial({ color: 0x8a949c, roughness: 0.6, metalness: 0.4 }));
-  rim.rotation.x = Math.PI / 2; rim.position.set(OX, 0.6, OZ); scene.add(rim);
+  rim.rotation.x = Math.PI / 2; rim.position.set(OX, 0.6, OZ); world.add(rim);
   // tiny buildings inside
   const boxMat = new THREE.MeshStandardMaterial({ color: 0xe8eef2, roughness: 0.7 });
   const litMat = new THREE.MeshStandardMaterial({
@@ -795,19 +1066,19 @@ function buildOceanDome(ctx) {
     const w = 2 + ctx.rng() * 2, h = 3 + ctx.rng() * 6;
     const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), i % 3 === 0 ? litMat : boxMat);
     b.position.set(OX + Math.cos(a) * r, h / 2 + 0.3, OZ + Math.sin(a) * r);
-    b.rotation.y = ctx.rng() * Math.PI; scene.add(b);
+    b.rotation.y = ctx.rng() * Math.PI; world.add(b);
   }
   const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 16, 10), boxMat);
-  spire.position.set(OX, 8.3, OZ); scene.add(spire);
+  spire.position.set(OX, 8.3, OZ); world.add(spire);
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(1.2, 12, 10), litMat);
-  beacon.position.set(OX, 17, OZ); scene.add(beacon);
+  beacon.position.set(OX, 17, OZ); world.add(beacon);
   const glow = new THREE.PointLight(0x9fd8ff, 60, 100, 2);
-  glow.position.set(OX, 14, OZ); scene.add(glow);
+  glow.position.set(OX, 14, OZ); world.add(glow);
   anim.push((t) => { domeMat.opacity = 0.2 + Math.sin(t * 1.1) * 0.03; });
 }
 
 function buildArctic(ctx) {
-  const { scene, anim } = ctx;
+  const { world, anim } = ctx;
   const AX = 175, AZ = -175;
   // CGI: the snow wears the iceCap family — white-blue crystal
   // with crevasse lines and bump relief, tiled 6x across the
@@ -820,19 +1091,19 @@ function buildArctic(ctx) {
       map: ice.map, bumpMap: ice.bumpMap, bumpScale: ice.bumpScale,
       roughness: ice.roughness,
     }));
-  snowPatch.rotation.x = -Math.PI / 2; snowPatch.position.set(AX, 0.15, AZ); scene.add(snowPatch);
+  snowPatch.rotation.x = -Math.PI / 2; snowPatch.position.set(AX, 0.15, AZ); world.add(snowPatch);
   const domeMat = new THREE.MeshStandardMaterial({
     color: 0xf6fafd, roughness: 0.35, emissive: 0xcfe4f8, emissiveIntensity: 0.08,
   });
   const dome = new THREE.Mesh(new THREE.SphereGeometry(24, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), domeMat);
-  dome.position.set(AX, 0.2, AZ); scene.add(dome);
+  dome.position.set(AX, 0.2, AZ); world.add(dome);
   // entrance with warm door
   const entry = new THREE.Mesh(new THREE.BoxGeometry(6, 4, 5),
     new THREE.MeshStandardMaterial({ color: 0xe8eef2, roughness: 0.7 }));
-  entry.position.set(AX, 2, AZ + 23); scene.add(entry);
+  entry.position.set(AX, 2, AZ + 23); world.add(entry);
   const door = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 3),
     new THREE.MeshStandardMaterial({ color: 0x1a0f06, emissive: 0xffb35c, emissiveIntensity: 1.4 }));
-  door.position.set(AX, 2, AZ + 25.6); scene.add(door);
+  door.position.set(AX, 2, AZ + 25.6); world.add(door);
   // snow pines
   const pineMat = new THREE.MeshStandardMaterial({ color: 0xdfeee8, roughness: 1 });
   for (let i = 0; i < 7; i++) {
@@ -840,14 +1111,14 @@ function buildArctic(ctx) {
     const h = 5 + ctx.rng() * 3;
     const pine = new THREE.Mesh(new THREE.ConeGeometry(1.6 + ctx.rng() * 0.8, h, 8), pineMat);
     pine.position.set(AX + Math.cos(a) * r, h / 2, AZ + Math.sin(a) * r);
-    scene.add(pine);
+    world.add(pine);
   }
   anim.push((t) => { domeMat.emissiveIntensity = 0.08 + Math.sin(t * 1.2) * 0.05; });
   addBlob(ctx, AX, AZ, 26, 0.15);
 }
 
 function buildVegetation(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const rng = ctx.rng;
   const clearOf = (x, z) => {
     if (z > 166) return false;
@@ -884,8 +1155,10 @@ function buildVegetation(ctx) {
   // Species are picked by placement index, not the scene rng —
   // drawing from the stream would move every tree after this one.
   // The models load async and pop in; a species whose GLB fails
-  // grows the old procedural tree instead, never a hole.
-  ctx.treeHandles.push(plantTrees({ parent: scene, placements }));
+  // grows the old procedural tree instead, never a hole. The
+  // loader is the session-wide cache, so the showcase warms the
+  // species the streamed chunks reuse instead of re-decoding.
+  ctx.treeHandles.push(plantTrees({ parent: world, placements, loadModel: cachedTreeModel }));
 
   // ~400 instanced flowers: stems + blossoms
   const F = 400;
@@ -920,7 +1193,7 @@ function buildVegetation(ctx) {
   stems.count = fp; blos.count = fp;
   stems.instanceMatrix.needsUpdate = true; blos.instanceMatrix.needsUpdate = true;
   if (blos.instanceColor) blos.instanceColor.needsUpdate = true;
-  scene.add(stems); scene.add(blos);
+  world.add(stems); world.add(blos);
 
   // CGI (Merlin, Nov 14): warm motes drifting over the gardens
   // and a gentle sway on the flowers — one shared phase per plant
@@ -928,7 +1201,7 @@ function buildVegetation(ctx) {
   // untouched; only the instanced flowers lean, a fraction of a
   // degree, stem and blossom together.
   const dustFields = makeEarth3Dust();
-  for (const f of dustFields) scene.add(f);
+  for (const f of dustFields) world.add(f);
   const swayBase = [];
   {
     const m = new THREE.Matrix4();
@@ -970,7 +1243,7 @@ function buildVegetation(ctx) {
     const m = new THREE.MeshBasicMaterial({ color: bCols[i % 3], side: THREE.DoubleSide });
     const wr = new THREE.Mesh(wingG, m);
     const wl = new THREE.Mesh(wingG, m); wl.rotation.y = Math.PI;
-    g.add(wr); g.add(wl); scene.add(g);
+    g.add(wr); g.add(wl); world.add(g);
     const gc = ctx.gardens.length ? ctx.gardens[i % ctx.gardens.length] : [0, 20];
     flies.push({ g, wr, wl, cx: gc[0], cz: gc[1], ph: rng() * Math.PI * 2, sp: 0.4 + rng() * 0.3 });
   }
@@ -993,7 +1266,7 @@ function buildVegetation(ctx) {
 // where that tile really sits. Hidden until the page hands it a
 // tile (world.setClaimMarker), so an unclaimed visit shows none.
 function buildClaimMarker(ctx) {
-  const { scene } = ctx;
+  const { world } = ctx;
   const group = new THREE.Group();
   const fill = new THREE.Mesh(
     new THREE.PlaneGeometry(TILE_M, TILE_M),
@@ -1011,7 +1284,7 @@ function buildClaimMarker(ctx) {
   const e4 = new THREE.Mesh(edgeV, edgeMat); e4.position.set(TILE_M / 2, 0.1, 0);
   group.add(e1, e2, e3, e4);
   group.visible = false;
-  scene.add(group);
+  world.add(group);
   ctx.claimMarker = group;
 }
 
@@ -1100,14 +1373,19 @@ function makeProceduralDinoMesh(d) {
 // ctx.pendingDinos and appears when it lands — if the walker
 // has already moved past despawn by then, it never appears.
 function buildDinos(ctx, S) {
-  const { scene, anim } = ctx;
+  const { world, anim } = ctx;
   const group = new THREE.Group();
-  scene.add(group);
+  world.add(group);
   ctx.dinoGroup = group;
   ctx.dinos = new Map(); // id -> { data, mesh }
   ctx.dinoBases = new Map(); // slug -> { status, spin, SkeletonUtils } | { status: 'loading', promise } | { status: 'failed' }
   ctx.pendingDinos = new Set(); // ids awaiting their species' base
-  const ground = showcaseGround();
+  // The ground the herd stands on is the blended world, not
+  // the flat diorama: on the showcase disc it reads 0 with the
+  // showcase water rule, outside it the real heightfield —
+  // so a dino walking off the disc climbs the real hills
+  // instead of floating over them or sinking under them.
+  const ground = worldGround;
   let refreshIn = 0;
 
   // The owner-signed model URLs, best effort (Earth 2's exact
@@ -1327,7 +1605,7 @@ function buildDinos(ctx, S) {
 }
 
 function buildPlaques(ctx) {
-  const { scene, anim } = ctx;
+  const { world, anim } = ctx;
   const goldMat = new THREE.MeshStandardMaterial({
     color: 0xd9a441, metalness: 0.9, roughness: 0.25, emissive: 0x6b4a12, emissiveIntensity: 0.5,
   });
@@ -1345,7 +1623,7 @@ function buildPlaques(ctx) {
     const hit = new THREE.Mesh(hitGeo, hitMat);
     hit.userData.landmark = lm;
     grp.add(oct); grp.add(hit);
-    scene.add(grp);
+    world.add(grp);
     ctx.plaques.push(hit);
     const ph = ctx.rng() * Math.PI * 2, baseY = def.pos[1];
     anim.push((t, dt) => {
@@ -1393,18 +1671,31 @@ export function createWorld(canvas, cb) {
   // The hemisphere is kept: the day/night refresh drives its
   // intensity from the shared law's palette.
   const hemiLight = new THREE.HemisphereLight(0xbfe3ff, 0x6fae5f, 0.85);
-  scene.add(hemiLight);
+  world.add(hemiLight);
   const sunLight = new THREE.DirectionalLight(0xfff2dd, 1.6);
   sunLight.position.set(220, 320, 140);
-  scene.add(sunLight);
+  world.add(sunLight);
 
   // Day/night (Merlin, 2026-11-14): ask once for the walker's
   // place (real location when granted, Sydney when not — the
   // shared law); the ~1 s refresh in tick() does the rest.
   try { requestDayNightPlace(); } catch {}
 
+  // The world group: everything anchored to the ground hangs
+  // here, in WORLD coordinates. A rebase moves this one group
+  // (the walker stays near the local origin), so the showcase,
+  // the chunks, the dinos and the trees never need rebuilding
+  // when the origin jumps. The sky (dome, sun, clouds, birds)
+  // stays on the scene, centred on the walker.
+  const worldGroup = new THREE.Group();
+  scene.add(worldGroup);
+
   const ctx = {
     scene, camera, renderer,
+    world: worldGroup,
+    chunks: new Map(), // chunk key -> { mesh, treeHandle }
+    chunkKeys: new Set(),
+    edgeState: false,
     rng: mulberry32(20261009),
     anim: [],
     plaques: [],
@@ -1434,6 +1725,7 @@ export function createWorld(canvas, cb) {
   const plaza = lmById.plaza;
   const S = {
     mode: 'walk',
+    origin: { x: 0, z: 0 }, // render origin, in world metres — a rebase moves it to the walker
     pos: new THREE.Vector3(...plaza.camPos),
     yaw: 0, pitch: 0,
     move: { x: 0, y: 0 }, lift: 0,
@@ -1448,6 +1740,152 @@ export function createWorld(canvas, cb) {
   // Dinosaurs need the walker state, so their builder runs here
   // (after S exists), not with the builders above.
   buildDinos(ctx, S);
+
+  /* ---------------- full-world streaming ---------------- */
+  // Roaming wildflowers: one instanced field that follows the
+  // walker (the showcase keeps its own garden flowers, swaying
+  // on the same law). The flowers sit on a deterministic 16 m
+  // cell law, so a flower never jumps — the same cell always
+  // holds the same flower — and the field re-scatters only
+  // when the walker crosses into a new 448 m cell.
+  const ROAM_FLOWER_CELL = 16, ROAM_FLOWER_R = 224;
+  const roamPetal = [0xffffff, 0xffd94d, 0xff9ec6, 0xc39bd3, 0xff6b6b, 0xffb347];
+  const roamStems = new THREE.InstancedMesh(
+    new THREE.ConeGeometry(0.06, 0.5, 5),
+    new THREE.MeshStandardMaterial({ color: 0x2f7a34, roughness: 1 }),
+    ROAM_FLOWERS,
+  );
+  const roamBlos = new THREE.InstancedMesh(
+    new THREE.OctahedronGeometry(0.28),
+    new THREE.MeshStandardMaterial({ roughness: 0.8 }),
+    ROAM_FLOWERS,
+  );
+  roamStems.count = 0; roamBlos.count = 0;
+  roamStems.frustumCulled = false; roamBlos.frustumCulled = false;
+  worldGroup.add(roamStems); worldGroup.add(roamBlos);
+  const roamSwayBase = [];
+  let roamFlowerCell = '';
+  const roamDummy = new THREE.Object3D();
+  const roamCol = new THREE.Color();
+  function scatterRoamFlowers() {
+    const cellX = Math.floor(S.pos.x / (ROAM_FLOWER_R * 2));
+    const cellZ = Math.floor(S.pos.z / (ROAM_FLOWER_R * 2));
+    const key = `${cellX},${cellZ}`;
+    if (key === roamFlowerCell) return;
+    roamFlowerCell = key;
+    roamSwayBase.length = 0;
+    let n = 0;
+    const x0 = Math.floor((S.pos.x - ROAM_FLOWER_R) / ROAM_FLOWER_CELL);
+    const z0 = Math.floor((S.pos.z - ROAM_FLOWER_R) / ROAM_FLOWER_CELL);
+    const cells = (ROAM_FLOWER_R * 2) / ROAM_FLOWER_CELL; // 28
+    for (let gz = 0; gz < cells && n < ROAM_FLOWERS; gz++) {
+      for (let gx = 0; gx < cells && n < ROAM_FLOWERS; gx++) {
+        const ix = x0 + gx, iz = z0 + gz;
+        if (hash2(ix, iz, 0xf10) >= 0.12) continue; // ~1 flower per 8 cells
+        const x = (ix + 0.5) * ROAM_FLOWER_CELL + (hash2(ix, iz, 0xaa11) - 0.5) * 12;
+        const z = (iz + 0.5) * ROAM_FLOWER_CELL + (hash2(ix, iz, 0xbb22) - 0.5) * 12;
+        if (Math.hypot(x, z) < SHOWCASE_R + 10) continue;
+        const h = groundHeightAt(x, z);
+        if (h < 0.5) continue;
+        const biome = terrainBiomeAt(x, z);
+        if (biome !== 'plains' && biome !== 'forest') continue;
+        const s = 0.7 + hash2(ix, iz, 0xcc33) * 0.7;
+        roamDummy.rotation.set(0, 0, 0);
+        roamDummy.position.set(x, h + 0.25 * s, z); roamDummy.scale.setScalar(s); roamDummy.updateMatrix();
+        roamStems.setMatrixAt(n, roamDummy.matrix);
+        roamDummy.position.set(x, h + 0.55 * s, z); roamDummy.updateMatrix();
+        roamBlos.setMatrixAt(n, roamDummy.matrix);
+        roamBlos.setColorAt(n, roamCol.set(roamPetal[Math.floor(hash2(ix, iz, 0xdd44) * roamPetal.length)]));
+        roamSwayBase.push({ sx: x, sy: h + 0.25 * s, sz: z, bx: x, by: h + 0.55 * s, bz: z, s });
+        n++;
+      }
+    }
+    roamStems.count = n; roamBlos.count = n;
+    roamStems.instanceMatrix.needsUpdate = true;
+    roamBlos.instanceMatrix.needsUpdate = true;
+    if (roamBlos.instanceColor) roamBlos.instanceColor.needsUpdate = true;
+  }
+  ctx.anim.push(() => {
+    const now = Date.now();
+    for (let i = 0; i < roamSwayBase.length; i++) {
+      const b = roamSwayBase[i];
+      const { rx, rz } = vegetationSway(i, now);
+      roamDummy.rotation.set(rx, 0, rz);
+      roamDummy.scale.setScalar(b.s);
+      roamDummy.position.set(b.sx, b.sy, b.sz);
+      roamDummy.updateMatrix();
+      roamStems.setMatrixAt(i, roamDummy.matrix);
+      roamDummy.position.set(b.bx, b.by, b.bz);
+      roamDummy.updateMatrix();
+      roamBlos.setMatrixAt(i, roamDummy.matrix);
+    }
+    if (roamSwayBase.length) {
+      roamStems.instanceMatrix.needsUpdate = true;
+      roamBlos.instanceMatrix.needsUpdate = true;
+    }
+  });
+
+  // The origin rebase (Earth 4's interval, 160 m): the walker
+  // moves the world, not the camera. The origin jumps to the
+  // walker's world position and the world group shifts back by
+  // the same amount — local coordinates stay small (float
+  // precision) while S.pos keeps the true world position.
+  // Chunks, trees, dinos and the showcase ride the group, so
+  // nothing rebuilds on a rebase.
+  function rebase() {
+    S.origin.x = S.pos.x;
+    S.origin.z = S.pos.z;
+    worldGroup.position.set(-S.origin.x, 0, -S.origin.z);
+  }
+
+  // Stream the ground around the walker: 5x5 chunks (radius 2),
+  // built as they enter the set, disposed as they leave it
+  // (chunkSetDiff). Chunk meshes are synchronous — a full 25
+  // measured ~72 ms, a boundary crossing builds one row of 5
+  // (~15 ms) — so the first frame carries the one load hitch
+  // and walking never hits a wall.
+  function streamChunks() {
+    if (needsRebase(S.origin.x, S.origin.z, S.pos.x, S.pos.z)) rebase();
+    const wanted = chunksAround(S.pos.x, S.pos.z, STREAM_RADIUS_CHUNKS);
+    const wantedKeys = wanted.map((c) => c.key);
+    const { add, remove } = chunkSetDiff(ctx.chunkKeys, wantedKeys);
+    for (const key of remove) {
+      const entry = ctx.chunks.get(key);
+      if (!entry) continue;
+      worldGroup.remove(entry.mesh);
+      entry.mesh.geometry.dispose();
+      entry.mesh.material.dispose();
+      if (entry.treeHandle) {
+        entry.treeHandle.cancel();
+        worldGroup.remove(entry.treeHandle.group);
+      }
+      ctx.chunks.delete(key);
+    }
+    for (const key of add) {
+      const [cx, cz] = key.split(',').map(Number);
+      const mesh = buildChunkMesh(cx, cz);
+      worldGroup.add(mesh);
+      const treeHandle = plantChunkTrees(ctx, cx, cz);
+      ctx.chunks.set(key, { mesh, treeHandle });
+    }
+    ctx.chunkKeys = new Set(wantedKeys);
+    // The roaming water follows the walker (snapped to the tile
+    // grid so it never swims) and only shows outside the
+    // showcase, where the built water bodies serve instead.
+    if (ctx.roamWater) {
+      const rx = Math.round(S.pos.x / TILE_M) * TILE_M;
+      const rz = Math.round(S.pos.z / TILE_M) * TILE_M;
+      ctx.roamWater.position.set(rx, 0, rz);
+      ctx.roamWater.visible = Math.hypot(S.pos.x, S.pos.z) > SHOWCASE_R + 40;
+    }
+    scatterRoamFlowers();
+    // The edge notice: plain words, fired only on change.
+    const edgeNow = atEdge(S.pos.x, S.pos.z);
+    if (edgeNow !== ctx.edgeState) {
+      ctx.edgeState = edgeNow;
+      if (cb.onEdge) cb.onEdge(edgeNow);
+    }
+  }
 
   const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
 
@@ -1504,20 +1942,38 @@ export function createWorld(canvas, cb) {
 
   /* ---------------- movement ---------------- */
   const fwdV = new THREE.Vector3(), rightV = new THREE.Vector3(), fwd3V = new THREE.Vector3();
+  // The 250 m clamp is gone: the walker roams the whole
+  // 2,800 km grid. The grid edge is a turn-back wall instead
+  // (clampToWorld, one tile inside the true edge — no void, no
+  // falling off, no wrap), and it binds fly mode too.
   function updateMovement(dt) {
     if (S.tour.active || S.tour.glide) return;
     const sy = Math.sin(S.yaw), cy = Math.cos(S.yaw);
     fwdV.set(-sy, 0, -cy);
     rightV.set(cy, 0, sy);
     if (S.mode === 'walk') {
-      S.pos.addScaledVector(fwdV, S.move.y * WALK_SPEED * dt);
-      S.pos.addScaledVector(rightV, S.move.x * WALK_SPEED * dt);
+      // Candidate step, then the edge wall first: clampToWorld
+      // pulls the step back inside the grid before anything
+      // else sees it.
+      let nx = S.pos.x + fwdV.x * S.move.y * WALK_SPEED * dt + rightV.x * S.move.x * WALK_SPEED * dt;
+      let nz = S.pos.z + fwdV.z * S.move.y * WALK_SPEED * dt + rightV.z * S.move.x * WALK_SPEED * dt;
+      const ew = clampToWorld(nx, nz);
+      nx = ew.x; nz = ew.z;
+      // Water is a wall on foot (Earth's rule: street level
+      // stays dry — no swimming). Slide along the shoreline:
+      // try the full step, then x-only, then z-only.
+      if (!isWaterHere(nx, nz)) { S.pos.x = nx; S.pos.z = nz; }
+      else if (!isWaterHere(nx, S.pos.z)) { S.pos.x = nx; }
+      else if (!isWaterHere(S.pos.x, nz)) { S.pos.z = nz; }
       if (!S.grounded || S.jumpY > 0) {
         S.jumpV -= GRAV * dt;
         S.jumpY += S.jumpV * dt;
         if (S.jumpY <= 0) { S.jumpY = 0; S.jumpV = 0; S.grounded = true; }
       }
-      const targetY = EYE + S.jumpY;
+      // The ground under the walker's feet is the real terrain
+      // now (flat 0 on the showcase disc, the feathered
+      // heightfield beyond it); jumping and gravity ride on it.
+      const targetY = groundHeightAt(S.pos.x, S.pos.z) + EYE + S.jumpY;
       S.pos.y += (targetY - S.pos.y) * Math.min(1, dt * 8);
     } else {
       const cp = Math.cos(S.pitch);
@@ -1525,7 +1981,15 @@ export function createWorld(canvas, cb) {
       S.pos.addScaledVector(fwd3V, S.move.y * FLY_SPEED * dt);
       S.pos.addScaledVector(rightV, S.move.x * FLY_SPEED * dt);
       S.pos.y += S.lift * FLY_SPEED * dt;
-      S.pos.y = clamp(S.pos.y, 2, 120);
+      S.pos.y = clamp(S.pos.y, 2, FLY_CEIL);
+      // The edge wall binds fly mode too.
+      const ew = clampToWorld(S.pos.x, S.pos.z);
+      S.pos.x = ew.x; S.pos.z = ew.z;
+      // Flying may cross water, but not through a mountain:
+      // the floor rides the terrain (real peaks reach ~193 m,
+      // hence the 260 m ceiling).
+      const floor = groundHeightAt(S.pos.x, S.pos.z) + 1.5;
+      if (S.pos.y < floor) S.pos.y = floor;
     }
     // collider push-out (only below the structure's fly-over height)
     for (const c of COLLIDERS) {
@@ -1537,8 +2001,6 @@ export function createWorld(canvas, cb) {
         S.pos.x += dx * push; S.pos.z += dz * push;
       }
     }
-    const rr = Math.hypot(S.pos.x, S.pos.z);
-    if (rr > WORLD_R) { S.pos.x *= WORLD_R / rr; S.pos.z *= WORLD_R / rr; }
   }
 
   /* ---------------- input: look-drag + plaque tap ---------------- */
@@ -1557,7 +2019,10 @@ export function createWorld(canvas, cb) {
     // ease camera to face the plaque (hold position)
     const target = new THREE.Vector3();
     hits[0].object.getWorldPosition(target);
-    const yp = yawPitchFrom(S.pos, target);
+    // getWorldPosition is render-local (the world group shifts
+    // on rebase); the yaw is measured from the local walker.
+    const local = new THREE.Vector3(S.pos.x - S.origin.x, S.pos.y, S.pos.z - S.origin.z);
+    const yp = yawPitchFrom(local, target);
     startGlide(S.pos.clone(), yp.yaw, yp.pitch, 0.9, null);
   }
 
@@ -1664,8 +2129,11 @@ export function createWorld(canvas, cb) {
     refreshDayNight(performance.now());
     updateTour(dt);
     updateMovement(dt);
+    streamChunks();
     for (const u of ctx.anim) u(t, dt);
-    camera.position.copy(S.pos);
+    // The camera rides the LOCAL walker: S.pos is the true
+    // world position, the render origin sits up to 160 m away.
+    camera.position.set(S.pos.x - S.origin.x, S.pos.y, S.pos.z - S.origin.z);
     camera.quaternion.setFromEuler(euler.set(S.pitch, S.yaw, 0));
     renderer.render(scene, camera);
     if (!readyFired) { readyFired = true; if (cb.onReady) cb.onReady(); }
@@ -1717,6 +2185,16 @@ export function createWorld(canvas, cb) {
     }
     if (ctx.pendingDinos) ctx.pendingDinos.clear();
     for (const h of ctx.treeHandles || []) h.cancel();
+    if (ctx.chunks) {
+      for (const entry of ctx.chunks.values()) {
+        if (entry.treeHandle) entry.treeHandle.cancel();
+      }
+      ctx.chunks.clear();
+    }
+    // The cached raw tree scenes share geometry with the
+    // clones the traverse just disposed — drop them so the
+    // next world decodes fresh instead of reusing dead GL.
+    treeModelCache.clear();
     renderer.dispose();
     if (renderer.forceContextLoss) renderer.forceContextLoss();
   }
@@ -1731,7 +2209,11 @@ export function createWorld(canvas, cb) {
       const idx = tileIndexFromId(tileId);
       if (idx === null) { ctx.claimMarker.visible = false; return; }
       const c = tileToWorld(idx);
-      ctx.claimMarker.position.set(c.x, 0, c.z);
+      // The marker sits on the real terrain anywhere on the
+      // grid — flat 0 on the showcase disc, the heightfield
+      // beyond it — so it never sinks under a hill or floats
+      // over a valley.
+      ctx.claimMarker.position.set(c.x, groundHeightAt(c.x, c.z) + 0.1, c.z);
       ctx.claimMarker.visible = true;
     },
     setMode(m) { if (m === 'walk' || m === 'fly') S.mode = m; },

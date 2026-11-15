@@ -115,6 +115,10 @@ export default function NewEarthPage() {
   const [tile, setTile] = useState(null);
   const [dinoCount, setDinoCount] = useState(0);
   const [claimMsg, setClaimMsg] = useState(null);
+  // Edge of the world (Merlin, 2026-11-14): the scene fires
+  // onEdge when the walker reaches the turn-back wall at the
+  // edge of the 2,800 km grid.
+  const [atEdge, setAtEdge] = useState(false);
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const tourRef = useRef(tour);
@@ -135,6 +139,7 @@ export default function NewEarthPage() {
           }
         },
         onReady: () => setBooted(true),
+        onEdge: setAtEdge,
       });
     } catch (err) {
       console.error("[new-earth] world failed:", err);
@@ -371,6 +376,8 @@ export default function NewEarthPage() {
         .ne-card .cx { margin-left: auto; min-width: 44px; }
         /* tour bar */
         .ne-tourbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: rgba(4,16,10,0.9); border: 1px solid ${ACCENT}; border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 0.74rem; letter-spacing: 1.5px; white-space: nowrap; }
+        /* edge of the world */
+        .ne-edge { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(4,16,10,0.92); border: 1px solid #c9a86a; color: #ffd97a; border-radius: 999px; padding: 8px 16px; font-size: 0.78rem; letter-spacing: 1.5px; font-weight: 700; white-space: nowrap; }
         .ne-tourbar button { min-height: 40px; min-width: 40px; padding: 6px 10px; font-size: 0.7rem; }
         /* landmark chips */
         .ne-chips { display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
@@ -419,6 +426,10 @@ export default function NewEarthPage() {
               <button onClick={() => worldRef.current && worldRef.current.tourNext()} aria-label="Next stop">›</button>
               <button onClick={toggleTour} aria-label="Exit tour"><Glyph size={13}>{IC.x}</Glyph></button>
             </div>
+          )}
+
+          {atEdge && (
+            <div className="ne-edge" role="status">Edge of the world — turn back</div>
           )}
 
           <Joystick onMove={onMove} />
