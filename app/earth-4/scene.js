@@ -22,8 +22,10 @@
 //     each real species is built at runtime from its compiled
 //     numeric plan (lib/earth4/creature-plans.json) — body, head,
 //     legs, wings, fins, cap and stem in their true arrangement,
-//     at most 6 meshes per creature. The SPECIES is real and the
-//     shape now follows its anatomy. Tap one to see what it is.
+//     at most 9 meshes per creature, wearing procedural fur /
+//     feather / scale / skin maps, and breathing, walking, blinking
+//     and turning its head on the real clock. The SPECIES is real
+//     and the shape now follows its anatomy. Tap one to see what it is.
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
@@ -37,6 +39,7 @@ import {
 } from '../../lib/earth4/spawner.js';
 import {
   buildCreatureMesh,
+  animateCreatureMesh,
   CREATURE_SHARED_GEOMETRIES,
 } from '../../lib/earth4/creature-builder.js';
 import CREATURE_PLANS from '../../lib/earth4/creature-plans.json';
@@ -394,6 +397,10 @@ function buildCreatures(ctx, S) {
       if (live.data.aquatic) {
         live.mesh.rotation.z = Math.sin(t * 3 + live.mesh.userData.phase) * 0.12;
       }
+      // One frame of life: breathing, gait, blinks, ear/tail
+      // flicks, head turns, swimmer undulation — the body moving
+      // like the animal it is, on the real clock.
+      animateCreatureMesh(live.mesh, t, dt, live.data);
     }
   });
 

@@ -11,8 +11,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   SIZE_WORDS, shapeForPart, positionOffset, sizeVector, distribution,
-  normalizeEntry, normalizePlan, planForSpecies, renderSizeFor,
+  normalizeEntry, normalizePart, normalizePlan, planForSpecies, renderSizeFor,
   enforceBudget, MAX_VISIBLE_PARTS, FALLBACK_PLANS, partPriority,
+  surfaceFamilyFor, defaultSurfaceFor,
 } from '../lib/earth4/build-plan.js';
 
 import { SPECIES_CATALOGUE as CATALOGUE } from '../lib/earth4/species-catalogue.js';
@@ -253,40 +254,59 @@ describe('normalizeEntry (raw build-map entries)', () => {
 });
 
 describe('budget enforcement', () => {
-  it('9 part-groups cut to 6, silhouette survives, dropped recorded', () => {
+  it('MAX_VISIBLE_PARTS is 9 (the CGI budget: mammal 8 + haunches)', () => {
+    assert.equal(MAX_VISIBLE_PARTS, 9);
+  });
+
+  it('fish fits the 9 budget whole, nothing dropped', () => {
     const fish = normalizeEntry(FISH_ENTRY);
     const { parts, dropped } = enforceBudget(fish.parts);
-    assert.equal(parts.length, MAX_VISIBLE_PARTS);
-    assert.equal(MAX_VISIBLE_PARTS, 6);
+    assert.equal(parts.length, fish.parts.length);
+    assert.deepEqual(dropped, []);
     const names = parts.map((p) => p.name);
-    // The silhouette — body, head, tail fin, dorsal fin, eyes — survives.
     for (const keep of ['body', 'head', 'caudal fin', 'dorsal fin', 'eyes']) {
       assert.ok(names.includes(keep), `expected ${keep} to survive`);
     }
-    assert.deepEqual(dropped.sort(), ['anal fin', 'pelvic fins']);
   });
 
-  it('flying bird keeps beak, wings and tail; tucked legs drop', () => {
+  it('flying bird keeps everything: wings cost two, total 9 meshes', () => {
     const bird = normalizeEntry(BIRD_ENTRY);
     // A flap part costs two meshes when it flies, so the 8-part
-    // bird fits 5 parts (6 meshes): legs tuck in flight.
+    // bird costs 9 meshes in flight — exactly the budget.
     const flying = enforceBudget(bird.parts, true);
-    assert.equal(flying.parts.length, 5);
+    assert.equal(flying.parts.length, 8);
+    assert.deepEqual(flying.dropped, []);
+    const meshCost = flying.parts.reduce(
+      (n, p) => n + (p.kind === 'flap' ? 2 : 1), 0);
+    assert.equal(meshCost, 9);
     assert.ok(flying.parts.some((p) => p.name === 'beak'), 'beak must survive');
     assert.ok(flying.parts.some((p) => p.name === 'tail'), 'tail must survive');
     assert.ok(flying.parts.some((p) => p.name === 'wings'), 'wings must survive');
-    assert.deepEqual(flying.dropped.sort(), ['eyes', 'feet', 'legs']);
-    const meshCost = flying.parts.reduce(
-      (n, p) => n + (p.kind === 'flap' ? 2 : 1), 0);
-    assert.equal(meshCost, 6);
   });
 
-  it('grounded bird keeps its legs and loses only feet and eyes', () => {
+  it('grounded bird keeps everything, 8 meshes', () => {
     const bird = normalizeEntry(BIRD_ENTRY);
     const grounded = enforceBudget(bird.parts, false);
-    assert.equal(grounded.parts.length, 6);
-    assert.ok(grounded.parts.some((p) => p.name === 'beak'), 'beak must survive');
-    assert.deepEqual(grounded.dropped.sort(), ['eyes', 'feet']);
+    assert.equal(grounded.parts.length, 8);
+    assert.deepEqual(grounded.dropped, []);
+    assert.ok(grounded.parts.some((p) => p.name === 'legs'), 'legs must survive');
+  });
+
+  it('over-budget lists cut by priority, dropped recorded', () => {
+    // A synthetic 11-part list: the two lowest-priority extras go.
+    const parts = [
+      { name: 'body', kind: 'single' }, { name: 'head', kind: 'single' },
+      { name: 'forelegs', kind: 'limb' }, { name: 'hindlegs', kind: 'limb' },
+      { name: 'tail', kind: 'single' }, { name: 'eyes', kind: 'repeat' },
+      { name: 'ears', kind: 'repeat' }, { name: 'muzzle', kind: 'single' },
+      { name: 'wings', kind: 'flap' }, { name: 'antennae', kind: 'repeat' },
+      { name: 'horn', kind: 'single' },
+    ];
+    const { parts: kept, dropped } = enforceBudget(parts, false);
+    assert.equal(kept.length, 9);
+    assert.deepEqual(dropped.sort(), ['antennae', 'horn']);
+    assert.ok(kept.some((p) => p.name === 'body'));
+    assert.ok(kept.some((p) => p.name === 'muzzle'));
   });
 
   it('priority: body parts first, small extras last', () => {
@@ -339,7 +359,7 @@ describe('fallback plans', () => {
 
 describe('compiled creature-plans.json', () => {
   it('covers all 1,262 catalogue species', () => {
-    assert.equal(PLANS.version, 1);
+    assert.equal(PLANS.version, 2);
     assert.equal(PLANS.count, 1262);
     assert.equal(Object.keys(PLANS.plans).length, 1262);
     const catalogueNames = new Set(CATALOGUE.map((s) => s.name));
@@ -351,9 +371,9 @@ describe('compiled creature-plans.json', () => {
     }
   });
 
-  it('every template id is one of the 99, every part numeric', () => {
+  it('every template id is one of the 100, every part numeric', () => {
     const templateIds = new Set(Object.keys(PLANS.templates));
-    assert.equal(templateIds.size, 99);
+    assert.equal(templateIds.size, 100);
     for (const [name, rec] of Object.entries(PLANS.plans)) {
       assert.ok(templateIds.has(rec.t), `${name}: unknown template ${rec.t}`);
       assert.ok(['class', 'order', 'phylum', 'kingdom', 'template', 'fallback']
@@ -364,10 +384,32 @@ describe('compiled creature-plans.json', () => {
         assert.ok(t.slice(5).every((v) => Number.isFinite(v)),
           `${name}: non-numeric part values`);
         assert.ok(['sphere', 'cylinder', 'cone', 'plane'].includes(t[2]));
-        assert.ok(['single', 'repeat', 'flap'].includes(t[3]));
+        assert.ok(['single', 'repeat', 'flap', 'limb'].includes(t[3]));
         assert.ok(['single', 'pair', 'ring', 'line', 'canopy'].includes(t[4]));
       }
     }
+  });
+
+  it('whales use the cetacean template at order level, surface skin', () => {
+    for (const whale of ['Balaenoptera bonaerensis', 'Mesoplodon traversii']) {
+      const rec = PLANS.plans[whale];
+      assert.equal(rec.t, 'cetacean', whale);
+      assert.equal(rec.l, 'order', whale);
+      assert.equal(rec.s, 'skin', whale);
+    }
+    const parts = PLANS.templates.cetacean.parts.map((t) => t[0]);
+    assert.ok(parts.includes('flippers') && parts.includes('fluke'));
+    assert.ok(!parts.includes('forelegs') && !parts.includes('hindlegs'));
+    assert.ok(!parts.includes('ears'));
+  });
+
+  it('surface families ride on the record for the sampled species', () => {
+    assert.equal(PLANS.plans['Propithecus deckenii'].s, 'fur');
+    assert.equal(PLANS.plans['Pterodroma deserta'].s, 'feather');
+    assert.equal(PLANS.plans['Anabarilius brevianalis'].s, 'scale_fish');
+    assert.equal(PLANS.plans['Balaenoptera bonaerensis'].s, 'skin');
+    const withSurface = Object.values(PLANS.plans).filter((r) => r.s).length;
+    assert.ok(withSurface >= 1200, `only ${withSurface} records carry a surface`);
   });
 
   it('all 7 measured birds carry AVONET numbers', () => {
@@ -396,14 +438,14 @@ describe('compiler / JS cross-check', () => {
       p.name, p.count, p.shape, p.kind, p.dist,
       ...p.pos, ...p.size, ...p.rot,
     ];
-    // normalizeEntry keeps 7 parts; the budget drops antennae (7 -> 6).
+    // normalizeEntry keeps 7 parts; the 9-budget keeps them all.
     assert.deepEqual(
       fromJs.parts.map(toTuple),
       PLANS.templates.insect.parts);
     assert.deepEqual(
       compiled.parts.map((p) => p.name),
-      ['thorax', 'abdomen', 'head', 'legs', 'compound eyes', 'wings']);
-    assert.deepEqual(compiled.dropped, ['antennae']);
+      ['thorax', 'abdomen', 'head', 'legs', 'compound eyes', 'wings', 'antennae']);
+    assert.deepEqual(compiled.dropped, []);
   });
 
   it('normalizeEntry(bird raw) matches the compiled bird plan', () => {
@@ -418,5 +460,85 @@ describe('compiler / JS cross-check', () => {
       ...p.pos, ...p.size, ...p.rot,
     ];
     assert.deepEqual(fromJs.parts.map(toTuple), PLANS.templates.bird.parts);
+  });
+});
+
+describe('surface families (mirrors the compiler)', () => {
+  it('maps the sampled texture strings to families', () => {
+    assert.equal(surfaceFamilyFor('fur', 'Mammalia'), 'fur');
+    assert.equal(surfaceFamilyFor('feathers', 'Aves'), 'feather');
+    assert.equal(surfaceFamilyFor('overlapping scales', 'Teleostei'), 'scale_fish');
+    assert.equal(surfaceFamilyFor('overlapping scales', 'Reptilia'), 'scale_reptile');
+    assert.equal(surfaceFamilyFor('rough dermal denticles', 'Holocephali'), 'scale_fish');
+    assert.equal(surfaceFamilyFor('smooth mucus skin', 'Teleostei'), 'skin');
+    assert.equal(surfaceFamilyFor('smooth skin', 'Mammalia'), 'skin');
+    assert.equal(surfaceFamilyFor('chitinous exoskeleton', 'Insecta'), 'chitin');
+    assert.equal(surfaceFamilyFor('bark', 'Magnoliopsida'), 'bark');
+    assert.equal(surfaceFamilyFor('gelatinous lobes', 'Agaricomycetes'), 'slime');
+    assert.equal(surfaceFamilyFor('tiny flask-shaped fruiting bodies', 'Sordariomycetes'), 'fungal');
+    assert.equal(surfaceFamilyFor('soft body wall', 'Kinorhyncha'), 'skin');
+    assert.equal(surfaceFamilyFor('porous spongy body', 'Demospongiae'), 'sponge');
+    assert.equal(surfaceFamilyFor('calcified ossicles', 'Crinoidea'), 'shell');
+  });
+
+  it('whales read skin whatever the mammal plan says', () => {
+    assert.equal(surfaceFamilyFor('fur', 'Mammalia', 'Cetacea'), 'skin');
+  });
+
+  it('unknown surfaces return null (kingdom default applies)', () => {
+    assert.equal(surfaceFamilyFor('glassy silica lattice', 'Hexactinellida'), null);
+    assert.equal(surfaceFamilyFor(null, 'Mammalia'), null);
+    assert.equal(defaultSurfaceFor('Animalia'), 'skin');
+    assert.equal(defaultSurfaceFor('Plantae'), 'bark');
+    assert.equal(defaultSurfaceFor('Fungi'), 'fungal');
+  });
+
+  it('normalizeEntry carries the surface from textures[0]', () => {
+    const withFur = {
+      ...INSECT_ENTRY,
+      textures: [{ surface: 'chitin', colour: null, pattern: null }],
+    };
+    assert.equal(normalizeEntry(withFur).surface, 'chitin');
+    assert.equal(normalizeEntry(INSECT_ENTRY).surface, null);
+  });
+
+  it('normalizePlan passes the record surface through', () => {
+    const whale = normalizePlan(PLANS, 'Balaenoptera bonaerensis', 8.75, 'Animalia');
+    assert.equal(whale.surface, 'skin');
+    assert.equal(whale.template, 'cetacean');
+    const lemur = normalizePlan(PLANS, 'Propithecus deckenii', 0.98, 'Animalia');
+    assert.equal(lemur.surface, 'fur');
+    const bird = normalizePlan(PLANS, 'Pterodroma deserta', 0.95, 'Animalia');
+    assert.equal(bird.surface, 'feather');
+    const fish = normalizePlan(PLANS, 'Anabarilius brevianalis', 0.162, 'Animalia');
+    assert.equal(fish.surface, 'scale_fish');
+  });
+});
+
+describe('limb kind (mirrors the compiler)', () => {
+  it('ventral walking legs are limbs, wings are flaps, fins repeat', () => {
+    const fore = normalizePart({ name: 'forelegs', count: 2, position: 'ventral, paired', relative_size: 'medium' });
+    assert.equal(fore.kind, 'limb');
+    assert.equal(fore.shape, 'cylinder');
+    const legs = normalizePart({ name: 'legs', count: 6, position: 'paired ventral', relative_size: 'medium' });
+    assert.equal(legs.kind, 'limb');
+    const wings = normalizePart({ name: 'wings', count: 2, position: 'lateral, paired', relative_size: 'large' });
+    assert.equal(wings.kind, 'flap');
+    const fin = normalizePart({ name: 'pectoral fins', count: 2, position: 'lateral, paired', relative_size: 'medium' });
+    assert.equal(fin.kind, 'repeat');
+    const arms = normalizePart({ name: 'arms', count: 2, position: 'ventral, paired', relative_size: 'medium' });
+    assert.equal(arms.kind, 'repeat');
+  });
+
+  it('flippers and flukes are planes', () => {
+    assert.equal(shapeForPart('flippers'), 'plane');
+    assert.equal(shapeForPart('fluke'), 'plane');
+    assert.equal(shapeForPart('dorsal fin'), 'plane');
+  });
+
+  it('flippers, fluke and haunches have budget priorities', () => {
+    assert.equal(partPriority('flippers'), 2);
+    assert.equal(partPriority('fluke'), 3);
+    assert.equal(partPriority('haunches'), 2);
   });
 });

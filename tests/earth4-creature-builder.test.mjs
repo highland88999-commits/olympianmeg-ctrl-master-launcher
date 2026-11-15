@@ -12,7 +12,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import {
-  buildCreatureMesh, CREATURE_SHARED_GEOMETRIES, placeInstances,
+  buildCreatureMesh, animateCreatureMesh, breathingRateBpm,
+  strideFrequencyHz, CREATURE_SHARED_GEOMETRIES, placeInstances,
 } from '../lib/earth4/creature-builder.js';
 import {
   planForSpecies, MAX_VISIBLE_PARTS,
@@ -164,25 +165,26 @@ describe('placeInstances', () => {
 });
 
 describe('buildCreatureMesh — representative species', () => {
-  it('insect: 6 visible meshes, feet on the ground', () => {
+  it('insect: 7 visible meshes, feet on the ground', () => {
     const c = creatureFor('Acheta domesticus', { sizeM: 0.02 });
     const g = buildCreatureMesh(c, PLANS);
     const vis = visibleMeshes(g);
-    assert.equal(vis.length, 6);
+    assert.equal(vis.length, 7);
     const box = bodyBox(g);
     assert.ok(Math.abs(box.min.y) < 1e-6, `min.y ${box.min.y}`);
     // The whole creature is a visible speck: sizeM 0.02 clamps to
     // the 0.05 m render minimum, so ~1 body unit reads as ~5 cm.
     assert.ok(box.max.x - box.min.x < 0.06);
     assert.ok(box.max.x - box.min.x > 0.04);
-    // One InstancedMesh carries the 6 legs; every mesh shares
-    // geometry and material with the module, nothing per-creature.
-    const legs = vis.find((m) => m.isInstancedMesh && m.count === 6);
-    assert.ok(legs, 'legs should be one InstancedMesh of 6');
+    // One InstancedMesh carries the 6 legs, two segments apiece
+    // (upper + lower with a knee); every mesh shares geometry and
+    // material with the module, nothing per-creature.
+    const legs = vis.find((m) => m.isInstancedMesh && m.count === 12);
+    assert.ok(legs, 'legs should be one InstancedMesh of 12 (6 x 2 segments)');
     assert.ok(CREATURE_SHARED_GEOMETRIES.has(legs.geometry));
   });
 
-  it('flying bird: two flap wing meshes, phase set, 6 meshes total', () => {
+  it('flying bird: two flap wing meshes, phase set, 9 meshes total', () => {
     const c = creatureFor('Cyanocorax cyanopogon',
       { sizeM: 0.25, flying: true });
     const g = buildCreatureMesh(c, PLANS);
@@ -193,7 +195,7 @@ describe('buildCreatureMesh — representative species', () => {
     const [wl, wr] = g.userData.wings;
     assert.ok(wl.position.z > 0 && wr.position.z < 0);
     assert.ok(Math.abs(wl.position.z + wr.position.z) < 1e-9);
-    assert.equal(visibleMeshes(g).length, 6);
+    assert.equal(visibleMeshes(g).length, 9);
     // The bird flies: centred on y = 0, not grounded.
     const box = bodyBox(g);
     assert.ok(Math.abs((box.min.y + box.max.y) / 2) < 1e-6);
@@ -205,22 +207,23 @@ describe('buildCreatureMesh — representative species', () => {
     const g = buildCreatureMesh(c, PLANS);
     assert.equal(g.userData.wings, undefined);
     assert.ok(Number.isFinite(g.userData.phase));
-    assert.equal(visibleMeshes(g).length, 6);
+    assert.equal(visibleMeshes(g).length, 8);
     const box = bodyBox(g);
     assert.ok(Math.abs((box.min.y + box.max.y) / 2) < 1e-6);
   });
 
-  it('mammal: body, head, four legs, eyes; grounded', () => {
+  it('mammal: body, head, four legs, haunches, eyes; grounded', () => {
     const c = creatureFor('Aotus zonalis', { sizeM: 0.5 });
     const g = buildCreatureMesh(c, PLANS);
-    assert.equal(visibleMeshes(g).length, 6);
+    assert.equal(visibleMeshes(g).length, 9);
     const box = bodyBox(g);
     assert.ok(Math.abs(box.min.y) < 1e-6);
     const legs = visibleMeshes(g).filter((m) => m.isInstancedMesh);
-    // Forelegs and hindlegs are separate part-groups (one
-    // InstancedMesh each, 2 instances apiece); eyes are a third.
-    assert.equal(legs.length, 3);
-    assert.deepEqual(legs.map((m) => m.count).sort(), [2, 2, 2]);
+    // Forelegs and hindlegs are separate limb part-groups (one
+    // InstancedMesh each, 2 legs x 2 segments apiece); eyes, ears
+    // and haunches are the other three.
+    assert.equal(legs.length, 5);
+    assert.deepEqual(legs.map((m) => m.count).sort(), [2, 2, 2, 4, 4]);
     // The head reads as a head: proud of the body front, with the
     // forelegs under the front quarter and the hindlegs under the
     // rear — not one ball on four sticks bunched at the middle.
@@ -233,14 +236,27 @@ describe('buildCreatureMesh — representative species', () => {
     assert.equal(byName.hindlegs.pos[0], -0.2);
     assert.ok(byName.forelegs.size[0] > 0.1, 'legs must be stocky, not sticks');
     // Eyes sit on the head and read dark, not floating and
-    // body-coloured. The eyes are the sphere InstancedMesh of 2.
-    const eyes = legs.find((m) => m.geometry.type === 'SphereGeometry');
-    assert.ok(eyes, 'eyes should be one InstancedMesh of 2');
-    const hsl = {};
-    eyes.material.color.getHSL(hsl);
-    assert.ok(hsl.l < 0.25, `eyes must be dark, lightness ${hsl.l}`);
+    // body-coloured. The eyes are the dark sphere InstancedMesh
+    // of 2 (ears are the other sphere pair, class-coloured).
+    const spheres = legs.filter((m) => m.geometry.type === 'SphereGeometry');
+    assert.equal(spheres.length, 3, 'eyes + ears + haunches');
+    const dark = (m) => {
+      const hsl = {};
+      m.material.color.getHSL(hsl);
+      return hsl.l;
+    };
+    const eyes = spheres.find((m) => dark(m) < 0.25);
+    assert.ok(eyes, 'eyes should be one dark InstancedMesh of 2');
+    assert.equal(eyes.count, 2);
     assert.notEqual(eyes.material,
       visibleMeshes(g).find((m) => !m.isInstancedMesh).material);
+    // Haunches: the fur-textured sphere pair at the rear quarters
+    // (ears are the other textured pair, up on the head).
+    const haunches = spheres.find((m) => m !== eyes
+      && instanceWorldPositions(m).every((p) => p.x < 0));
+    assert.ok(haunches, 'haunches should be one textured InstancedMesh of 2');
+    assert.equal(haunches.count, 2);
+    assert.ok(haunches.material.map, 'haunches wear the fur map');
   });
 
   it('plant: stem and foliage, grounded, green leaves', () => {
@@ -418,12 +434,12 @@ describe('buildCreatureMesh — representative species', () => {
   });
 });
 
-describe('buildCreatureMesh — all 99 templates', () => {
+describe('buildCreatureMesh — all 100 templates', () => {
   it('builds for every template id without throwing', () => {
     const templateIds = Object.keys(PLANS.templates);
-    assert.equal(templateIds.length, 99);
+    assert.equal(templateIds.length, 100);
     // One synthetic species per template, plus the real species
-    // that use it — the template map must cover all 99 either way.
+    // that use it — the template map must cover all 100 either way.
     const byTemplate = {};
     for (const [name, rec] of Object.entries(PLANS.plans)) {
       (byTemplate[rec.t] ||= []).push(name);
@@ -431,7 +447,7 @@ describe('buildCreatureMesh — all 99 templates', () => {
     let built = 0;
     for (const tid of templateIds) {
       const doc = {
-        version: 1, count: 1, templates: PLANS.templates,
+        version: 2, count: 1, templates: PLANS.templates,
         plans: { [`Synthetic ${tid}`]: { t: tid, l: 'template' } },
       };
       const parts = PLANS.templates[tid].parts;
@@ -448,7 +464,11 @@ describe('buildCreatureMesh — all 99 templates', () => {
       const vis = visibleMeshes(g);
       // A template with no buildable parts (smut_fungus: a parasite
       // with no standalone fruiting body) falls back to one blob.
-      const expected = plan.parts.length === 0 ? 1 : meshCost(plan, false);
+      // Hindlegged templates grow one extra haunch mesh.
+      const expected = plan.parts.length === 0
+        ? 1
+        : meshCost(plan, false)
+          + (plan.parts.some((p) => p.name === 'hindlegs') ? 1 : 0);
       assert.equal(vis.length, expected,
         `${tid}: visible meshes should match the plan's mesh cost`);
       assert.ok(vis.length <= MAX_VISIBLE_PARTS, `${tid}: over budget`);
@@ -463,7 +483,7 @@ describe('buildCreatureMesh — all 99 templates', () => {
         assert.ok(visibleMeshes(rg).length <= MAX_VISIBLE_PARTS, name);
       }
     }
-    assert.equal(built, 99);
+    assert.equal(built, 100);
   });
 
   it('every catalogue species builds within the envelope', () => {
@@ -483,5 +503,150 @@ describe('buildCreatureMesh — all 99 templates', () => {
       assert.ok(g.userData.hit, `${s.name}: no hit sphere`);
     }
     assert.ok(worst <= MAX_VISIBLE_PARTS, `worst was ${worst} (${worstName})`);
+  });
+});
+
+describe('CGI pass — the video animal, textures, limbs, alive', () => {
+  it('the f_80 animal is a whale, not a green quadruped', () => {
+    // Balaenoptera bonaerensis, 8.75 m, at Redwater in the video:
+    // the old builder gave it the generic mammal plan (fur, four
+    // legs, ears). The cetacean template gives it flippers, a
+    // fluke, a dorsal fin and smooth skin — and no legs at all.
+    const c = creatureFor('Balaenoptera bonaerensis',
+      { sizeM: 8.75, aquatic: true });
+    const plan = planForSpecies(PLANS, c);
+    assert.equal(plan.template, 'cetacean');
+    assert.equal(plan.surface, 'skin');
+    const names = plan.parts.map((p) => p.name);
+    assert.ok(names.includes('flippers') && names.includes('fluke'));
+    assert.ok(names.includes('dorsal fin'));
+    assert.ok(!names.includes('forelegs') && !names.includes('hindlegs'));
+    assert.ok(!names.includes('ears'));
+    const g = buildCreatureMesh(c, PLANS);
+    assert.equal(visibleMeshes(g).length, 6);
+    // Centred (aquatic), not grounded on the seabed.
+    const box = bodyBox(g);
+    assert.ok(Math.abs((box.min.y + box.max.y) / 2) < 1e-6);
+    // The body wears the skin map, not flat green.
+    const bodyMesh = visibleMeshes(g).find((m) => !m.isInstancedMesh);
+    assert.ok(bodyMesh.material.map, 'whale body wears a texture map');
+    assert.ok(bodyMesh.material.bumpMap, 'whale body wears a bump map');
+  });
+
+  it('every visible non-dark mesh wears colour + bump maps', () => {
+    for (const name of ['Propithecus deckenii', 'Pterodroma deserta',
+      'Anabarilius brevianalis', 'Acheta domesticus']) {
+      const g = buildCreatureMesh(creatureFor(name), PLANS);
+      const bare = visibleMeshes(g).filter((m) => {
+        const hsl = {};
+        m.material.color.getHSL(hsl);
+        const dark = hsl.l < 0.25;
+        return !dark && (!m.material.map || !m.material.bumpMap);
+      });
+      assert.equal(bare.length, 0, `${name}: ${bare.length} bare meshes`);
+    }
+  });
+
+  it('the head is an assembly: face parts move with the head group', () => {
+    const g = buildCreatureMesh(creatureFor('Propithecus deckenii'), PLANS);
+    const head = g.userData.anim.head;
+    assert.ok(head, 'head group exists');
+    // Eyes, ears and muzzle live inside the head group, not the body.
+    const inHead = [];
+    head.traverse((o) => { if (o.isMesh || o.isInstancedMesh) inHead.push(o); });
+    assert.ok(inHead.length >= 4, `head group holds ${inHead.length} meshes`);
+    // A head turn moves the face: yaw the group, the eye instances follow.
+    const eyes = g.userData.anim.eyes.mesh;
+    const before = instanceWorldPositions(eyes)[0];
+    head.rotation.y = 0.5;
+    g.updateMatrixWorld(true);
+    const after = instanceWorldPositions(eyes)[0];
+    assert.ok(before.distanceTo(after) > 0.01,
+      'eye instances move when the head turns');
+  });
+
+  it('breathing: the chest rises and falls on the real clock', () => {
+    const c = creatureFor('Propithecus deckenii');
+    const g = buildCreatureMesh(c, PLANS);
+    const breath = g.userData.anim.breath;
+    assert.ok(breath, 'mammal has a breath mesh');
+    const base = breath.base.y;
+    const seen = new Set();
+    for (let t = 0; t <= 4; t += 0.25) {
+      animateCreatureMesh(g, t, 1 / 60, c);
+      seen.add(breath.mesh.scale.y.toFixed(4));
+    }
+    assert.ok(seen.size > 3, 'chest scale varies through breaths');
+    assert.ok(Math.abs(breath.mesh.scale.y - base) < base * 0.05,
+      'breath is a swell, not a deformation');
+  });
+
+  it('breathing rates match Stahl 1967 where it applies', () => {
+    // Human scale (70 kg -> ~1.52 m at the animation estimate):
+    // Stahl says ~18 breaths/min.
+    const human = breathingRateBpm({ class: 'Mammalia', sizeM: 1.52 });
+    assert.ok(human > 15 && human < 21, `human ${human}`);
+    // A 0.98 m lemur (~19 kg) breathes ~25/min; an 8.75 m whale
+    // (~13,400 kg) breathes ~4.5/min.
+    const lemur = breathingRateBpm({ class: 'Mammalia', sizeM: 0.98 });
+    assert.ok(lemur > 22 && lemur < 28, `lemur ${lemur}`);
+    const whale = breathingRateBpm({ class: 'Mammalia', sizeM: 8.75 });
+    assert.ok(whale > 3.5 && whale < 5.5, `whale ${whale}`);
+    assert.ok(strideFrequencyHz({ sizeM: 0.98 }) > 1
+      && strideFrequencyHz({ sizeM: 0.98 }) < 2.5, 'lemur stride Hz sane');
+  });
+
+  it('gait: leg matrices swing in sequence, body bobs', () => {
+    const c = creatureFor('Propithecus deckenii');
+    const g = buildCreatureMesh(c, PLANS);
+    const limb = g.userData.anim.limbs[0];
+    assert.ok(limb, 'mammal has a limb part');
+    const m = new THREE.Matrix4();
+    const read = (i) => {
+      limb.mesh.getMatrixAt(i * 2, m);
+      return [m.elements[12], m.elements[13]];
+    };
+    animateCreatureMesh(g, 0, 1 / 60, c);
+    const p0 = read(0);
+    animateCreatureMesh(g, 0.4, 1 / 60, c);
+    const p1 = read(0);
+    assert.ok(Math.abs(p0[0] - p1[0]) > 1e-4 || Math.abs(p0[1] - p1[1]) > 1e-4,
+      'the foreleg swings between frames');
+    // The two forelegs are out of phase (lateral sequence).
+    animateCreatureMesh(g, 0.2, 1 / 60, c);
+    const a = read(0);
+    const b = read(1);
+    assert.ok(Math.abs(a[0] - b[0]) > 1e-4, 'left and right forelegs differ');
+    // Body bob: the inner group's Y moves with the stride (a
+    // quarter bob-period later the bob has swung the other way).
+    const y0 = g.userData.anim.body.position.y;
+    animateCreatureMesh(g, 0.275, 1 / 60, c);
+    const y1 = g.userData.anim.body.position.y;
+    assert.ok(Math.abs(y0 - y1) > 0.001, 'body bobs');
+  });
+
+  it('blinking: eyes narrow for ~120 ms, then restore', () => {
+    const c = creatureFor('Propithecus deckenii');
+    const g = buildCreatureMesh(c, PLANS);
+    const eyes = g.userData.anim.eyes;
+    assert.ok(eyes, 'mammal has blinkable eyes');
+    eyes.blink.next = 0.05;
+    animateCreatureMesh(g, 0.06, 1 / 60, c);
+    const m = new THREE.Matrix4();
+    eyes.mesh.getMatrixAt(0, m);
+    const shut = new THREE.Vector3().setFromMatrixScale(m).y;
+    assert.ok(shut < eyes.size[1] * 0.5, `eyes shut to ${shut}`);
+    animateCreatureMesh(g, 0.5, 1 / 60, c);
+    eyes.mesh.getMatrixAt(0, m);
+    const open = new THREE.Vector3().setFromMatrixScale(m).y;
+    assert.ok(Math.abs(open - eyes.size[1]) < 1e-6, 'eyes restore');
+  });
+
+  it('phase is deterministic: same spawn, same look', () => {
+    const a = buildCreatureMesh(creatureFor('Aotus zonalis'), PLANS);
+    const b = buildCreatureMesh(creatureFor('Aotus zonalis'), PLANS);
+    assert.equal(a.userData.phase, b.userData.phase);
+    assert.equal(a.userData.meshCount, b.userData.meshCount);
+    assert.deepEqual(bodyBox(a), bodyBox(b));
   });
 });
