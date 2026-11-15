@@ -125,22 +125,23 @@ describe('the petrify gaze', () => {
   const foes = [
     { id: 'near', x: 0, z: -5 },
     { id: 'far', x: 0, z: -12 },
+    { id: 'far-edge', x: 0, z: -49 },
     { id: 'behind', x: 0, z: 8 },
     { id: 'edge', x: 14, z: -5 },
   ];
 
   it('takes foes in the cone, nearest first, capped at the limit', () => {
-    assert.equal(PETRIFY_RANGE_M, 15);
+    assert.equal(PETRIFY_RANGE_M, 50);
     const one = foesInPetrifyCone(0, 0, 0, foes, 1);
     assert.deepEqual(one.map((f) => f.id), ['near']);
     const two = foesInPetrifyCone(0, 0, 0, foes, 2);
     assert.deepEqual(two.map((f) => f.id), ['near', 'far']);
     const five = foesInPetrifyCone(0, 0, 0, foes, 5);
-    assert.deepEqual(five.map((f) => f.id), ['near', 'far']);
+    assert.deepEqual(five.map((f) => f.id), ['near', 'far', 'far-edge']);
   });
 
   it('refuses foes out of range, behind, or past the cone edge', () => {
-    const out = foesInPetrifyCone(0, 0, 0, [{ id: 'too-far', x: 0, z: -16 }], 1);
+    const out = foesInPetrifyCone(0, 0, 0, [{ id: 'too-far', x: 0, z: -51 }], 1);
     assert.deepEqual(out, []);
     const back = foesInPetrifyCone(0, 0, 0, [{ id: 'back', x: 0, z: 10 }], 1);
     assert.deepEqual(back, []);

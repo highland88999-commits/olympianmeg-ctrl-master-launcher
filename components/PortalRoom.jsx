@@ -35,6 +35,7 @@ import {
 } from '@/lib/portal/progress';
 import { updateBackpack } from '@/lib/backpack/store';
 import { maybeAwardPortalGun } from '@/lib/portal/gun';
+import { portalCardBackground } from '@/lib/portal/portal-graphics';
 
 const BOOT_MS = 1600;
 const NOTICE_MS = 1600;
@@ -215,7 +216,9 @@ export default function PortalRoom({ side = 'nether', open = false, onClose }) {
                   style={{
                     flex: '0 0 auto', width: 208, minHeight: 148, textAlign: 'left', cursor: 'pointer',
                     borderRadius: 14, padding: '14px 14px 12px', color: lighting.text,
-                    background: `linear-gradient(165deg, ${realm.hue}26 0%, rgba(8,8,16,0.85) 55%)`,
+                    background: portalCardBackground(realm.key, realm.hue),
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
                     border: `1px solid ${realm.hue}88`,
                     boxShadow: `0 0 24px ${realm.hue}33`,
                     fontFamily: 'inherit',

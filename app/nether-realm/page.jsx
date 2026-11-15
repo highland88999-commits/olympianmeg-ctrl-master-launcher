@@ -49,6 +49,7 @@ import {
   upgradeCostFor,
   victimsPerUse,
 } from '@/lib/nether-realm/medusa';
+import { fightDockLayout } from '@/lib/nether-realm/fight-controls';
 import { strike, BLADE, aimYawFromWalker } from '@/app/middle-earth/orcs';
 import { addFlamingChainItem, addMedusaHeadItem, countItem, equippedDamageForSlot, equippedWeaponEntry, removeItem } from '@/lib/backpack/backpack';
 import {
@@ -115,6 +116,16 @@ export default function NetherRealmPage() {
   const [headState, setHeadState] = useState('idle');
   const [firingAtMs, setFiringAtMs] = useState(0);
   const [foesInCone, setFoesInCone] = useState(0);
+
+  // The real viewport, for the fight dock layout (circles, never
+  // pills — see lib/nether-realm/fight-controls.js).
+  const [viewport, setViewport] = useState({ w: 390, h: 844 });
+  useEffect(() => {
+    const apply = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
+  }, []);
   // THE FLAMING CHAIN (Merlin, 2026-11-15): won from the Ghost
   // Rider, used here in Hades. chainFx is the CGI effect the
   // scene renders ({ from, to, targets, atMs }); chainInReach is
@@ -1000,6 +1011,82 @@ export default function NetherRealmPage() {
     ? chainStatus(refreshChain(chainItem, nowTick), nowTick).label
     : '';
 
+  // The lair fight dock — circles, not pills (Merlin, Nov 15
+  // ~04:19). Each button is one circle: a big icon plus a compact
+  // readout inside it; the full wording lives in aria-label +
+  // title, unchanged in meaning from the old pills. Positions
+  // come from lib/nether-realm/fight-controls.js, which clears
+  // the stick, the orb, the backpack, and the notice by
+  // construction (see tests/medusa-lair-fix.test.mjs).
+  const fightButtons = [];
+  if (region === "Medusa's Lair" && boss.state === 'alive') {
+    fightButtons.push({
+      key: 'strike',
+      icon: '⚔',
+      lines: [`${boss.hp}/${boss.maxHp}`],
+      ariaLabel: `Strike Medusa — ${boss.hp}/${boss.maxHp}`,
+      onClick: onStrikeMedusa,
+      tone: 'green',
+    });
+  }
+  if (head.owned) {
+    fightButtons.push({
+      key: 'use-head',
+      icon: '🐍',
+      lines: [foesInCone > 0 ? `${foesInCone} in gaze` : `${victimsPerUse(head.level)}/use`],
+      ariaLabel: `Use the Head${foesInCone > 0 ? ` — ${foesInCone} in the gaze` : ''} · ${victimsPerUse(head.level)} per use`,
+      onClick: onUseHead,
+      tone: 'green',
+    });
+    fightButtons.push({
+      key: 'wield',
+      icon: headWielded ? '⬇' : '⬆',
+      lines: ['HEAD'],
+      ariaLabel: headWielded ? 'Lower the head' : 'Raise the head',
+      onClick: () => setHeadWielded((w) => !w),
+      tone: 'white',
+    });
+    fightButtons.push({
+      key: 'upgrade-head',
+      icon: '⬆',
+      lines: [
+        `Lv${head.level}→${Math.min(5, victimsPerUse(head.level) + 1)}`,
+        `20⬡ ${countItem(pack, ORC_SHARD_ITEM_ID)}`,
+      ],
+      ariaLabel: `Head level ${head.level} → ${Math.min(5, victimsPerUse(head.level) + 1)} per use · 20 orc shards (${countItem(pack, ORC_SHARD_ITEM_ID)} held)`,
+      onClick: onUpgradeHead,
+      tone: 'white',
+    });
+  }
+  if (chainItem) {
+    fightButtons.push({
+      key: 'use-chain',
+      icon: '🔥',
+      lines: [chainInReach > 0 ? `${chainInReach} reach` : `${chainsPerThrow(chain.level)}×`],
+      ariaLabel: `${chainLabel}${chain.level > 0 ? ` — ${chainsPerThrow(chain.level)} chains` : ''}${chainInReach > 0 ? ` — ${chainInReach} in reach` : ''}`,
+      onClick: onUseChain,
+      tone: 'orange',
+    });
+    fightButtons.push({
+      key: 'upgrade-chain',
+      icon: '⬆',
+      lines: [
+        `Lv${chain.level}→${Math.min(5, chainsPerThrow(chain.level) + 1)}`,
+        `20⬡ ${countItem(pack, ORC_SHARD_ITEM_ID)}`,
+      ],
+      ariaLabel: `Chain level ${chain.level} → ${Math.min(5, chainsPerThrow(chain.level) + 1)} chains per throw · 20 orc shards (${countItem(pack, ORC_SHARD_ITEM_ID)} held)`,
+      onClick: onUpgradeChain,
+      tone: 'white',
+    });
+  }
+  const fightDock = fightDockLayout({
+    viewportW: viewport.w,
+    viewportH: viewport.h,
+    count: fightButtons.length,
+    hasJoystick: touchUI,
+    showReform: region === "Medusa's Lair" && boss.state === 'dead',
+  });
+
   return (
     <main className="fixed inset-0 overflow-hidden bg-black text-white" style={{ touchAction: 'none' }} onPointerDown={fadeInfo}>
       {/* 3D world */}
@@ -1072,8 +1159,9 @@ export default function NetherRealmPage() {
       )}
 
       {/* HUD — plain English, nothing overlaps anything else. The title
-          sits below the Leave button (pt-16); the hint sits above the
-          global radio bar (bottom-20); the stick sits above it too. */}
+          sits below the Leave button (pt-16); the fight dock is
+          circles laid out by lib/nether-realm/fight-controls.js,
+          clear of the stick, the orb, and the notice. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center px-4 pt-16 text-center" style={infoStyle} aria-hidden={infoHidden}>
         <h1 className="text-2xl font-bold tracking-[0.3em] text-red-100 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
           HADES
@@ -1126,66 +1214,50 @@ export default function NetherRealmPage() {
         </div>
       )}
 
-      {/* Medusa's lair actions — only the buttons that apply right now */}
-      <div className="absolute inset-x-0 bottom-20 z-30 flex flex-wrap items-center justify-center gap-2 px-4">
-        {region === "Medusa's Lair" && boss.state === 'alive' && (
-          <button
-            type="button"
-            onClick={onStrikeMedusa}
-            className="pointer-events-auto rounded-full border border-green-400/60 bg-black/70 px-4 py-2 text-sm font-semibold text-green-100"
-          >
-            ⚔ Strike Medusa — {boss.hp}/{boss.maxHp}
-          </button>
-        )}
-        {region === "Medusa's Lair" && boss.state === 'dead' && (
-          <p className="rounded-full bg-black/60 px-4 py-2 text-sm font-semibold text-stone-300">
-            Medusa reforms in {reformInS(boss, nowTick)} s…
-          </p>
-        )}
-        {head.owned && (
-          <>
-            <button
-              type="button"
-              onClick={onUseHead}
-              className="pointer-events-auto rounded-full border border-green-400/60 bg-black/70 px-4 py-2 text-sm font-semibold text-green-100"
-            >
-              🐍 Use the Head{foesInCone > 0 ? ` — ${foesInCone} in the gaze` : ''} · {victimsPerUse(head.level)} per use
-            </button>
-            <button
-              type="button"
-              onClick={() => setHeadWielded((w) => !w)}
-              className="pointer-events-auto rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-            >
-              {headWielded ? 'Lower the head' : 'Raise the head'}
-            </button>
-            <button
-              type="button"
-              onClick={onUpgradeHead}
-              className="pointer-events-auto rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-            >
-              ⬆ Head level {head.level} → {Math.min(5, victimsPerUse(head.level) + 1)} per use · 20 orc shards ({countItem(pack, ORC_SHARD_ITEM_ID)} held)
-            </button>
-          </>
-        )}
-        {chainItem && (
-          <>
-            <button
-              type="button"
-              onClick={onUseChain}
-              className="pointer-events-auto rounded-full border border-orange-400/60 bg-black/70 px-4 py-2 text-sm font-semibold text-orange-100"
-            >
-              {chainLabel}{chain.level > 0 ? ` — ${chainsPerThrow(chain.level)} chains` : ''}{chainInReach > 0 ? ` — ${chainInReach} in reach` : ''}
-            </button>
-            <button
-              type="button"
-              onClick={onUpgradeChain}
-              className="pointer-events-auto rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-            >
-              ⬆ Chain level {chain.level} → {Math.min(5, chainsPerThrow(chain.level) + 1)} chains per throw · 20 orc shards ({countItem(pack, ORC_SHARD_ITEM_ID)} held)
-            </button>
-          </>
-        )}
-      </div>
+      {/* Medusa's lair fight dock — circles, not pills (Merlin, Nov
+          15 ~04:19). Positions come from
+          lib/nether-realm/fight-controls.js: the dock clears the
+          stick, the orb, the backpack, and the notice by
+          construction. The reform line sits above the dock. */}
+      {fightButtons.length > 0 && (
+        <div className="pointer-events-none absolute inset-0 z-30">
+          {fightButtons.map((b, i) => {
+            const box = fightDock.circles[i];
+            return (
+              <button
+                key={b.key}
+                type="button"
+                onClick={b.onClick}
+                aria-label={b.ariaLabel}
+                title={b.ariaLabel}
+                className={`pointer-events-auto absolute flex flex-col items-center justify-center rounded-full border font-semibold ${
+                  b.tone === 'green'
+                    ? 'border-green-400/60 bg-black/70 text-green-100'
+                    : b.tone === 'orange'
+                      ? 'border-orange-400/60 bg-black/70 text-orange-100'
+                      : 'border-white/30 bg-black/60 text-white'
+                }`}
+                style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+              >
+                <span className={fightDock.compact ? 'text-base leading-none' : 'text-lg leading-none'}>{b.icon}</span>
+                {b.lines.map((line) => (
+                  <span key={line} className={fightDock.compact ? 'mt-0.5 text-[7px] leading-none' : 'mt-0.5 text-[9px] leading-none'}>
+                    {line}
+                  </span>
+                ))}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {fightDock.reform && (
+        <p
+          className="pointer-events-none absolute z-30 truncate text-center text-[11px] font-semibold text-stone-300"
+          style={{ left: fightDock.reform.left, top: fightDock.reform.top, width: fightDock.reform.width, height: fightDock.reform.height }}
+        >
+          {fightDock.compact ? `Reforms in ${reformInS(boss, nowTick)} s` : `Medusa reforms in ${reformInS(boss, nowTick)} s…`}
+        </p>
+      )}
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (

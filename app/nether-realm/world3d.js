@@ -12,7 +12,7 @@
 // English everywhere. No game mechanics in the base shell — the arches
 // only navigate, nothing fights, nothing charges.
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
@@ -40,6 +40,7 @@ import {
   stepPosition,
 } from '@/lib/nether-realm/world';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
+import { LAIR_GRAPHIC } from '@/lib/portal/portal-graphics';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import {
   LAIR_RUN_MPS,
@@ -476,6 +477,26 @@ function Tartarus({pits, shades, reduced}) {
 }
 
 function PortalArches() {
+  // Medusa's lair graphic (Merlin, 2026-11-15): the lair arch's doorway
+  // wears the lair's illustrated art; the other six arches keep their
+  // glow discs. House pattern (HomeScene Mars): load once, set state
+  // when ready — before it loads the arch shows its plain glow disc.
+  // The art is 3:2, the doorway is a circle: crop the centre square
+  // (repeat.x 2/3, offset.x 1/6) so Medusa is not stretched.
+  const [lairTex, setLairTex] = useState(null);
+  useEffect(() => {
+    let live = true;
+    new THREE.TextureLoader().load(LAIR_GRAPHIC, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.repeat.set(2 / 3, 1);
+      tex.offset.set(1 / 6, 0);
+      if (live) setLairTex(tex);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   return (
     <group>
       {PORTALS.map((p) => (
@@ -498,6 +519,12 @@ function PortalArches() {
             <circleGeometry args={[2.6, 24]} />
             <meshBasicMaterial color={PORTAL_GLOW} transparent opacity={0.55} side={THREE.DoubleSide} />
           </mesh>
+          {p.key === 'medusa' && lairTex ? (
+            <mesh position={[0, 3.6, 0.12]}>
+              <circleGeometry args={[2.6, 24]} />
+              <meshBasicMaterial map={lairTex} transparent opacity={0.92} side={THREE.DoubleSide} />
+            </mesh>
+          ) : null}
           <mesh position={[0, 3.6, 0.15]}>
             <circleGeometry args={[1.5, 24]} />
             <meshBasicMaterial color="#c084fc" transparent opacity={0.4} side={THREE.DoubleSide} />
@@ -888,11 +915,17 @@ function MedusaLair({ reduced }) {
           <boxGeometry args={[7, 0.4, 0.4]} />
           <meshBasicMaterial color={LAIR_GREEN} />
         </mesh>
-        <Html center distanceFactor={80} position={[0, 11.4, 0]} zIndexRange={[20, 0]} style={medusaLabelStyle}>
+        {/* The gate name stays a constant screen size: drei's Html
+            with distanceFactor scales the label by 1/distance, so
+            walking up to the gate blew it up to fill the screen
+            (Merlin's first run, Nov 15 ~04:18). No distanceFactor
+            here — the label reads the same from any range. */}
+        <Html center position={[0, 11.4, 0]} zIndexRange={[20, 0]} style={medusaLabelStyle}>
           🐍 Medusa&apos;s Lair
         </Html>
       </group>
-      <Html center distanceFactor={120} position={[MEDUSA_LAIR.x, 10, MEDUSA_LAIR.z]} zIndexRange={[20, 0]} style={regionLabelStyle}>
+      {/* The lair's region name: same constant-size rule. */}
+      <Html center position={[MEDUSA_LAIR.x, 10, MEDUSA_LAIR.z]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Medusa&apos;s Lair
       </Html>
     </group>
@@ -1017,7 +1050,10 @@ function MedusaFigure({ boss, playerRef, onMedusaMove, reduced }) {
           <meshBasicMaterial color={LAIR_GREEN} transparent opacity={0.2} side={THREE.DoubleSide} blending={THREE.AdditiveBlending} depthWrite={false} />
         </mesh>
       </group>
-      <Html center distanceFactor={90} position={[0, 4.6, 0]} zIndexRange={[20, 0]} style={medusaLabelStyle}>
+      {/* Her name tag: constant screen size, like the gate — with
+          distanceFactor it filled the whole screen at close range
+          (Merlin's first run, Nov 15 ~04:18). */}
+      <Html center position={[0, 4.6, 0]} zIndexRange={[20, 0]} style={medusaLabelStyle}>
         {alive ? '🐍 Medusa' : 'Medusa reforms…'}
       </Html>
     </group>
@@ -1249,7 +1285,9 @@ function FoeFigures({ foes, reduced }) {
             <sphereGeometry args={[0.32, 12, 10]} />
             <meshStandardMaterial color="#e8e8ee" transparent opacity={0.85} roughness={0.7} />
           </mesh>
-          <Html center distanceFactor={60} position={[0, 3.2, 0]} zIndexRange={[20, 0]} style={regionLabelStyle}>
+          {/* Constant screen size — the same rule as the lair
+              labels: a foe's name never blows up at close range. */}
+          <Html center position={[0, 3.2, 0]} zIndexRange={[20, 0]} style={regionLabelStyle}>
             {f.label || 'Traveller'}
           </Html>
         </group>
@@ -1277,7 +1315,11 @@ function Statues({ statues }) {
             <sphereGeometry args={[0.34, 12, 10]} />
             <meshStandardMaterial color="#8a8a92" roughness={0.95} />
           </mesh>
-          <Html center distanceFactor={60} position={[0, 3.8, 0]} zIndexRange={[20, 0]} style={statueLabelStyle}>
+          {/* Constant screen size, capped width: a statue's story
+              is the longest label in the lair, and with
+              distanceFactor it filled the screen up close. It wraps
+              at 220 px now instead of running off the phone. */}
+          <Html center position={[0, 3.8, 0]} zIndexRange={[20, 0]} style={{ ...statueLabelStyle, whiteSpace: 'normal', maxWidth: 220, textAlign: 'center' }}>
             🗿 {s.victim_name} — turned to stone by {s.petrifier_name}
             {s.interim ? ' · standing on this device until the server list is live' : ''}
           </Html>
