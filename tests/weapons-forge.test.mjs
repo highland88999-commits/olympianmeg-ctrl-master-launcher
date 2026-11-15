@@ -1,11 +1,13 @@
 // tests/weapons-forge.test.mjs
-// THE WEAPONS FORGE (Merlin, 2026-10-23): the catalogue (every
-// named weapon from Dracula's table + Hammond's cabinet, plus the
-// basic tier), the reticle each weapon wears, the forge cost math
-// (lib/backpack/weapons.js) — affordability, material debits,
-// idempotency — and the master-portal seating: registry entry,
-// god-menu claim, locale titles in all 31 languages, Portal Room
-// roster.
+// THE WEAPONS FORGE (Merlin, 2026-10-23) — REMOVED Nov 15, 2026:
+// the /weapons-forge page is gone, replaced with the real forge's
+// functions at /world-engine/weapons (redirect in next.config.js);
+// the catalogue till route is retired with it. What stays: the
+// catalogue itself (lib/backpack/weapons.js — Earth 2 gifts read
+// it), the reticle each weapon wears, the forge cost math —
+// affordability, material debits, idempotency — the CGI stamping,
+// and the removal itself: no registry entry, no god-menu claim,
+// no locale titles, one fewer Portal Room seat (215 → 214).
 //
 // Run: node --test tests/weapons-forge.test.mjs   (from the repo root)
 
@@ -173,48 +175,49 @@ describe('the forge math', () => {
   });
 });
 
-describe('the seating (master portal rule)', () => {
-  it('the registry seats weapons-forge under HEPHAESTUS / TOOLS', () => {
-    const entry = SATELLITES.find((s) => s.key === 'weapons-forge');
-    assert.ok(entry, 'registry entry exists');
-    assert.equal(entry.route, '/weapons-forge');
-    assert.equal(entry.pos, 'HEPHAESTUS');
-    assert.equal(entry.section, 'TOOLS');
+describe('the removal (Merlin, Nov 15, 2026)', () => {
+  it('the registry no longer seats weapons-forge anywhere', () => {
+    assert.equal(SATELLITES.find((s) => s.key === 'weapons-forge'), undefined);
+    assert.equal(SATELLITES.find((s) => s.route === '/weapons-forge'), undefined);
   });
 
-  it('HEPHAESTUS claims it exactly once, and no other god does', () => {
+  it('no god claims it', () => {
     const claims = GOD_MENUS.flatMap((g) => g.satellites.filter((k) => k === 'weapons-forge').map(() => g.god));
-    assert.deepEqual(claims, ['HEPHAESTUS']);
+    assert.deepEqual(claims, []);
     const hep = GOD_MENUS.find((g) => g.god === 'HEPHAESTUS');
     assert.ok(hep.satellites.length <= 24, 'within the per-god cap');
   });
 
-  it('all 34 locales carry a translated title and the house subtitle', () => {
+  it('no locale carries a weapons-forge title any more (34 files)', () => {
     const files = readdirSync(join(repo, 'lib/i18n/locales')).filter((f) => f.endsWith('.json'));
     assert.equal(files.length, 34);
     for (const f of files) {
       const dict = JSON.parse(read(`lib/i18n/locales/${f}`));
-      assert.ok(dict['sat.weapons-forge.title'], `${f} title`);
-      assert.ok(dict['sat.weapons-forge.subtitle'], `${f} subtitle`);
+      assert.equal(dict['sat.weapons-forge.title'], undefined, `${f} title`);
+      assert.equal(dict['sat.weapons-forge.subtitle'], undefined, `${f} subtitle`);
     }
-    const en = JSON.parse(read('lib/i18n/locales/en.json'));
-    assert.equal(en['sat.weapons-forge.title'], 'Weapons Forge');
-    const fr = JSON.parse(read('lib/i18n/locales/fr.json'));
-    assert.notEqual(fr['sat.weapons-forge.title'], 'Weapons Forge', 'fr title is a real translation');
   });
 
-  it('the Portal Room roster includes the forge (roster = registry − the room)', () => {
+  it('the Portal Room roster drops one seat: 215 → 214, no forge seat', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 215); // Monsterverse seat adcdb3cd: roster 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026)
-    const seat = roster.find((p) => p.key === 'weapons-forge');
-    assert.ok(seat);
-    assert.equal(seat.title, 'Weapons Forge');
+    assert.equal(roster.length, 214); // Monsterverse seat adcdb3cd: roster 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026)
+    assert.equal(roster.find((p) => p.key === 'weapons-forge'), undefined);
   });
 
-  it('the route file and page exist where the registry points', () => {
-    assert.ok(read('app/weapons-forge/page.jsx').includes('Weapons Forge'));
-    assert.ok(read('app/api/weapons-forge/route.js').includes('merge_account_preferences'));
+  it('the page and the till route are gone; the redirect points at the real forge', () => {
+    assert.equal(existsSync(join(repo, 'app/weapons-forge/page.jsx')), false);
+    assert.equal(existsSync(join(repo, 'app/api/weapons-forge/route.js')), false);
+    const nextConfig = read('next.config.js');
+    assert.ok(nextConfig.includes("source: '/weapons-forge'"), 'redirect source');
+    assert.ok(nextConfig.includes("destination: '/world-engine/weapons'"), 'redirect destination');
+  });
+
+  it('the commission route survives as the forge agent’s backend', () => {
+    assert.ok(existsSync(join(repo, 'app/api/weapons-forge/commission/route.js')));
+    const src = read('app/api/weapons-forge/commission/route.js');
+    assert.ok(src.includes('validateAiWeaponSpec'));
+    assert.ok(src.includes('shelveAiWeapon'));
   });
 });
 
@@ -287,20 +290,21 @@ describe('the CGI stamping (Merlin, 2026-11-15)', () => {
     assert.deepEqual(item.meta.cgi, { model: { kind: 'procedural', build: 'blade' }, firing: firingForClass('blade') });
   });
 
-  it('the forge route returns the cgi spec with the forged weapon', () => {
-    const src = read('app/api/weapons-forge/route.js');
-    assert.ok(src.includes('cgiForWeapon'), 'route imports the shared spec');
-    assert.ok(src.includes('cgi: cgiForWeapon'), 'success + duplicate responses carry cgi');
+  it('the forge agent’s mint carries the cgi spec with the forged weapon', () => {
+    const src = read('lib/world-engine/forge-agent.js');
+    assert.ok(src.includes('cgiForClass'), 'agent imports the shared spec');
+    assert.ok(src.includes("cgi: cgiForClass('firearm')"), 'minted weapons carry cgi');
+    assert.ok(src.includes('mintForgeWeapon'), 'the mint lives in the agent');
   });
 
-  it('the shelf previews every weapon’s CGI on one shared stage', () => {
-    const src = read('app/weapons-forge/page.jsx');
-    assert.ok(src.includes('WeaponPreview'), 'shared preview component');
-    assert.ok(src.includes('cgiForWeapon'), 'page reads the shared spec');
-    assert.ok(src.includes('GLTFLoader'), 'GLB models load through the loader');
-    assert.ok(src.includes('buildProcedural'), 'procedural builds render without a file');
-    assert.ok(src.includes('ember-revolver'), 'the revolver leads the viewer');
-    assert.ok(src.includes('CGI:'), 'every card shows its CGI line');
-    assert.ok(src.includes('👁 Preview'), 'every card offers its preview');
+  it('the forge page mounts the ForgeSector + PatronCommissions, not the old shelf', () => {
+    const src = read('app/world-engine/weapons/page.jsx');
+    assert.ok(src.includes('ForgeSector'), 'the forge builder');
+    assert.ok(src.includes('PatronCommissions'), 'the patron commissions');
+    assert.ok(src.includes('patronFromForgeUrl'), 'patron preselect from ?patron=');
+    const commissions = read('components/world-engine/PatronCommissions.jsx');
+    assert.ok(commissions.includes('Patron Smiths'), 'commission section');
+    assert.ok(commissions.includes('PATRON_IDS.map'), 'all four patrons');
+    assert.ok(commissions.includes('executePatronCommission'), 'commissions go through the agent');
   });
 });

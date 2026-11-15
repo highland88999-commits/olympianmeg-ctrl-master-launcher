@@ -267,9 +267,16 @@ describe('wiring: the page sheathes, the forge previews the fit', () => {
     assert.ok(src.includes('sheathed.lastOut'), 'the swapped-out weapon goes on the body');
     assert.ok(src.includes('sheathed.groups.clear()'), 'zone cleanup disposes the sheathe');
   });
-  it('the forge preview runs the shared fit', () => {
-    const src = readFileSync(join(ROOT, 'app/weapons-forge/page.jsx'), 'utf8');
-    assert.ok(src.includes('normaliseWeaponGroup('), 'preview normalises the model');
-    assert.ok(src.includes('weaponClass={previewWeapon.weaponClass}'), 'preview knows the class');
+  it('the forge agent’s mint runs the shared fit — the old shelf preview is gone with the page', () => {
+    // The /weapons-forge page (and its WeaponPreview shelf) was
+    // removed Nov 15, 2026. Weapons minted by the forge now carry
+    // their CGI from the shared spec via the agent, and the forge
+    // page previews through the ForgeSector MiniViewport.
+    const agent = readFileSync(join(ROOT, 'lib/world-engine/forge-agent.js'), 'utf8');
+    assert.ok(agent.includes("cgi: cgiForClass('firearm')"), 'mint stamps the shared CGI spec');
+    assert.ok(agent.includes('mintForgeWeapon'), 'the mint lives in the agent');
+    const forge = readFileSync(join(ROOT, 'components/world-engine/ForgeSector.jsx'), 'utf8');
+    assert.ok(forge.includes('MiniViewport'), 'the forge previews through the viewport');
+    assert.ok(forge.includes('mintForgeWeapon'), 'the forge mints through the agent');
   });
 });

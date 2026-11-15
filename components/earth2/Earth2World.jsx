@@ -9555,7 +9555,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
                 : `Trade ${hammondPicks.size} fossil${hammondPicks.size > 1 ? 's' : ''} for ${hammondCurrency === 'aether' ? 'aether' : 'gold'}`}
             </button>
             <a
-              href="/weapons-forge"
+              href="/world-engine/weapons?patron=hammond"
               className="block w-full rounded-full border border-amber-300/40 bg-black/30 px-4 py-3 text-center text-sm font-bold text-amber-100 transition hover:bg-amber-400/15"
             >
               ⚒️ Commission a weapon from Hammond at the Weapons Forge

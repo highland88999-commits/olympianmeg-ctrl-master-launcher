@@ -44,15 +44,15 @@ const MODULE_ICONS = {
 };
 
 const MODULES = [
-  { title: 'World Builder', route: '/world-engine/architect', desc: 'Generate full 3D worlds from a description', accent: '#00f0ff' },
-  { title: 'Character Builder', route: '/world-engine/characters', desc: 'Design characters and creatures', accent: '#ff00ff' },
-  { title: 'Vehicle Builder', route: '/world-engine/vehicles', desc: 'Design ground, air, and space vehicles', accent: '#ff5500' },
-  { title: 'Weapon Builder', route: '/world-engine/weapons', desc: 'Design weapons and combat gear', accent: '#ffd700' },
-  { title: 'Weather Studio', route: '/world-engine/weather', desc: 'Dial in atmosphere, rain, snow, and storms', accent: '#0055ff' },
-  { title: 'Object Builder', route: '/world-engine/objects', desc: 'Build props and set dressing', accent: '#00ffcc' },
-  { title: 'Asset Uplink', route: '/world-engine/uplink', desc: 'Bring in external 3D assets by URL', accent: '#00ff00' },
-  { title: 'Hologram Studio', route: '/world-engine/studio', desc: 'Design glowing text holograms and export them', accent: '#a78bfa' },
-  { title: '3D Engine', route: '/world-engine/engine', desc: 'Walk through your generated world live', accent: '#ffffff' },
+  { title: 'World Builder', route: '/world-engine/architect', desc: 'Generate full 3D worlds from a description', accent: '#00f0ff', graphic: '/images/world-engine/dashboard/world-builder.jpg' },
+  { title: 'Character Builder', route: '/world-engine/characters', desc: 'Design characters and creatures', accent: '#ff00ff', graphic: '/images/world-engine/dashboard/character-builder.jpg' },
+  { title: 'Vehicle Builder', route: '/world-engine/vehicles', desc: 'Design ground, air, and space vehicles', accent: '#ff5500', graphic: '/images/world-engine/dashboard/vehicle-builder.jpg' },
+  { title: 'Weapon Builder', route: '/world-engine/weapons', desc: 'Design weapons and combat gear', accent: '#ffd700', graphic: '/images/world-engine/dashboard/weapon-builder.jpg' },
+  { title: 'Weather Studio', route: '/world-engine/weather', desc: 'Dial in atmosphere, rain, snow, and storms', accent: '#0055ff', graphic: '/images/world-engine/dashboard/weather-studio.jpg' },
+  { title: 'Object Builder', route: '/world-engine/objects', desc: 'Build props and set dressing', accent: '#00ffcc', graphic: '/images/world-engine/dashboard/object-builder.jpg' },
+  { title: 'Asset Uplink', route: '/world-engine/uplink', desc: 'Bring in external 3D assets by URL', accent: '#00ff00', graphic: '/images/world-engine/dashboard/asset-uplink.jpg' },
+  { title: 'Hologram Studio', route: '/world-engine/studio', desc: 'Design glowing text holograms and export them', accent: '#a78bfa', graphic: '/images/world-engine/dashboard/hologram-studio.jpg' },
+  { title: '3D Engine', route: '/world-engine/engine', desc: 'Walk through your generated world live', accent: '#ffffff', graphic: '/images/world-engine/dashboard/engine-3d.jpg' },
 ];
 
 export default function WorldEngineDashboard() {
@@ -66,7 +66,7 @@ export default function WorldEngineDashboard() {
   background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.4) 40%, rgba(0,0,0,0.88) 100%); }
 .we-head { position: relative; overflow: hidden; border-radius: 14px; padding: 22px;
   border: 1px solid rgba(249,115,22,0.28);
-  background-image: url(/images/world-engine/worldengine-bg.webp); background-size: cover; background-position: center 30%; }
+  background-image: url(/images/world-engine/dashboard/dashboard-background.jpg); background-size: cover; background-position: center 30%; }
 .we-head::after { content: ''; position: absolute; inset: 0;
   background: linear-gradient(180deg, rgba(3,3,5,0.55) 0%, rgba(3,3,5,0.9) 100%); }
 .we-head > * { position: relative; z-index: 1; }
@@ -76,7 +76,7 @@ export default function WorldEngineDashboard() {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 140px 140px; }
 .we-link { display: inline-flex; align-items: center; gap: 8px; }`}</style>
-      <div className="we-dash-still" aria-hidden="true"><img src="/images/world-engine/worldengine-bg.webp" alt="" /></div>
+      <div className="we-dash-still" aria-hidden="true"><img src="/images/world-engine/dashboard/dashboard-background.jpg" alt="" /></div>
       <div className="we-dash-scrim" aria-hidden="true" />
       <div className="relative z-10 max-w-6xl mx-auto flex flex-col gap-8">
         <header className="we-head flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-800 pb-6">
@@ -107,13 +107,16 @@ export default function WorldEngineDashboard() {
               onMouseOver={(e) => (e.currentTarget.style.borderColor = m.accent)}
               onMouseOut={(e) => (e.currentTarget.style.borderColor = '')}
             >
-              <div
-                className="h-28 w-full relative flex items-center justify-center"
-                style={{
-                  background: `linear-gradient(135deg, ${m.accent}26 0%, transparent 60%), radial-gradient(circle at 70% 30%, ${m.accent}33, transparent 55%), #050508`,
-                }}
-              >
-                <span className="we-tile-ic"><Glyph size={40}>{MODULE_ICONS[m.route]}</Glyph></span>
+              <div className="h-28 w-full relative flex items-center justify-center overflow-hidden">
+                <img src={m.graphic} alt="" aria-hidden="true" className="absolute inset-0 h-full w-full object-cover" />
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-0"
+                  style={{
+                    background: `linear-gradient(135deg, ${m.accent}26 0%, transparent 60%), radial-gradient(circle at 70% 30%, ${m.accent}33, transparent 55%), linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.55) 100%)`,
+                  }}
+                />
+                <span className="we-tile-ic relative z-10"><Glyph size={40}>{MODULE_ICONS[m.route]}</Glyph></span>
                 <span className="we-band-tex" aria-hidden="true" />
               </div>
               <div className="p-5">

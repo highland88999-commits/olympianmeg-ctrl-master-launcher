@@ -8,40 +8,35 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+// Design values live in the Hologram Studio datasheet
+// (lib/world-engine/datasheets/studio.js) — the single source of truth.
+import {
+  STUDIO_DEFAULTS,
+  STUDIO_SLIDERS,
+  STUDIO_LIMITS,
+  STUDIO_SAVE_RULES,
+  buildHologramSchema,
+  hologramPreviewStyle,
+} from '@/lib/world-engine/datasheets/studio';
 
 export default function StudioPage() {
-  const [text, setText] = useState('WORLD ENGINE');
-  const [color, setColor] = useState('#00ffcc');
-  const [scale, setScale] = useState(4);
-  const [glowIntensity, setGlowIntensity] = useState(1.5);
-  const [rotationX, setRotationX] = useState(0);
-  const [rotationY, setRotationY] = useState(0);
+  const [text, setText] = useState(STUDIO_DEFAULTS.text);
+  const [color, setColor] = useState(STUDIO_DEFAULTS.color);
+  const [scale, setScale] = useState(STUDIO_DEFAULTS.scale);
+  const [glowIntensity, setGlowIntensity] = useState(STUDIO_DEFAULTS.glowIntensity);
+  const [rotationX, setRotationX] = useState(STUDIO_DEFAULTS.rotationX);
+  const [rotationY, setRotationY] = useState(STUDIO_DEFAULTS.rotationY);
   const [notice, setNotice] = useState(null);
 
   const exportSchema = JSON.stringify(
-    {
-      assetType: 'HolographicMesh',
-      parameters: {
-        content: text,
-        emissiveColor: color,
-        scaleMultiplier: scale,
-        bloomIntensity: glowIntensity,
-        rotation: { x: rotationX, y: rotationY, z: 0 },
-      },
-    },
+    buildHologramSchema({ text, color, scale, glowIntensity, rotationX, rotationY }),
     null,
     2
   );
 
   // Live CSS approximation for the 2D preview. Glow is deliberately capped.
   const previewStyle = {
-    color,
-    fontSize: `${scale}rem`,
-    textShadow: `0 0 ${Math.min(glowIntensity, 3) * 8}px ${color}`,
-    transform: `rotateX(${rotationX}deg) rotateY(${rotationY}deg)`,
-    fontFamily: 'monospace',
-    fontWeight: 'bold',
-    textAlign: 'center',
+    ...hologramPreviewStyle({ text, color, scale, glowIntensity, rotationX, rotationY }),
     transition: 'all 0.1s ease-out',
   };
 
@@ -58,15 +53,15 @@ export default function StudioPage() {
     setNotice(null);
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      setNotice('Sign in from the launcher to save to your library.');
+      setNotice(STUDIO_SAVE_RULES.signInNotice);
       return;
     }
-    const { error } = await supabase.from('world_engine_assets').insert([
+    const { error } = await supabase.from(STUDIO_SAVE_RULES.table).insert([
       {
         user_id: session.user.id,
-        name: `Hologram: ${text.slice(0, 40) || 'untitled'}`,
-        category: 'object',
-        asset_url: 'procedural_generation',
+        name: `${STUDIO_SAVE_RULES.namePrefix}${text.slice(0, STUDIO_SAVE_RULES.nameMaxLength) || 'untitled'}`,
+        category: STUDIO_SAVE_RULES.category,
+        asset_url: STUDIO_SAVE_RULES.assetUrl,
         generation_params: JSON.parse(exportSchema).parameters,
       },
     ]);
@@ -100,7 +95,7 @@ export default function StudioPage() {
                 type="text"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                maxLength={60}
+                maxLength={STUDIO_LIMITS.maxTextLength}
                 className="bg-black border border-gray-700 p-3 text-white outline-none focus:border-[#a78bfa] transition-colors"
               />
             </div>
@@ -116,17 +111,22 @@ export default function StudioPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-6">
-              {[
-                { label: `Size: ${scale}x`, min: 1, max: 10, step: 0.5, value: scale, set: (v) => setScale(parseFloat(v)) },
-                { label: `Glow: ${glowIntensity}`, min: 0, max: 3, step: 0.1, value: glowIntensity, set: (v) => setGlowIntensity(parseFloat(v)) },
-                { label: `Tilt: ${rotationX}°`, min: -90, max: 90, step: 1, value: rotationX, set: (v) => setRotationX(parseInt(v, 10)) },
-                { label: `Turn: ${rotationY}°`, min: -90, max: 90, step: 1, value: rotationY, set: (v) => setRotationY(parseInt(v, 10)) },
-              ].map((s) => (
-                <div key={s.label} className="flex flex-col gap-2">
-                  <label className="text-xs text-gray-400">{s.label}</label>
-                  <input type="range" min={s.min} max={s.max} step={s.step} value={s.value} onChange={(e) => s.set(e.target.value)} className="w-full accent-[#a78bfa]" />
-                </div>
-              ))}
+              {STUDIO_SLIDERS.map((s) => {
+                const values = { scale, glowIntensity, rotationX, rotationY };
+                const setters = {
+                  scale: (v) => setScale(parseFloat(v)),
+                  glowIntensity: (v) => setGlowIntensity(parseFloat(v)),
+                  rotationX: (v) => setRotationX(parseInt(v, 10)),
+                  rotationY: (v) => setRotationY(parseInt(v, 10)),
+                };
+                const value = values[s.key];
+                return (
+                  <div key={s.key} className="flex flex-col gap-2">
+                    <label className="text-xs text-gray-400">{`${s.label}: ${s.format(value)}`}</label>
+                    <input type="range" min={s.min} max={s.max} step={s.step} value={value} onChange={(e) => setters[s.key](e.target.value)} className="w-full accent-[#a78bfa]" />
+                  </div>
+                );
+              })}
             </div>
           </div>
 

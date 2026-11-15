@@ -1403,7 +1403,7 @@ export default function MiddleEarthPage() {
                         </div>
                       )}
                       {id === 'gondor' && (
-                        <a href="/weapons-forge" style={{ ...styles.roamBtn, ...podGraphic('gondor'), display: 'block', marginTop: '0.5rem', textDecoration: 'none' }}>
+                        <a href="/world-engine/weapons?patron=dwarf" style={{ ...styles.roamBtn, ...podGraphic('gondor'), display: 'block', marginTop: '0.5rem', textDecoration: 'none' }}>
                           ⚒️ The Dwarven Smith keeps a forge by the White Tree — commission a weapon
                         </a>
                       )}

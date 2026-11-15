@@ -17,9 +17,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useEngineStore } from '@/lib/world-engine/useEngineStore';
-import { addItem } from '@/lib/backpack/backpack';
 import { updateBackpack } from '@/lib/backpack/store';
 import { costFor } from '@/lib/world-engine/economy';
+import { executeForgeSynthesis, mintForgeWeapon } from '@/lib/world-engine/forge-agent';
 import { mintWorldSeed, readSeed, stampSeed } from '@/lib/world-engine/world-seed';
 import MiniViewport from '@/components/world-engine/MiniViewport';
 import ResourceToolkit from '@/components/world-engine/ResourceToolkit';
@@ -54,16 +54,18 @@ export default function ForgeSector({ config }) {
         return;
       }
 
-      const res = await fetch('/api/world-engine/synthesize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ prompt, targetUrl: assetUrl || undefined, category }),
+      // The forge agent is the one handler for forge prompts: the
+      // synthesis call goes through it (billing stays server-side
+      // — 20 free monthly generations, then the cost map — resolved
+      // BEFORE the AI call, deducted only AFTER success).
+      const aiData = await executeForgeSynthesis({
+        prompt,
+        assetUrl,
+        category,
+        fetchImpl: fetch,
+        getAuthHeaders: async () => ({ Authorization: `Bearer ${session.access_token}` }),
       });
-      const aiData = await res.json();
-      if (!aiData.success) throw new Error(aiData.error || 'Synthesis failed.');
+      if (!aiData.ok) throw new Error(aiData.error || 'Synthesis failed.');
 
       // Worlds are born with a seed (lib/world-engine/world-seed.js):
       // minted here when the synthesis did not carry one. stampSeed only
@@ -97,7 +99,8 @@ export default function ForgeSector({ config }) {
       // weapon created here mints a backpack weapon entry at the
       // moment its generation completes — the same record the
       // profile and the realm panels read. Gated to the weapon
-      // sector only; other sectors never touch the pack. The
+      // sector only; other sectors never touch the pack. The mint
+      // goes through the forge agent (mintForgeWeapon): the
       // builder makes firearms (rifle/smg/precision are all the
       // backpack law's 'firearm' class); its Damage slider runs
       // 1–100 AP, clamped into the backpack's [5, 40] damage
@@ -109,27 +112,20 @@ export default function ForgeSector({ config }) {
       if (category === 'weapon') {
         try {
           const fresh = useEngineStore.getState().weapon || {};
-          const rawDmg = Math.floor(Number(fresh.damage));
-          const dmg = Number.isFinite(rawDmg) && rawDmg > 0
-            ? Math.min(40, Math.max(5, rawDmg))
-            : undefined;
-          const meta = {
-            weaponClass: 'firearm',
-            source: 'world-engine-weapon-builder',
-            aiGenerated: true,
-            createdAt: new Date().toISOString(),
-          };
-          if (dmg !== undefined) meta.damage = dmg;
-          if (typeof finalParams.weaponType === 'string' && finalParams.weaponType) {
-            meta.weaponBuilderType = finalParams.weaponType.slice(0, 40);
-          }
-          updateBackpack((rec) => addItem(rec, {
-            id: `world-engine-weapon-${Date.now().toString(36)}`,
-            kind: 'weapon',
-            name: displayName,
-            meta,
-          }));
-          mintedToBackpack = true;
+          let mintOk = false;
+          updateBackpack((rec) => {
+            const result = mintForgeWeapon(rec, {
+              name: displayName,
+              description: prompt.trim().slice(0, 2000),
+              assetUrl: assetUrl || '',
+              length: fresh.length,
+              damage: fresh.damage,
+              weaponType: typeof finalParams.weaponType === 'string' ? finalParams.weaponType : undefined,
+            });
+            mintOk = result.ok;
+            return result.record;
+          });
+          mintedToBackpack = mintOk;
         } catch (mintErr) {
           console.error('Backpack mint failed for a weapon-builder creation:', mintErr);
         }

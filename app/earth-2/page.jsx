@@ -1775,7 +1775,7 @@ export default function Earth2Page() {
               🦇 Summon Dracula in the Bay
             </button>
             <a
-              href="/weapons-forge"
+              href="/world-engine/weapons?patron=dracula"
               className="rounded-full border border-purple-300/40 bg-purple-400/10 px-5 py-3 text-sm font-bold text-purple-100 transition hover:bg-purple-400/20"
             >
               ⚒️ Commission a weapon from the Count

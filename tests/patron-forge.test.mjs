@@ -1,11 +1,14 @@
 // tests/patron-forge.test.mjs
 // PATRON SMITHS (Merlin, 2026-10-24): Hammond, Dracula, the
 // Dwarven Smith, and the Kyber Smith commission AI-created
-// weapons at the Weapons Forge. Tests cover the pure module
+// weapons. Tests cover the pure module
 // (lib/backpack/patrons.js) — persona prompt shaping, the hard
 // validation gates, sanitization, provenance + reticle stamping,
 // the daily guard — plus source pins for the route, the forge
-// page, and the four venue link-backs.
+// page's PatronCommissions section, and the four venue link-backs
+// (all landing on /world-engine/weapons with their patron
+// preselected since the /weapons-forge page was removed Nov 15,
+// 2026).
 //
 // Run: node --test tests/patron-forge.test.mjs   (from the repo root)
 
@@ -239,10 +242,10 @@ describe('route + page + venue source pins', () => {
   });
 
   it('the forge page carries a Patron Smiths section for all four', () => {
-    const src = read('app/weapons-forge/page.jsx');
+    const src = read('components/world-engine/PatronCommissions.jsx');
     assert.ok(src.includes('Patron Smiths'));
     assert.ok(src.includes('PATRON_IDS.map'));
-    assert.ok(src.includes('api/weapons-forge/commission'));
+    assert.ok(src.includes('executePatronCommission'));
   });
 
   it('the profile shows who forged an AI weapon', () => {
@@ -252,17 +255,24 @@ describe('route + page + venue source pins', () => {
     assert.ok(src.includes('the Kyber Smith'));
   });
 
-  it('all four venue link-backs exist', () => {
+  it('all four venue link-backs exist — and land on the forge with their patron preselected', () => {
     assert.ok(read('components/earth2/Earth2World.jsx').includes('Commission a weapon from Hammond at the Weapons Forge'));
+    assert.ok(read('components/earth2/Earth2World.jsx').includes('/world-engine/weapons?patron=hammond'));
     assert.ok(read('app/earth-2/page.jsx').includes('Commission a weapon from the Count'));
+    assert.ok(read('app/earth-2/page.jsx').includes('/world-engine/weapons?patron=dracula'));
     // Middle-earth: the forge seat + the Gondor card link.
     assert.ok(read('app/middle-earth/landmarks.js').includes("'dwarf-forge'"));
     assert.ok(read('app/middle-earth/data.js').includes("type: 'dwarf-forge'"));
     assert.ok(read('app/middle-earth/page.jsx').includes('The Dwarven Smith keeps a forge'));
+    assert.ok(read('app/middle-earth/page.jsx').includes('/world-engine/weapons?patron=dwarf'));
     // Saga: the forge seat + the Coruscant card link.
     assert.ok(read('app/star-wars/landmarks.js').includes("'kyber-forge'"));
     assert.ok(read('app/star-wars/data.js').includes("type: 'kyber-forge'"));
     assert.ok(read('app/star-wars/page.jsx').includes('The Kyber Smith keeps a forge'));
+    assert.ok(read('app/star-wars/page.jsx').includes('/world-engine/weapons?patron=kyber'));
+    // The backpack's lightsaber slot points at the Kyber Smith too.
+    assert.ok(read('components/backpack/BackpackHud.jsx').includes('/world-engine/weapons?patron=kyber'));
+    assert.ok(read('components/profile/BackpackSection.jsx').includes('/world-engine/weapons?patron=kyber'));
   });
 });
 

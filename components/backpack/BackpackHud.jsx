@@ -451,15 +451,16 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
 
             {/* Lightsaber slot (Merlin, 2026-10-24): before the user
                 owns a saber this is a link to the crystal forge —
-                the Kyber Smith's commissions on the Weapons Forge
-                page. Once a saber is created it lives here in
-                place of the link, with the same Equip behaviour
-                as any other weapon. Flow layout, no overlap. */}
+                the Kyber Smith's commissions on the forge
+                (/world-engine/weapons?patron=kyber). Once a saber is
+                created it lives here in place of the link, with the
+                same Equip behaviour as any other weapon. Flow layout,
+                no overlap. */}
             <div style={{ fontSize: 13, marginTop: 10, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(103,232,249,0.10)', border: '1px solid rgba(103,232,249,0.35)' }}>
               <div style={{ fontWeight: 700 }}>🔦 Lightsaber</div>
               {!saber ? (
                 <div style={{ marginTop: 2 }}>
-                  <Link href="/weapons-forge" style={{ color: '#67e8f9', fontWeight: 700 }}>
+                  <Link href="/world-engine/weapons?patron=kyber" style={{ color: '#67e8f9', fontWeight: 700 }}>
                     Forge your first saber →
                   </Link>
                   <span style={{ opacity: 0.7 }}> at the Kyber Smith&apos;s crystal forge</span>

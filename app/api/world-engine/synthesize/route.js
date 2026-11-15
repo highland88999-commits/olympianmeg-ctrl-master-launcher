@@ -23,6 +23,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { applyAestheticEngine } from '@/lib/world-engine/aesthetic';
+import { applyPromptKeywordNets } from '@/lib/world-engine/forge-agent';
 import { costFor, computeBilling, FREE_GENERATIONS_PER_MONTH } from '@/lib/world-engine/economy';
 import { validateSynthesizeInput, synthesizeWithGemini } from '@/lib/world-engine/gemini';
 import { getAdminClient, getUserFromRequest } from '@/lib/world-engine/server';
@@ -106,39 +107,12 @@ export const POST = apiGuard(async function POST(request) {
     // The user still gets their generation; the charge is best-effort.
   }
 
-  // 4. Clamp and return.
-  const safeParams = applyAestheticEngine(rawParams, category);
-
-  // 4b. Prompt-keyword safety net for weapons: if the user explicitly asked
-  // for an optic in plain words and the AI missed it, honor the words.
-  // (The system instruction also tells the AI to do this; this is the backstop.)
-  if ((category || '').toLowerCase() === 'weapon' && input.prompt) {
-    const words = input.prompt.toLowerCase();
-    const wantsScope = /\bscope[ds]?\b/.test(words);
-    const wantsRedDot = /red[\s-]?dot/.test(words);
-    if (wantsScope && safeParams.opticType !== 'scope') safeParams.opticType = 'scope';
-    else if (wantsRedDot && safeParams.opticType !== 'red-dot') safeParams.opticType = 'red-dot';
-    if (/long[\s-]?range|sniper/.test(words) && safeParams.weaponType === 'rifle') {
-      safeParams.weaponType = 'precision';
-      if (!wantsRedDot) safeParams.opticType = 'scope';
-    }
-  }
-
-  // Same safety net for weather: map plain words to the weather system.
-  if ((category || '').toLowerCase() === 'weather' && input.prompt) {
-    const words = input.prompt.toLowerCase();
-    const weatherMap = [
-      [/blizzard|snow/, 'snow'],
-      [/thunder|lightning|tempest/, 'storm'],
-      [/\brain\b|downpour|drizzle/, 'rain'],
-      [/\bfog\b|mist|haze/, 'fog'],
-      [/\bash\b|ember|wildfire/, 'ash'],
-      [/\bclear\b|sunny|blue sky/, 'clear'],
-    ];
-    for (const [re, wt] of weatherMap) {
-      if (re.test(words)) { safeParams.weatherType = wt; break; }
-    }
-  }
+  // 4. Clamp and return. The plain-words safety nets live in the
+  // forge agent (lib/world-engine/forge-agent.js
+  // applyPromptKeywordNets) — the one home for them: if the user
+  // explicitly asked for an optic in plain words and the AI missed
+  // it, the words win; same for weather words.
+  const safeParams = applyPromptKeywordNets(applyAestheticEngine(rawParams, category), input.prompt, category);
 
   return NextResponse.json({
     success: true,

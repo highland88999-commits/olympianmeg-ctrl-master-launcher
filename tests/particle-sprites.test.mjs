@@ -151,13 +151,21 @@ test('makeSandField takes a sprite and defaults to grain', () => {
 });
 
 test('weather-builder maps one sprite per weather type', () => {
-  const text = src('lib/world-engine/weather-builder.js');
+  // The map moved to the weather datasheet (Nov 15, 2026 — datasheets are
+  // the source of truth); the builder imports it and uses it at every site.
+  const sheet = src('lib/world-engine/datasheets/weather.js');
   for (const [type, kind] of Object.entries({
     clear: 'grain', rain: 'drop', snow: 'flake',
     fog: 'mist', storm: 'drop', ash: 'ash',
   })) {
-    assert.ok(text.includes(`${type}: '${kind}'`), `missing ${type} -> ${kind}`);
+    assert.ok(sheet.includes(`${type}: '${kind}'`), `missing ${type} -> ${kind}`);
   }
+  const builder = src('lib/world-engine/weather-builder.js');
+  assert.ok(
+    builder.includes("import { WEATHER_TYPES, WEATHER_SPRITE } from './datasheets/weather.js'"),
+    'weather-builder no longer imports the sprite map from the sheet',
+  );
+  assert.ok(builder.includes('WEATHER_SPRITE.clear'), 'builder no longer uses the clear sprite');
 });
 
 test('environment particleField takes a sprite; starPoints wear star', () => {

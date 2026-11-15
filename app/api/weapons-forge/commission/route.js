@@ -1,12 +1,21 @@
 // app/api/weapons-forge/commission/route.js
 // PATRON COMMISSIONS (Merlin, 2026-10-24) — John Hammond, Dracula,
 // the Dwarven Smith, and the Kyber Smith forge AI-created weapons
-// at the Weapons Forge and distribute them to travellers. A
-// separate route from the catalogue till (app/api/weapons-forge/
-// route.js) on purpose:
-// commissions debit NO bars and NO materials — the scarcity is
-// the daily guard (one commission per patron per user per day),
-// and the failure mode is the AI's health, not a price.
+// and distribute them to travellers. This route is the forge
+// agent's backend (lib/world-engine/forge-agent.js
+// executePatronCommission is its one client-side caller; the
+// commissions live on the forge page at /world-engine/weapons,
+// components/world-engine/PatronCommissions.jsx).
+//
+// The old /weapons-forge page and its catalogue till
+// (app/api/weapons-forge/route.js) were removed Nov 15, 2026 — the
+// page's interface was replaced with the real forge's functions
+// and /weapons-forge now redirects to /world-engine/weapons. This
+// route stays because commissions are a different economy from
+// the forge's 100-Aether billing: they debit NO bars and NO
+// materials — the scarcity is the daily guard (one commission per
+// patron per user per day), and the failure mode is the AI's
+// health, not a price.
 //
 //   GET  -> { signedIn, commissions: { hammond, dracula } } —
 //           whether today's commission is already spent.

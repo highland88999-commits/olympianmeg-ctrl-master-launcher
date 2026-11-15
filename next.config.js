@@ -2,6 +2,22 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // /weapons-forge is gone (Merlin, Nov 15, 2026): the page was
+  // removed and replaced with the real forge's functions at
+  // /world-engine/weapons. The redirect keeps every bookmark and
+  // old link landing on the forge. It matches the page path only —
+  // the kept commission API (/api/weapons-forge/commission) is
+  // untouched.
+  async redirects() {
+    return [
+      {
+        source: '/weapons-forge',
+        destination: '/world-engine/weapons',
+        permanent: true,
+      },
+    ];
+  },
+
   images: {
     // Prerequisite for the <img> -> next/image migration (Phase 2b).
     // Local public/ assets need no config; these cover partner/remote art.

@@ -156,7 +156,7 @@ export default function BackpackSection() {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-cyan-400/10 border border-cyan-300/25 px-3 py-2 text-sm mb-4">
         <span className="font-bold">🔦 Lightsaber</span>
         {!saber ? (
-          <Link href="/weapons-forge" className="text-cyan-100 underline font-bold">
+          <Link href="/world-engine/weapons?patron=kyber" className="text-cyan-100 underline font-bold">
             Forge your first saber →
           </Link>
         ) : (
@@ -250,7 +250,7 @@ export default function BackpackSection() {
       {totalItems === 0 ? (
         <p className="text-sm text-neutral-400">
           Your pack is empty — for now. Hunt Earth 2, trade with its strange residents,
-          or <Link href="/weapons-forge" className="text-amber-200 underline">forge your first weapon</Link>.
+          or <Link href="/world-engine/weapons" className="text-amber-200 underline">forge your first weapon</Link>.
         </p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -306,7 +306,7 @@ export default function BackpackSection() {
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-xs text-neutral-500">
         <span>🦴 Fossils held: {fossils.length}</span>
         <span>🩸 Blood sacs: {sacs}</span>
-        <Link href="/weapons-forge" className="text-amber-200 underline">⚒️ Visit the Weapons Forge</Link>
+        <Link href="/world-engine/weapons" className="text-amber-200 underline">⚒️ Visit the Weapons Forge</Link>
       </div>
     </section>
   );
