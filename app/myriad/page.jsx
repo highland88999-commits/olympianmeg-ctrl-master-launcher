@@ -23,6 +23,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
 import TronRider from '@/components/nova/TronRider';
 import { SpiralGalaxy, Nebula, Wormhole } from '@/components/nova/DeepSpace';
@@ -129,6 +130,8 @@ function AnomalyLabel({ position, color, children }) {
 
 // Layered parallax starfield tinted to the universe's palette.
 function TintedStars({ seed, count, radius, palette, size }) {
+  // Star sprite graphic (null outside the browser → plain points).
+  const starTex = useMemo(() => getParticleTexture('star'), []);
   const geom = useMemo(() => {
     const rand = mulberry32(seed);
     const white = new THREE.Color('#ffffff');
@@ -166,6 +169,7 @@ function TintedStars({ seed, count, radius, palette, size }) {
         depthWrite={false}
         blending={THREE.AdditiveBlending}
         sizeAttenuation
+        map={starTex}
       />
     </points>
   );

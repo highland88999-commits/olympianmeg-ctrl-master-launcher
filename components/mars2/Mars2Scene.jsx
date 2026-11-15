@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
 import { terrainMaterial, disposeTerrainMaterial, monsSite, monsSlopeMaterial, monsCapMaterial, hazeSpriteTexture, devilStreakTexture, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '@/lib/mars/cgi';
 import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import DayNightRig from '@/components/DayNightRig';
 import { TouchControls } from '@/components/mars/MarsScene';
 import BackpackHud from '@/components/backpack/BackpackHud';
@@ -133,7 +134,7 @@ function OlympusMons({ profile }) {
 function Mars2Cgi({ profile, dayF }) {
   const dust = useMemo(() => makeDustField({
     count: 260, width: 170, height: 8, depth: 170, yBase: 0.3,
-    seed: profile.seed + '-dust', color: '#d9a06a', size: 0.12, opacity: 0.5,
+    seed: profile.seed + '-dust', color: '#d9a06a', size: 0.12, opacity: 0.5, sprite: 'grain',
   }), [profile]);
   const devilGeo = useMemo(() => new THREE.CylinderGeometry(0.7, 1, 1, 20, 1, true), []);
   const devilTex = useMemo(() => devilStreakTexture(), []);
@@ -252,7 +253,7 @@ function Mars2Stars({ profile, opacity }) {
     }
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
     const starMat = new THREE.PointsMaterial({
-      color: 0xf3e9d8, size: 1.6, sizeAttenuation: false,
+      color: 0xf3e9d8, size: 1.6, map: getParticleTexture('star') || undefined, sizeAttenuation: false,
       transparent: true, opacity: 0, depthWrite: false, fog: false,
     });
     return new THREE.Points(starGeo, starMat);

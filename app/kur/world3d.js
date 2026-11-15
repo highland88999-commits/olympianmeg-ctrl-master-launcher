@@ -14,6 +14,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import {
   DESCENT_PORTAL,
   GATES,
@@ -524,6 +525,7 @@ function Torches({reduced}) {
 function DustMotes({reduced}) {
   const COUNT = 200;
   const ref = useRef();
+  const tex = useMemo(() => getParticleTexture('grain'), []);
   const speeds = useMemo(() => {
     const arr = new Float32Array(COUNT);
     for (let i = 0; i < COUNT; i += 1) arr[i] = 0.4 + Math.random() * 1.1;
@@ -555,7 +557,7 @@ function DustMotes({reduced}) {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial size={0.9} color="#c8a06a" transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation />
+      <pointsMaterial size={0.9} color="#c8a06a" transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation map={tex ?? undefined} />
     </points>
   );
 }

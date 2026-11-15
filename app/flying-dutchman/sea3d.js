@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { waveHeight, SHIP, sinkDropK } from './engine.js';
+import { getParticleTexture } from '../../lib/particles/sprites.js';
 
 function radialTexture(inner, outer, size = 128) {
   const c = document.createElement('canvas');
@@ -105,7 +106,7 @@ export function createSky() {
     }
     const sg = new THREE.BufferGeometry();
     sg.setAttribute('position', new THREE.BufferAttribute(p, 3));
-    group.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xcfe8ff, size: 3.2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.8 })));
+    group.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xcfe8ff, size: 3.2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.8, map: getParticleTexture('star') || undefined })));
   }
 
   // moon
@@ -131,7 +132,7 @@ export function createSky() {
   const rainPos = new Float32Array(rainN * 3);
   const rainGeo = new THREE.BufferGeometry();
   rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
-  const rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({ color: 0x9fc4d8, size: 1.6, transparent: true, opacity: 0.5 }));
+  const rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({ color: 0x9fc4d8, size: 1.6, transparent: true, opacity: 0.5, map: getParticleTexture('drop') || undefined }));
   rain.frustumCulled = false;
   group.add(rain);
   const rainVel = new Float32Array(rainN);

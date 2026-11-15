@@ -5,6 +5,7 @@ import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { planetMaps, spotSwirlTexture, cloudLayerTexture } from '@/lib/planet-cgi/textures';
 import { makeDustField, updateDustField, bandFlowOffset, spinAngle, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import {
   JUPITER2_SEED, WALK_SPEED, MOVE_R, EYE_HEIGHT,
   LEVER_POSITION, DEMOBAT_COUNT, groundHeight, jupiter2Sky,
@@ -255,15 +256,15 @@ function StormRig({ dayF }) {
     return g;
   }, []);
   const rainMat = useMemo(() => new THREE.PointsMaterial({
-    color: '#9fc4d8', size: 0.14, transparent: true, opacity: 0.65, depthWrite: false, sizeAttenuation: true,
+    color: '#9fc4d8', size: 0.14, map: getParticleTexture('drop') || undefined, transparent: true, opacity: 0.65, depthWrite: false, sizeAttenuation: true,
   }), []);
   const haze = useMemo(() => makeDustField({
     count: 520, width: 170, height: 10, depth: 170, yBase: 0.3,
-    seed: JUPITER2_SEED + '-haze', color: '#c9a06a', size: 0.35, opacity: 0.4,
+    seed: JUPITER2_SEED + '-haze', color: '#c9a06a', size: 0.35, opacity: 0.4, sprite: 'mist',
   }), []);
   const murk = useMemo(() => makeDustField({
     count: 260, width: 170, height: 4, depth: 170, yBase: 0.1,
-    seed: JUPITER2_SEED + '-murk', color: '#7a4a28', size: 0.5, opacity: 0.5,
+    seed: JUPITER2_SEED + '-murk', color: '#7a4a28', size: 0.5, opacity: 0.5, sprite: 'mist',
   }), []);
   const cloudMat = useMemo(() => {
     const map = cloudLayerTexture(`${JUPITER2_SEED}-storm-clouds`);

@@ -129,6 +129,7 @@ import { bridgeHeightAt, bridgeDeckYAt, stepBridgeWalker, BRIDGE_DECK_WIDTH_M } 
 import { dressingColliders } from '@/lib/earth2/scatter';
 import { stagedPlacements } from '@/lib/earth2/staged-objects';
 import { createLoadFailureRegistry, recordLoadFailure, loadFailureList } from '@/lib/earth2/load-failures';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import {
   NEST_SPECIES,
   EGG_MODEL_PATH,
@@ -1629,6 +1630,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(stars.length * 3), 3));
         const pts = new THREE.Points(geo, new THREE.PointsMaterial({
           size, sizeAttenuation: false, vertexColors: true, transparent: true,
+          map: getParticleTexture('star') || undefined,
           blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
         }));
         pts.frustumCulled = false;
@@ -1744,24 +1746,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       const precipGeo = new THREE.BufferGeometry();
       const precipPos = new Float32Array(PRECIP_COUNT * 3);
       precipGeo.setAttribute('position', new THREE.BufferAttribute(precipPos, 3));
-      const makePrecipTexture = (w, h, draw) => {
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        draw(c.getContext('2d'), w, h);
-        return new THREE.CanvasTexture(c);
-      };
-      const rainTex = makePrecipTexture(16, 64, (g, w, h) => {
-        g.fillStyle = 'rgba(255,255,255,0.5)';
-        g.fillRect(w / 2 - 2, 3, 4, h - 6);
-        g.fillStyle = 'rgba(255,255,255,1)';
-        g.fillRect(w / 2 - 1, 0, 2, h);
-      });
-      const snowTex = makePrecipTexture(32, 32, (g, w, h) => {
-        g.fillStyle = 'rgba(255,255,255,0.35)';
-        g.beginPath(); g.arc(w / 2, h / 2, 9, 0, Math.PI * 2); g.fill();
-        g.fillStyle = 'rgba(255,255,255,1)';
-        g.beginPath(); g.arc(w / 2, h / 2, 6.5, 0, Math.PI * 2); g.fill();
-      });
+      // Precip sprites come from the shared particle library now
+      // (drop = rain streak, flake = snow crystal); the old
+      // makePrecipTexture canvas helpers are gone — nothing else
+      // used them. Null texture = plain points fallback.
+      const rainTex = getParticleTexture('drop');
+      const snowTex = getParticleTexture('flake');
       const precipMat = new THREE.PointsMaterial({
         color: 0xcfe4ff, size: 0.32, map: rainTex, transparent: true, opacity: 0, depthWrite: false, sizeAttenuation: true,
       });

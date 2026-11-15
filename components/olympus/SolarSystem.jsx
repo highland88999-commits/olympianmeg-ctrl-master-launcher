@@ -5,10 +5,11 @@
 // with React Three Fiber. Tapping a planet reports it to the parent, which
 // shows a plain-English info card as a DOM overlay.
 
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import * as THREE from 'three';
+import { getParticleTexture } from '@/lib/particles/sprites';
 
 export const PLANETS = [
   { name: 'Mercury', color: '#9c8e82', size: 0.38, orbit: 6, speed: 0.9, fact: 'The smallest planet — a scorched rock hugging the sun.' },
@@ -23,6 +24,7 @@ export const PLANETS = [
 
 function Starfield({ count = 900 }) {
   const ref = useRef();
+  const starTex = useMemo(() => getParticleTexture('star'), []);
   const [positions] = useState(() => {
     const arr = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
@@ -43,7 +45,7 @@ function Starfield({ count = 900 }) {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial size={0.55} color="#cfe9ff" sizeAttenuation transparent opacity={0.9} />
+      <pointsMaterial size={0.55} color="#cfe9ff" map={starTex} sizeAttenuation transparent opacity={0.9} />
     </points>
   );
 }

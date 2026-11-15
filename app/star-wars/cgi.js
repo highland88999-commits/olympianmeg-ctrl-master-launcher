@@ -48,6 +48,7 @@ import {
   spinAngle, cloudDriftAngle, lightningFlash, devilFor, PLANET_CGI_EPOCH_MS,
 } from '../../lib/planet-cgi/motion.js';
 import { cloudLayerTexture } from '../../lib/planet-cgi/textures.js';
+import { getParticleTexture } from '../../lib/particles/sprites.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -320,35 +321,35 @@ const CGI_SPECS = {
       { color: 0xffd98a, scale: 110, azimuthDeg: 222, elevationDeg: 20 },
     ],
     clouds: { count: 10, yMin: 90, yMax: 160, radius: 550, color: 0xfff6e0, opacity: 0.75, driftRate: 0.004 },
-    motes: { count: 220, color: 0xd8c49a, size: 0.11, opacity: 0.55, mode: 'drift', area: 60, height: 7, speed: 0.11 },
+    motes: { count: 220, color: 0xd8c49a, size: 0.11, opacity: 0.55, mode: 'drift', area: 60, height: 7, speed: 0.11, sprite: 'grain' },
     devils: 2,
   },
   naboo: {
     sky: { top: 0x6fc3ef, horizon: 0xd8ecdf, bottom: 0x4a7a44 },
     suns: [{ color: 0xfff6d8, scale: 130, azimuthDeg: 200, elevationDeg: 34 }],
     clouds: { count: 16, yMin: 80, yMax: 150, radius: 550, color: 0xffffff, opacity: 0.85, driftRate: 0.005 },
-    motes: { count: 120, color: 0xe8f0d8, size: 0.09, opacity: 0.5, mode: 'drift', area: 50, height: 6, speed: 0.09 },
+    motes: { count: 120, color: 0xe8f0d8, size: 0.09, opacity: 0.5, mode: 'drift', area: 50, height: 6, speed: 0.09, sprite: 'glow' },
   },
   coruscant: {
     sky: { top: 0x2e3d5e, horizon: 0xe88f4a, bottom: 0x1a1a26 },
     night: { top: 0x05070f, horizon: 0x2a1a30, bottom: 0x05050a },
     suns: [{ color: 0xffe0b0, scale: 120, azimuthDeg: 215, elevationDeg: 18 }],
     clouds: { count: 8, yMin: 100, yMax: 170, radius: 600, color: 0x8a7a8a, opacity: 0.6, driftRate: 0.003 },
-    motes: { count: 150, color: 0xffd98a, size: 0.08, opacity: 0.7, mode: 'drift', area: 60, height: 9, speed: 0.14 },
+    motes: { count: 150, color: 0xffd98a, size: 0.08, opacity: 0.7, mode: 'drift', area: 60, height: 9, speed: 0.14, sprite: 'glow' },
   },
   kamino: {
     sky: { top: 0x5f7488, horizon: 0x9db4c2, bottom: 0x2a3a48 },
     night: { top: 0x060a12, horizon: 0x141c26, bottom: 0x04060a },
     suns: [{ color: 0xdfe8f0, scale: 100, azimuthDeg: 195, elevationDeg: 20 }],
     clouds: { count: 20, yMin: 60, yMax: 120, radius: 550, color: 0x6a7a88, opacity: 0.9, driftRate: 0.008 },
-    motes: { count: 500, color: 0xbfd4e6, size: 0.14, opacity: 0.5, mode: 'fall', area: 50, height: 16, speed: 22 },
+    motes: { count: 500, color: 0xbfd4e6, size: 0.14, opacity: 0.5, mode: 'fall', area: 50, height: 16, speed: 22, sprite: 'drop' },
   },
   geonosis: {
     sky: { top: 0xd97a3e, horizon: 0xf2b06a, bottom: 0x7a3a20 },
     night: { top: 0x160a08, horizon: 0x3a1c10, bottom: 0x0e0604 },
     suns: [{ color: 0xffd9a0, scale: 140, azimuthDeg: 210, elevationDeg: 30 }],
     clouds: { count: 6, yMin: 90, yMax: 150, radius: 550, color: 0xe8a06a, opacity: 0.6, driftRate: 0.005 },
-    motes: { count: 260, color: 0xc47a44, size: 0.11, opacity: 0.55, mode: 'drift', area: 60, height: 7, speed: 0.12 },
+    motes: { count: 260, color: 0xc47a44, size: 0.11, opacity: 0.55, mode: 'drift', area: 60, height: 7, speed: 0.12, sprite: 'grain' },
     devils: 2,
   },
   mustafar: {
@@ -356,13 +357,13 @@ const CGI_SPECS = {
     night: { top: 0x050202, horizon: 0x1c0806, bottom: 0x020101 },
     suns: [{ color: 0xff5a26, scale: 90, azimuthDeg: 205, elevationDeg: 14 }],
     clouds: { count: 8, yMin: 70, yMax: 130, radius: 550, color: 0x2a1210, opacity: 0.85, driftRate: 0.004 },
-    motes: { count: 200, color: 0xff7a26, size: 0.12, opacity: 0.8, mode: 'rise', area: 55, height: 12, speed: 1.6 },
+    motes: { count: 200, color: 0xff7a26, size: 0.12, opacity: 0.8, mode: 'rise', area: 55, height: 12, speed: 1.6, sprite: 'ember' },
   },
   'yavin-4': {
     sky: { top: 0x6fbde8, horizon: 0xcfe8c8, bottom: 0x2a4a2a },
     suns: [{ color: 0xfff6d8, scale: 130, azimuthDeg: 200, elevationDeg: 34 }],
     clouds: { count: 14, yMin: 80, yMax: 150, radius: 550, color: 0xffffff, opacity: 0.8, driftRate: 0.005 },
-    motes: { count: 140, color: 0xd8e8c8, size: 0.09, opacity: 0.45, mode: 'drift', area: 50, height: 6, speed: 0.08 },
+    motes: { count: 140, color: 0xd8e8c8, size: 0.09, opacity: 0.45, mode: 'drift', area: 50, height: 6, speed: 0.08, sprite: 'glow' },
   },
   alderaan: {
     sky: { top: 0x05070f, horizon: 0x0a1220, bottom: 0x03040a },
@@ -379,69 +380,69 @@ const CGI_SPECS = {
     night: { top: 0x0a1424, horizon: 0x2a3a50, bottom: 0x0a121e },
     suns: [{ color: 0xf2f6ff, scale: 120, azimuthDeg: 200, elevationDeg: 24 }],
     clouds: { count: 12, yMin: 70, yMax: 130, radius: 550, color: 0xffffff, opacity: 0.85, driftRate: 0.006 },
-    motes: { count: 420, color: 0xffffff, size: 0.13, opacity: 0.75, mode: 'fall', area: 55, height: 14, speed: 1.8 },
+    motes: { count: 420, color: 0xffffff, size: 0.13, opacity: 0.75, mode: 'fall', area: 55, height: 14, speed: 1.8, sprite: 'flake' },
   },
   dagobah: {
     sky: { top: 0x5a7058, horizon: 0x8ba888, bottom: 0x22331a },
     night: { top: 0x05080a, horizon: 0x0e1a12, bottom: 0x030604 },
     suns: [{ color: 0xe8f0d8, scale: 90, azimuthDeg: 205, elevationDeg: 16 }],
     clouds: { count: 10, yMin: 60, yMax: 110, radius: 500, color: 0x7a8a72, opacity: 0.7, driftRate: 0.003 },
-    motes: { count: 90, color: 0xc8e88a, size: 0.12, opacity: 0.7, mode: 'drift', area: 45, height: 5, speed: 0.1 },
+    motes: { count: 90, color: 0xc8e88a, size: 0.12, opacity: 0.7, mode: 'drift', area: 45, height: 5, speed: 0.1, sprite: 'glow' },
   },
   bespin: {
     sky: { top: 0xe8905c, horizon: 0xf7c98a, bottom: 0xf2c98a },
     night: { top: 0x120a24, horizon: 0x3a2038, bottom: 0x1a1024 },
     suns: [{ color: 0xffe0b0, scale: 140, azimuthDeg: 210, elevationDeg: 20 }],
     clouds: { count: 14, yMin: 70, yMax: 140, radius: 550, color: 0xffd9a0, opacity: 0.85, driftRate: 0.005 },
-    motes: { count: 100, color: 0xffd9a0, size: 0.09, opacity: 0.5, mode: 'drift', area: 50, height: 8, speed: 0.1 },
+    motes: { count: 100, color: 0xffd9a0, size: 0.09, opacity: 0.5, mode: 'drift', area: 50, height: 8, speed: 0.1, sprite: 'glow' },
     cloudSea: true,
   },
   endor: {
     sky: { top: 0x6fb8e8, horizon: 0xcfe8d8, bottom: 0x2a4a2a },
     suns: [{ color: 0xfff6d8, scale: 130, azimuthDeg: 200, elevationDeg: 34 }],
     clouds: { count: 14, yMin: 80, yMax: 150, radius: 550, color: 0xffffff, opacity: 0.8, driftRate: 0.005 },
-    motes: { count: 120, color: 0xd8e88a, size: 0.11, opacity: 0.65, mode: 'drift', area: 50, height: 6, speed: 0.09 },
+    motes: { count: 120, color: 0xd8e88a, size: 0.11, opacity: 0.65, mode: 'drift', area: 50, height: 6, speed: 0.09, sprite: 'glow' },
   },
   jakku: {
     sky: { top: 0xd89a55, horizon: 0xe8c88a, bottom: 0x9a7438 },
     night: { top: 0x140e08, horizon: 0x33241a, bottom: 0x0e0804 },
     suns: [{ color: 0xffe8b8, scale: 150, azimuthDeg: 208, elevationDeg: 28 }],
     clouds: { count: 6, yMin: 90, yMax: 150, radius: 550, color: 0xe8b878, opacity: 0.6, driftRate: 0.005 },
-    motes: { count: 260, color: 0xc49a54, size: 0.11, opacity: 0.55, mode: 'drift', area: 60, height: 7, speed: 0.12 },
+    motes: { count: 260, color: 0xc49a54, size: 0.11, opacity: 0.55, mode: 'drift', area: 60, height: 7, speed: 0.12, sprite: 'grain' },
     devils: 2,
   },
   takodana: {
     sky: { top: 0x7cc0e8, horizon: 0xd8ecd8, bottom: 0x2a5a36 },
     suns: [{ color: 0xfff6d8, scale: 130, azimuthDeg: 200, elevationDeg: 34 }],
     clouds: { count: 14, yMin: 80, yMax: 150, radius: 550, color: 0xffffff, opacity: 0.8, driftRate: 0.005 },
-    motes: { count: 120, color: 0xe8f0d8, size: 0.09, opacity: 0.5, mode: 'drift', area: 50, height: 6, speed: 0.09 },
+    motes: { count: 120, color: 0xe8f0d8, size: 0.09, opacity: 0.5, mode: 'drift', area: 50, height: 6, speed: 0.09, sprite: 'glow' },
   },
   starkiller: {
     sky: { top: 0x5a7a9e, horizon: 0xcfe0f2, bottom: 0x7a96b5 },
     night: { top: 0x060a18, horizon: 0x1c2836, bottom: 0x0a1220 },
     suns: [{ color: 0xe8f0ff, scale: 110, azimuthDeg: 200, elevationDeg: 22 }],
     clouds: { count: 10, yMin: 70, yMax: 130, radius: 550, color: 0xd8e8f2, opacity: 0.8, driftRate: 0.005 },
-    motes: { count: 380, color: 0xffffff, size: 0.13, opacity: 0.75, mode: 'fall', area: 55, height: 14, speed: 1.6 },
+    motes: { count: 380, color: 0xffffff, size: 0.13, opacity: 0.75, mode: 'fall', area: 55, height: 14, speed: 1.6, sprite: 'flake' },
     horizonGlow: { color: 0x39ff88, azimuthDeg: 180, elevationDeg: 4, scale: 220 },
   },
   'ahch-to': {
     sky: { top: 0x6fb8e8, horizon: 0xd8e8e0, bottom: 0x4a7f58 },
     suns: [{ color: 0xfff6d8, scale: 130, azimuthDeg: 200, elevationDeg: 34 }],
     clouds: { count: 16, yMin: 80, yMax: 150, radius: 550, color: 0xffffff, opacity: 0.85, driftRate: 0.005 },
-    motes: { count: 120, color: 0xd8e8e8, size: 0.09, opacity: 0.45, mode: 'drift', area: 50, height: 6, speed: 0.08 },
+    motes: { count: 120, color: 0xd8e8e8, size: 0.09, opacity: 0.45, mode: 'drift', area: 50, height: 6, speed: 0.08, sprite: 'glow' },
   },
   crait: {
     sky: { top: 0x7fb8ee, horizon: 0xf0e9d8, bottom: 0xd8cbb4 },
     suns: [{ color: 0xfff6d8, scale: 140, azimuthDeg: 205, elevationDeg: 30 }],
     clouds: { count: 8, yMin: 90, yMax: 150, radius: 550, color: 0xffffff, opacity: 0.75, driftRate: 0.004 },
-    motes: { count: 140, color: 0xf0e0e0, size: 0.1, opacity: 0.5, mode: 'drift', area: 55, height: 6, speed: 0.1 },
+    motes: { count: 140, color: 0xf0e0e0, size: 0.1, opacity: 0.5, mode: 'drift', area: 55, height: 6, speed: 0.1, sprite: 'glow' },
   },
   exegol: {
     sky: { top: 0x0d0718, horizon: 0x2c1e45, bottom: 0x141020 },
     night: { top: 0x0d0718, horizon: 0x2c1e45, bottom: 0x141020 },
     suns: [{ color: 0xc8b8e8, scale: 70, azimuthDeg: 200, elevationDeg: 8 }],
     clouds: { count: 10, yMin: 80, yMax: 150, radius: 550, color: 0x2a1e40, opacity: 0.85, driftRate: 0.004 },
-    motes: { count: 200, color: 0x8a7aa8, size: 0.11, opacity: 0.6, mode: 'fall', area: 55, height: 14, speed: 1.2 },
+    motes: { count: 200, color: 0x8a7aa8, size: 0.11, opacity: 0.6, mode: 'fall', area: 55, height: 14, speed: 1.2, sprite: 'wisp' },
     lightning: true,
     horizonGlow: { color: 0x8a5aff, azimuthDeg: 180, elevationDeg: 3, scale: 260 },
   },
@@ -601,6 +602,7 @@ function makeMotes(R, spec, seed) {
   const mat = new R.PointsMaterial({
     color: cfg.color, size: cfg.size, transparent: true, opacity: cfg.opacity,
     depthWrite: false, sizeAttenuation: true,
+    map: getParticleTexture(cfg.sprite || 'glow') || undefined,
   });
   const points = new R.Points(geo, mat);
   points.name = 'cgi-motes';

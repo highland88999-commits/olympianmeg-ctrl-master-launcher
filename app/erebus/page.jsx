@@ -21,6 +21,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import { TRON_BIKES, bikeByKey } from '@/components/nova/TronBikes';
 import TronRider from '@/components/nova/TronRider';
 import { fx, unlockFx } from '@/lib/fx';
@@ -98,6 +99,8 @@ function glowTexture(stops) {
 }
 
 function TintedStars({ seed, count, radius, palette, size }) {
+  // Star sprite graphic (null outside the browser → plain points).
+  const starTex = useMemo(() => getParticleTexture('star'), []);
   const geom = useMemo(() => {
     // mulberry32 inlined (page-side; lib's is not imported here to keep
     // this component dependency-free).
@@ -144,6 +147,7 @@ function TintedStars({ seed, count, radius, palette, size }) {
         depthWrite={false}
         blending={THREE.AdditiveBlending}
         sizeAttenuation
+        map={starTex}
       />
     </points>
   );

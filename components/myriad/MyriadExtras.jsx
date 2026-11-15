@@ -11,6 +11,7 @@ import { useMemo, useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import { mulberry32 } from '@/lib/myriad-universes';
 import { WALK_RADIUS } from '@/lib/myriad-wonders';
 import { createWalker, stepWalker, applyLook } from '@/lib/world/walk-controls';
@@ -227,6 +228,8 @@ export function SignalSource({ site, reduced }) {
 
 export function Phenomenon({ site, seed, reduced }) {
   const grp = useRef(null);
+  // Spark sprite graphic (null outside the browser → plain points).
+  const sparkTex = useMemo(() => getParticleTexture('spark'), []);
   const sparks = useMemo(() => {
     const rand = mulberry32(seed);
     const positions = new Float32Array(40 * 3);
@@ -250,7 +253,7 @@ export function Phenomenon({ site, seed, reduced }) {
           <meshBasicMaterial color={site.color} transparent opacity={0.9} />
         </mesh>
         <points geometry={sparks}>
-          <pointsMaterial size={0.8} color="#ffffff" transparent opacity={0.9} depthWrite={false} blending={THREE.AdditiveBlending} />
+          <pointsMaterial size={0.8} color="#ffffff" transparent opacity={0.9} depthWrite={false} blending={THREE.AdditiveBlending} map={sparkTex} />
         </points>
       </group>
       <SiteGlow position={[0, 0, 0]} color={site.color} size={24} />

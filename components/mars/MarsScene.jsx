@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
 import { terrainMaterial, disposeTerrainMaterial, monsSite, monsSlopeMaterial, monsCapMaterial, hazeSpriteTexture, devilStreakTexture, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '@/lib/mars/cgi';
 import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { SharedMaterials, buildFloraGroup, buildFaunaGroup } from '@/lib/mars/meshes';
 
@@ -597,7 +598,7 @@ function OlympusMons({ profile }) {
 function MarsCgi({ profile, dayF }) {
   const dust = useMemo(() => makeDustField({
     count: 260, width: 170, height: 8, depth: 170, yBase: 0.3,
-    seed: profile.seed + '-dust', color: '#d9a06a', size: 0.12, opacity: 0.5,
+    seed: profile.seed + '-dust', color: '#d9a06a', size: 0.12, opacity: 0.5, sprite: 'grain',
   }), [profile]);
 
   // One open cylinder per devil (outer faint + inner denser shell);
@@ -701,6 +702,7 @@ function MarsStars({ profile, opacity }) {
     const starMat = new THREE.PointsMaterial({
       color: 0xf3e9d8,
       size: 1.6,
+      map: getParticleTexture('star') || undefined,
       sizeAttenuation: false,
       transparent: true,
       opacity: 0,

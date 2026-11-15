@@ -3,6 +3,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import { getParticleTexture } from '@/lib/particles/sprites';
 
 // AETHELGARD wildlife — circling birds, fluttering butterflies, night fireflies.
 //   nightFactor 0..1 (from sky palette) drives firefly visibility
@@ -32,6 +33,8 @@ export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
   const fireflyMat = useRef();
 
   const birdGeo = useMemo(birdGeometry, []);
+  // Sprite graphic for the fireflies (null outside the browser → plain points).
+  const fireflyTex = useMemo(() => getParticleTexture('firefly'), []);
 
   const birds = useMemo(() => {
     const rand = mulberry32(808);
@@ -132,7 +135,7 @@ export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
       </group>
       <points ref={fireflyRef} geometry={fireflyGeo} frustumCulled={false}>
         <pointsMaterial ref={fireflyMat} color="#cfff8a" size={0.5} transparent
-          opacity={0} sizeAttenuation depthWrite={false} />
+          opacity={0} sizeAttenuation depthWrite={false} map={fireflyTex} />
       </points>
     </group>
   );

@@ -39,6 +39,7 @@ import * as THREE from 'three';
 import { HEAVEN_PORTAL, NETHER_PORTAL } from '@/lib/portal/realms';
 import { paintPortalSwirl, paintAuroraBootRing } from '@/lib/portal-swirl';
 import { TUBE_SPIN_RAD_PER_SEC } from '@/app/nexus-vortex/lib/tube.js';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import VanGoghText from './VanGoghText';
 
 // TRANSIT GOLD — the vortex tube's exit ring (VortexTubeRide: a gold
@@ -135,6 +136,7 @@ function nanitePositions(count, radius, seed) {
 // onClick is the R3F pointer handler (e.delta guard: a drag is not a tap).
 function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, lightColor, lightIntensity }) {
   const swirlTex = useMemo(() => swirlTexture(palette), [palette]);
+  const glowTex = useMemo(() => getParticleTexture('glow'), []);
   const bootRingTex = useMemo(() => transitRingTexture(), []);
   const primary = useMemo(() => nanitePositions(320, def.radius - 2, 1337), [def.radius]);
   const secondary = useMemo(() => nanitePositions(160, def.radius - 12, 777), [def.radius]);
@@ -203,13 +205,13 @@ function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, li
           <bufferGeometry>
             <bufferAttribute attach="attributes-position" args={[primary, 3]} />
           </bufferGeometry>
-          <pointsMaterial size={1.1} color={naniteColors[0]} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation />
+          <pointsMaterial size={1.1} color={naniteColors[0]} map={glowTex} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation />
         </points>
         <points>
           <bufferGeometry>
             <bufferAttribute attach="attributes-position" args={[secondary, 3]} />
           </bufferGeometry>
-          <pointsMaterial size={0.9} color={naniteColors[1]} transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation />
+          <pointsMaterial size={0.9} color={naniteColors[1]} map={glowTex} transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation />
         </points>
       </group>
       <pointLight ref={lightRef} position={[0, 6, 0]} color={lightColor} intensity={lightIntensity} distance={140} />

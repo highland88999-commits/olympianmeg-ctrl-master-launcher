@@ -45,6 +45,7 @@ import { buildCharacter, labelOpacity, makeLifeLabel } from './characters.js';
 import { ambientLifeFor } from './operators.js';
 import { VEHICLE_TYPES, createVehicleState } from './vehicles.js';
 import { cgiGroundMaps, buildCgi } from './cgi.js';
+import { getParticleTexture } from '../../lib/particles/sprites.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
 
@@ -766,6 +767,7 @@ export function buildZone(THREE, planetDef, T, opts) {
     sg.setAttribute('position', new R.BufferAttribute(pos, 3));
     group.add(new R.Points(sg, new R.PointsMaterial({
       color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false,
+      map: getParticleTexture('star') || undefined,
     })));
     /* CGI SKY (fly worlds): no dome — the starfield is the sky —
      * just the fixed sun sprite, so the debris field orbits a star. */

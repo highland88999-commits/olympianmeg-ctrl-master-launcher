@@ -3,6 +3,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import { getParticleTexture } from '@/lib/particles/sprites';
 
 // AETHELGARD atmosphere — god-ray shafts through canopy gaps + a rain
 // particle system. Intensity is driven by props:
@@ -14,6 +15,8 @@ const RAY_COUNT = 22;
 export default function Atmosphere({ rainLevel = 0.5, rayOpacity = 0.4 }) {
   const rainRef = useRef();
   const rayGroup = useRef();
+  // Sprite graphic for the rain drops (null outside the browser → plain points).
+  const rainTex = useMemo(() => getParticleTexture('drop'), []);
 
   const { rainPos, rainVel, rays } = useMemo(() => {
     const rand = mulberry32(5150);
@@ -83,7 +86,7 @@ export default function Atmosphere({ rainLevel = 0.5, rayOpacity = 0.4 }) {
       {/* rain streaks */}
       <points ref={rainRef} geometry={rainGeo} frustumCulled={false}>
         <pointsMaterial color="#bcd8e8" size={0.35} transparent opacity={0.55}
-          sizeAttenuation depthWrite={false} />
+          sizeAttenuation depthWrite={false} map={rainTex} />
       </points>
 
       {/* god rays — additive slanted cones from canopy gaps */}

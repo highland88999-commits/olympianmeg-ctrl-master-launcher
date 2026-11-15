@@ -14,6 +14,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { getParticleTexture } from '@/lib/particles/sprites';
 import {
   ASCENT_PORTAL,
   CENTER,
@@ -549,6 +550,7 @@ function Lights({reduced}) {
 function Motes({reduced}) {
   const COUNT = 260;
   const ref = useRef();
+  const tex = useMemo(() => getParticleTexture('glow'), []);
   const speeds = useMemo(() => {
     const arr = new Float32Array(COUNT);
     for (let i = 0; i < COUNT; i += 1) arr[i] = 0.4 + Math.random() * 1.1;
@@ -580,7 +582,7 @@ function Motes({reduced}) {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial size={0.9} color="#b8ffb0" transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation />
+      <pointsMaterial size={0.9} color="#b8ffb0" transparent opacity={0.8} blending={THREE.AdditiveBlending} depthWrite={false} sizeAttenuation map={tex ?? undefined} />
     </points>
   );
 }
