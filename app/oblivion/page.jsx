@@ -19,7 +19,9 @@
 // labels or decorative tiles:
 //   Concourse -> /?concourse=1 (hub with the program menu
 //     collapsed, so the Concourse scene itself shows)
-//   Portal Room -> /portal-room
+//   Portals 3D -> /?concourse=1&portals3d=1 (the one portal menu:
+//     the 2D Portal Room is gone, Nov 16, 2026 merge — the hall
+//     opens on the hub with the menu collapsed)
 //   Program Menu -> / (the hub program menu is expanded by
 //     default on a fresh load)
 // While Earth 2 counts down, the waiter steps into any of the
@@ -43,7 +45,7 @@ const COLLAPSE_SEEN_KEY = 'olympus:oblivion-collapse-seen:v1';
 
 const PORTAL_BUTTONS = [
   { label: 'Concourse', sub: "The hub's 3D world", href: '/?concourse=1' },
-  { label: 'Portal Room', sub: 'Card wall', href: '/portal-room' },
+  { label: 'Portals 3D', sub: 'The one portal menu', href: '/?concourse=1&portals3d=1' },
   { label: 'Program Menu', sub: 'All programs', href: '/' },
 ];
 

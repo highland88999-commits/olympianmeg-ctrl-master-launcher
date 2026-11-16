@@ -48,8 +48,8 @@
 //     dragged it) slides up clear of the BikeControls cluster
 //   - pointer events only on the glass itself
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { bikeState } from '@/lib/earth/parachute';
 import { DoomsdayStrip } from './DoomsdayBanner';
@@ -94,7 +94,7 @@ export const SEASON_GUIDE_EVENT = 'olympus:season-guide';
 
 // Tile order is composed in four visual movements (Merlin,
 // 2026-10-20 — "reorder the icons for best aesthetic pleasure"):
-//   Journey · Hub, Portals, Tour, Intro, Guide — the way in
+//   Journey · Hub, Menu, Tour, Intro, Guide — the way in
 //   Hub     · Night, Bike, Renew, Muse — life on the hub
 //   Connect · Phone, Calls, Radio, Store — reach out & trade
 //   You     · Alerts, Profile, Bug — the personal corner
@@ -109,11 +109,17 @@ export const SEASON_GUIDE_EVENT = 'olympus:season-guide';
 // face is the Orb artwork — the hub's own emblem.
 const TILES = [
   { id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp' },
-  { id: 'portals', label: 'Portals', icon: '🎃', art: '/concourse-icons/portals.webp', hubOnly: true },
+  // Menu (was 'Portals', Nov 16, 2026 merge): this tile toggles the
+  // hub program menu — it never opened the portal menu, and the
+  // name said otherwise. Exactly one tile is called Portals now,
+  // and it opens the 3D hall.
+  { id: 'portals', label: 'Menu', icon: '☰', hubOnly: true },
   { id: 'tour', label: 'Tour', icon: '🗺️', art: '/concourse-icons/tour.webp' },
   { id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true },
   { id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true },
-  { id: 'portalroom', label: 'Portals 3D', icon: 'Ω' },
+  // Portals — the ONE Portals entry (Nov 16, 2026 merge: the 2D
+  // Portal Room is gone). Opens the Portals 3D hall, the one menu.
+  { id: 'portalroom', label: 'Portals', icon: 'Ω' },
   { id: 'night', label: 'Night', icon: '🌑', art: '/concourse-icons/night.webp', hubOnly: true },
   { id: 'bike', label: 'Bike', icon: '🏍️', art: '/concourse-icons/bike.webp', hubOnly: true },
   { id: 'renewal', label: 'Renew', icon: '◈', art: '/concourse-icons/renew.webp', hubOnly: true },
@@ -310,6 +316,33 @@ function ConcourseBackdrop({ bg }) {
   return <img src={src} alt="" aria-hidden="true" draggable={false} className="h-full w-full object-cover" />;
 }
 
+// Portals 3D deep link (?portals3d=1 — Nov 16, 2026 merge): the
+// Omega Arch, the Earth 2 back link, the oblivion waiting page,
+// the floor-drop fallback and the /portal-room redirect all land
+// here instead of a page that no longer exists. The Concourse is
+// mounted in the root layout, so it is the one place that can open
+// the hall from any entry point — including a same-page ride, where
+// the hub page never remounts. useSearchParams lives in this tiny
+// Suspense-wrapped child so the layout itself stays static; the
+// param is consumed (history.replaceState) once the hall opens, so
+// a reload never re-opens it.
+function Portals3dDeepLink({ onOpen }) {
+  const searchParams = useSearchParams();
+  const appliedRef = useRef(false);
+  useEffect(() => {
+    if (appliedRef.current) return;
+    if (searchParams?.get('portals3d') !== '1') return;
+    appliedRef.current = true;
+    onOpen();
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('portals3d');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch {}
+  }, [searchParams, onOpen]);
+  return null;
+}
+
 export default function Concourse() {
   const router = useRouter();
   const pathname = usePathname();
@@ -339,6 +372,11 @@ export default function Concourse() {
   const [bgPref, setBgPref] = useState({ kind: 'default' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [portal3dOpen, setPortal3dOpen] = useState(false);
+  // Deep link (?portals3d=1): open the hall straight from the URL.
+  const openPortals3d = useCallback(() => {
+    setOpen(false);
+    setPortal3dOpen(true);
+  }, []);
   const [travelatorOpen, setTravelatorOpen] = useState(false);
   const [uiSettings, setUiSettings] = useState({ sound: true });
 
@@ -988,6 +1026,9 @@ export default function Concourse() {
       {/* Layer 3 · Portals 3D — the 3D portal hall (minimized
           portals, expanded on tap) */}
       <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
+      <Suspense fallback={null}>
+        <Portals3dDeepLink onOpen={openPortals3d} />
+      </Suspense>
       <Travelator open={travelatorOpen} onClose={() => setTravelatorOpen(false)} />
       {/* Notifications (Merlin, 2026-10-29): the bell's menu, whose
           Announcements portal button hosts every past broadcast. */}

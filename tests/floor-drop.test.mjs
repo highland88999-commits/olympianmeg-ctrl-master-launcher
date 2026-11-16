@@ -257,11 +257,11 @@ test('the return route is the origin realm route', () => {
   assert.equal(returnRouteForOrigin('heaven'), '/heaven');
 });
 
-test('a missing or unknown origin falls back to the portal room, never nowhere', () => {
+test('a missing or unknown origin falls back to the Portals 3D hall, never nowhere', () => {
   assert.equal(returnRouteForOrigin(null), FLOOR_DROP_FALLBACK_ROUTE);
   assert.equal(returnRouteForOrigin(undefined), FLOOR_DROP_FALLBACK_ROUTE);
   assert.equal(returnRouteForOrigin('not-a-realm'), FLOOR_DROP_FALLBACK_ROUTE);
-  assert.equal(FLOOR_DROP_FALLBACK_ROUTE, '/portal-room');
+  assert.equal(FLOOR_DROP_FALLBACK_ROUTE, '/?concourse=1&portals3d=1');
 });
 
 test('realm keys, routes and labels agree with the portal registry', () => {

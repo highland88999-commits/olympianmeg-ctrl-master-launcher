@@ -965,8 +965,8 @@ export default function Earth2Page() {
         }}
       />
       <div className="relative mx-auto w-full max-w-6xl px-4 pb-24 pt-6">
-        <a href="/portal-room" className="text-xs tracking-widest text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline">
-          ← PORTAL ROOM
+        <a href="/?concourse=1&portals3d=1" className="text-xs tracking-widest text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline">
+          ← PORTALS 3D
         </a>
 
         {/* Header */}

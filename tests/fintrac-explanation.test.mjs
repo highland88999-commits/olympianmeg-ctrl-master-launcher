@@ -55,7 +55,7 @@ describe('shouldAutoShowFintrac: hub load, signed-in, not skipped', () => {
   });
   it('does not auto-show on a program/game route (never a game overlay)', () => {
     assert.equal(shouldAutoShowFintrac({ pathname: '/hollow-earth', signedIn: true, dismissed: false }), false);
-    assert.equal(shouldAutoShowFintrac({ pathname: '/portal-room', signedIn: true, dismissed: false }), false);
+    assert.equal(shouldAutoShowFintrac({ pathname: '/earth-2', signedIn: true, dismissed: false }), false);
     assert.equal(shouldAutoShowFintrac({ pathname: '/store', signedIn: true, dismissed: false }), false);
   });
   it('does not auto-show signed-out', () => {
@@ -121,12 +121,13 @@ describe('wiring: modal, host, and menu entries', () => {
     const p = src('app/page.jsx');
     assert.equal(p.includes('FintracExplanationMenuButton'), false);
   });
-  it('Portal Room carries the entry as page chrome, not a roster row', () => {
-    const p = src('app/portal-room/page.jsx');
-    assert.match(p, /import \{ FintracExplanationMenuButton \} from '@\/components\/FintracExplanation';/);
+  it('the 3D hall carries the entry at the head of its SHOPPING section, not as a roster row', () => {
+    const p = src('components/ConcoursePortals.jsx');
+    assert.match(p, /import \{ FintracExplanationMenuButton \} from '\.\/FintracExplanation';/);
+    assert.ok(p.includes("s === 'SHOPPING'"), 'entry sits in the SHOPPING section (payments & creator earnings)');
     assert.ok(
-      p.indexOf('<FintracExplanationMenuButton') < p.indexOf('<PortalRoomGate basePrograms'),
-      'entry must sit above the registry-derived roster, never inside it'
+      p.indexOf('<FintracExplanationMenuButton') < p.indexOf('<PortalCard'),
+      'entry must sit above the section cards, never inside the roster'
     );
     assert.match(p, /buildPortalRoster\(/);
   });

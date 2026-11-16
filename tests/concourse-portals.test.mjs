@@ -1,10 +1,12 @@
 // tests/concourse-portals.test.mjs
 // Portals 3D — the Concourse's 3D portal hall (Merlin, 2026-10-21:
 // the 3D portal objects live inside the Concourse, minimized until
-// the user expands them):
+// the user expands them) — and, since the Nov 16, 2026 merge, THE
+// ONE portal menu (the 2D Portal Room is gone; this sheet carries
+// its top video, its ALL + section categories, and its extras):
 // - the shared roster derivation (lib/portal-roster.js): the real
-//   registry yields exactly the Portal Room's 174, deduped by route,
-//   the room itself skipped, title/subtitle fallbacks honored
+//   registry yields exactly the merged menu's 213, deduped by route,
+//   title/subtitle fallbacks honored
 // - wall paging (42 per wall; GAMES' 53 -> 2 pages), section hues,
 //   the shared section/search filtering and grouping
 // - the swirl painter (lib/portal-swirl.js) is deterministic and
@@ -44,13 +46,12 @@ const concourse = read('components/Concourse.jsx');
 const panel = read('components/ConcoursePortals.jsx');
 const scene = read('components/concourse/PortalHallScene.jsx');
 const uiState = read('app/api/ui-state/route.js');
-const portalPage = read('app/portal-room/page.jsx');
 
 const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 213 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card))', () => {
+  it('yields exactly 213 portals from the real registry — the merged menu count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card); Portal Room seat removed from the registry: 214→213, Nov 16, 2026 (portal menu merge — the roster stays 213 because the room was already skipped by the builder))', () => {
     assert.equal(enRoster().length, 213);
   });
 
@@ -145,7 +146,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 213); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026)
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 213); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026); Portal Room seat removed from the registry (Nov 16, 2026, portal menu merge) — roster stays 213, the room was already skipped
     assert.deepEqual(groupBySection([]), []);
   });
 });
@@ -185,15 +186,23 @@ describe('paintPortalSwirl (the shared minimized-portal face)', () => {
 });
 
 describe('Concourse wiring (static)', () => {
-  it("the 'portalroom' tile sits in TILES immediately after Guide, icon-only", () => {
+  it("the 'portalroom' tile sits in TILES immediately after Guide, icon-only — the ONE Portals entry", () => {
     assert.ok(
-      concourse.includes("{ id: 'portalroom', label: 'Portals 3D', icon: 'Ω' }"),
+      concourse.includes("{ id: 'portalroom', label: 'Portals', icon: 'Ω' }"),
       'portalroom tile defined exactly as specced'
     );
     const guide = concourse.indexOf("id: 'guide'");
     const hall = concourse.indexOf("id: 'portalroom'");
     const night = concourse.indexOf("id: 'night'");
-    assert.ok(guide >= 0 && hall > guide && night > hall, 'Guide < Portals 3D < Night');
+    assert.ok(guide >= 0 && hall > guide && night > hall, 'Guide < Portals < Night');
+  });
+
+  it("the old 'portals' tile is the Menu toggle now, not a second Portals entry", () => {
+    assert.ok(
+      concourse.includes("{ id: 'portals', label: 'Menu', icon: '☰', hubOnly: true }"),
+      'portals tile relabeled Menu — it toggles the hub program menu, never the portal menu'
+    );
+    assert.equal((concourse.match(/label: 'Portals'/g) || []).length, 1, 'exactly one Portals label in the Concourse');
   });
 
   it('fireTile opens the panel through the family branch, and the panel is mounted lazily', () => {
@@ -212,9 +221,16 @@ describe('Concourse wiring (static)', () => {
     assert.ok(m[1].includes("'portalroom'"), 'portalroom whitelisted — its pin survives login');
   });
 
-  it('the Portal Room page derives through the same builder (no second roster)', () => {
-    assert.ok(portalPage.includes('buildPortalRoster'), 'page uses buildPortalRoster');
-    assert.ok(portalPage.includes("from '@/lib/i18n/satellites'"), 'page feeds the registry');
+  it('the panel derives through the same builder (no second roster)', () => {
+    assert.ok(panel.includes('buildPortalRoster'), 'panel uses buildPortalRoster');
+    assert.ok(panel.includes("from '@/lib/i18n/satellites'"), 'panel feeds the registry');
+  });
+
+  it('the ?portals3d=1 deep link opens the hall (and consumes the param)', () => {
+    assert.ok(concourse.includes('Portals3dDeepLink'), 'deep-link reader mounted');
+    assert.ok(concourse.includes("searchParams?.get('portals3d') !== '1'"), 'param gate');
+    assert.ok(concourse.includes('setPortal3dOpen(true)'), 'deep link opens the hall');
+    assert.ok(concourse.includes("url.searchParams.delete('portals3d')"), 'param consumed so a reload never re-opens the hall');
   });
 });
 
@@ -233,6 +249,17 @@ describe('the panel + hall (static)', () => {
   it('the minimized portals are mini Omega arches (arc + bottom gap)', () => {
     assert.ok(scene.includes('OMEGA_ARCH.arc'), 'instanced torus carries the Omega arc');
     assert.ok(scene.includes('OMEGA_ARCH.rotationZ'), 'instances wear the gap-at-bottom tilt');
+  });
+
+  it('the merged menu lands on the ALL list; the wall keeps its own GAMES section', () => {
+    assert.ok(panel.includes("useState('ALL')"), 'list default is ALL, the room\'s default');
+    assert.ok(panel.includes("useState('GAMES')"), 'wall default is GAMES, one section at a time');
+    assert.ok(panel.includes('OMEGA_WRAP_VIDEO'), 'the room\'s top video lives over the categories');
+    assert.ok(panel.includes("`All · ${programs.length}`"), 'the ALL tab carries the whole count');
+    assert.ok(panel.includes("s === 'TOOLS'"), 'the Cheat Code feature heads TOOLS');
+    assert.ok(panel.includes('<CheatCodeFeatured />'), 'the feature banner is in the sheet');
+    assert.ok(panel.includes("s === 'SHOPPING'"), 'the FINTRAC entry heads SHOPPING');
+    assert.ok(panel.includes('<FintracExplanationMenuButton />'), 'the FINTRAC button is in the sheet');
   });
 
   it('the hall is two instanced meshes over one shared swirl texture', () => {
@@ -266,7 +293,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 59, 'fifty-nine portal videos wired (batch 19: plutus, fortress-of-solitude)');
+    assert.equal(onDisk.length, 65, 'sixty-five portal videos wired (merge batch: omega-500, hollow-earth, tools, world-nexus, terminal, holoframe)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {
@@ -281,7 +308,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
     for (const p of waiting.slice(0, 12)) {
       assert.equal(portalHasVideo(p.key), false, `${p.key} has no video yet`);
     }
-    assert.equal(portalHasVideo('earth-2'), false, 'owner portal has no portal video');
+    assert.equal(portalHasVideo('earth-2'), false, 'signed-in portal has no portal video');
     assert.equal(portalHasVideo('no-such-key'), false, 'unknown keys have no video');
   });
 

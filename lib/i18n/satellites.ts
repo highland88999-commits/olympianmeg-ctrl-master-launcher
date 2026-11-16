@@ -217,8 +217,9 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "languages", route: "/languages", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
   // PORTAL ROOM (the room of portals behind the Omega Arch — one portal
   // per program, each with its own video) sits with HERMES as the
-  // traveller's door: ARGUS/OBSERVATORY.
-  { key: "portal-room", route: "/portal-room", pos: "HERMES", section: "OBSERVATORY", constellation: "ARGUS" },
+  // traveller's door: ARGUS/OBSERVATORY. (The 2D Portal Room itself
+  // is gone — Nov 16, 2026 merge: the 3D hall is the one menu, so
+  // no satellite points at a room anymore.)
   // JOURNAL (per-user journal, auto-timestamped entries) sits with the
   // other UTILITIES everyday tools (notepad / calculator / calendar):
   // ARES/UTILITIES.

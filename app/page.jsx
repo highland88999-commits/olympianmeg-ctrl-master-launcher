@@ -45,6 +45,7 @@ import PortalRoom from '@/components/PortalRoom';
 import { heavenUnlocked as portalHeavenUnlocked, usePortalProgress } from '@/lib/portal/progress';
 import { SUN_BASE_ROUTE } from '@/lib/sun-base';
 import { MOON_ROUTE } from '@/lib/moon';
+import { OMEGA_ROUTE } from '@/lib/omega-arch';
 import {
   shouldShowHubTutorial,
   isHubTutorialSeen,
@@ -154,7 +155,7 @@ function NexusHub() {
   }, [appState, sweepDone]);
 
   // The Concourse's hub tiles drive the hub's own functions from
-  // here: Portals toggles the program menu; Intro / Guide replay the
+  // here: Menu toggles the program menu; Intro / Guide replay the
   // intro and tutorial; Night launches the Shadow Realm race; Bike
   // toggles the TRON bike. Phase-gated to the states where those
   // controls used to live on the hub itself.
@@ -332,11 +333,13 @@ function NexusHub() {
   // Omega portal street light (Merlin, 2026-10-31): the Omega Arch's
   // portal now lives at the bottom of the Earth chooser instead of
   // behind the Sun. Works exactly like the arch did — the same
-  // handleSatellitePortal('/portal-room') the OmegaHubGate called,
-  // vortex tube ride and all.
+  // handleSatellitePortal(OMEGA_ROUTE) the OmegaHubGate called,
+  // vortex tube ride and all — and lands on the hub with the
+  // Portals 3D hall open (Nov 16, 2026 merge: the 2D Portal Room
+  // is gone; OMEGA_ROUTE is the hall deep link).
   const chooseOmegaPortal = () => {
     setShowEarthChooser(false);
-    handleSatellitePortal('/portal-room');
+    handleSatellitePortal(OMEGA_ROUTE);
   };
 
   // Communiverse deep link (Merlin, 2026-10-22): Earth is the first planet
@@ -812,6 +815,12 @@ function NexusHub() {
       setAppState('hub_freeroam');
       setPendingJump(jumpTo);
     } else if (route) {
+      // A concourse deep link lands with the hall open: the hub
+      // program menu would cover the sheet (z-40000 over z-62), so
+      // collapse it as the ride lands — the same thing ?concourse=1
+      // does on a fresh hub load (that effect runs once per mount
+      // and misses a same-page ride).
+      if (String(route).includes('concourse=1')) setIsMenuExpanded(false);
       router.push(route);
     }
   }, [satTube, router]);

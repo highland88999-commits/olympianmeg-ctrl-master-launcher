@@ -1,19 +1,21 @@
 // tests/omega-portal.test.mjs
-// The Omega Arch + Portal Room:
+// The Omega Arch + the Portals 3D hall (Nov 16, 2026 merge: the 2D
+// Portal Room is gone; the Arch flies the user to the hub with the
+// 3D hall open, and /portal-room redirects there):
 // - lib/omega-arch.js geometry: the port keeps the OMEGA original's math
 //   (288° torus, portal radius = radius - tube - 5, ring center height)
 // - placement: the Arch stands beyond the Sun on its axis
 // - the wrap + vortex videos are the self-hosted files from the OMEGA
 //   import (public/media/skyscraper/), and both exist in the repo
-// - registration: "portal-room" is a satellite exactly once, claimed by
-//   exactly one god menu (HERMES), titled in all 31 locales
-// - roster: the room's program list (registry deduped by route, minus
-//   the room itself) is 173 portals (was 170; the 2026-10-23 master
-//   portal seating added achievements/communiverse/education/wallet
-//   and removed planet-tech's duplicated dead seat: 174 unique
-//   routes in the registry, minus the room itself)
-// - wiring: HomeScene mounts the gate behind freeroam; the gate pushes
-//   OMEGA_ROUTE on click and on fly-through
+// - registration: "portal-room" is gone from the registry, from every
+//   god menu, and from all 34 locales — no satellite points at a room
+//   that no longer exists
+// - roster: the merged menu's program list (registry deduped by route)
+//   is 212 portals
+// - wiring: the gate is kept but unmounted in hub space (retired
+//   2026-10-31); the live entry is the Earth chooser's Omega
+//   street-light, which rides the tube to OMEGA_ROUTE; the
+//   /portal-room redirect lands old links on the hall deep link
 //
 // Run: node --test tests/omega-portal.test.mjs   (from the repo root)
 
@@ -83,8 +85,8 @@ describe('placement beyond the Sun', () => {
     assert.ok(Math.abs(c.y - (OMEGA_POSITION.y + OMEGA_RING_CENTER_Y)) < 1e-9);
   });
 
-  it('route is the portal room page', () => {
-    assert.equal(OMEGA_ROUTE, '/portal-room');
+  it('route is the Portals 3D deep link (the 2D room is gone)', () => {
+    assert.equal(OMEGA_ROUTE, '/?concourse=1&portals3d=1');
   });
 });
 
@@ -100,7 +102,7 @@ describe('the wrap and the vortex are self-hosted', () => {
   });
 });
 
-describe('registration — one satellite, one god, every language', () => {
+describe('registration — the room is gone from every registry', () => {
   const satsSrc = read('lib/i18n/satellites.ts');
   const entries = [
     ...satsSrc.matchAll(
@@ -108,57 +110,60 @@ describe('registration — one satellite, one god, every language', () => {
     ),
   ].map((m) => ({ key: m[1], route: m[2], pos: m[3], section: m[4], constellation: m[5] }));
 
-  it('portal-room is registered exactly once, as specced', () => {
+  it('portal-room is gone from the registry (Nov 16, 2026 merge)', () => {
     const hits = entries.filter((e) => e.key === 'portal-room');
-    assert.equal(hits.length, 1);
-    assert.deepEqual(hits[0], {
-      key: 'portal-room',
-      route: '/portal-room',
-      pos: 'HERMES',
-      section: 'OBSERVATORY',
-      constellation: 'ARGUS',
-    });
+    assert.equal(hits.length, 0);
+    assert.ok(!entries.some((e) => e.route === '/portal-room'), 'no route points at the room');
   });
 
-  it('HERMES claims portal-room, and no other god does', () => {
+  it('no god menu claims portal-room anymore', () => {
     const menus = read('lib/god-menus.js');
     const claims = menus.match(/'portal-room'/g) || [];
-    assert.equal(claims.length, 1);
-    const hermesBlock = menus.slice(menus.indexOf("god: 'HERMES'"), menus.indexOf("god: 'HEPHAESTUS'"));
-    assert.ok(hermesBlock.includes("'portal-room'"));
+    assert.equal(claims.length, 0);
   });
 
-  it('all 34 locales carry the portal-room title and subtitle', () => {
+  it('no locale carries a portal-room title or subtitle', () => {
     const files = readdirSync(join(root, 'lib/i18n/locales')).filter((f) => f.endsWith('.json'));
     assert.equal(files.length, 34);
     for (const f of files) {
       const dict = JSON.parse(read(`lib/i18n/locales/${f}`));
-      assert.ok(dict['sat.portal-room.title'], `${f} missing title`);
-      assert.ok(dict['sat.portal-room.subtitle'], `${f} missing subtitle`);
+      assert.equal(dict['sat.portal-room.title'], undefined, `${f} still titles the room`);
+      assert.equal(dict['sat.portal-room.subtitle'], undefined, `${f} still subtitles the room`);
     }
   });
 
-  it('the room roster (deduped by route, minus itself) is 180 portals', () => {
+  it('the merged roster (deduped by route) is 213 portals', () => {
     const seen = new Set();
     let count = 0;
     for (const e of entries) {
-      if (e.key === 'portal-room') continue;
       if (seen.has(e.route)) continue;
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 180);
+    assert.equal(count, 213);
+  });
+
+  it('the old /portal-room route redirects to the hall deep link', () => {
+    const cfg = read('next.config.js');
+    assert.ok(cfg.includes("source: '/portal-room'"), 'redirect source');
+    assert.ok(cfg.includes("destination: '/?concourse=1&portals3d=1'"), 'redirect destination');
   });
 });
 
 describe('hub wiring', () => {
-  it('HomeScene mounts the gate, gated on freeroam', () => {
+  it('the gate is kept but no longer mounted in hub space (retired 2026-10-31)', () => {
     const scene = read('components/HomeScene.jsx');
-    assert.ok(scene.includes("import OmegaHubGate from './OmegaHubGate';"));
-    assert.ok(scene.includes("<OmegaHubGate freeroam={appState === 'hub_freeroam'} />"));
+    assert.ok(!scene.includes('<OmegaHubGate'), 'no gate mount in hub space');
+    assert.ok(scene.includes('chooseOmegaPortal'), 'the handoff names the chooser light');
   });
 
-  it('the gate enters on click and on fly-through, pushing the room route', () => {
+  it('the live entry is the Earth chooser’s Omega light, riding the tube to OMEGA_ROUTE', () => {
+    const page = read('app/page.jsx');
+    assert.ok(page.includes('handleSatellitePortal(OMEGA_ROUTE)'), 'chooser rides the tube to OMEGA_ROUTE');
+    assert.ok(page.includes("import { OMEGA_ROUTE } from '@/lib/omega-arch'"), 'route comes from the arch module');
+  });
+
+  it('the gate enters on click and on fly-through, pushing the hall deep link', () => {
     const gate = read('components/OmegaHubGate.jsx');
     assert.ok(gate.includes('router.push(OMEGA_ROUTE)'));
     assert.ok(gate.includes('onClick'));
@@ -168,14 +173,13 @@ describe('hub wiring', () => {
     assert.ok(gate.includes('map={vortexTex}'));
   });
 
-  it('the page builds its roster from the registry and skips itself', () => {
-    const page = read('app/portal-room/page.jsx');
-    assert.ok(page.includes("from '@/lib/i18n/satellites'"));
-    assert.ok(page.includes('buildPortalRoster'), 'page derives via the shared builder');
-    assert.ok(page.includes('/videos/portals/'));
+  it('the panel builds its roster from the registry and skips the room', () => {
+    const panel = read('components/ConcoursePortals.jsx');
+    assert.ok(panel.includes("from '@/lib/i18n/satellites'"));
+    assert.ok(panel.includes('buildPortalRoster'), 'panel derives via the shared builder');
+    assert.ok(panel.includes("from './portal/PortalCard'"), 'panel renders the cards that wear the portal videos');
     // The skip itself lives in the shared derivation
-    // (lib/portal-roster.js) since the Concourse's Portals 3D panel
-    // joined the room as a second surface — one builder, no drift.
+    // (lib/portal-roster.js) — one builder, no drift.
     const roster = read('lib/portal-roster.js');
     assert.ok(roster.includes("sat.key === 'portal-room'"), 'builder skips the room itself');
   });

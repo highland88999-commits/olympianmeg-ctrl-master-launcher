@@ -9,9 +9,10 @@
 // slow breathing bob. The original page's telemetry scripts were NOT
 // ported — only the Arch and its wrap.
 //
-// It is the Portal Room's showpiece door: in freeroam, clicking the Arch
-// or flying through the vortex flies the user to /portal-room. Portals
-// are the hub's one pass-through exception, so the Arch has no collider.
+// It is the Portals 3D hall's showpiece door: in freeroam, clicking the Arch
+// or flying through the vortex flies the user to the hub with the 3D
+// hall open (OMEGA_ROUTE). Portals are the hub's one pass-through
+// exception, so the Arch has no collider.
 
 import { useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -103,13 +104,13 @@ export default function OmegaHubGate({ freeroam = false, onEnterPortal }) {
     enteredRef.current = true;
     // The Arch is a portal: ride the vortex like every other entry
     // point (Merlin, 2026-10-29). Falls back to a plain push when no
-    // handler is wired (e.g. Portal Room's own arch).
-    if (onEnterPortal) onEnterPortal(OMEGA_ROUTE, 'Portal Room');
+    // handler is wired (e.g. the hall's own arch).
+    if (onEnterPortal) onEnterPortal(OMEGA_ROUTE, 'Portals 3D');
     else router.push(OMEGA_ROUTE);
   };
 
   // Breathing bob (the original: sin(t * 1.5) * 2) + fly-through entry:
-  // crossing the vortex disc in freeroam steps through to the Portal Room.
+  // crossing the vortex disc in freeroam steps through to the Portals 3D hall.
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
     const bob = Math.sin(t * 1.5) * 2;

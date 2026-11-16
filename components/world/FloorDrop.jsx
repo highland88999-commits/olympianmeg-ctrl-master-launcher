@@ -339,13 +339,13 @@ export function LandOfTheDeadReturn({ anchor, position, quaternion, playerRef, o
 export function LandOfTheDeadReturnOrb({ ready, originLabel, onReturn }) {
   return (
     <OrbButton
-      ariaLabel={ready && originLabel ? `Step through the floor portal back to ${originLabel}` : 'Step through the floor portal back to the Portal Room'}
-      title={ready && originLabel ? `Back to ${originLabel}` : 'Back to the Portal Room'}
+      ariaLabel={ready && originLabel ? `Step through the floor portal back to ${originLabel}` : 'Step through the floor portal back to the Portals'}
+      title={ready && originLabel ? `Back to ${originLabel}` : 'Back to the Portals'}
       accent="#b78cff"
       onClick={onReturn}
     >
       <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>↩️</span>
-      <span aria-hidden="true">{ready && originLabel ? originLabel : 'Portal Room'}</span>
+      <span aria-hidden="true">{ready && originLabel ? originLabel : 'Portals'}</span>
     </OrbButton>
   );
 }

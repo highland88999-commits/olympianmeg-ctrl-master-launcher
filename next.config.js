@@ -8,11 +8,24 @@ const nextConfig = {
   // old link landing on the forge. It matches the page path only —
   // the kept commission API (/api/weapons-forge/commission) is
   // untouched.
+  //
+  // /portal-room is gone (Merlin, Nov 16, 2026 — the portal menu
+  // merge): the 2D Portal Room was deleted and the Concourse's
+  // Portals 3D hall is the one portal menu. The redirect lands
+  // every bookmark and old link on the hub with the hall open
+  // (concourse=1 collapses the hub program menu so it cannot cover
+  // the sheet; portals3d=1 opens the hall — see the deep link in
+  // components/Concourse.jsx).
   async redirects() {
     return [
       {
         source: '/weapons-forge',
         destination: '/world-engine/weapons',
+        permanent: true,
+      },
+      {
+        source: '/portal-room',
+        destination: '/?concourse=1&portals3d=1',
         permanent: true,
       },
     ];

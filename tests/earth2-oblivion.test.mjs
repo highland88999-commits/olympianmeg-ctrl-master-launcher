@@ -106,7 +106,7 @@ check(releaseState({ ...base, armed: true, nowMs: 100000, memberRows: [], preAcc
 // Shipped wiring, by source pins.
 const page = read('app/oblivion/page.jsx');
 check(page.includes("href: '/?concourse=1'"), 'waiting page links Concourse with ?concourse=1');
-check(page.includes("href: '/portal-room'"), 'waiting page links Portal Room');
+check(page.includes("href: '/?concourse=1&portals3d=1'"), 'waiting page links Portals 3D with the hall deep link');
 check(page.includes("href: '/'"), 'waiting page links Program Menu to the hub');
 check(page.includes('OblivionCountdownCube'), 'waiting page renders the countdown cube');
 check(page.includes('OblivionCollapse'), 'waiting page renders the collapse cinematic');

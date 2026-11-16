@@ -1260,7 +1260,7 @@ function HubScene({
                 both portals stood just beyond the Sun; the Omega portal
                 now lives as a street-light lamp at the bottom of the
                 Earth chooser (app/page.jsx chooseOmegaPortal — same
-                handleSatellitePortal('/portal-room') the arch called),
+                handleSatellitePortal(OMEGA_ROUTE) the arch called),
                 and Earth 2 is reached through the chooser's Earth 2
                 button. Components kept (OmegaHubGate, Earth2HubGate)
                 but no longer mounted in hub space. */}

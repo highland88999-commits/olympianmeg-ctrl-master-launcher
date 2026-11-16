@@ -487,10 +487,8 @@ describe('the access lock (static wiring)', () => {
     assert.ok(!page.includes('This page could not be found.'), 'no dead 404 for signed-out visitors');
   });
 
-  it('both portal surfaces feed their roster through withSignedInPortals', () => {
+  it('the one portal surface feeds its roster through withSignedInPortals', () => {
     assert.ok(read('components/ConcoursePortals.jsx').includes('withSignedInPortals'));
-    assert.ok(read('components/portal-room/PortalRoomGate.jsx').includes('withSignedInPortals'));
-    assert.ok(read('app/portal-room/page.jsx').includes('PortalRoomGate'));
   });
 
   it("the satellite registry has NO 'earth-2' entry (no hub tower)", () => {
