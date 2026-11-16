@@ -38,7 +38,7 @@
  *
  * opts: { gateOpen?, freeRoam?, onPlayerHit(dmg, from, archetype),
  *         onMonsterKilled(monster), onHazard(hazard),
- *         onKorusEvent(ev), onSpotted(monster, via) }
+ *         onAuraStrike(ev), onKorusEvent(ev), onSpotted(monster, via) }
  * Returns { group, colliders, spawn, bounds, groundHeight,
  *   biomeAt, monsters, korus, setObserver, update, dispose,
  *   strikeHunter, damageKorus, kind, sky, fog, cycleColors }.
@@ -503,6 +503,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
           });
         } else if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype);
         if (ev.kind === 'hazard' && opts.onHazard) opts.onHazard(ev);
+        if (ev.kind === 'aura-strike' && opts.onAuraStrike) opts.onAuraStrike(ev);
         if (ev.kind === 'spotted' && opts.onSpotted) opts.onSpotted(m, ev.via);
       }
       // Solid characters: a ground monster may never stand inside

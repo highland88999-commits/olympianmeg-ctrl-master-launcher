@@ -94,6 +94,7 @@ import { PLACED_FIELD_KEYS } from './models.js';
 import { WATCHER } from './watcher.js';
 import { companionLifeFor } from '../../lib/earth2/operators.js';
 import { localHour, isNightAt } from '../../lib/life-clock.js';
+import { auraFor } from '../../lib/lightning-aura.js';
 
 export const MIN_COPIES_PER_FAMILY = 2;
 export const MIN_COPIES_PER_DRAGON = 3;
@@ -108,9 +109,19 @@ export function isPlacedFamily(key) {
 /**
  * Life of one monster at the device clock. `m` is a
  * createMonster() record ({ type, element, x, z, hp, state,
- * spotted, dead, active }); `opts` carries { nowMs }.
+ * spotted, dead, active }); `opts` carries { nowMs } and
+ * optionally { playerPos } — the hunter's {x, z} when known.
  * Death is combat only and permanent for the session (no
  * respawn loop in code — flagged in the header).
+ *
+ * LIGHTNING AURA (Merlin, Nov 16 ~00:11): lightning-element
+ * monsters and dragons carry a 59 m aura (lib/lightning-aura.js
+ * — white-yellow streaks for lightning non-dragons, red for
+ * dragons). `aura` is the auraFor() object when the monster is
+ * a live lightning source, else null. targetInRange is true /
+ * false only when a player position is known (opts.playerPos
+ * or m.playerPos); with no target known it reports null, never
+ * an invented position. A dead monster's aura is off (null).
  */
 export function monsterLifeFor(m, now = Date.now(), opts = {}) {
   const t = now instanceof Date ? now.getTime() : Number(now);
@@ -119,6 +130,25 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
   const dead = !!m.dead;
   const spotted = !!m.spotted && !dead;
   const activity = dead ? 'dead' : m.state === 'ambush' ? 'ambush-wait' : spotted ? (m.state || 'stalk') : 'roam';
+  // Aura kind for the shared law: dragons ('dragon' → red) and
+  // lightning non-dragons ('lightning-monster' → white-yellow).
+  const auraKind = !type ? null : type.dragon ? 'dragon' : type.element === 'lightning' ? 'lightning-monster' : null;
+  let aura = null;
+  let auraNote = null;
+  if (auraKind && !dead) {
+    const targetPos = (opts && opts.playerPos) || m.playerPos || null;
+    aura = auraFor(auraKind, { x: m.x || 0, z: m.z || 0 }, targetPos);
+    // auraFor() reports targetInRange false with no target;
+    // here "no target known" is null, never invented.
+    if (!targetPos) aura = { ...aura, targetInRange: null };
+    auraNote = auraKind === 'dragon'
+      ? 'Red lightning aura, 59 m — streaks strike and burn inside it'
+      : 'White-yellow lightning aura, 59 m — streaks strike and burn inside it';
+  } else if (dead) {
+    auraNote = 'Dead — the aura is off';
+  } else {
+    auraNote = 'No lightning aura — this family carries no lightning';
+  }
   const life = {
     realm: 'hollow-earth',
     kind: 'monster',
@@ -155,6 +185,8 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
     respawnAt: null,
     respawnNote: dead ? 'No respawn loop in code — the field refills on re-entry' : null,
     giveUpS: GIVE_UP_S,
+    aura,
+    auraNote,
     hour: Math.round(localHour(new Date(t)) * 10) / 10,
     night: isNightAt(new Date(t)),
   };
@@ -197,6 +229,8 @@ export function korusLifeFor(korus, now = Date.now(), opts = {}) {
     breedingNote: 'No respawn — death is permanent',
     groupSize: 1,
     deathCause: state === 'dead' ? 'combat' : null,
+    aura: null,
+    auraNote: 'No aura — Korus keeps his own shadow + sky-bolt boss mechanics',
     hour: Math.round(localHour(new Date(t)) * 10) / 10,
     night: isNightAt(new Date(t)),
   };
@@ -228,6 +262,8 @@ export function watcherLifeFor(now = Date.now()) {
     breedingNote: 'One watcher, one mountain — a singleton by design',
     groupSize: 1,
     deathCause: null,
+    aura: null,
+    auraNote: 'No aura — Ghorrum is a non-hostile watcher, never a lightning source',
     hour: Math.round(localHour(new Date(t)) * 10) / 10,
     night: isNightAt(new Date(t)),
   };

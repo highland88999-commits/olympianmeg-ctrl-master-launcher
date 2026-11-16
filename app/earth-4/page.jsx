@@ -99,6 +99,28 @@ export default function Earth4Page() {
   const [failed, setFailed] = useState(false);
   const [mode, setMode] = useState("walk");
   const [species, setSpecies] = useState(null);
+  // Fullscreen (Merlin, Nov 16 ~00:02 — "full screen like we have
+  // for earth 2"): Earth 2's mechanism is a fixed inset-0 overlay
+  // that takes over the whole screen when you enter the world, with
+  // an exit back to the menu. This page's stage is the same shape:
+  // boxed by default, fixed inset-0 at z-80 when entered, Escape
+  // or the exit button drops it back. The scene exposes resize(),
+  // called on the next frame after the stage changes size.
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const down = (e) => { if (e.key === "Escape") setFullscreen(false); };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [fullscreen]);
+
+  useEffect(() => {
+    const w = worldRef.current;
+    if (!w || typeof w.resize !== "function") return undefined;
+    const raf = requestAnimationFrame(() => { if (worldRef.current) worldRef.current.resize(); });
+    return () => cancelAnimationFrame(raf);
+  }, [fullscreen]);
   const [nearest, setNearest] = useState(null);
   const [count, setCount] = useState(0);
   const [place, setPlace] = useState({ lat: START_PLACE.lat, lon: START_PLACE.lon, name: START_PLACE.name });
@@ -266,8 +288,14 @@ export default function Earth4Page() {
         <span className="uc">UNDER CONSTRUCTION — PREVIEW BUILD</span>
       </header>
 
-      <div className="stage">
+      <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <canvas ref={canvasRef} aria-label="Earth 4 3D world" />
+        {fullscreen && (
+          <button type="button" aria-label="Exit fullscreen" onClick={() => setFullscreen(false)}
+            style={{ position: "absolute", left: 14, top: 14, zIndex: 9, minHeight: 48, padding: "10px 18px", borderRadius: 12, border: "1px solid rgba(125,223,154,0.5)", background: "rgba(8,26,17,0.9)", color: "#eef7ee", fontWeight: 700, letterSpacing: 2, cursor: "pointer" }}>
+            ✕ EXIT FULLSCREEN
+          </button>
+        )}
         {!booted && !failed && <div className="e4-boot">Reading the real Earth…</div>}
         {failed && <div className="e4-fail">3D could not start on this device. Earth 4 needs WebGL.</div>}
 
@@ -295,6 +323,9 @@ export default function Earth4Page() {
               )}
               <button className={mode === "fly" ? "on" : ""} onClick={toggleFly} aria-label="Toggle fly">
                 <Glyph>{mode === "fly" ? IC.walk : IC.fly}</Glyph>{mode === "fly" ? "WALK" : "FLY"}
+              </button>
+              <button onClick={() => setFullscreen(true)} aria-label="Enter fullscreen">
+                ⛶ FULLSCREEN
               </button>
             </div>
           </div>

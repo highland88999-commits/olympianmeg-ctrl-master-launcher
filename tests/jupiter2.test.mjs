@@ -10,9 +10,13 @@ import { fileURLToPath } from 'node:url';
 
 import {
   JUPITER2_ROUTE, JUPITER2_ROUTE_KEY, WALK_SPEED, SPEEDER_SPEED,
-  LIGHTNING_MONSTER_COUNT, DEMOBAT_COUNT, LEVER_POSITION,
+  LIGHTNING_MONSTER_COUNT, DEMOBAT_COUNT, JUPITER2_SPHERE_R,
   groundHeight, jupiter2Sky,
 } from '../lib/jupiter2/profile.js';
+import {
+  PLANET_R, CAVE_MOUTH_THETA_RAD, LEVER_CAVE_THETA_RAD,
+  leverCavePoint, leverCaveMouthPoint, isInCave, thetaFromPole,
+} from '../lib/jupiter2/planet.js';
 import {
   createSpeederState, summonSpeeder, dismissSpeeder, dismountSpeeder,
   stepSpeeder, speedFor,
@@ -115,7 +119,20 @@ describe('oblivion lever (confirm-gated)', () => {
     // The beacon column is tall (60 m) by construction.
     const beacon = lever.children.find((c) => c.material === lever.userData.beaconMat);
     assert.ok(beacon.geometry.parameters.height >= 60);
-    assert.ok(LEVER_POSITION.x !== 0 || LEVER_POSITION.z !== 0, 'the lever has a fixed place on the deck');
+    // The lever's place is inside the cave, not on the deck
+    // (Merlin, Nov 16 ~00:02 — the full-planet rework): θ=1.40
+    // from the spawn pole, inside the cave passage, with the
+    // mouth at θ=1.25 facing back toward the drop.
+    assert.equal(JUPITER2_SPHERE_R, 88);
+    assert.equal(PLANET_R, 88);
+    assert.equal(LEVER_CAVE_THETA_RAD, 1.40);
+    assert.equal(CAVE_MOUTH_THETA_RAD, 1.25);
+    const caveLever = leverCavePoint();
+    assert.ok(Math.abs(thetaFromPole(caveLever) - 1.40) < 1e-9);
+    assert.equal(isInCave(caveLever), true, 'the lever stands inside the cave');
+    const mouth = leverCaveMouthPoint();
+    assert.ok(Math.abs(thetaFromPole(mouth) - 1.25) < 1e-9);
+    assert.ok(mouth.z > caveLever.z, 'the mouth faces back toward the drop');
   });
   it('pulling without confirming does NOTHING destructive — armed stays false', () => {
     const lv = createLeverState();
@@ -249,11 +266,15 @@ describe('creatures', () => {
       activityFor('demobat', new Date(2026, 10, 15, 8).getTime()),
     );
   });
-  it('NO death law: the spec orders none, so the creatures persist', () => {
-    for (const kind of ['lightning-monster', 'demobat']) {
+  it('death is REAL now: the old no-death law is superseded (Merlin, Nov 16 ~00:08)', () => {
+    // The spec ordered no death law in the first build; the agents
+    // order superseded it — every monster ages, dies, decomposes,
+    // and is reborn in the same slot (see tests/jupiter2-agents.test.mjs).
+    for (const kind of ['lightning-monster', 'dragon', 'demobat']) {
       const life = lifeFor(kind, 3, Date.now());
-      assert.equal(life.death, null);
-      assert.equal(life.dies, false);
+      assert.equal(life.dies, true);
+      assert.notEqual(life.death, null);
+      assert.equal(life.death.cause, 'age');
     }
   });
   it('homes are spread inside the world disc', () => {
@@ -322,8 +343,8 @@ describe('creatures', () => {
       assert.equal(life.name, name, `slot ${i} is ${name}`);
       assert.equal(life.model, LIGHTNING_MONSTER_MODELS[i].key);
       assert.ok(life.blurb.length > 10);
-      assert.equal(life.death, null);
-      assert.equal(life.dies, false);
+      assert.equal(life.dies, true, 'every monster dies now');
+      assert.equal(life.death.cause, 'age');
     });
     assert.equal(lightningModelFor(7).key, 'slot-19', 'the roster wraps');
     const bat = lifeFor('demobat', 0, Date.UTC(2026, 10, 15, 12, 0, 0));
@@ -350,5 +371,30 @@ describe('creatures', () => {
     const pageSrc = read('app/jupiter-2/page.jsx');
     assert.match(pageSrc, /prefetchHawkins\(DEMOBAT_MODEL_ID\)/);
     assert.match(pageSrc, /preloadGlb\(modelUrlFor\(m\.key\)\)/);
+  });
+  it('the scene is a sphere world now — no flat disc, no world-edge clamp', () => {
+    const sceneSrc = read('components/jupiter2/Jupiter2Scene.jsx');
+    // The ground is a sphere, displaced by the planet geography.
+    assert.match(sceneSrc, /new THREE\.SphereGeometry\(JUPITER2_SPHERE_R, 96, 64\)/);
+    assert.match(sceneSrc, /groundRadiusAt/);
+    // The walker steps on the sphere, not the flat disc.
+    assert.match(sceneSrc, /stepJupiter2Walker/);
+    assert.doesNotMatch(sceneSrc, /stepFlatWalker/);
+    // No clamp keeps the walker inside the old disc.
+    assert.doesNotMatch(sceneSrc, /clamp\(walkerRef\.current\.x, -MOVE_R/);
+    assert.doesNotMatch(sceneSrc, /MOVE_R/);
+    // The mountain + cave stand on the sphere.
+    assert.match(sceneSrc, /buildMountain/);
+    assert.match(sceneSrc, /groundPointAt\(dirAt\(MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH\)\)/);
+    // Every creature wears a 59 m aura ring; the brain tick runs
+    // the strikes, the burns and the walker HP.
+    assert.match(sceneSrc, /auraRingPoints/);
+    assert.match(sceneSrc, /AURA_R_M/);
+    assert.match(sceneSrc, /BURNING/);
+    assert.match(sceneSrc, /THE STORM TOOK YOU/);
+    // The camera looks along the sphere (surface normal is up),
+    // and the orbit target is the spawn pole, not the disc centre.
+    assert.match(sceneSrc, /sphereSurfaceUp/);
+    assert.match(sceneSrc, /target=\{\[0, JUPITER2_SPHERE_R, 0\]\}/);
   });
 });

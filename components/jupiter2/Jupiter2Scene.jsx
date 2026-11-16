@@ -7,9 +7,22 @@ import { planetMaps, spotSwirlTexture, cloudLayerTexture } from '@/lib/planet-cg
 import { makeDustField, updateDustField, bandFlowOffset, spinAngle, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import {
-  JUPITER2_SEED, MOVE_R, EYE_HEIGHT,
-  LEVER_POSITION, DEMOBAT_COUNT, groundHeight, jupiter2Sky,
+  JUPITER2_SEED, JUPITER2_SPHERE_R, EYE_HEIGHT,
+  DEMOBAT_COUNT, jupiter2Sky,
 } from '@/lib/jupiter2/profile';
+// The full planet (Merlin, Nov 16 ~00:02): the world is a walkable
+// sphere, not a flat disc — the drop, the sub-level shelf, the
+// mountain and the cave all live in lib/jupiter2/planet.js.
+import {
+  PLANET_R, MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH,
+  stepJupiter2Walker, spherePointFromDeck, dirToDeck,
+  groundRadiusAt, groundPointAt, leverCavePoint, leverCaveMouthPoint,
+  spawnPoint, auraRingPoints, moveOnSphere, dirAt,
+} from '@/lib/jupiter2/planet';
+import {
+  AURA_R_M, WALKER_MAX_HP, createVictimState, applyStrike, burnTick,
+  strikeDue, lightningColorFor,
+} from '@/lib/lightning-aura';
 import {
   LIGHTNING_MONSTER_MODELS, DEMOBAT_MODEL_ID, DEMOBAT_HEIGHT_M, modelUrlFor,
 } from '@/lib/jupiter2/models';
@@ -21,8 +34,11 @@ import { kickOffGlb } from '@/app/hollow-earth/model-loader';
 // real Jupiter gravity (24.79 m/s²) with the shared 3.0 m/s
 // take-off, so the jump here is barely a hop (0.18 m apex,
 // 0.24 s hang). Honest real gravity, NOT buffed. Walk speed stays
-// the world's own 6 m/s (via the planet bundle).
-import { stepFlatWalker, planetParams } from '@/lib/planet-walker';
+// the world's own 6 m/s (via the planet bundle). The sphere step
+// itself is stepJupiter2Walker (lib/jupiter2/planet.js) — the
+// shared stepSphereWalker takes a fixed radius, and this planet
+// has two (88 deck, 74 shelf) plus a mountain.
+import { planetParams, sphereTangentBasis, sphereSurfaceUp } from '@/lib/planet-walker';
 
 const JUPITER_PLANET = planetParams('jupiter');
 import {
@@ -32,9 +48,9 @@ import {
 import {
   createLeverState, pullLever, confirmOblivion, cancelLever, leverStatus, LEVER_GREEN,
 } from '@/lib/jupiter2/lever';
-import { lifeFor, homeFor } from '@/lib/jupiter2/operators';
+import { lifeFor, homeFor, CHASE_SPEED_MPS, DEMOBAT_DIVE_SPEED_MPS } from '@/lib/jupiter2/operators';
 import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND } from '@/lib/jupiter2/storm';
-import { buildSpeeder, buildOblivionLever } from '@/lib/jupiter2/meshes';
+import { buildSpeeder, buildOblivionLever, buildMountain } from '@/lib/jupiter2/meshes';
 
 // JUPITER 2 — walkable storm surface (Merlin, Nov 15 ~01:11, spec Nov 10).
 // The user stands ON the cloud deck INSIDE the storm at street level:
@@ -84,24 +100,41 @@ function useKeys(inputRef) {
   }, [inputRef]);
 }
 
-// First-person rig: walk (6 m/s) or speeder (28 m/s). Drag to look.
-// When the speeder is mounted the rig rides it — yaw follows the
-// craft, eye sits SPEEDER_MOUNTED_EYE_M up; dismount drops the walker
-// back on foot exactly where the craft was (the speeder vanishes, Earth 1 law).
-// On foot the walk runs on the shared flat walker (lib/planet-walker.js)
-// under real Jupiter gravity (24.79 m/s²): Space or the page's JUMP
-// button hops (0.18 m — barely a hop, honest real gravity).
-function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange, jumpRef }) {
+// First-person rig on the SPHERE (Merlin, Nov 16 ~00:02 — full
+// planet): the walker stands ON the sphere, feet on the ground
+// radius, up = the surface normal, so the horizon tilts as you
+// walk around the planet (the EarthWalkScene pattern). Walk 6 m/s
+// or speeder 28 m/s; the speeder's flat (x, z) maps onto the
+// sphere through spherePointFromDeck, so the summon contract is
+// unchanged (Earth 1 law: dismount drops the walker back on foot
+// exactly where the craft was, and the speeder vanishes). Walk off
+// the drop edge and you fall 14 m to the shelf under real Jupiter
+// gravity; the ramp due north is the way back up. On foot the walk
+// runs on stepJupiter2Walker (variable ground radius, Jupiter
+// gravity 24.79, shared 3.0 m/s take-off): Space or the page's
+// JUMP button hops (0.18 m — barely a hop, honest real gravity).
+function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideChange, jumpRef }) {
   const { camera, gl } = useThree();
   const yaw = useRef(0.6);
   const pitch = useRef(-0.05);
-  const pos = useRef(new THREE.Vector3(10, EYE_HEIGHT, 26));
+  const feet = useRef(new THREE.Vector3());
   const dragging = useRef(false);
   const last = useRef([0, 0]);
   const wasMounted = useRef(false);
   const jumpQueued = useRef(false);
-  const vyRef = useRef(0);
+  const vrRef = useRef(0);
   const groundedRef = useRef(true);
+  // The speeder's smoothed ground point: the flat (x, z) maps onto
+  // the sphere, and the radius eases toward its target so driving
+  // off the cliff drops instead of snapping 14 m in one frame.
+  const speederPointRef = useRef(new THREE.Vector3());
+  const speederInit = useRef(false);
+
+  useEffect(() => {
+    const s = spawnPoint();
+    feet.current.set(s.x, s.y, s.z);
+    if (walkerStateRef) walkerStateRef.current.feet = feet.current;
+  }, [walkerStateRef]);
 
   useEffect(() => {
     camera.rotation.order = 'YXZ';
@@ -165,14 +198,28 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange, jumpRef })
     const k = inputRef.current.keys;
     const sp = speederRef.current;
     const mounted = sp.summoned && sp.mounted;
+    // Respawn: the parent's brain tick sets walkerStateRef.respawn
+    // when the storm kills the walker — back at the deck, whole.
+    if (walkerStateRef && walkerStateRef.current.respawn) {
+      walkerStateRef.current.respawn = false;
+      const s = spawnPoint();
+      feet.current.set(s.x, s.y, s.z);
+      vrRef.current = 0;
+      groundedRef.current = true;
+      yaw.current = 0.6;
+      pitch.current = -0.05;
+    }
     if (mounted !== wasMounted.current) {
       wasMounted.current = mounted;
-      if (mounted) yaw.current = sp.yaw;
-      else {
-        pos.current.set(sp.x, groundHeight(sp.x, sp.z) + EYE_HEIGHT, sp.z);
+      if (mounted) {
+        yaw.current = sp.yaw;
+        speederInit.current = false;
+      } else {
+        const p = spherePointFromDeck(sp.x, sp.z);
+        feet.current.set(p.x, p.y, p.z);
         yaw.current = sp.yaw;
         // A dismount never resumes a stale mid-air state.
-        vyRef.current = 0;
+        vrRef.current = 0;
         groundedRef.current = true;
       }
       if (onRideChange) onRideChange(mounted);
@@ -185,10 +232,46 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange, jumpRef })
         left: k.left ? 1 : 0, right: k.right ? 1 : 0,
         boost: !!k.boost,
       }, dt);
-      const r = Math.hypot(sp.x, sp.z);
-      if (r > MOVE_R) { sp.x *= MOVE_R / r; sp.z *= MOVE_R / r; }
+      // The flat (x, z) maps onto the sphere by surface distance;
+      // clamp it just short of the antipode (276 m) so the map
+      // stays sane — the far side of the planet is the wall.
+      const sr = Math.hypot(sp.x, sp.z);
+      if (sr > 270) { sp.x *= 270 / sr; sp.z *= 270 / sr; }
       yaw.current = sp.yaw;
-      pos.current.set(sp.x, groundHeight(sp.x, sp.z) + SPEEDER_MOUNTED_EYE_M, sp.z);
+      const p = spherePointFromDeck(sp.x, sp.z);
+      if (!speederInit.current) {
+        speederPointRef.current.set(p.x, p.y, p.z);
+        speederInit.current = true;
+      } else {
+        // Ease the radius toward its target: a cliff drop reads as
+        // a fall, and ordinary driving is unaffected.
+        const cur = speederPointRef.current;
+        const curR = Math.hypot(cur.x, cur.y, cur.z);
+        const targetR = Math.hypot(p.x, p.y, p.z);
+        const nextR = curR + (targetR - curR) * Math.min(1, dt * 8);
+        const n = Math.hypot(p.x, p.y, p.z) || 1;
+        cur.set((p.x / n) * nextR, (p.y / n) * nextR, (p.z / n) * nextR);
+      }
+      const point = speederPointRef.current;
+      const up = sphereSurfaceUp(point, PLANET_R);
+      const basis = sphereTangentBasis(point, yaw.current, PLANET_R);
+      const cp = Math.cos(pitch.current);
+      const spn = Math.sin(pitch.current);
+      camera.position.set(
+        point.x + up.x * SPEEDER_MOUNTED_EYE_M,
+        point.y + up.y * SPEEDER_MOUNTED_EYE_M,
+        point.z + up.z * SPEEDER_MOUNTED_EYE_M,
+      );
+      camera.up.set(up.x, up.y, up.z);
+      camera.lookAt(
+        camera.position.x + (basis.forward.x * cp + up.x * spn),
+        camera.position.y + (basis.forward.y * cp + up.y * spn),
+        camera.position.z + (basis.forward.z * cp + up.z * spn),
+      );
+      if (walkerStateRef) {
+        walkerStateRef.current.mounted = true;
+        walkerStateRef.current.feet = point;
+      }
     } else {
       const fwd = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
       const strafe = (k.right ? 1 : 0) - (k.left ? 1 : 0);
@@ -197,31 +280,45 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange, jumpRef })
         jumpQueued.current = true;
         jumpRef.current = false;
       }
-      const p = pos.current;
-      // Jupiter gravity (24.79 m/s²) on the shared flat walker:
-      // the eye rides the deck on foot and hops under real Jupiter
-      // gravity in the air (0.18 m apex — barely a hop, honest).
-      const next = stepFlatWalker(
-        { pos: { x: p.x, y: p.y, z: p.z }, vy: vyRef.current, grounded: groundedRef.current },
+      const next = stepJupiter2Walker(
+        { feet: { x: feet.current.x, y: feet.current.y, z: feet.current.z }, vr: vrRef.current, grounded: groundedRef.current },
         { fwd, strafe, jump: jumpQueued.current, yaw: yaw.current },
         dt,
         JUPITER_PLANET,
-        groundHeight
       );
       jumpQueued.current = false;
-      vyRef.current = next.vy;
+      vrRef.current = next.vr;
       groundedRef.current = next.grounded;
-      p.set(next.pos.x, next.pos.y, next.pos.z);
-      const r = Math.hypot(p.x, p.z);
-      if (r > MOVE_R) { p.x *= MOVE_R / r; p.z *= MOVE_R / r; }
+      feet.current.set(next.feet.x, next.feet.y, next.feet.z);
+      const up = sphereSurfaceUp(feet.current, PLANET_R);
+      const basis = sphereTangentBasis(feet.current, yaw.current, PLANET_R);
+      const cp = Math.cos(pitch.current);
+      const spn = Math.sin(pitch.current);
+      camera.position.set(
+        feet.current.x + up.x * EYE_HEIGHT,
+        feet.current.y + up.y * EYE_HEIGHT,
+        feet.current.z + up.z * EYE_HEIGHT,
+      );
+      camera.up.set(up.x, up.y, up.z);
+      camera.lookAt(
+        camera.position.x + (basis.forward.x * cp + up.x * spn),
+        camera.position.y + (basis.forward.y * cp + up.y * spn),
+        camera.position.z + (basis.forward.z * cp + up.z * spn),
+      );
       // The walker pose lives here — summon reads it, so the
-      // speeder materializes at the walker's actual feet.
-      walkerRef.current.x = p.x;
-      walkerRef.current.z = p.z;
+      // speeder materializes at the walker's actual feet. The
+      // summon contract is flat (x, z), so the feet map back to
+      // deck coordinates.
+      const deck = dirToDeck(feet.current);
+      walkerRef.current.x = deck.x;
+      walkerRef.current.z = deck.z;
       walkerRef.current.yaw = yaw.current;
+      if (walkerStateRef) {
+        walkerStateRef.current.mounted = false;
+        walkerStateRef.current.feet = feet.current;
+        walkerStateRef.current.grounded = groundedRef.current;
+      }
     }
-    camera.position.copy(pos.current);
-    camera.rotation.set(pitch.current, yaw.current, 0);
   });
   return null;
 }
@@ -362,6 +459,14 @@ function StormRig({ dayF }) {
       arr[i * 3] = x; arr[i * 3 + 1] = y; arr[i * 3 + 2] = z;
     }
     attr.needsUpdate = true;
+    // The haze and murk ride with the walker now — the world is a
+    // sphere, so a dust box fixed at the origin would sit at the
+    // planet's centre, not around the walker on the deck.
+    const camDir = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+    const camR = Math.hypot(camDir.x, camDir.y, camDir.z) || 1;
+    const camGround = groundPointAt({ x: camDir.x / camR, y: camDir.y / camR, z: camDir.z / camR });
+    haze.position.set(camGround.x, camGround.y, camGround.z);
+    murk.position.set(camGround.x, camGround.y, camGround.z);
     updateDustField(haze, now);
     haze.material.opacity = (0.2 + 0.3 * stormIntensity(now)) * (0.5 + 0.5 * dayF);
     updateDustField(murk, now);
@@ -372,24 +477,31 @@ function StormRig({ dayF }) {
     cloudMat.map.offset.x = bandFlowOffset(0.004, now);
     cloudMat.map.needsUpdate = true;
     // Lightning: the seeded flash drives the real light, the sky
-    // wash, and one bolt — two on the hard flashes.
+    // wash, and one bolt — two on the hard flashes. The bolt is
+    // anchored at the deck cap pole (its old home, near spawn):
+    // the bolt's local frame is y-up from the pole's ground, so a
+    // strike reads on the deck wherever the walker stands on the
+    // planet. (Anchoring it at the camera would put every strike
+    // at the walker's feet.)
     const flash = flashAt(now);
     if (flashLight.current) flashLight.current.intensity = flash * 8;
     washMat.opacity = flash * 0.3;
     const slot = Math.floor((now - PLANET_CGI_EPOCH_MS) / 90);
     const line = boltRef.current;
     const twin = twinRef.current;
+    const poleGround = groundPointAt({ x: 0, y: 1, z: 0 });
+    const toWorld = (p) => new THREE.Vector3(poleGround.x + p.x, poleGround.y + p.y, poleGround.z + p.z);
     if (line) {
       if (flash >= 0.45 && slot !== lastSlot.current) {
         lastSlot.current = slot;
         const bolt = boltFor(now);
-        const pts = bolt.points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+        const pts = bolt.points.map((p) => toWorld(p));
         boltGeo.setFromPoints(pts);
         line.visible = true;
         if (twin) {
           const bolt2 = boltFor(now + 47);
           if (flash >= 0.7 && bolt2.points.length >= 8) {
-            twinGeo.setFromPoints(bolt2.points.map((p) => new THREE.Vector3(p.x, p.y, p.z)));
+            twinGeo.setFromPoints(bolt2.points.map((p) => toWorld(p)));
             twin.visible = true;
           } else {
             twin.visible = false;
@@ -432,22 +544,94 @@ function StormRig({ dayF }) {
 // demobats the Hawkins GLB. Each creature owns a holder group the
 // driver moves; the GLB mounts inside it once its load lands, so
 // a creature is simply absent until its model arrives — never a
-// stand-in. No death law: they persist (operators.js).
-function Creatures({ onSelect }) {
+// stand-in. The creatures live on the SPHERE now (Merlin, Nov 16
+// ~00:02): homes map from deck coordinates through
+// spherePointFromDeck, and every step re-projects onto the ground
+// radius (moveOnSphere), so a monster can walk the whole planet —
+// including down the drop and past the mountain. The brain
+// (brainRef, written by the parent's 500 ms tick from the operator
+// life lines) steers them: a hunting monster chases its target at
+// chase speed; a dead one hides and leaves remains. Each creature
+// wears its lightning aura as a ring on the ground (59 m, its own
+// colour) and throws a visible streak when the brain says it struck.
+function Creatures({ onSelect, brainRef, creaturesRef }) {
   const monsters = useMemo(() => LIGHTNING_MONSTER_MODELS.map((model, i) => {
     const home = homeFor('lightning-monster', i);
+    const homePoint = spherePointFromDeck(home.x, home.z);
     const group = new THREE.Group();
-    group.position.set(home.x, groundHeight(home.x, home.z), home.z);
-    return { id: `lightning-monster_${i}`, kind: 'lightning-monster', index: i, model, group, home, phase: i * 1.3, wander: 0, tx: home.x, tz: home.z };
+    group.position.set(homePoint.x, homePoint.y, homePoint.z);
+    const ringGeo = new THREE.BufferGeometry();
+    ringGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 3), 3));
+    const streakGeo = new THREE.BufferGeometry();
+    streakGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
+    const remainsGeo = new THREE.CircleGeometry(1.4, 20);
+    return {
+      id: `lightning-monster_${i}`, kind: 'lightning-monster', index: i, model, group,
+      home, homePoint, phase: i * 1.3, wander: 0, target: null,
+      ringGeo, streakGeo, remainsGeo,
+    };
   }), []);
   const bats = useMemo(() => Array.from({ length: DEMOBAT_COUNT }, (_, i) => {
     const home = homeFor('demobat', i);
+    const homePoint = spherePointFromDeck(home.x, home.z);
     const group = new THREE.Group();
-    group.position.set(home.x, 14 + (i % 4) * 3, home.z);
-    return { id: `demobat_${i}`, kind: 'demobat', index: i, group, home, phase: i * 0.9, angle: i * 0.7, radius: 12 + (i % 4) * 6, handle: null };
+    const dir = new THREE.Vector3(homePoint.x, homePoint.y, homePoint.z).normalize();
+    const alt = 14 + (i % 4) * 3;
+    const r = groundRadiusAt({ x: dir.x, y: dir.y, z: dir.z }) + alt;
+    group.position.set(dir.x * r, dir.y * r, dir.z * r);
+    const ringGeo = new THREE.BufferGeometry();
+    ringGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(48 * 3), 3));
+    const streakGeo = new THREE.BufferGeometry();
+    streakGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(8 * 3), 3));
+    const remainsGeo = new THREE.CircleGeometry(1.2, 20);
+    return {
+      id: `demobat_${i}`, kind: 'demobat', index: i, group, home, homePoint,
+      phase: i * 0.9, angle: i * 0.7, radius: 12 + (i % 4) * 6, handle: null,
+      alt, ringGeo, streakGeo, remainsGeo,
+    };
   }), []);
   const mountedRef = useRef(true);
   const kickedBats = useRef(new Set());
+  const ringMats = useMemo(() => {
+    const mats = {};
+    for (const m of monsters) {
+      const lKind = m.model.key === 'sky-dragon' || m.model.key === 'aureline' ? 'dragon' : 'lightning-monster';
+      const color = lightningColorFor(lKind);
+      mats[m.id] = new THREE.LineBasicMaterial({
+        color: color ? color.glow : '#ffe14d', transparent: true, opacity: 0.25,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+    }
+    for (const b of bats) {
+      const color = lightningColorFor('demobat');
+      mats[b.id] = new THREE.LineBasicMaterial({
+        color: color ? color.glow : '#ffe14d', transparent: true, opacity: 0.25,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+    }
+    return mats;
+  }, [monsters, bats]);
+  const streakMats = useMemo(() => {
+    const mats = {};
+    for (const m of monsters) {
+      const lKind = m.model.key === 'sky-dragon' || m.model.key === 'aureline' ? 'dragon' : 'lightning-monster';
+      const color = lightningColorFor(lKind);
+      mats[m.id] = new THREE.LineBasicMaterial({
+        color: color ? color.core : '#fffbe0', transparent: true, opacity: 0.95,
+      });
+    }
+    for (const b of bats) {
+      const color = lightningColorFor('demobat');
+      mats[b.id] = new THREE.LineBasicMaterial({
+        color: color ? color.core : '#fff9c4', transparent: true, opacity: 0.95,
+      });
+    }
+    return mats;
+  }, [monsters, bats]);
+
+  useEffect(() => {
+    if (creaturesRef) creaturesRef.current = { monsters, bats };
+  }, [creaturesRef, monsters, bats]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -479,36 +663,137 @@ function Creatures({ onSelect }) {
     };
   }, [monsters, bats]);
 
-  useFrame((state) => {
+  // One jagged streak from a monster's chest to its target, seeded
+  // by the strike instant so it holds still for its 0.3 s life.
+  const streakPoints = (from, to, seedMs) => {
+    let s = (seedMs % 100000) || 1;
+    const rnd = () => {
+      s = (s * 1103515245 + 12345) & 0x7fffffff;
+      return s / 0x7fffffff;
+    };
+    const pts = [];
+    for (let i = 0; i < 8; i++) {
+      const t = i / 7;
+      const jx = (rnd() - 0.5) * 2.2 * (i > 0 && i < 7 ? 1 : 0);
+      const jy = (rnd() - 0.5) * 1.6 * (i > 0 && i < 7 ? 1 : 0);
+      const jz = (rnd() - 0.5) * 2.2 * (i > 0 && i < 7 ? 1 : 0);
+      pts.push(new THREE.Vector3(
+        from.x + (to.x - from.x) * t + jx,
+        from.y + (to.y - from.y) * t + jy,
+        from.z + (to.z - from.z) * t + jz,
+      ));
+    }
+    return pts;
+  };
+
+  useFrame((state, rawDt) => {
     const t = state.clock.elapsedTime;
-    for (const m of monsters) {
-      // Slow wander across the deck, retargeting every few seconds.
-      m.wander -= 0.016;
-      if (m.wander <= 0) {
-        m.wander = 4 + (m.index % 3);
-        const a = t * 0.1 + m.phase;
-        m.tx = m.home.x + Math.cos(a) * 10;
-        m.tz = m.home.z + Math.sin(a) * 10;
+    const dt = Math.min(rawDt || 0.016, 0.05);
+    const now = Date.now();
+    const brain = (brainRef && brainRef.current) || {};
+    const upOf = (p) => {
+      const r = Math.hypot(p.x, p.y, p.z) || 1;
+      return { x: p.x / r, y: p.y / r, z: p.z / r };
+    };
+    const updateAura = (c, brainEntry) => {
+      // The 59 m ring, hugging the sphere, in the creature's colour.
+      const dir = upOf(c.group.position);
+      const pts = auraRingPoints(dir, AURA_R_M, 48);
+      const attr = c.ringGeo.getAttribute('position');
+      for (let i = 0; i < 48; i++) {
+        attr.array[i * 3] = pts[i].x;
+        attr.array[i * 3 + 1] = pts[i].y;
+        attr.array[i * 3 + 2] = pts[i].z;
       }
+      attr.needsUpdate = true;
+      const mat = ringMats[c.id];
+      if (mat) mat.opacity = (brainEntry && brainEntry.dead) ? 0 : 0.2 + 0.12 * Math.sin(t * 2 + c.phase);
+      // The streak: visible for 0.3 s after the brain says it struck.
+      const strike = brainEntry && brainEntry.strike;
+      const streakMat = streakMats[c.id];
+      if (strike && now - strike.atMs < 300 && streakMat) {
+        const up = upOf(c.group.position);
+        const from = {
+          x: c.group.position.x + up.x * (c.model ? c.model.heightM * 0.7 : 1.4),
+          y: c.group.position.y + up.y * (c.model ? c.model.heightM * 0.7 : 1.4),
+          z: c.group.position.z + up.z * (c.model ? c.model.heightM * 0.7 : 1.4),
+        };
+        const spts = streakPoints(from, strike.target, strike.atMs);
+        const sattr = c.streakGeo.getAttribute('position');
+        for (let i = 0; i < 8; i++) {
+          sattr.array[i * 3] = spts[i].x;
+          sattr.array[i * 3 + 1] = spts[i].y;
+          sattr.array[i * 3 + 2] = spts[i].z;
+        }
+        sattr.needsUpdate = true;
+        streakMat.opacity = 0.95;
+      } else if (streakMat) {
+        streakMat.opacity = 0;
+      }
+    };
+    for (const m of monsters) {
+      const entry = (brain.monsters || {})[m.id] || {};
+      const dead = !!entry.dead;
+      m.group.visible = !dead;
+      updateAura(m, entry);
+      if (dead) continue;
       const p = m.group.position;
-      const dx = m.tx - p.x, dz = m.tz - p.z;
-      const len = Math.hypot(dx, dz) || 1;
-      p.x += (dx / len) * 1.1 * 0.016;
-      p.z += (dz / len) * 1.1 * 0.016;
-      p.y = groundHeight(p.x, p.z);
-      // The GLBs face +Z in bind pose (Hollow Earth faceYaw law:
-      // faceYaw = atan2 of travel), so this walks them forward.
-      m.group.rotation.y = Math.atan2(dx, dz);
+      const up = upOf(p);
+      if (entry.chasing && entry.target) {
+        // The hunt: close on the target at chase speed, facing it.
+        const next = moveOnSphere({ x: p.x, y: p.y, z: p.z }, entry.target, CHASE_SPEED_MPS, dt);
+        m.group.up.set(up.x, up.y, up.z);
+        m.group.lookAt(next.x, next.y, next.z);
+        p.set(next.x, next.y, next.z);
+      } else {
+        // Slow wander across the deck, retargeting every few seconds.
+        m.wander -= dt;
+        if (m.wander <= 0 || !m.target) {
+          m.wander = 4 + (m.index % 3);
+          const a = t * 0.1 + m.phase;
+          const deck = { x: m.home.x + Math.cos(a) * 10, z: m.home.z + Math.sin(a) * 10 };
+          m.target = spherePointFromDeck(deck.x, deck.z);
+        }
+        const next = moveOnSphere({ x: p.x, y: p.y, z: p.z }, m.target, 1.1, dt);
+        m.group.up.set(up.x, up.y, up.z);
+        m.group.lookAt(next.x, next.y, next.z);
+        p.set(next.x, next.y, next.z);
+      }
     }
     for (const b of bats) {
-      b.angle += 0.016 * 0.22;
+      const entry = (brain.bats || {})[b.id] || {};
+      const dead = !!entry.dead;
+      b.group.visible = !dead;
+      updateAura(b, entry);
+      if (dead) continue;
       const p = b.group.position;
-      const nx = b.home.x + Math.cos(b.angle) * b.radius;
-      const nz = b.home.z + Math.sin(b.angle) * b.radius;
-      const ny = 13 + Math.sin(t * 0.7 + b.phase) * 3.5;
-      const npos = new THREE.Vector3(nx, ny, nz);
-      b.group.lookAt(npos);
-      p.copy(npos);
+      const up = upOf(p);
+      if (entry.chasing && entry.target) {
+        // The dive: close on the walker at dive speed, dropping to
+        // ~4 m above the deck so the yellow lightning can reach.
+        const targetAlt = 4;
+        b.alt += (targetAlt - b.alt) * Math.min(1, dt * 1.5);
+        const next = moveOnSphere({ x: p.x, y: p.y, z: p.z }, entry.target, DEMOBAT_DIVE_SPEED_MPS, dt);
+        const dir = upOf(next);
+        const r = groundRadiusAt(dir) + b.alt;
+        b.group.up.set(up.x, up.y, up.z);
+        b.group.lookAt(next.x, next.y, next.z);
+        p.set(dir.x * r, dir.y * r, dir.z * r);
+      } else {
+        b.angle += dt * 0.22;
+        const basis = sphereTangentBasis(b.homePoint, 0, PLANET_R);
+        const cx = b.homePoint.x + basis.right.x * Math.cos(b.angle) * b.radius + basis.forward.x * Math.sin(b.angle) * b.radius;
+        const cy = b.homePoint.y + basis.right.y * Math.cos(b.angle) * b.radius + basis.forward.y * Math.sin(b.angle) * b.radius;
+        const cz = b.homePoint.z + basis.right.z * Math.cos(b.angle) * b.radius + basis.forward.z * Math.sin(b.angle) * b.radius;
+        const dir = upOf({ x: cx, y: cy, z: cz });
+        const targetAlt = 14 + (b.index % 4) * 3;
+        b.alt += (targetAlt - b.alt) * Math.min(1, dt * 0.5);
+        const r = groundRadiusAt(dir) + b.alt;
+        const npos = new THREE.Vector3(dir.x * r, dir.y * r, dir.z * r);
+        b.group.up.set(up.x, up.y, up.z);
+        b.group.lookAt(npos.x, npos.y, npos.z);
+        p.copy(npos);
+      }
       // The Hawkins rig flaps the arm-chain wings (2.6 Hz).
       if (b.handle && b.handle.update) b.handle.update(t, { phase: b.phase });
     }
@@ -516,40 +801,87 @@ function Creatures({ onSelect }) {
 
   const summary = (c) => {
     const life = lifeFor(c.kind, c.index, Date.now());
+    const brain = (brainRef && brainRef.current) || {};
+    const entry = ((brain.monsters || {})[c.id] || (brain.bats || {})[c.id] || {});
     return {
       id: c.id, kind: c.kind, name: life.name, niche: life.realm,
       element: c.kind === 'lightning-monster' ? 'storm' : 'air',
       diet: life.diet, habit: life.habit, stage: life.stage,
-      activity: life.activity, pos: [c.group.position.x, c.group.position.y, c.group.position.z],
+      activity: entry.dead ? 'remains' : life.activity,
+      line: life.line,
+      hp: entry.hp != null ? entry.hp : null,
+      pos: [c.group.position.x, c.group.position.y, c.group.position.z],
     };
+  };
+  const remainsFor = (c) => {
+    const brain = (brainRef && brainRef.current) || {};
+    const entry = ((brain.monsters || {})[c.id] || (brain.bats || {})[c.id] || {});
+    if (!entry.dead || !entry.deathPoint) return null;
+    const d = entry.deathPoint;
+    const r = Math.hypot(d.x, d.y, d.z) || 1;
+    const up = { x: d.x / r, y: d.y / r, z: d.z / r };
+    return { position: [d.x + up.x * 0.15, d.y + up.y * 0.15, d.z + up.z * 0.15], up };
   };
   return (
     <>
-      {monsters.map((m) => (
-        <primitive key={m.id} object={m.group}
-          onClick={(e) => { e.stopPropagation(); onSelect(summary(m)); }}
-          onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
-          onPointerOut={() => { document.body.style.cursor = ''; }} />
-      ))}
-      {bats.map((b) => (
-        <primitive key={b.id} object={b.group}
-          onClick={(e) => { e.stopPropagation(); onSelect(summary(b)); }}
-          onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
-          onPointerOut={() => { document.body.style.cursor = ''; }} />
-      ))}
+      {monsters.map((m) => {
+        const rem = remainsFor(m);
+        return (
+          <group key={m.id}>
+            <primitive object={m.group}
+              onClick={(e) => { e.stopPropagation(); onSelect(summary(m)); }}
+              onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
+              onPointerOut={() => { document.body.style.cursor = ''; }} />
+            <lineLoop geometry={m.ringGeo} material={ringMats[m.id]} frustumCulled={false} />
+            <line geometry={m.streakGeo} material={streakMats[m.id]} frustumCulled={false} />
+            {rem && (
+              <mesh geometry={m.remainsGeo} position={rem.position}
+                onUpdate={(mesh) => { mesh.lookAt(rem.position[0] + rem.up.x, rem.position[1] + rem.up.y, rem.position[2] + rem.up.z); }}>
+                <meshBasicMaterial color="#140b06" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} />
+              </mesh>
+            )}
+          </group>
+        );
+      })}
+      {bats.map((b) => {
+        const rem = remainsFor(b);
+        return (
+          <group key={b.id}>
+            <primitive object={b.group}
+              onClick={(e) => { e.stopPropagation(); onSelect(summary(b)); }}
+              onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
+              onPointerOut={() => { document.body.style.cursor = ''; }} />
+            <lineLoop geometry={b.ringGeo} material={ringMats[b.id]} frustumCulled={false} />
+            <line geometry={b.streakGeo} material={streakMats[b.id]} frustumCulled={false} />
+            {rem && (
+              <mesh geometry={b.remainsGeo} position={rem.position}
+                onUpdate={(mesh) => { mesh.lookAt(rem.position[0] + rem.up.x, rem.position[1] + rem.up.y, rem.position[2] + rem.up.z); }}>
+                <meshBasicMaterial color="#140b06" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} />
+              </mesh>
+            )}
+          </group>
+        );
+      })}
     </>
   );
 }
 
 // --- scene content -----------------------------------------------------------
-function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverStateRef, onSelect, selectedId, onRideChange, onLever, jumpRef }) {
+function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walkerStateRef, brainRef, creaturesRef, leverStateRef, onSelect, selectedId, onRideChange, onLever, jumpRef }) {
   const sky = useMemo(() => jupiter2Sky(timeOfDay), [timeOfDay]);
   const groundGeo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(220, 220, 96, 96);
-    g.rotateX(-Math.PI / 2);
+    // The planet itself: a sphere, displaced by the ground law —
+    // the deck cap at 88, the shelf at 74, the mountain bump on
+    // the shelf. Every vertex sits on its ground radius, so the
+    // mesh and the walker agree exactly about where the ground is.
+    const g = new THREE.SphereGeometry(JUPITER2_SPHERE_R, 96, 64);
     const pos = g.attributes.position;
     for (let i = 0; i < pos.count; i++) {
-      pos.setY(i, groundHeight(pos.getX(i), pos.getZ(i)));
+      const dir = { x: pos.getX(i), y: pos.getY(i), z: pos.getZ(i) };
+      const r = Math.hypot(dir.x, dir.y, dir.z) || 1;
+      const groundR = groundRadiusAt({ x: dir.x / r, y: dir.y / r, z: dir.z / r });
+      const s = groundR / r;
+      pos.setXYZ(i, pos.getX(i) * s, pos.getY(i) * s, pos.getZ(i) * s);
     }
     g.computeVertexNormals();
     return g;
@@ -580,6 +912,45 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverS
   }, []);
   const speederGroup = useMemo(() => buildSpeeder(), []);
   const leverGroup = useMemo(() => buildOblivionLever(), []);
+  const mountainGroup = useMemo(() => buildMountain(), []);
+  // The lever stands inside the cave; the mountain rises on the
+  // shelf past the drop; the beacon label hangs at the cave mouth.
+  const leverPoint = useMemo(() => leverCavePoint(), []);
+  const leverUp = useMemo(() => {
+    const r = Math.hypot(leverPoint.x, leverPoint.y, leverPoint.z) || 1;
+    return { x: leverPoint.x / r, y: leverPoint.y / r, z: leverPoint.z / r };
+  }, [leverPoint]);
+  const leverQuat = useMemo(() => new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(leverUp.x, leverUp.y, leverUp.z),
+  ), [leverUp]);
+  const mouthPoint = useMemo(() => leverCaveMouthPoint(), []);
+  const mouthUp = useMemo(() => {
+    const r = Math.hypot(mouthPoint.x, mouthPoint.y, mouthPoint.z) || 1;
+    return { x: mouthPoint.x / r, y: mouthPoint.y / r, z: mouthPoint.z / r };
+  }, [mouthPoint]);
+  const mountainPoint = useMemo(() => groundPointAt(dirAt(MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH)), []);
+  const mountainQuat = useMemo(() => {
+    const up = new THREE.Vector3(mountainPoint.x, mountainPoint.y, mountainPoint.z).normalize();
+    const pole = new THREE.Vector3(0, JUPITER2_SPHERE_R, 0);
+    const toPole = pole.clone().sub(new THREE.Vector3(mountainPoint.x, mountainPoint.y, mountainPoint.z));
+    toPole.addScaledVector(up, -toPole.dot(up)).normalize();
+    // Local +Z (the cave mouth) faces the pole / the drop.
+    const zAxis = toPole;
+    const xAxis = new THREE.Vector3().crossVectors(up, zAxis).normalize();
+    const yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+    const m = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+    return new THREE.Quaternion().setFromRotationMatrix(m);
+  }, [mountainPoint]);
+  const spotPoint = useMemo(() => spherePointFromDeck(-42, -55), []);
+  const spotQuat = useMemo(() => {
+    const r = Math.hypot(spotPoint.x, spotPoint.y, spotPoint.z) || 1;
+    return new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(spotPoint.x / r, spotPoint.y / r, spotPoint.z / r),
+    );
+  }, [spotPoint]);
+  const speederSmoothR = useRef(null);
 
   useEffect(() => () => {
     groundGeo.dispose(); groundMat.dispose(); skyMat.dispose(); spotTex.dispose();
@@ -593,13 +964,27 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverS
     // The Great Red Spot turns slowly — a full turn in ~5 min.
     spotTex.rotation = spinAngle(0.02, now);
   });
-  // Speeder mesh follows its state; lever arm tilts when pulled.
+  // Speeder mesh follows its state (on the sphere now, radius
+  // eased so a cliff drop reads as a fall); lever arm tilts when pulled.
   useFrame(() => {
     const sp = speederRef.current;
     speederGroup.visible = sp.summoned;
     if (sp.summoned) {
-      speederGroup.position.set(sp.x, groundHeight(sp.x, sp.z) + 0.1, sp.z);
-      speederGroup.rotation.y = sp.yaw;
+      const p = spherePointFromDeck(sp.x, sp.z);
+      const targetR = Math.hypot(p.x, p.y, p.z);
+      if (speederSmoothR.current == null) speederSmoothR.current = targetR;
+      else speederSmoothR.current += (targetR - speederSmoothR.current) * 0.2;
+      const r = Math.hypot(p.x, p.y, p.z) || 1;
+      const up = { x: p.x / r, y: p.y / r, z: p.z / r };
+      const s = speederSmoothR.current / r;
+      speederGroup.position.set(p.x * s + up.x * 0.1, p.y * s + up.y * 0.1, p.z * s + up.z * 0.1);
+      const basis = sphereTangentBasis({ x: p.x, y: p.y, z: p.z }, sp.yaw, PLANET_R);
+      const m = new THREE.Matrix4().makeBasis(
+        new THREE.Vector3(basis.right.x, basis.right.y, basis.right.z),
+        new THREE.Vector3(up.x, up.y, up.z),
+        new THREE.Vector3(-basis.forward.x, -basis.forward.y, -basis.forward.z),
+      );
+      speederGroup.quaternion.setFromRotationMatrix(m);
       speederGroup.userData.glowMat.opacity = 0.6 + Math.min(1, Math.abs(sp.speed) / SPEEDER_SPEED) * 0.4;
     }
     const arm = leverGroup.userData.arm;
@@ -625,35 +1010,38 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverS
       <mesh material={skyMat}>
         <sphereGeometry args={[420, 32, 24]} />
       </mesh>
-      {/* the cloud deck */}
+      {/* the planet — the whole sphere, deck cap + shelf + mountain */}
       <mesh geometry={groundGeo} material={groundMat} />
       {/* the Great Red Spot, a storm pool on the deck, slowly turning */}
-      <mesh position={[-42, groundHeight(-42, -55) + 0.15, -55]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[spotPoint.x, spotPoint.y, spotPoint.z]} quaternion={spotQuat}>
         <circleGeometry args={[17, 40]} />
         <meshBasicMaterial map={spotTex} transparent opacity={0.9} depthWrite={false} />
       </mesh>
 
       <StormRig dayF={sky.dayF} />
-      <Creatures onSelect={onSelect} />
+      <Creatures onSelect={onSelect} brainRef={brainRef} creaturesRef={creaturesRef} />
       <primitive object={speederGroup} />
 
-      {/* the oblivion lever — green, beacon-lit, clickable */}
+      {/* the mountain past the drop, cave mouth facing the drop */}
+      <primitive object={mountainGroup} position={[mountainPoint.x, mountainPoint.y, mountainPoint.z]} quaternion={mountainQuat} />
+
+      {/* the oblivion lever — inside the cave now, green, beacon-lit, clickable */}
       <primitive object={leverGroup}
-        position={[LEVER_POSITION.x, groundHeight(LEVER_POSITION.x, LEVER_POSITION.z), LEVER_POSITION.z]}
+        position={[leverPoint.x, leverPoint.y, leverPoint.z]} quaternion={leverQuat}
         onClick={(e) => { e.stopPropagation(); onLever(); }}
         onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { document.body.style.cursor = ''; }}
       />
-      <Html position={[LEVER_POSITION.x, groundHeight(LEVER_POSITION.x, LEVER_POSITION.z) + 5, LEVER_POSITION.z]} center distanceFactor={50} style={{ pointerEvents: 'none' }}>
+      <Html position={[mouthPoint.x + mouthUp.x * 5, mouthPoint.y + mouthUp.y * 5, mouthPoint.z + mouthUp.z * 5]} center distanceFactor={50} style={{ pointerEvents: 'none' }}>
         <div style={{ fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap', color: LEVER_GREEN, textShadow: '0 1px 6px #000', fontWeight: 700 }}>⚡ OBLIVION LEVER</div>
       </Html>
 
       {mode === 'orbit' && (
         <OrbitControls makeDefault enableDamping dampingFactor={0.08}
-          maxPolarAngle={Math.PI * 0.52} minDistance={5} maxDistance={170} target={[0, 6, 0]} />
+          maxPolarAngle={Math.PI * 0.52} minDistance={5} maxDistance={170} target={[0, JUPITER2_SPHERE_R, 0]} />
       )}
       {mode !== 'orbit' && (
-        <FirstPerson inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} onRideChange={onRideChange} jumpRef={jumpRef} />
+        <FirstPerson inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} walkerStateRef={walkerStateRef} onRideChange={onRideChange} jumpRef={jumpRef} />
       )}
     </>
   );
@@ -676,6 +1064,176 @@ export default function Jupiter2Scene({
   const walkerRef = useRef({ x: 10, z: 26, yaw: 0.6 });
   const [riding, setRiding] = useState(false);
   const [leverUi, setLeverUi] = useState({ phase: 'idle', countdown: null });
+  // The walker's live 3D pose, written by the FirstPerson rig every
+  // frame (feet = a Vector3 on the sphere; mounted while riding).
+  // The brain tick below reads it — the tick, not the rig, owns
+  // health, so the rig never decides a death.
+  const walkerStateRef = useRef({ feet: null, mounted: false, grounded: true, respawn: false });
+  // The brain: one entry per creature ({ hp, burn, dead, kill,
+  // chasing, target, strike, deathPoint }) + the walker's own
+  // victim state. Written by the 500 ms tick, read by Creatures
+  // (steering, rings, streaks, remains) every frame.
+  const brainRef = useRef({ walker: createVictimState(WALKER_MAX_HP), monsters: {}, bats: {} });
+  const creaturesRef = useRef(null);
+  const [hpUi, setHpUi] = useState({ hp: WALKER_MAX_HP, burning: false });
+  const hpUiRef = useRef({ hp: WALKER_MAX_HP, burning: false });
+  const [lastDeathAt, setLastDeathAt] = useState(0);
+  const lastDeathAtRef = useRef(0);
+
+  // ── the brain tick (500 ms): life lines, hunts, auras, burns ──
+  // Every creature's life is recomputed from the operator conductor
+  // (lifeFor) with the live positions; the tick only APPLIES what
+  // the operators decide: steering targets, aura strikes, burn
+  // ticks, duel losses, and the walker's own death + respawn.
+  // Deaths are the operator's, not the tick's: a kill is recorded
+  // once per generation (cause + diedAtMs + killer), lifeFor turns
+  // it into a decomposition, and the next generation clears it.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = Date.now();
+      const brain = brainRef.current;
+      const creatures = creaturesRef.current;
+      if (!creatures) return;
+      const feet = walkerStateRef.current.feet;
+      const mounted = !!walkerStateRef.current.mounted;
+      const walker = feet
+        ? { x: feet.x, y: feet.y, z: feet.z, alive: brain.walker.hp > 0, mounted }
+        : null;
+      const all = [
+        ...creatures.monsters.map((c) => ({ ...c, map: 'monsters' })),
+        ...creatures.bats.map((c) => ({ ...c, map: 'bats' })),
+      ];
+      // Pre-pass: each creature's activity (a diving demobat is
+      // prey; a circling one is not) — pure clock reads.
+      const activities = {};
+      for (const c of all) {
+        try {
+          activities[c.id] = lifeFor(c.kind, c.index, now).activity;
+        } catch {
+          activities[c.id] = '';
+        }
+      }
+      const others = all.map((c) => {
+        const entry = (brain[c.map] || {})[c.id] || {};
+        return {
+          id: c.id, kind: c.kind, index: c.index,
+          x: c.group.position.x, y: c.group.position.y, z: c.group.position.z,
+          alive: !entry.dead,
+          heightM: (c.model && c.model.heightM) || 2,
+          diving: c.kind === 'demobat' && activities[c.id] === 'diving low through the rain',
+        };
+      });
+      for (const c of all) {
+        const map = brain[c.map] || (brain[c.map] = {});
+        const entry = map[c.id] || (map[c.id] = {
+          hp: 100, maxHp: 100, burnDps: 0, burnRemainingS: 0,
+          lastStrikeMs: null, dead: false, kill: null, lastStriker: null,
+          chasing: false, target: null, strike: null, deathPoint: null,
+        });
+        const pos = { x: c.group.position.x, y: c.group.position.y, z: c.group.position.z };
+        let life;
+        try {
+          life = lifeFor(c.kind, c.index, now, { ...pos, walker, others, kill: entry.kill });
+        } catch {
+          continue;
+        }
+        // A new generation was born (the recorded kill belongs to
+        // an older one): the slot is alive again, whole.
+        if (entry.kill && entry.kill.generation < life.generation) {
+          entry.kill = null;
+          entry.dead = false;
+          entry.hp = 100;
+          entry.burnDps = 0;
+          entry.burnRemainingS = 0;
+          entry.deathPoint = null;
+        }
+        if (life.state === 'decomposing') {
+          if (!entry.dead) {
+            entry.dead = true;
+            entry.deathPoint = { ...pos };
+            entry.chasing = false;
+            entry.target = null;
+          }
+          continue;
+        }
+        entry.dead = false;
+        entry.deathPoint = null;
+        const hunt = life.hunt || {};
+        // Steering: chase the prey the operator picked.
+        if (hunt.mode === 'hunt-user' || hunt.mode === 'hunt-prey' || hunt.mode === 'attack') {
+          entry.chasing = true;
+          entry.target = hunt.targetKind === 'walker' && walker
+            ? { x: walker.x, y: walker.y, z: walker.z }
+            : ((others.find((o) => o.id === hunt.target) || null));
+        } else {
+          entry.chasing = false;
+          entry.target = null;
+        }
+        // The duel: the loser dies, once, for this generation.
+        if (hunt.mode === 'duel' && hunt.loserSceneId === c.id && !entry.kill) {
+          entry.kill = { generation: life.generation, cause: 'territorial-duel', diedAtMs: now, killerId: hunt.winnerSceneId || null };
+        }
+        // The aura strike: attacking, cadence open, target known.
+        if (hunt.mode === 'attack' && entry.target && strikeDue(entry.lastStrikeMs, now)) {
+          entry.lastStrikeMs = now;
+          entry.strike = { target: { ...entry.target }, atMs: now };
+          if (hunt.targetKind === 'walker') {
+            brain.walker = applyStrike(brain.walker, now);
+          } else {
+            const preyMap = hunt.targetKind === 'demobat' ? brain.bats : brain.monsters;
+            const prey = preyMap && preyMap[hunt.target];
+            if (prey && !prey.dead) {
+              const ns = applyStrike({
+                hp: prey.hp, maxHp: 100, burnDps: prey.burnDps,
+                burnRemainingS: prey.burnRemainingS, lastStrikeMs: prey.lastStrikeMs, dead: false,
+              }, now);
+              prey.hp = ns.hp;
+              prey.burnDps = ns.burnDps;
+              prey.burnRemainingS = ns.burnRemainingS;
+              prey.lastStrikeMs = ns.lastStrikeMs;
+              prey.lastStriker = c.id;
+            }
+          }
+        }
+        // The burn eats, 0.5 s at a time.
+        if (entry.burnRemainingS > 0) {
+          const ns = burnTick({
+            hp: entry.hp, maxHp: 100, burnDps: entry.burnDps,
+            burnRemainingS: entry.burnRemainingS, lastStrikeMs: entry.lastStrikeMs, dead: false,
+          }, 0.5);
+          entry.hp = ns.hp;
+          entry.burnDps = ns.burnDps;
+          entry.burnRemainingS = ns.burnRemainingS;
+        }
+        // Killed by the burn: predation, once, for this generation.
+        if (entry.hp <= 0 && !entry.kill) {
+          entry.kill = { generation: life.generation, cause: 'predation', diedAtMs: now, killerId: entry.lastStriker || null };
+        }
+      }
+      // The walker's own burn + death: the storm takes them, and
+      // they wake back at the deck, whole.
+      if (brain.walker.burnRemainingS > 0) {
+        brain.walker = burnTick(brain.walker, 0.5);
+      }
+      if (brain.walker.hp <= 0) {
+        brain.walker = createVictimState(WALKER_MAX_HP);
+        walkerStateRef.current.respawn = true;
+        lastDeathAtRef.current = now;
+        setLastDeathAt(now);
+      }
+      if (lastDeathAtRef.current && now - lastDeathAtRef.current > 5000) {
+        lastDeathAtRef.current = 0;
+        setLastDeathAt(0);
+      }
+      const nextHp = { hp: Math.round(brain.walker.hp), burning: brain.walker.burnRemainingS > 0 };
+      if (nextHp.hp !== hpUiRef.current.hp || nextHp.burning !== hpUiRef.current.burning) {
+        hpUiRef.current = nextHp;
+        setHpUi(nextHp);
+      }
+    }, 500);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const summon = () => {
     const sp = speederRef.current;
@@ -734,14 +1292,15 @@ export default function Jupiter2Scene({
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
         dpr={[1, 1.75]}
-        camera={{ position: [34, 20, 46], fov: 55, near: 0.1, far: 900 }}
+        camera={{ position: [60, 150, 60], fov: 55, near: 0.1, far: 900 }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
         onCreated={() => setReady(true)}
       >
         <Jupiter2RealmContent
           key={JUPITER2_SEED}
           timeOfDay={timeOfDay} mode={mode}
-          inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} leverStateRef={leverRef}
+          inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} walkerStateRef={walkerStateRef}
+          brainRef={brainRef} creaturesRef={creaturesRef} leverStateRef={leverRef}
           onSelect={onSelect} selectedId={selectedId}
           onRideChange={onRideChange} onLever={onLever} jumpRef={jumpRef}
         />
@@ -760,6 +1319,28 @@ export default function Jupiter2Scene({
           pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 5,
         }}>
           {riding ? 'SPEEDER · STICK / WASD STEER · SHIFT / BOOST' : 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP · B SUMMON SPEEDER'}
+        </div>
+      )}
+      {/* walker health — quiet while whole; the lightning burn shows here */}
+      {mode !== 'orbit' && (hpUi.hp < WALKER_MAX_HP || hpUi.burning) && (
+        <div style={{
+          position: 'absolute', top: 52, left: 12, zIndex: 6,
+          color: hpUi.burning ? '#ffb14d' : '#ffe3cc', fontSize: 12, letterSpacing: 2, fontWeight: 700,
+          background: 'rgba(0,0,0,0.5)', padding: '6px 12px', borderRadius: 8,
+          border: `1px solid ${hpUi.burning ? '#ff8c1a' : '#5a3220'}`,
+          pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}>
+          ❤ {hpUi.hp}{hpUi.burning ? ' · 🔥 BURNING' : ''}
+        </div>
+      )}
+      {lastDeathAt > 0 && (
+        <div style={{
+          position: 'absolute', top: 96, left: '50%', transform: 'translateX(-50%)', zIndex: 7,
+          color: '#ffb14d', fontSize: 13, letterSpacing: 2, fontWeight: 700,
+          background: 'rgba(20,5,0,0.8)', padding: '10px 18px', borderRadius: 8,
+          border: '1px solid #ff8c1a', pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}>
+          THE STORM TOOK YOU — BACK AT THE DECK
         </div>
       )}
       {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} />}

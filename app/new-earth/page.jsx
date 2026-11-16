@@ -107,6 +107,28 @@ export default function NewEarthPage() {
   const [mode, setMode] = useState("walk");
   const [caption, setCaption] = useState(null);
   const [tour, setTour] = useState({ active: false, index: 0 });
+  // Fullscreen (Merlin, Nov 16 ~00:02 — "full screen like we have
+  // for earth 2"): Earth 2's mechanism is a fixed inset-0 overlay
+  // that takes over the whole screen when you enter the world, with
+  // an exit back to the menu. This page's stage is the same shape:
+  // boxed by default, fixed inset-0 at z-80 when entered, Escape
+  // or the exit button drops it back. The scene exposes resize(),
+  // called on the next frame after the stage changes size.
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const down = (e) => { if (e.key === "Escape") setFullscreen(false); };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [fullscreen]);
+
+  useEffect(() => {
+    const w = worldRef.current;
+    if (!w || typeof w.resize !== "function") return undefined;
+    const raf = requestAnimationFrame(() => { if (worldRef.current) worldRef.current.resize(); });
+    return () => cancelAnimationFrame(raf);
+  }, [fullscreen]);
   // Earth 3 land + dinos (Merlin, 2026-11-14): the tile under the
   // walker's feet, who owns it, and how many dinosaurs are near.
   const [user, setUser] = useState(null);
@@ -402,8 +424,14 @@ export default function NewEarthPage() {
         <span className="vision-note">CONCEPT SHOWCASE — SPECULATIVE TECH, PRESENTED HONESTLY</span>
       </header>
 
-      <div className="stage">
+      <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <canvas ref={canvasRef} aria-label="New Earth 3D world" />
+        {fullscreen && (
+          <button type="button" aria-label="Exit fullscreen" onClick={() => setFullscreen(false)}
+            style={{ position: "absolute", left: 14, top: 14, zIndex: 9, minHeight: 48, padding: "10px 18px", borderRadius: 12, border: "1px solid rgba(125,223,154,0.5)", background: "rgba(8,26,17,0.9)", color: "#eef7ee", fontWeight: 700, letterSpacing: 2, cursor: "pointer" }}>
+            ✕ EXIT FULLSCREEN
+          </button>
+        )}
         {!booted && !failed && <div className="ne-boot">Growing New Earth…</div>}
         {failed && (
           <div className="ne-fail" style={{ flexDirection: "column", gap: 14 }}>
@@ -458,6 +486,9 @@ export default function NewEarthPage() {
               </button>
               <button className={tour.active ? "on" : ""} onClick={toggleTour} aria-label="Guided tour">
                 <Glyph>{IC.tour}</Glyph>TOUR
+              </button>
+              <button onClick={() => setFullscreen(true)} aria-label="Enter fullscreen">
+                ⛶ FULLSCREEN
               </button>
             </div>
           </div>

@@ -13,6 +13,7 @@ import {
 } from '../spawns.js';
 import { MONSTER_FAMILIES, ALL_MONSTER_SLOTS, slotHome, slotKey, FAMILIES_BY_HABITAT } from '../families.js';
 import { PLACED_FIELD_KEYS } from '../models.js';
+import { AURA_R_M, BURN_HIT_DMG, BURN_DPS, BURN_SECONDS, STRIKE_INTERVAL_S, LIGHTNING_COLORS } from '../../../lib/lightning-aura.js';
 
 const rng = () => 0.5;
 function mon(type, x, z, faceYaw = 0) {
@@ -321,4 +322,123 @@ test('solidity never breaks attack bands: separation stays inside range + footpr
     assert.ok(t.footprintR + PLAYER_BODY_R < t.footprintR + ARCHETYPES.melee.range,
       `${key} separation ${t.footprintR + PLAYER_BODY_R} would outrange melee ${ARCHETYPES.melee.range} + footprintR`);
   }
+});
+
+/* ---------------- LIGHTNING AURA-STRIKE (Merlin, Nov 16 ~00:11) ----------------
+ * The aura is the monster's element, not a hunt decision: a live,
+ * active lightning-element monster or dragon strikes anything
+ * inside 59 m, spotted or not — 8 on the hit, 6/s burn for 3 s,
+ * one streak per 1.5 s. Fail-before: before this build stepMonster
+ * emitted no 'aura-strike' event at all (the kind did not exist
+ * in spawns.js), so every pin below failed on the old code. */
+
+const AURA_CARRIERS = Object.entries(MONSTER_TYPES)
+  .filter(([, t]) => t.element === 'lightning' || t.dragon)
+  .map(([key]) => key);
+
+function auraStrikes(m, player, dt = 0.1, opts = {}) {
+  return stepMonster(m, dt, player, rng, { losClear: alwaysLos, ...opts })
+    .filter((e) => e.kind === 'aura-strike');
+}
+
+test('aura: radius is exactly 59 m for every lightning family and every dragon', () => {
+  assert.equal(AURA_R_M, 59);
+  // 7 lightning-element families + 3 dragons = 10 carriers.
+  assert.equal(AURA_CARRIERS.length, 10, `carriers: ${AURA_CARRIERS.join(',')}`);
+  for (const key of AURA_CARRIERS) {
+    // Facing away (+z), player behind at exactly 59 m: unspotted, in aura.
+    const atEdge = mon(key, 0, 0, 0);
+    assert.equal(auraStrikes(atEdge, { x: 0, z: -59 }).length, 1, `${key} must strike at 59 m`);
+    const beyond = mon(key, 0, 0, 0);
+    assert.equal(auraStrikes(beyond, { x: 0, z: -59.5 }).length, 0, `${key} must not strike past 59 m`);
+  }
+});
+
+test('aura: colours — white-yellow for lightning non-dragons, red for dragons', () => {
+  for (const key of AURA_CARRIERS) {
+    const m = mon(key, 0, 0, 0);
+    const evs = auraStrikes(m, { x: 0, z: -30 });
+    assert.equal(evs.length, 1, `${key} must strike at 30 m`);
+    const expected = MONSTER_TYPES[key].dragon
+      ? LIGHTNING_COLORS.dragon
+      : LIGHTNING_COLORS['lightning-monster'];
+    assert.deepEqual(evs[0].color, expected, `${key} colour`);
+  }
+});
+
+test('aura: burn numbers ride the event — 8 on the hit, 6/s for 3 s', () => {
+  assert.equal(BURN_HIT_DMG, 8);
+  assert.equal(BURN_DPS, 6);
+  assert.equal(BURN_SECONDS, 3);
+  const m = mon('slot-17', 0, 0, 0);
+  const evs = auraStrikes(m, { x: 0, z: -30 });
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].dmg, 8);
+  assert.equal(evs[0].burnDps, 6);
+  assert.equal(evs[0].burnSeconds, 3);
+  assert.equal(evs[0].element, 'lightning');
+  assert.equal(evs[0].from, m.id);
+});
+
+test('aura: cadence 1.5 s — no double-strike inside the window, fires again after it', () => {
+  assert.equal(STRIKE_INTERVAL_S, 1.5);
+  const m = mon('slot-19', 0, 0, 0);
+  assert.equal(m.auraCd, 0, 'fresh monsters start with a cold aura cooldown');
+  assert.equal(auraStrikes(m, { x: 0, z: -30 }, 0.1).length, 1, 'first strike');
+  assert.equal(m.auraCd, 1.5, 'cooldown resets to 1.5 s');
+  assert.equal(auraStrikes(m, { x: 0, z: -30 }, 0.1).length, 0, 'no strike 0.1 s later');
+  assert.equal(auraStrikes(m, { x: 0, z: -30 }, 1.4).length, 1, 'strikes again once 1.5 s have passed');
+});
+
+test('aura: fires unspotted within 59 m, never beyond it', () => {
+  const m = mon('slot-20', 0, 0, 0); // facing +z, player behind
+  const evs = auraStrikes(m, { x: 0, z: -30 });
+  assert.equal(evs.length, 1);
+  assert.equal(m.spotted, false, 'the aura is not a hunt decision — it fires unspotted');
+  const far = mon('slot-20', 0, 0, 0);
+  assert.equal(auraStrikes(far, { x: 0, z: -60 }).length, 0);
+  assert.equal(far.spotted, false);
+});
+
+test('aura: non-lightning families never emit aura-strike, even at point-blank', () => {
+  for (const [key, t] of Object.entries(MONSTER_TYPES)) {
+    if (t.element === 'lightning' || t.dragon) continue;
+    const m = mon(key, 0, 0, 0);
+    assert.equal(auraStrikes(m, { x: 0, z: -3 }).length, 0, `${key} must never aura-strike`);
+  }
+});
+
+test('aura: mounted monsters never emit it', () => {
+  const m = mon('slot-17', 0, 0, 0);
+  m.mounted = true;
+  assert.equal(auraStrikes(m, { x: 0, z: -10 }).length, 0);
+});
+
+test('aura: a lightning monster at close range may both hit and aura-strike on one tick', () => {
+  // slot-16 Storm Herald is ranged (22 m): player 10 m ahead,
+  // in sight — the archetype hit and the aura-strike are
+  // separate cooldowns, separate events, same tick.
+  const m = mon('slot-16', 0, 0, 0);
+  const evs = stepMonster(m, 0.1, { x: 0, z: 10 }, rng, { losClear: alwaysLos });
+  assert.ok(evs.some((e) => e.kind === 'hit'), 'archetype hit fires');
+  assert.ok(evs.some((e) => e.kind === 'aura-strike'), 'aura-strike fires on the same tick');
+});
+
+test('aura: no streak inside The Haven, none from a dead monster', () => {
+  const m = mon('slot-17', 0, 0, 0);
+  assert.equal(
+    stepMonster(m, 0.1, { x: SAFE_BASE.x, z: SAFE_BASE.z }, rng, { losClear: alwaysLos, inBase: true })
+      .filter((e) => e.kind === 'aura-strike').length,
+    0, 'sanctuary: no streak lands in The Haven',
+  );
+  const dead = mon('slot-17', 0, 0, 0);
+  damageMonster(dead, 1000);
+  assert.equal(dead.dead, true);
+  assert.equal(auraStrikes(dead, { x: 0, z: -10 }).length, 0);
+});
+
+test('aura: an inactive monster never strikes', () => {
+  const m = mon('slot-17', 0, 0, 0);
+  m.active = false;
+  assert.equal(auraStrikes(m, { x: 0, z: -10 }).length, 0);
 });

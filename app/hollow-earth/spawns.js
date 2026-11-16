@@ -22,6 +22,10 @@
 import { MONSTER_FAMILIES, EXTRA_FAMILIES, FAMILIES_BY_HABITAT } from './families.js';
 import { BIOMES } from './biomes.js';
 import { PLACED_FIELD_KEYS } from './models.js';
+import {
+  AURA_R_M, BURN_HIT_DMG, BURN_DPS, BURN_SECONDS, STRIKE_INTERVAL_S,
+  lightningColorFor,
+} from '../../lib/lightning-aura.js';
 
 // PLACED-ONLY FIELD (2026-10-26 rework): only families with a
 // real rigged GLB on disk spawn on the field. The set comes
@@ -298,6 +302,7 @@ export function createMonster(record, rng) {
     target: null,
     attackCd: 0,
     hazardCd: 0,
+    auraCd: 0, // lightning-aura streak cooldown (1.5 s, STRIKE_INTERVAL_S)
     chargeT: 0,
     dead: false,
     active: false,
@@ -334,6 +339,7 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   const events = [];
   m.attackCd = Math.max(0, m.attackCd - dt);
   m.hazardCd = Math.max(0, (m.hazardCd || 0) - dt);
+  m.auraCd = Math.max(0, (m.auraCd || 0) - dt);
   const quiet = opts.quiet != null ? opts.quiet : 1;
   const sightR = SIGHT_R * quiet;
   const hearR = HEARING_R * quiet;
@@ -347,6 +353,42 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   if (opts.inBase) {
     if (m.spotted) { m.spotted = false; m.state = 'idle'; m.target = null; }
     return events;
+  }
+
+  // --- LIGHTNING AURA-STRIKE (Merlin, Nov 16 ~00:11: lightning /
+  // burn as the attack where the monster has it — lib/lightning-aura.js
+  // is the shared law: 59 m aura, 8 hit + 6/s burn for 3 s, one
+  // streak per 1.5 s). The aura is the monster's element, NOT a
+  // hunt decision: it fires whenever the monster is alive +
+  // active and the player stands inside 59 m, spotted or not —
+  // so this branch sits BEFORE the spotting/roam returns below.
+  // It does NOT replace the archetype attack (separate cooldown,
+  // separate event kind): a lightning monster in range may both
+  // hit and aura-strike on one tick. Dragons get RED streaks
+  // (aura kind 'dragon'); lightning non-dragons get WHITE-YELLOW
+  // (aura kind 'lightning-monster'). Mounted monsters never
+  // aura-strike — the zone skips their AI entirely, and this
+  // guard covers direct stepMonster callers too. Korus keeps his
+  // own boss mechanics (stepKorus, never stepMonster) and
+  // Ghorrum is not a monster record, so neither can reach this
+  // branch. Sanctuary (inBase) returns above, so no streak
+  // lands inside The Haven. Distance is the same 2D ground
+  // distance the senses use.
+  if (!m.mounted && m.active !== false) {
+    const auraKind = m.stats && m.stats.dragon
+      ? 'dragon'
+      : (m.stats && m.stats.element === 'lightning' ? 'lightning-monster' : null);
+    if (auraKind) {
+      const color = lightningColorFor(auraKind);
+      if (color && dist <= AURA_R_M && m.auraCd <= 0) {
+        m.auraCd = STRIKE_INTERVAL_S;
+        events.push({
+          kind: 'aura-strike', element: m.element, from: m.id,
+          dmg: BURN_HIT_DMG, burnDps: BURN_DPS, burnSeconds: BURN_SECONDS,
+          color,
+        });
+      }
+    }
   }
 
   // --- spotting (uses the facing BEFORE this tick's movement) ---

@@ -319,7 +319,14 @@ test('Moon ↔ Earth hops are wired; Mars/Jupiter have no sky planet to tap', ()
   const jup2 = read('components/jupiter2/Jupiter2Scene.jsx');
   assert.ok(!jup2.includes('onEarthClick') && !jup2.includes('onMoonClick') && !jup2.includes('onMarsClick'), 'Jupiter 2 wires no sky hop');
   assert.ok(!jup2.includes("travel('/"), 'Jupiter 2 scene travels nowhere');
-  assert.ok(jup2.includes('stepFlatWalker') && jup2.includes("planetParams('jupiter')"), 'Jupiter 2 walk runs on the shared walker');
+  // Full-planet rework (Merlin, Nov 16 ~00:02): the ground radius
+  // varies (deck 88 / shelf 74 / mountain), so the flat walker no
+  // longer fits — J2 walks on stepJupiter2Walker, which wraps the
+  // SAME shared core (radialVelocityStep + sphereTangentBasis)
+  // with planetParams('jupiter') for gravity 24.79 / take-off 3.0.
+  assert.ok(jup2.includes('stepJupiter2Walker') && jup2.includes("planetParams('jupiter')"), 'Jupiter 2 walk runs on the shared walker core');
+  assert.ok(!jup2.includes('stepFlatWalker'), 'the flat walker is gone from Jupiter 2');
+  assert.ok(read('lib/jupiter2/planet.js').includes('radialVelocityStep'), 'stepJupiter2Walker wraps the shared radial step');
   // Mars 1: a walkable scene with no planet in its sky either
   // (sun disc + stars only) — no hop wired, reported not built.
   const mars1 = read('components/mars/MarsScene.jsx');

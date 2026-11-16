@@ -201,27 +201,53 @@ export default function HollowEarthPage() {
       dmgFlashTimer.current = setTimeout(() => setDmgFlash(0), 300);
     };
 
+    // Shared hunter-damage path: monster hits, Korus hits and
+    // lightning aura-strikes all land here — shield absorbs
+    // first, the rest hits HP, death respawns at The Haven.
+    // Returns true when the strike must NOT light a burn
+    // (already dead, sanctuary, or slain by this hit), false
+    // when the hunter took the hit and lives.
+    const damageHunter = (dmg) => {
+      const h = hunterRef.current;
+      if (!h || h.hp <= 0) return true;
+      if (isInBase(walker.pos.x, walker.pos.z)) return true; // sanctuary: no damage lands
+      const res = applyDamage(h, dmg);
+      if (res.hpLost > 0) flashDamage();
+      if (res.absorbed > 0) notice(`🛡️ Shield absorbed ${res.absorbed} damage${res.shieldBroken ? ' — shield broken!' : ''}.`);
+      setCampaign((c) => { const nc = DATA.setShield(c, h.shield); DATA.saveCampaign(nc); return nc; });
+      if (h.hp <= 0) {
+        // Death respawns at The Haven, full HP, kills + shield kept.
+        // The mount stays where it fell — dismount first, or the
+        // rider would respawn still sitting on it.
+        if (rideApiRef.current) rideApiRef.current.dismount();
+        walker.pos.x = SAFE_BASE.x;
+        walker.pos.z = SAFE_BASE.z;
+        h.hp = hero.maxHp;
+        h.burnDps = 0;
+        h.burnRemainingS = 0;
+        notice('💀 Slain — you wake at The Haven, whole. Your kills and shield remain.');
+        setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield }));
+        return true;
+      }
+      setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield }));
+      return false;
+    };
+
     const world = buildWorld(THREE, DATA.WORLD, T, {
       gateOpen: DATA.gateOpen(campaign),
-      onPlayerHit: (dmg, from, archetype) => {
+      onPlayerHit: (dmg, from, archetype) => { damageHunter(dmg); },
+      onAuraStrike: (ev) => {
+        // LIGHTNING AURA-STRIKE (Merlin, Nov 16 ~00:11): the
+        // streak lands through the same damage path as a
+        // monster hit, then lights a burn (6/s for 3 s) ticked
+        // by the frame loop below. A hunter slain by the hit
+        // wakes whole, not burning.
+        if (damageHunter(ev.dmg)) return;
         const h = hunterRef.current;
-        if (!h || h.hp <= 0) return;
-        if (isInBase(walker.pos.x, walker.pos.z)) return; // sanctuary: no damage lands
-        const res = applyDamage(h, dmg);
-        if (res.hpLost > 0) flashDamage();
-        if (res.absorbed > 0) notice(`🛡️ Shield absorbed ${res.absorbed} damage${res.shieldBroken ? ' — shield broken!' : ''}.`);
-        setCampaign((c) => { const nc = DATA.setShield(c, h.shield); DATA.saveCampaign(nc); return nc; });
-        if (h.hp <= 0) {
-          // Death respawns at The Haven, full HP, kills + shield kept.
-          // The mount stays where it fell — dismount first, or the
-          // rider would respawn still sitting on it.
-          if (rideApiRef.current) rideApiRef.current.dismount();
-          walker.pos.x = SAFE_BASE.x;
-          walker.pos.z = SAFE_BASE.z;
-          h.hp = hero.maxHp;
-          notice('💀 Slain — you wake at The Haven, whole. Your kills and shield remain.');
+        if (h && h.hp > 0) {
+          h.burnDps = ev.burnDps;
+          h.burnRemainingS = ev.burnSeconds;
         }
-        setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield }));
       },
       onMonsterKilled: () => {},
       onHazard: (hz) => {
@@ -656,6 +682,32 @@ export default function HollowEarthPage() {
         }
         return false;
       });
+      // Lightning burn DoT: a streak lights a burn (6/s for 3 s),
+      // ticked here on the existing frame loop, beside the hazard
+      // resolution — no second loop. The shield absorbs first,
+      // like every other damage source; inside The Haven the
+      // burn counts down but deals no damage.
+      const hb = hunterRef.current;
+      if (hb && hb.burnRemainingS > 0 && hb.hp > 0) {
+        const s = Math.min(dt, hb.burnRemainingS);
+        const dps = hb.burnDps;
+        hb.burnRemainingS -= s;
+        if (hb.burnRemainingS <= 0) hb.burnDps = 0;
+        if (!isInBase(walker.pos.x, walker.pos.z)) {
+          const res = applyDamage(hb, dps * s);
+          if (res.hpLost > 0) flashDamage();
+          setHud((prev) => ({ ...prev, hp: hb.hp, shield: hb.shield }));
+          if (hb.hp <= 0) {
+            if (rideApiRef.current) rideApiRef.current.dismount();
+            walker.pos.x = SAFE_BASE.x;
+            walker.pos.z = SAFE_BASE.z;
+            hb.hp = hero.maxHp;
+            hb.burnDps = 0;
+            hb.burnRemainingS = 0;
+            notice('💀 Slain — you wake at The Haven, whole.');
+          }
+        }
+      }
       // Mounted, the eye rides a saddle-height higher — the
       // blend keeps the camera from snapping up or down on
       // mount/dismount. (This world is first-person: the rider

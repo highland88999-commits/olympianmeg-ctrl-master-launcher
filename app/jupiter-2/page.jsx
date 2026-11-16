@@ -71,6 +71,21 @@ export default function Jupiter2Page() {
   }, [liveTime]);
   const [mode, setMode] = useState("walk"); // walk | orbit — Jupiter 2 is street level first
   const [selected, setSelected] = useState(null);
+  // Fullscreen (Merlin, Nov 16 ~00:02 — "full screen like we have
+  // for earth 2"): Earth 2's mechanism is a fixed inset-0 overlay
+  // that takes over the whole screen when you enter the world, with
+  // an exit back to the menu. This page's stage is the same shape:
+  // boxed by default, fixed inset-0 at z-80 when entered, Escape
+  // or the exit button drops it back to the menu. The R3F canvas
+  // resizes itself to its parent, so no resize call is needed.
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const down = (e) => { if (e.key === "Escape") setFullscreen(false); };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [fullscreen]);
 
   useEffect(() => {
     document.title = "Jupiter 2 — Inside the Storm";
@@ -138,7 +153,7 @@ export default function Jupiter2Page() {
         <div className="sub">Inside the storm — you stand on the cloud deck at street level, wind and driving rain around you, lightning cracking overhead. Summon your speeder, watch the lightning monsters on the deck and the demobats above, and follow the green beacon to the oblivion lever.</div>
       </header>
 
-      <div className="stage">
+      <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <Jupiter2Scene
           timeOfDay={time}
           mode={mode}
@@ -147,6 +162,20 @@ export default function Jupiter2Page() {
           selectedId={selected ? selected.id : null}
           jumpRef={jumpRef}
         />
+        {fullscreen && (
+          <button
+            aria-label="Exit fullscreen"
+            onClick={() => setFullscreen(false)}
+            style={{
+              position: 'absolute', left: 12, top: 12, zIndex: 9,
+              minHeight: 44, padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+              border: '1px solid #5a3220', background: 'rgba(28,13,6,0.85)',
+              color: '#f6e8da', fontSize: 12, letterSpacing: 2,
+            }}
+          >
+            ✕ EXIT FULLSCREEN
+          </button>
+        )}
         {/* Jump (Merlin, Nov 15, 2026 — same gravity logic as the
             Moon): walk mode only, hidden while a creature panel is
             open (the panel owns the bottom of the stage). A press
@@ -200,6 +229,9 @@ export default function Jupiter2Page() {
         </button>
         <button className={mode === "orbit" ? "on" : ""} onClick={() => toggleMode("orbit")} aria-pressed={mode === "orbit"}>
           <IcCloudRain /><span>{mode === "orbit" ? "ORBITING" : "ORBIT"}</span>
+        </button>
+        <button onClick={() => setFullscreen(true)} aria-label="Enter fullscreen">
+          <span>⛶ FULLSCREEN</span>
         </button>
       </div>
 
