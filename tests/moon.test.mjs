@@ -30,7 +30,8 @@ import {
   moonLandingState,
   stepMoonWalker,
   moonEarthAngularDiameterDeg,
-  MOON_LOOK_SENSITIVITY,
+  MOON_LOOK_FULL_SWIPE_TURN,
+  lookTurnForDrag,
   MOON_LOOK_DAMPING_RATE,
   MOON_LOOK_PITCH_MAX,
   MOON_GLOBAL_ROCK_COUNT,
@@ -266,19 +267,27 @@ test('the walker is not clamped — it can roam the whole Moon, far side include
   }
 });
 
-// --- 7. Gentle camera (Merlin, Nov 15, 2026) ---
+// --- 7. Normal camera (Merlin, Nov 15, 2026) ---
 
-test('drag-to-look is gentle: low sensitivity, damped toward the target', () => {
-  // Was 0.004 rad/px with no damping — a small thumb drag whipped
-  // the view around. Now 0.0015 rad/px with an exponential ease.
-  assert.equal(MOON_LOOK_SENSITIVITY, 0.0015, 'look sensitivity is 0.0015 rad/px');
-  assert.ok(MOON_LOOK_SENSITIVITY < 0.004, 'gentler than the old 0.004');
+test('drag-to-look is normal: a full-width swipe turns 180°, damped toward the target', () => {
+  // Round 2's fixed 0.0015 rad/px turned only ~60° per full-width
+  // swipe, so looking around took full swipes across the screen.
+  // The turn is now a fraction of the screen: full-width → 180°,
+  // half-screen → 90°, a 150 px thumb drag on a 390 px phone → ~69°.
+  assert.equal(MOON_LOOK_FULL_SWIPE_TURN, Math.PI, 'full-width swipe turns half a circle');
+  assert.ok(approx(lookTurnForDrag(390, 390), Math.PI, 1e-12), 'full-width swipe → 180°');
+  assert.ok(approx(lookTurnForDrag(195, 390), Math.PI / 2, 1e-12), 'half-screen swipe → 90°');
+  assert.ok(approx(lookTurnForDrag(150, 390), 1.2083, 0.001), '150 px drag on a 390 px phone → ~69°');
+  assert.ok(
+    approx(lookTurnForDrag(60, 390) + lookTurnForDrag(90, 390), lookTurnForDrag(150, 390), 1e-12),
+    'two deltas sum to the one big drag (no compounding)'
+  );
   assert.equal(MOON_LOOK_PITCH_MAX, 1.2, 'pitch clamp is still ±1.2 rad');
-  assert.equal(MOON_LOOK_DAMPING_RATE, 10, 'damping rate is 10/s');
-  // The ease: after 0.1 s at rate 10 the angle is 1−e^−1 ≈ 63% of
-  // the way to the target; after 0.5 s it is 99% there.
-  assert.ok(approx(dampLookAngle(0, 1, 0.1), 1 - Math.exp(-1), 1e-9), '0.1 s covers 63% of the gap');
-  assert.ok(approx(dampLookAngle(0, 1, 0.5), 1 - Math.exp(-5), 1e-9), '0.5 s covers 99% of the gap');
+  assert.equal(MOON_LOOK_DAMPING_RATE, 20, 'damping rate is 20/s (was 10)');
+  // The ease: after 0.05 s at rate 20 the angle is 1−e^−1 ≈ 63% of
+  // the way to the target; after 0.15 s it is 95% there.
+  assert.ok(approx(dampLookAngle(0, 1, 0.05), 1 - Math.exp(-1), 1e-9), '0.05 s covers 63% of the gap');
+  assert.ok(approx(dampLookAngle(0, 1, 0.15), 1 - Math.exp(-3), 1e-9), '0.15 s covers 95% of the gap');
   assert.equal(dampLookAngle(0.7, 0.7, 0.1), 0.7, 'no gap, no movement');
   assert.equal(dampLookAngle(0.7, 1.5, 0), 0.7, 'dt 0 returns current exactly');
   assert.ok(approx(dampLookAngle(-1, 1, 10), 1, 1e-9), 'a long dt lands on the target');

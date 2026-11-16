@@ -42,8 +42,8 @@ import {
   earthWalkPebblePlacements,
 } from '@/lib/earth-walk';
 import {
-  LOOK_SENSITIVITY,
   LOOK_PITCH_MAX,
+  lookTurnForDrag,
   dampLookAngle,
   sphereTangentBasis,
   stepSphereWalker,
@@ -192,13 +192,18 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
       const d = dragging.current;
       if (!d) return;
       // The drag moves the look TARGET, not the angle — the frame
-      // loop eases the camera toward it. Sensitivity is the shared
-      // LOOK_SENSITIVITY (0.0015 rad/px); one handler serves touch
-      // drag and desktop mouse drag alike.
-      yawTarget.current -= (e.clientX - d.x) * LOOK_SENSITIVITY;
+      // loop eases the camera toward it. The turn is a fraction of
+      // the screen (lookTurnForDrag): one full-width swipe turns
+      // 180°, a half-screen swipe 90° — the same feel on a phone
+      // and a desktop window. Each event applies only its own
+      // delta (the anchor is re-set below), so the turn never
+      // compounds. One handler serves touch drag and desktop
+      // mouse drag alike.
+      const w = el.clientWidth || window.innerWidth || 1;
+      yawTarget.current -= lookTurnForDrag(e.clientX - d.x, w);
       pitchTarget.current = Math.max(
         -LOOK_PITCH_MAX,
-        Math.min(LOOK_PITCH_MAX, pitchTarget.current - (e.clientY - d.y) * LOOK_SENSITIVITY)
+        Math.min(LOOK_PITCH_MAX, pitchTarget.current - lookTurnForDrag(e.clientY - d.y, w))
       );
       dragging.current = { x: e.clientX, y: e.clientY };
     };

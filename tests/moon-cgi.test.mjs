@@ -351,17 +351,21 @@ describe('moon phone fixes (Merlin, Nov 15, 2026 — from his /moon video)', () 
   });
 });
 
-// ── Moon round 2 (Merlin, Nov 15, 2026 — from his /moon video) ─────
+// ── Moon round 2/3 (Merlin, Nov 15, 2026 — from his /moon videos) ──
 // Roam the whole Moon: the walker was never clamped in physics, but
 // the far side was bare grey — rocks + pebbles now cover the whole
-// sphere. And the camera: drag-to-look was 0.004 rad/px with no
-// damping, so a small drag whipped the view around; now 0.0015
-// rad/px eased toward a drag target, same for touch and mouse.
+// sphere. And the camera, round 3: round 2's fixed rad/px value
+// turned only ~60° per full-width swipe, so looking around took
+// full swipes across the screen. The turn is now a fraction of the
+// screen — one full-width swipe turns 180°, a half-screen swipe
+// 90° — with a faster ease (20/s) so the camera tracks the finger.
 
-describe('moon round 2 — roam the whole Moon, gentle camera', () => {
-  it('the drag-to-look is gentle: low sensitivity, damped, no old value left', () => {
-    assert.ok(!moonSceneSrc.includes('0.004'), 'the old twitchy 0.004 rad/px is gone from the scene');
-    assert.ok(moonSceneSrc.includes('MOON_LOOK_SENSITIVITY'), 'the rig uses the look sensitivity constant');
+describe('moon round 2/3 — roam the whole Moon, normal camera', () => {
+  it('the drag-to-look is normal: screen-fraction turn, damped, no old value left', () => {
+    assert.ok(!moonSceneSrc.includes('0.004'), 'the old twitchy rad/px value is gone from the scene');
+    assert.ok(!moonSceneSrc.includes('MOON_LOOK_SENSITIVITY'), 'the old fixed-sensitivity alias is gone from the scene');
+    assert.ok(!moonSceneSrc.includes('0.0015'), 'the old round-2 value is gone from the scene');
+    assert.ok(moonSceneSrc.includes('lookTurnForDrag'), 'the rig turns by screen fraction');
     assert.ok(moonSceneSrc.includes('MOON_LOOK_PITCH_MAX'), 'the pitch clamp is the named constant');
     assert.ok(moonSceneSrc.includes('dampLookAngle,'), 'the ease helper is imported from lib/moon');
     assert.ok(moonSceneSrc.includes('yawTarget'), 'the drag sets a yaw target');

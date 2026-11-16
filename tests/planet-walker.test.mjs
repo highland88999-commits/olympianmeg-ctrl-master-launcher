@@ -25,7 +25,8 @@ import {
   jumpApex,
   jumpHangTime,
   planetJump,
-  LOOK_SENSITIVITY,
+  LOOK_FULL_SWIPE_TURN,
+  lookTurnForDrag,
   LOOK_DAMPING_RATE,
   LOOK_PITCH_MAX,
   dampLookAngle,
@@ -223,15 +224,35 @@ test('flat walker rides the terrain on foot and lands back on it', () => {
   assert.equal(state.vy, 0, 'vertical velocity zeroed on landing');
 });
 
-// --- 6. The gentle look law, shared ---------------------------------------
+// --- 6. The normal look law, shared ---------------------------------------
 
-test('look law: 0.0015 rad/px, damping 10/s, pitch clamp 1.2', () => {
-  assert.equal(LOOK_SENSITIVITY, 0.0015, 'sensitivity 0.0015');
-  assert.equal(LOOK_DAMPING_RATE, 10, 'damping rate 10/s');
+test('look law: full-width swipe 180°, half 90°, damping 20/s, pitch clamp 1.2', () => {
+  // The turn is a fraction of the screen, not a fixed rad/px number:
+  // round 2's 0.0015 rad/px turned only ~60° per full-width swipe.
+  assert.equal(LOOK_FULL_SWIPE_TURN, Math.PI, 'a full-width swipe turns half a circle');
+  assert.equal(LOOK_DAMPING_RATE, 20, 'damping rate 20/s (was 10)');
   assert.equal(LOOK_PITCH_MAX, 1.2, 'pitch clamp 1.2 rad');
-  // Exact ease values: 63% there in 0.1 s, 99% in 0.5 s.
-  assert.ok(approx(dampLookAngle(0, 1, 0.1), 0.6321, 0.001), '0.1 s → 63%');
-  assert.ok(approx(dampLookAngle(0, 1, 0.5), 0.9933, 0.001), '0.5 s → 99%');
+  // Full-width and half-screen swipes, on any viewport width.
+  assert.ok(approx(lookTurnForDrag(390, 390), Math.PI, 1e-12), 'full-width swipe on a 390 px phone → 180°');
+  assert.ok(approx(lookTurnForDrag(195, 390), Math.PI / 2, 1e-12), 'half-screen swipe → 90°');
+  assert.ok(approx(lookTurnForDrag(1440, 1440), Math.PI, 1e-12), 'full-width swipe on a 1440 px desktop → 180° too');
+  // A 150 px thumb drag on a 390 px phone: (150/390)·180° ≈ 69.2°.
+  assert.ok(approx(lookTurnForDrag(150, 390), 1.2083, 0.001), '150 px drag on a 390 px phone → ~69°');
+  assert.ok(approx(lookTurnForDrag(150, 360), 1.3090, 0.001), '150 px drag on a 360 px phone → ~75°');
+  // Linearity — two consecutive move events apply only their own
+  // deltas, so they sum exactly to the one big drag (no compounding).
+  assert.ok(
+    approx(lookTurnForDrag(60, 390) + lookTurnForDrag(90, 390), lookTurnForDrag(150, 390), 1e-12),
+    '60 px + 90 px deltas = one 150 px drag'
+  );
+  // Guards: no drag, or no viewport, turns nothing.
+  assert.equal(lookTurnForDrag(0, 390), 0, 'no drag → no turn');
+  assert.equal(lookTurnForDrag(100, 0), 0, 'zero viewport width → no turn');
+  assert.equal(lookTurnForDrag(100, -50), 0, 'negative viewport width → no turn');
+  // Exact ease values at rate 20: 63% there in 0.05 s, 95% in 0.15 s, 99% in 0.25 s.
+  assert.ok(approx(dampLookAngle(0, 1, 0.05), 0.6321, 0.001), '0.05 s → 63%');
+  assert.ok(approx(dampLookAngle(0, 1, 0.15), 0.9502, 0.001), '0.15 s → 95%');
+  assert.ok(approx(dampLookAngle(0, 1, 0.25), 0.9933, 0.001), '0.25 s → 99%');
   assert.equal(dampLookAngle(0.7, 1, 0), 0.7, 'dt 0 returns current exactly');
 });
 
@@ -319,7 +340,8 @@ test('moon module still exports its old names (back-compat)', async () => {
   const moon = await import('../lib/moon.js');
   assert.equal(moon.MOON_GRAVITY, 1.62, 'MOON_GRAVITY 1.62');
   assert.equal(moon.MOON_WALK_SPEED, 2.5, 'MOON_WALK_SPEED 2.5');
-  assert.equal(moon.MOON_LOOK_SENSITIVITY, 0.0015, 'MOON_LOOK_SENSITIVITY 0.0015');
+  assert.equal(moon.MOON_LOOK_FULL_SWIPE_TURN, Math.PI, 'MOON_LOOK_FULL_SWIPE_TURN π');
+  assert.equal(typeof moon.lookTurnForDrag, 'function', 'moon re-exports lookTurnForDrag');
   assert.equal(moon.globalRockPlacements().length, 40, 'Moon global rocks still 40');
   assert.equal(moon.globalPebblePlacements().length, 24, 'Moon global pebbles still 24');
   // Spawn sits 3 m south of the +Y pole, so up.y = cos(3/14) ≈ 0.977.
