@@ -2,7 +2,7 @@
 // (2026-10-26): street tiles, hub leak, rings REMOVED (Merlin
 // 2026-10-26 — the metre rings at vehicle feet are gone),
 // console copy, first-person car camera, orbit water,
-// Oblivion prompt.
+// Oblivion prompt REMOVED in round 3 (Merlin, 2026-11-15).
 // Run: node tests/earth-street-qa3.test.mjs (from the repo root).
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -157,18 +157,15 @@ check('console: ladder/monument hint gone', !consoleSrc.includes('Double-click l
 check('console: aether-in-buildings line gone', !consoleSrc.includes('hidden inside Earth'));
 check('console: aether poll gone', !consoleSrc.includes('aetherState'));
 
-const prompt = read('../components/EarthOblivionPrompt.jsx');
-check('prompt: exact wording', prompt.includes('Map this world — the ancient giants still walk here, waiting to be found'));
-check('prompt: no Oblivion trigger claim', !prompt.includes('Map this world to trigger Oblivion') && !prompt.includes('unlock Earth 2'));
-check('prompt: no franchise name', !prompt.includes('Jurassic'));
-check('prompt: street-level gate', prompt.includes("phase !== 'earth_roam'"));
-check('prompt: wrapper non-blocking, pill itself tappable', prompt.includes('pointer-events-none') && prompt.includes('pointer-events-auto') && prompt.includes('onClick'));
-check('prompt: one tap dismisses for the rest of the load', prompt.includes('useState(false)') && prompt.includes('setDismissed(true)') && prompt.includes("|| dismissed"));
-check('prompt: no persistent dismissal (per-load only)', !prompt.includes('localStorage') && !prompt.includes('sessionStorage'));
-check('prompt: no Earth 2 link or button (advisory only)', !prompt.includes('href') && !prompt.includes('<a ') && !prompt.includes('<button'));
-
+// Round 3 (Merlin, 2026-11-15 — crossed out in his screenshot):
+// the "Map this world" notice is gone ENTIRELY — component
+// deleted, mount + import gone, the text nowhere in a live path.
+// The Oblivion rule itself is untouched (Jupiter lever only,
+// pinned in earth1-entry).
+check('notice: component deleted', !existsSync('../components/EarthOblivionPrompt.jsx'));
 const page = read('../app/page.jsx');
-check('prompt: mounted in hub page', page.includes('EarthOblivionPrompt'));
+check('notice: text gone from the page', !page.includes('Map this world'));
+check('notice: no mount in the page', !page.includes('EarthOblivionPrompt'));
 
 const fintrac = read('../lib/fintrac-explanation.js');
 check('fintrac: skip semantics untouched (per-load auto-show)', fintrac.includes("pathname === '/'") && fintrac.includes('!dismissed'));

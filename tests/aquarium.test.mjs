@@ -8,9 +8,10 @@
 // Live-check evidence (YouTube oEmbed, curl, 2026-11-16): a feed
 // counts as dead only if YouTube itself refuses it — 401/403 (the
 // owner disabled embedding) or 404 (video gone). Ten feeds failed.
-// Six more were black in his video but pass oEmbed right now (24/7
-// live streams, dark in that moment) and are KEPT — pinned below so
-// no sweep can delete a feed on one black moment.
+// ROUND 2 (Nov 15 ~23:55): six more feeds were black on his phone even
+// though they pass oEmbed — "there are still feeds that show a black
+// screen, not a scene" — so they are DELETED too, pinned below in
+// DELETED_BLACK_NODES. A black screen is not a scene.
 //
 // The PIN is never in this file: verifyAresPin is tested with a mocked
 // fetch and a dummy value, never the real one.
@@ -23,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 import {
   BUILTIN_NODES,
   DELETED_DEAD_NODES,
-  KEPT_DESPITE_BLACK,
+  DELETED_BLACK_NODES,
   extractYouTubeID,
   isUserFeed,
   mergeNodes,
@@ -36,6 +37,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(root, p), 'utf8');
 
 const DEAD_IDS = DELETED_DEAD_NODES.map((d) => d.id);
+const BLACK_IDS = DELETED_BLACK_NODES.map((d) => d.id);
 const BUILTIN_IDS = BUILTIN_NODES.map((n) => n.id);
 
 // The original 50-node rotation, as it stood before the cleanup.
@@ -63,24 +65,28 @@ test('the dead feeds are gone: exactly the 10 live-verified dead ids', () => {
   }
 });
 
-test('the built-in rotation is the 40 live feeds, in the original order', () => {
-  assert.equal(BUILTIN_NODES.length, 40);
-  assert.equal(new Set(BUILTIN_IDS).size, 40, 'no duplicate built-in ids');
-  for (const id of DEAD_IDS) {
+test('the built-in rotation is the 34 live feeds, in the original order', () => {
+  assert.equal(BUILTIN_NODES.length, 34);
+  assert.equal(new Set(BUILTIN_IDS).size, 34, 'no duplicate built-in ids');
+  for (const id of [...DEAD_IDS, ...BLACK_IDS]) {
     assert.ok(!BUILTIN_IDS.includes(id), `${id} must not be in the rotation`);
   }
-  // Deleted + built-in is exactly the original 50, nothing else.
+  // Deleted (10 dead + 6 black) + built-in is exactly the original 50, nothing else.
   assert.deepEqual(
-    [...DEAD_IDS, ...BUILTIN_IDS].sort(),
+    [...DEAD_IDS, ...BLACK_IDS, ...BUILTIN_IDS].sort(),
     [...ORIGINAL_50].sort(),
   );
 });
 
-test('feeds black in his video but live right now are KEPT, not deleted', () => {
-  assert.equal(KEPT_DESPITE_BLACK.length, 6);
-  for (const kept of KEPT_DESPITE_BLACK) {
-    assert.ok(BUILTIN_IDS.includes(kept.id), `${kept.id} (${kept.name}) stays in the rotation`);
-    assert.ok(!DEAD_IDS.includes(kept.id), `${kept.id} is not in the deleted set`);
+test('the black-screen feeds are gone too: exactly the 6 round-2 ids', () => {
+  assert.equal(DELETED_BLACK_NODES.length, 6);
+  assert.deepEqual(BLACK_IDS, [
+    '3n-5EA9augs', 'qHXFLsnKDq0', '3szkFHfr6sA', 'g6wxYiESkE4', 'ZrePsYz4c6g',
+    '-Vck0hn-zqk',
+  ]);
+  for (const d of DELETED_BLACK_NODES) {
+    assert.ok(!BUILTIN_IDS.includes(d.id), `${d.id} (${d.name}) must not be in the rotation`);
+    assert.ok(!DEAD_IDS.includes(d.id), `${d.id} is a black-screen deletion, not a dead one`);
   }
 });
 
@@ -115,10 +121,10 @@ test('mergeNodes: the database is the source of truth when it answers', () => {
 test('mergeNodes: a database outage falls back to built-ins PLUS local user feeds', () => {
   const local = [{ id: 'USERFEED123', name: 'MY CAM', origin: 'user' }];
   const merged = mergeNodes({ builtin: BUILTIN_NODES, dbRows: null, localUserFeeds: local });
-  assert.equal(merged.length, 41);
+  assert.equal(merged.length, 35);
   assert.ok(merged.some((n) => n.id === 'USERFEED123'), 'the user feed survives the outage');
   const empty = mergeNodes({ builtin: BUILTIN_NODES, dbRows: [], localUserFeeds: local });
-  assert.equal(empty.length, 41, 'an empty table falls back the same way');
+  assert.equal(empty.length, 35, 'an empty table falls back the same way');
 });
 
 test('mergeNodes: a local user feed missing from the database is appended, never dropped', () => {
@@ -138,7 +144,7 @@ test('the deleted dead ids are named nowhere as live', () => {
   // the merge law does not invent or resurrect ids.
   const sql = read('supabase/aquarium-feed-cleanup.sql');
   const updateBlock = sql.split("set origin = 'builtin'")[1].split(';')[0];
-  for (const id of DEAD_IDS) {
+  for (const id of [...DEAD_IDS, ...BLACK_IDS]) {
     assert.ok(!updateBlock.includes(`'${id}'`), `${id} must not be marked builtin in the SQL`);
     assert.ok(!BUILTIN_IDS.includes(id), `${id} must not be in the built-in list`);
   }
@@ -221,11 +227,12 @@ test('the page wires the aquarium lib: prune, merge, permanence, PIN gate', () =
   assert.match(page, /const ok = await verifyAresPin\(pinValue\);/);
 });
 
-test('the staged SQL deletes exactly the 10 dead ids and never touches user feeds', () => {
+test('the staged SQL deletes exactly the 16 dead + black ids and never touches user feeds', () => {
   const sql = read('supabase/aquarium-feed-cleanup.sql');
   assert.match(sql, /DRAFT — DO NOT RUN YET/);
-  for (const id of DEAD_IDS) {
-    assert.ok(sql.includes(`'${id}'`), `${id} is in the staged delete`);
+  const deleteBlock = sql.split('delete from public.nexus_nodes')[1].split(';')[0];
+  for (const id of [...DEAD_IDS, ...BLACK_IDS]) {
+    assert.ok(deleteBlock.includes(`'${id}'`), `${id} is in the staged delete`);
   }
   for (const id of BUILTIN_IDS) {
     assert.ok(!sql.split('delete from public.nexus_nodes')[1].split(';')[0].includes(`'${id}'`),

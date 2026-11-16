@@ -86,7 +86,9 @@ function t(name, cond) {
   t('page spawns on the globe tap', page.includes('handleEarthGlobeClick'));
   t('globe tap summons the selected craft', page.includes('summonCar(selectedEarthCraftRef.current)'));
   t('globe tap dives straight to street', page.includes("setAppState('diving_to_street')"));
-  t('globe tap begins roaming at the tapped point', page.includes('beginRoam(roamState, lat, lon, 0)'));
+  t('globe tap begins roaming at the tapped point (separation-checked spot)',
+    page.includes('beginRoam(roamState, spot.lat, spot.lon, 0)')
+    && page.includes('clearSpawnPoint(lat, lon, [...kartState.rivals, ...sharedPeerVehicles])'));
   t('page mounts the vehicle menu in hub_freeroam', page.includes('<EarthVehicleSelect'));
 }
 
@@ -131,23 +133,18 @@ function t(name, cond) {
   t('page never calls a spawn picker', !page.includes('pickSpawn('));
 }
 
-// --- The mission notice: giants lore, NO Oblivion claim ---
+// --- The mission notice is GONE (Merlin, 2026-11-15, round 3:
+// crossed out in his screenshot) — component deleted, mount +
+// import gone, the text nowhere in a live path. The Oblivion
+// rule itself is untouched (Jupiter lever only, pinned below). ---
 {
-  const prompt = read('components/EarthOblivionPrompt.jsx');
-  // The pin is on the user-facing TEXT (the exported constant),
-  // not the file — the header comment documents the correction
-  // and names the old claim.
-  const noticeText = prompt.match(/OBLIVION_PROMPT_TEXT =\s*'([^']+)'/)[1];
-  t('notice keeps the giants lore', noticeText.includes('the ancient giants still walk here, waiting to be found'));
-  t('notice never claims mapping triggers Oblivion',
-    !noticeText.includes('trigger Oblivion') && !noticeText.includes('Map this world to trigger'));
-  t('notice never claims mapping unlocks Earth 2', !noticeText.includes('unlock Earth 2'));
-  t('notice text is the corrected line',
-    noticeText === '🦕 Map this world — the ancient giants still walk here, waiting to be found.');
-  t('notice names the Jupiter lever as the only trigger',
-    prompt.includes('The only trigger for oblivion is the lever found in Jupiter'));
-  t('notice still shows at street level only', prompt.includes("phase !== 'earth_roam'"));
-  t('notice still dismisses on one tap', prompt.includes('setDismissed(true)'));
+  t('mission notice component is deleted',
+    !existsSync('components/EarthOblivionPrompt.jsx'));
+  const page = read('app/page.jsx');
+  t('page mounts no mission notice', !page.includes('EarthOblivionPrompt'));
+  t('page carries no mission notice text', !page.includes('Map this world'));
+  t('console carries no mission notice text',
+    !read('components/EarthConsole.jsx').includes('Map this world'));
 }
 
 // --- Oblivion: ONLY the Jupiter 2 lever (Merlin, 2026-11-15 ~19:38) ---
@@ -159,7 +156,7 @@ function t(name, cond) {
     'lib/jupiter2/lever.js', 'lib/earth2/release.js', 'lib/earth/oblivion.js',
     'lib/earth/mapping-progress.js', 'lib/earth/global-registry.js',
     'lib/earth/lens.js', 'app/api/earth2/release/route.js',
-    'app/api/earth/teams/settle/route.js', 'components/EarthOblivionPrompt.jsx',
+    'app/api/earth/teams/settle/route.js',
   ];
   for (const f of files) {
     const src = read(f);

@@ -44,6 +44,7 @@ import {
   advanceHit,
   flipRollAngle,
   applyCollisionDamage,
+  separateVehicles,
   setKartNotice,
   kartServerSync,
   kartServerGrant,
@@ -580,8 +581,15 @@ export default function EarthKart() {
       }
     }
 
-    // Advance the player's hit sequence.
-    const adv = advanceHit(kartState.playerHit, nowMs);
+    // Advance the player's hit sequence. The respawn spot is
+    // separation-checked against every other vehicle (round 3):
+    // a blast spot with a rival or peer sitting on it walks to
+    // the nearest clear point 25 m out, so the player never
+    // respawns on top of another vehicle.
+    const adv = advanceHit(kartState.playerHit, nowMs, [
+      ...kartState.rivals,
+      ...sharedPeerVehicles,
+    ]);
     if (adv.phase === 'exploding' && kartState.playerHit.phase === 'exploding') {
       if (!kartState.lastBlast || kartState.lastBlast.startedMs !== kartState.playerHit.startedMs) {
         kartState.lastBlast = {
@@ -606,9 +614,18 @@ export default function EarthKart() {
     }
     kartHud.hitPhase = kartState.playerHit.phase;
 
-    // Advance rival hits.
+    // Advance rival hits. A rival's respawn spot is
+    // separation-checked against the player, the other rivals
+    // and every peer (round 3) — same rule as the player's
+    // respawn, so no rival ever respawns on top of another
+    // vehicle.
     for (const rival of kartState.rivals) {
-      const r = advanceHit(rival.hit, nowMs);
+      const others = [
+        { lat: carState.lat, lon: carState.lon },
+        ...kartState.rivals.filter((o) => o !== rival),
+        ...sharedPeerVehicles,
+      ];
+      const r = advanceHit(rival.hit, nowMs, others);
       if (r.phase === 'exploding') {
         if (!kartState.lastBlast || kartState.lastBlast.startedMs !== rival.hit.startedMs) {
           kartState.lastBlast = {
@@ -683,6 +700,36 @@ export default function EarthKart() {
         { kind: 'peer', id: p.id, lat: p.lat, lon: p.lon },
         pc ? pc.lengthM : 4.6,
         p.speedMps || 0,
+      );
+    }
+
+    // Continuous separation (round 3 — the root-cause fix):
+    // the bumper code above only deals DAMAGE, it never moves
+    // a vehicle, so a rival that drives into the player (or a
+    // respawn that lands on one) would interpenetrate and stay
+    // there. Every frame, push any rival inside the
+    // non-interpenetration gap back out to it; rival pairs get
+    // the same treatment. The player is never moved (fixed —
+    // the camera anchor). Peers keep their true positions —
+    // their client owns them — EarthPeers already pushes their
+    // RENDER 25 m from the player.
+    if (kartState.rivals.length > 0) {
+      separateVehicles(
+        [
+          { lat: carState.lat, lon: carState.lon, fixed: true, lengthM: playerLen },
+          // A flipping / exploding rival is mid-animation at its
+          // blast spot — the hit sequence owns its position, and
+          // its respawn is separation-checked above — so it sits
+          // this pass out.
+          ...kartState.rivals.filter(
+            (rival) => rival.hit.phase !== 'flipping' && rival.hit.phase !== 'exploding',
+          ),
+        ],
+        (v) => {
+          if (v.lengthM) return v.lengthM;
+          const rc = v.craftId ? getVehicle(v.craftId) : null;
+          return rc ? rc.lengthM : 4.6;
+        },
       );
     }
 

@@ -21,12 +21,12 @@ import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
-import EarthOblivionPrompt from '@/components/EarthOblivionPrompt';
 import { generateMarsProfile } from '@/lib/mars/engine';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
 import { PLANET_CHOOSERS } from '@/lib/planets/planet-choosers';
 import { roamState, beginRoam, endRoam } from '@/lib/earth/roam';
+import { kartState, sharedPeerVehicles, clearSpawnPoint } from '@/lib/earth/kart';
 import { summonCar } from '@/components/EarthSupercar';
 import EarthVehicleSelect from '@/components/EarthVehicleSelect';
 import { DEFAULT_CRAFT_ID } from '@/lib/earth/vehicles';
@@ -298,8 +298,16 @@ function NexusHub() {
     setEarthPickMode(false);
     setShowEarthVehicleSelect(false);
     fx.earthDive();
-    setEarthFocus({ lat, lon, label: 'Spawn' });
-    beginRoam(roamState, lat, lon, 0);
+    // Round 3 — the tapped spawn point is separation-checked
+    // against every vehicle already on the planet (rivals from
+    // an earlier entry in this session + rendered peers): a
+    // re-spawn never lands on top of a vehicle that is already
+    // there. On a first entry the list is empty and the tap
+    // stands exactly as tapped; the rivals then build around
+    // it 800–1500 m out (lib/earth/kart.js buildRivals).
+    const spot = clearSpawnPoint(lat, lon, [...kartState.rivals, ...sharedPeerVehicles]);
+    setEarthFocus({ lat: spot.lat, lon: spot.lon, label: 'Spawn' });
+    beginRoam(roamState, spot.lat, spot.lon, 0);
     summonCar(selectedEarthCraftRef.current);
     setAppState('diving_to_street');
   };
@@ -1086,11 +1094,15 @@ function NexusHub() {
           inside the (hub_intro || hub_freeroam) fragment, so its
           own appState === 'earth_roam' gate could never fire
           and the stick never rendered on the phone — the only
-          throttle was the invisible left-half floating stick). */}
+          throttle was the invisible left-half floating stick).
+          BOTTOM EDGE (Merlin, 2026-11-15, annotated screenshot
+          — move it DOWN): 18px, so the stick sits at the very
+          bottom of the screen; the FIRE cluster rides just
+          above it at 142px. */}
       {(user || cloudOffline) && appState === 'earth_roam' && (
         <div
           className="absolute z-[70] ui-element pointer-events-auto"
-          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
         >
           <WalkJoystick
             size={112}
@@ -1117,11 +1129,12 @@ function NexusHub() {
         </button>
       )}
 
-      {/* Oblivion advisory (Merlin, 2026-10-26): street level only,
-          top of screen — the component itself gates on earth_roam. */}
-      {(user || cloudOffline) && (
-        <EarthOblivionPrompt phase={appState} />
-      )}
+      {/* The mapping notice is gone entirely (Merlin,
+          2026-11-15, crossed out in his screenshot): the
+          notice component is deleted with its mount. The
+          Oblivion rule itself is untouched — the only trigger
+          in the whole repo is still the Jupiter 2 lever
+          (lib/jupiter2/lever.js). */}
 
       {/* The mapped percentage tracker is gone with the mapping
           system (Merlin, 2026-11-15: the map goes away

@@ -90,5 +90,45 @@ function t(name, cond) {
   t('first-person snap untouched', fc.includes('camera.position.copy(camPos)'));
 }
 
+// --- Round 3 (Merlin, 2026-11-15): the TRUE texture — the
+// video stretched once around the r55 sphere reads flat at
+// driving height, so his static scratched images ride as a
+// tiled detail layer (bump + roughness, ~7 m tiles) over the
+// video colour. The 9-colour fade, the mirror sheen and the
+// prerendered ground all stay; no per-position tile builds. ---
+{
+  const src = readFileSync('components/earth/PrerenderedEarthGround.jsx', 'utf8');
+  t('ground wears the detail texture as bumpMap',
+    src.includes('getGroundDetailTexture()') && src.includes('bumpMap: detailTex'));
+  t('ground wears the detail texture as roughnessMap',
+    src.includes('roughnessMap: detailTex'));
+  t('ground detail bump scale is set', src.includes('GROUND_DETAIL_BUMP_SCALE'));
+  // The overlay: a second sphere 5 cm up, multiply-blending the
+  // same tiled detail over the finished ground colour — the part
+  // that makes the scratches plainly visible (the flat emissive
+  // would wash the bump/roughness sheen out on its own).
+  t('detail overlay sphere rides 5 cm above the ground',
+    src.includes('TERRAIN_RADIUS + GROUND_DETAIL_OVERLAY_OFFSET_M'));
+  t('overlay multiplies the ground colour',
+    src.includes('THREE.MultiplyBlending') && src.includes('MeshBasicMaterial'));
+  t('overlay lift keeps the 9-colour fade bright',
+    src.includes('GROUND_DETAIL_OVERLAY_LIFT'));
+  t('overlay never occludes (depthWrite off)', src.includes('depthWrite: false'));
+  t('overlay material is disposed on unmount',
+    src.includes('overlayMaterial.dispose()'));
+  t('video map + emissive kept (the 9-colour fade still drives colour)',
+    src.includes('map: videoTex') && src.includes('emissiveMap: videoTex'));
+  const gv = readFileSync('lib/earth/ground-video.js', 'utf8');
+  t('detail loader exists', gv.includes('export function getGroundDetailTexture'));
+  t('detail source is his silver scratched jpg',
+    gv.includes("GROUND_DETAIL_TEXTURE_URL = '/textures/scratched/silver.jpg'"));
+  t('detail texture file exists on disk', existsSync('public/textures/scratched/silver.jpg'));
+  t('detail wraps repeat on both axes', gv.includes('THREE.RepeatWrapping'));
+  t('detail is a data map (no sRGB)', gv.includes('THREE.NoColorSpace'));
+  t('overlay lift is set (1 / silver mean luminance)',
+    gv.includes('GROUND_DETAIL_OVERLAY_LIFT = 1.84'));
+  t('overlay offset is 5 cm', gv.includes('GROUND_DETAIL_OVERLAY_OFFSET_M = 0.05'));
+}
+
 console.log(`earth-driving-ground: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

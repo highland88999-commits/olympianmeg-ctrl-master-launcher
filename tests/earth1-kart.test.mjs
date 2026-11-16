@@ -70,6 +70,10 @@ import {
   stepRivals,
   SPAWN_MIN_SEPARATION_M,
   spawnPointClearOf,
+  clearSpawnPoint,
+  vehicleGapM,
+  separateFrom,
+  separateVehicles,
 } from '../lib/earth/kart.js';
 import { haversineM } from '../lib/earth/boost-pads.js';
 import { getVehicle, VEHICLES } from '../lib/earth/vehicles.js';
@@ -491,6 +495,130 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   t('spun globe round-trips the click', backSpun && near(backSpun.lat, lat, 1e-6) && near(backSpun.lon, lon, 1e-6));
   eq('a click at the centre returns null', globeWorldPointToLatLon(GLOBE_CENTER, GLOBE_CENTER, IDENTITY_QUAT), null);
   eq('a null point returns null', globeWorldPointToLatLon(null), null);
+}
+
+// --- Round 3 (Merlin, 2026-11-15): NO vehicle ever spawns —
+// or stays — on top of another. The build-time 25 m rule was
+// already pinned above; what was missing was everything AFTER
+// spawn: the bumper code only deals damage, it never moves a
+// vehicle, so a rival that drives into the player (or a respawn
+// that lands on one) would interpenetrate and stay there. ---
+{
+  // The gap two vehicles must keep: half-lengths + 1 m — the
+  // same threshold the bumper collision uses to detect a hit.
+  eq('gap for two Aventadors (4.6 m each)', vehicleGapM(4.6, 4.6), 5.6);
+  eq('gap for hauler (7 m) vs bike (2.2 m)', vehicleGapM(7, 2.2), 5.6);
+  eq('gap for two haulers', vehicleGapM(7, 7), 8);
+
+  // separateFrom: overlapping pair → b lands exactly at the gap.
+  const a = { lat: 53.5, lon: -113.5 };
+  const close = { lat: 53.5 + 3 / 111320, lon: -113.5 }; // 3 m north
+  const pushed = separateFrom(a, close, 4.6, 4.6);
+  const pushedD = haversineM(a.lat, a.lon, pushed.lat, pushed.lon);
+  t('separateFrom pushes b to exactly the gap', Math.abs(pushedD - 5.6) < 0.01);
+  const far = { lat: 53.5 + 30 / 111320, lon: -113.5 };
+  const kept = separateFrom(a, far, 4.6, 4.6);
+  t('separateFrom leaves a clear pair untouched', kept.lat === far.lat && kept.lon === far.lon);
+  const same = separateFrom(a, { lat: 53.5, lon: -113.5 }, 4.6, 4.6);
+  const sameD = haversineM(a.lat, a.lon, same.lat, same.lon);
+  t('separateFrom pushes a coincident pair apart to the gap', Math.abs(sameD - 5.6) < 0.01);
+
+  // separateVehicles: the player (fixed) never moves; a rival
+  // inside the gap is pushed out; rival pairs separate too.
+  const player = { lat: 53.5, lon: -113.5, fixed: true };
+  const rival = { lat: 53.5 + 2 / 111320, lon: -113.5, craftId: 'sports-car' };
+  const rival2 = { lat: 53.5 + 2.5 / 111320, lon: -113.5 + 2 / 111320, craftId: 'sports-car' };
+  const lenOf = (v) => (v.fixed ? 4.6 : (getVehicle(v.craftId) || {}).lengthM || 4.6);
+  const moved = separateVehicles([player, rival, rival2], lenOf);
+  t('separateVehicles moves the overlapping rivals', moved > 0);
+  t('player never moves (fixed — the camera anchor)',
+    player.lat === 53.5 && player.lon === -113.5);
+  for (const [x, y, name] of [[player, rival, 'player/rival'], [player, rival2, 'player/rival2'], [rival, rival2, 'rival/rival2']]) {
+    const d = haversineM(x.lat, x.lon, y.lat, y.lon);
+    t(`${name} end >= gap apart (${d.toFixed(2)} m)`, d >= vehicleGapM(lenOf(x), lenOf(y)) - 0.01);
+  }
+  // A pair of fixed vehicles is left alone (the caller must not
+  // pass two fixed vehicles that overlap).
+  const f1 = { lat: 0, lon: 0, fixed: true };
+  const f2 = { lat: 0.00001, lon: 0, fixed: true };
+  eq('two fixed vehicles are not moved', separateVehicles([f1, f2], () => 4.6), 0);
+  // A clear set moves nothing.
+  const clearSet = [
+    { lat: 53.5, lon: -113.5, fixed: true },
+    { lat: 53.5 + 30 / 111320, lon: -113.5, craftId: 'sports-car' },
+  ];
+  eq('a clear set moves nothing', separateVehicles(clearSet, lenOf), 0);
+
+  // Driving simulation: rivals wander for 15 s around a
+  // stationary player, the separation pass running every frame
+  // (the EarthKart frame loop) — no rival is ever inside the
+  // gap of the player afterwards, however the wander turns.
+  for (const seed of [20261115, 7, 42]) {
+    const state = createKartState();
+    state.rivals = buildRivals({ playerLat: 53.5, playerLon: -113.5, playerCraftId: 'wedge-supercar', seed });
+    const p = { lat: 53.5, lon: -113.5, speedMps: 0 };
+    let worstClearance = Infinity; // d - gap, per rival, after separation
+    let playerMoved = false;
+    for (let i = 0; i < 150; i++) {
+      stepRivals(state, { dt: 0.1, nowMs: 1000 + i * 100, player: p });
+      separateVehicles(
+        [{ lat: p.lat, lon: p.lon, fixed: true, lengthM: 4.6 }, ...state.rivals],
+        (v) => (v.lengthM ? v.lengthM : (getVehicle(v.craftId) || {}).lengthM || 4.6),
+      );
+      if (p.lat !== 53.5 || p.lon !== -113.5) playerMoved = true;
+      for (const r of state.rivals) {
+        const gap = vehicleGapM(4.6, (getVehicle(r.craftId) || {}).lengthM || 4.6);
+        worstClearance = Math.min(worstClearance, haversineM(p.lat, p.lon, r.lat, r.lon) - gap);
+      }
+    }
+    t(`seed ${seed}: 15 s of rival driving, none ever inside its gap (worst clearance ${worstClearance.toFixed(2)} m)`,
+      worstClearance >= -0.01);
+    t(`seed ${seed}: the player never moves during separation`, !playerMoved);
+    resetKartStateForTests();
+  }
+
+  // clearSpawnPoint — the tapped spawn point itself, checked:
+  // a clear tap stands exactly; an occupied tap walks to the
+  // nearest clear point 25 m out.
+  const tap = { lat: 53.5, lon: -113.5 };
+  const rivals = buildRivals({ playerLat: tap.lat, playerLon: tap.lon, playerCraftId: 'wedge-supercar' });
+  const keptTap = clearSpawnPoint(tap.lat, tap.lon, rivals);
+  t('a clear tap stands exactly as tapped', keptTap.lat === tap.lat && keptTap.lon === tap.lon);
+  const occupied = [{ lat: tap.lat + 10 / 111320, lon: tap.lon }]; // 10 m away
+  const movedTap = clearSpawnPoint(tap.lat, tap.lon, occupied);
+  const movedTapD = haversineM(movedTap.lat, movedTap.lon, occupied[0].lat, occupied[0].lon);
+  t('an occupied tap walks to >= 25 m from the vehicle', movedTapD >= 25 - 0.01);
+  t('the walked tap stays near the tap (<= 100 m)',
+    haversineM(movedTap.lat, movedTap.lon, tap.lat, tap.lon) <= 100.01);
+  const again = clearSpawnPoint(tap.lat, tap.lon, occupied);
+  t('clearSpawnPoint is deterministic', again.lat === movedTap.lat && again.lon === movedTap.lon);
+  const emptyTap = clearSpawnPoint(tap.lat, tap.lon, []);
+  t('empty others → the tap stands', emptyTap.lat === tap.lat && emptyTap.lon === tap.lon);
+
+  // respawnFor / advanceHit with others: a clear blast spot
+  // stands exactly; an occupied one walks 25 m clear.
+  const blast = respawnFor(10, 20, 8000, [{ lat: 10 + 5 / 111320, lon: 20 }]);
+  t('occupied blast spot walks >= 25 m clear',
+    haversineM(blast.lat, blast.lon, 10 + 5 / 111320, 20) >= 25 - 0.01);
+  eq('respawn still restores integrity', blast.integrity, INTEGRITY_MAX);
+  eq('respawn still stops the vehicle', blast.speed, 0);
+  eq('respawn still grants 3 s invulnerability', blast.invulnUntilMs, 8000 + INVULN_MS);
+  const clearBlast = respawnFor(10, 20, 8000, [{ lat: 11, lon: 20 }]);
+  t('clear blast spot stands exactly', clearBlast.lat === 10 && clearBlast.lon === 20);
+  const noOthers = respawnFor(10, 20, 8000);
+  t('no others → the blast spot stands exactly', noOthers.lat === 10 && noOthers.lon === 20);
+  const hit = createHit();
+  startHit(hit, { lat: 10, lon: 20, nowMs: 1000 });
+  advanceHit(hit, 1000 + FLIP_MS, [{ lat: 10 + 5 / 111320, lon: 20 }]);
+  const adv = advanceHit(hit, 1000 + FLIP_MS + EXPLODE_MS, [{ lat: 10 + 5 / 111320, lon: 20 }]);
+  t('advanceHit respawn walks off an occupied blast spot',
+    adv.respawn && haversineM(adv.respawn.lat, adv.respawn.lon, 10 + 5 / 111320, 20) >= 25 - 0.01);
+  const hit2 = createHit();
+  startHit(hit2, { lat: 10, lon: 20, nowMs: 1000 });
+  advanceHit(hit2, 1000 + FLIP_MS);
+  const adv2 = advanceHit(hit2, 1000 + FLIP_MS + EXPLODE_MS);
+  t('advanceHit without others respawns at the blast spot exactly',
+    adv2.respawn && adv2.respawn.lat === 10 && adv2.respawn.lon === 20);
 }
 
 console.log(`earth1-kart: ${passed} passed, ${failed} failed`);

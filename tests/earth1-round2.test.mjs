@@ -77,8 +77,16 @@ const src = (p) => readFileSync(p, 'utf8');
   t('rocket pill renders inside the stack', rocketIdx !== -1);
   t('FIRE button renders inside the stack', fireIdx !== -1);
   t('rocket pill sits ABOVE the FIRE button', rocketIdx !== -1 && fireIdx !== -1 && rocketIdx < fireIdx);
-  t('stack rides at 216px (above the 92–204px drive stick)',
-    c.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 216px)'"));
+  // Round 3 (Merlin, 2026-11-15, annotated screenshot — move
+  // them DOWN): the stack rides at 142px, just above the drive
+  // stick (bottom edge 18px, 112px tall → top at 130px, + 12px
+  // gap), and the speed pill sits at the bottom edge too.
+  t('stack rides at 142px (just above the 18–130px drive stick)',
+    c.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 142px)'"));
+  t('speed pill sits at the bottom edge (18px)',
+    c.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)'"));
+  t('no HUD piece sits at the old 216px / 92px heights',
+    !c.includes('+ 216px)') && !c.includes('+ 92px)'));
 }
 
 // --- Loosened steering (old values in the comment header of
@@ -207,6 +215,82 @@ const src = (p) => readFileSync(p, 'utf8');
     peers.includes('SPAWN_MIN_SEPARATION_M') && /placed/.test(peers));
   t('shared peer list still publishes TRUE positions',
     peers.includes('setSharedPeerVehicles'));
+}
+
+// --- Round 3 (Merlin, 2026-11-15): the "Map this world"
+// notice is gone entirely (crossed out in his screenshot);
+// the circled HUD pieces move DOWN to the bottom edge; the
+// ground wears his true scratched texture as a tiled detail
+// layer; the tapped spawn point is separation-checked; no
+// vehicle ever spawns — or stays — on top of another. ---
+{
+  // The notice is GONE: component deleted, mount + import gone,
+  // the text nowhere in any live Earth 1 path.
+  t('EarthOblivionPrompt component is deleted',
+    !existsSync('components/EarthOblivionPrompt.jsx'));
+  const page = src('app/page.jsx');
+  t('page imports no EarthOblivionPrompt', !page.includes('EarthOblivionPrompt'));
+  t('page mounts no EarthOblivionPrompt', !page.includes('<EarthOblivionPrompt'));
+  t('the notice text is gone from the page', !page.includes('Map this world'));
+  t('the notice text is gone from EarthConsole', !src('components/EarthConsole.jsx').includes('Map this world'));
+  // The Oblivion rule itself is untouched — the Jupiter lever is
+  // still the only trigger (pinned in earth1-entry).
+  t('Jupiter lever file untouched by the notice removal',
+    src('lib/jupiter2/lever.js').length > 0);
+
+  // HUD move-down: the drive stick sits at the bottom edge.
+  const stickIdx = page.indexOf('<WalkJoystick');
+  const stickBlock = page.slice(Math.max(0, stickIdx - 400), stickIdx);
+  t('drive stick sits at the bottom edge (18px)',
+    stickBlock.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)'"));
+  t('drive stick no longer rides at 92px', !stickBlock.includes('+ 92px)'));
+
+  // Ground true texture: a tiled detail layer from his static
+  // images over the video colour — the 9-colour fade, the
+  // mirror sheen and the prerendered ground all stay.
+  const ground = src('components/earth/PrerenderedEarthGround.jsx');
+  t('ground wears the detail texture as bumpMap',
+    ground.includes('getGroundDetailTexture()') && ground.includes('bumpMap: detailTex'));
+  t('ground wears the detail texture as roughnessMap',
+    ground.includes('roughnessMap: detailTex'));
+  t('ground detail bump scale is set', ground.includes('GROUND_DETAIL_BUMP_SCALE'));
+  t('detail overlay sphere multiplies the ground colour',
+    ground.includes('THREE.MultiplyBlending') && ground.includes('GROUND_DETAIL_OVERLAY_LIFT'));
+  t('ground still wears the video as map + emissive (fade kept)',
+    ground.includes('map: videoTex') && ground.includes('emissiveMap: videoTex'));
+  t('ground still one sphere at TERRAIN_RADIUS (prerender kept)',
+    ground.includes('sphereGeometry args={[TERRAIN_RADIUS, 96, 64]}'));
+  const gv = src('lib/earth/ground-video.js');
+  t('detail loader exists', gv.includes('export function getGroundDetailTexture'));
+  t('detail source is his silver scratched jpg',
+    gv.includes("GROUND_DETAIL_TEXTURE_URL = '/textures/scratched/silver.jpg'"));
+  t('detail repeats are ~7 m tiles (48 x 24)',
+    gv.includes('GROUND_DETAIL_REPEAT_U = 48') && gv.includes('GROUND_DETAIL_REPEAT_V = 24'));
+  t('detail texture file exists on disk', existsSync('public/textures/scratched/silver.jpg'));
+
+  // The tapped spawn point is separation-checked at the tap.
+  t('globe tap checks the spawn point against rivals + peers',
+    page.includes('clearSpawnPoint(lat, lon, [...kartState.rivals, ...sharedPeerVehicles])'));
+  t('page imports the spawn check + kart state',
+    page.includes("from '@/lib/earth/kart'") && page.includes('clearSpawnPoint'));
+
+  // Continuous separation is wired into the frame loop.
+  const kart = src('components/EarthKart.jsx');
+  t('EarthKart imports separateVehicles', kart.includes('separateVehicles'));
+  t('EarthKart runs the separation pass every frame',
+    kart.includes('separateVehicles(') && kart.includes('fixed: true'));
+  t('player respawn is separation-checked', kart.includes('advanceHit(kartState.playerHit, nowMs, ['));
+  t('rival respawns are separation-checked',
+    kart.includes('advanceHit(rival.hit, nowMs, others)'));
+
+  // Preview: the "Loading…" state is honest text (not a black
+  // box) and the Canvas mounts once the model arrives — the
+  // video only ever showed the model still downloading.
+  const sel = src('components/EarthVehicleSelect.jsx');
+  t('preview shows an honest loading line while the model downloads',
+    sel.includes("Loading {craft ? craft.name : 'vehicle'}…"));
+  t('preview renders the Canvas once the model is set',
+    sel.includes('<Canvas camera={{ position: [0, 1.2, 6], fov: 45 }}'));
 }
 
 console.log(`earth1-round2: ${passed} passed, ${failed} failed`);

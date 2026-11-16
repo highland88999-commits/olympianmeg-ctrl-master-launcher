@@ -16,10 +16,11 @@ import {
 } from '@/lib/aquarium/nodes';
 import { verifyAresPin } from '@/lib/aquarium/pin-gate';
 
-// Built-in rotation (40 live feeds) — lib/aquarium/nodes.js. The 10
-// dead feeds were deleted from the list (see DELETED_DEAD_NODES there);
-// the live site also needs supabase/aquarium-feed-cleanup.sql to run
-// before the dead feeds leave the database rotation.
+// Built-in rotation (34 live feeds) — lib/aquarium/nodes.js. The 10
+// dead feeds and the 6 black-screen feeds were deleted from the list
+// (see DELETED_DEAD_NODES and DELETED_BLACK_NODES there); the live
+// site also needs supabase/aquarium-feed-cleanup.sql to run before
+// those feeds leave the database rotation.
 const defaultNodes = BUILTIN_NODES;
 
 export default function AquariumConsole() {

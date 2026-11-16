@@ -6,7 +6,7 @@
 // ahead-first and work back, already-rendered tiles must be
 // skipped, and a periodic reconciliation must heal any void).
 // Run: node tests/earth-render-queue.test.mjs (from the repo root).
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import {
   LENS_PRESETS,
   lensTilePlan,
@@ -196,16 +196,15 @@ const approx = (a, b, eps) => Math.abs(a - b) <= eps;
     && !/governorRef|useGovernor|GOVERNOR|governorMs/.test(readFileSync('lib/earth/render-queue.js', 'utf8')));
 }
 
-// --- Mission pill no longer sits on the camera buttons.
+// --- The mission pill is gone entirely (round 3, Merlin,
+// 2026-11-15 — crossed out in his screenshot): component
+// deleted, mount + import gone, the text nowhere in a live path.
 {
-  const prompt = readFileSync('components/EarthOblivionPrompt.jsx', 'utf8');
-  t('pill moved below the camera column (9.5rem top in its style)',
-    /top: 'calc\(env\(safe-area-inset-top, 0px\) \+ 9\.5rem\)'/.test(prompt));
-  t('pill text is the corrected line (no Oblivion claim) and dismissal unchanged',
-    prompt.includes('Map this world — the ancient giants still walk here, waiting to be found')
-    && prompt.includes('setDismissed(true)'));
-  t('pill text never claims mapping triggers Oblivion',
-    !prompt.includes('Map this world to trigger Oblivion'));
+  t('mission pill component is deleted',
+    !existsSync('components/EarthOblivionPrompt.jsx'));
+  const page = readFileSync('app/page.jsx', 'utf8');
+  t('page mounts no mission pill', !page.includes('EarthOblivionPrompt'));
+  t('page carries no mission pill text', !page.includes('Map this world'));
 }
 
 console.log(`earth-render-queue: ${passed} passed, ${failed} failed`);
