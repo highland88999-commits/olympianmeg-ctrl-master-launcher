@@ -313,3 +313,39 @@ describe('clicking Earth opens the Earth menu', () => {
     assert.ok(hubPageSrc.includes('Choose your Earth'), 'the chooser offers Earth 1/2/3/4');
   });
 });
+
+describe('moon phone fixes (Merlin, Nov 15, 2026 — from his /moon video)', () => {
+  it('the move stick is really on screen, bottom-left, level with JUMP', () => {
+    // The stick was bare in flow after the full-height canvas — it
+    // rendered below the viewport, so no phone ever showed it.
+    const stickAt = moonPageSrc.indexOf('<WalkJoystick');
+    assert.ok(stickAt > 0, 'the Moon page renders the WalkJoystick');
+    const wrapAt = moonPageSrc.lastIndexOf("position: 'absolute'", stickAt);
+    assert.ok(wrapAt > 0 && stickAt - wrapAt < 200, 'the stick rides an absolutely-positioned wrapper');
+    assert.ok(moonPageSrc.includes('left: 18, bottom: 96'), 'the stick is parked bottom-left, level with JUMP');
+    assert.ok(moonPageSrc.includes('moveRef.current = { x, y }'), 'the stick drives the same moveRef the keys use');
+    assert.ok(moonSceneSrc.includes('moveRef.current.y'), 'the rig reads the stick into forward walk');
+    assert.ok(moonSceneSrc.includes('moveRef.current.x'), 'the rig reads the stick into strafe');
+    assert.ok(moonPageSrc.includes('aria-label="Jump"'), 'the JUMP button stays as-is');
+  });
+
+  it('the landing pad is gone — no disc, no gold ring, no pad in the hint', () => {
+    assert.ok(!moonSceneSrc.includes('circleGeometry'), 'no regolith disc left in the Moon scene');
+    assert.ok(!moonSceneSrc.includes('ringGeometry'), 'no gold ring left in the Moon scene');
+    assert.ok(!moonSceneSrc.includes('#5f5f5f'), 'the disc grey is gone with the pad');
+    assert.ok(!moonPageSrc.includes('landing pad'), 'the hint no longer points at a pad');
+    assert.ok(moonSceneSrc.includes('MOON_SPAWN_FEET'), 'the walker still spawns at the same spot');
+    assert.ok(moonSceneSrc.includes('MOON_LANDING_FEET'), 'the landing site (dust + flag) still anchors there');
+  });
+
+  it('the flag cloth remounts when the Omega photo lands, so the map is really on it', () => {
+    // three.js only recompiles a material when material.version
+    // changes; assigning .map after first render does not bump it
+    // and R3F v8 never sets needsUpdate — the map was silently
+    // ignored and the cloth stayed plain white on his phone.
+    assert.ok(moonSceneSrc.includes("key={flagTex ? 'flag-photo' : 'flag-plain'}"), 'the cloth remounts when the photo lands');
+    assert.ok(moonSceneSrc.includes('map={flagTex ?? undefined}'), 'the cloth takes the photo when it lands');
+    assert.ok(moonSceneSrc.includes('side={THREE.DoubleSide}'), 'the Omega reads from both sides');
+    assert.ok(moonSceneSrc.includes("key={poleTex ? 'pole-photo' : 'pole-plain'}"), 'the pole remounts the same way — its map had the same latent bug');
+  });
+});

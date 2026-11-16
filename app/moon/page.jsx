@@ -6,7 +6,7 @@
 // vortex carries you here. Walk it under real lunar gravity
 // (1.62 m/s² — about a sixth of Earth's) and bounce: a jump here
 // rises 2.78 m and hangs for 3.70 s, against 0.46 m / 0.61 s on
-// Earth. Earth hangs in the sky ahead of the landing pad, 26° up.
+// Earth. Earth hangs in the sky ahead of you, 26° up.
 //
 // Signed-in only (same rule as /sun-base and Earth 2). The walker
 // stands ON the Moon sphere (lib/moon.js — pure, tested), so you
@@ -150,10 +150,17 @@ export default function MoonPage() {
           color: 'rgba(255,255,255,0.75)', fontSize: 12, textAlign: 'center', pointerEvents: 'none',
         }}
       >
-        Drag to look · WASD / arrows / stick to walk · Space or JUMP to bounce · Earth hangs ahead of the landing pad
+        Drag to look · WASD / arrows / stick to walk · Space or JUMP to bounce · Earth hangs ahead of you
       </div>
 
-      <WalkJoystick onMove={(x, y) => { moveRef.current = { x, y }; }} />
+      {/* The move stick, parked bottom-left in thumb reach, level
+          with the JUMP button — never again bare in flow: it sat
+          below the full-height canvas, off-screen on every device
+          (Merlin's phone showed no stick at all). It drives the
+          same moveRef the WASD/arrows path uses. */}
+      <div style={{ position: 'absolute', left: 18, bottom: 96 }}>
+        <WalkJoystick onMove={(x, y) => { moveRef.current = { x, y }; }} />
+      </div>
       <button
         aria-label="Jump"
         onPointerDown={() => {

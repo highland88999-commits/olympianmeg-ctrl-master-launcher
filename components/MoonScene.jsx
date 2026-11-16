@@ -509,16 +509,10 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
       {/* Dust motes drifting around the landing site. */}
       <primitive object={dust} position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y, MOON_LANDING_FEET.z]} />
 
-      {/* Landing zone: darker regolith disc under the gold ring,
-          the Olympus flag, and pebbles. */}
-      <mesh position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y + 0.02, MOON_LANDING_FEET.z]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[2.1, 48]} />
-        <meshStandardMaterial color="#5f5f5f" roughness={1} metalness={0} polygonOffset polygonOffsetFactor={-1} />
-      </mesh>
-      <mesh position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y + 0.05, MOON_LANDING_FEET.z]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[1.7, 2.1, 48]} />
-        <meshBasicMaterial color="#ffd700" transparent opacity={0.9} side={THREE.DoubleSide} />
-      </mesh>
+      {/* No landing pad here any more (Merlin, Nov 15, 2026): the
+          dark disc and gold ring are gone — the walker spawns
+          standing on the Moon ground itself. The flag still stands
+          2.6 m north of the landing site. */}
       <group position={[MOON_LANDING_FEET.x, MOON_LANDING_FEET.y, MOON_LANDING_FEET.z - FLAG_OFFSET_M]} rotation={[-FLAG_TILT, 0, 0]}>
         {/* The pole wears Merlin's scratched-gold photograph (Nov 15,
             2026) and is light reflecting: metalness 1.0, roughness
@@ -527,7 +521,7 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
             roughness 0.4). The pole itself stays rigid. */}
         <mesh position={[0, 1.2, 0]}>
           <cylinderGeometry args={[0.05, 0.05, 2.4, 8]} />
-          <meshStandardMaterial map={poleTex ?? undefined} color={poleTex ? '#ffffff' : '#cfd2d6'} roughness={poleTex ? 0.18 : 0.4} metalness={poleTex ? 1.0 : 0.8} />
+          <meshStandardMaterial key={poleTex ? 'pole-photo' : 'pole-plain'} map={poleTex ?? undefined} color={poleTex ? '#ffffff' : '#cfd2d6'} roughness={poleTex ? 0.18 : 0.4} metalness={poleTex ? 1.0 : 0.8} />
         </mesh>
         {/* The cloth is a 12×6 segmented plane so waveFlag can
             ripple the free edge while the pole edge stays pinned;
@@ -540,8 +534,18 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
             squeeze, invisible. Before the photo lands the cloth
             keeps its plain gold. The cloth stays cloth — it waves
             with the wind; it is not mirror-coated. */}
+        {/* WHY the cloth material carries a key (Merlin, Nov 15, 2026):
+            the photo loads AFTER first render, and three.js only
+            recompiles a material's shader when material.version
+            changes — assigning .map afterwards does not bump it,
+            and R3F v8 never sets needsUpdate on material prop
+            changes. Without the key the photo's map was silently
+            ignored and the cloth stayed plain white on Merlin's
+            phone (colour white, map dropped). The key remounts the
+            material the moment the photo lands, so it is created
+            WITH the map and compiles with it. Same for the pole. */}
         <mesh position={[0.58, 2.1, 0]} geometry={flagGeo}>
-          <meshBasicMaterial map={flagTex ?? undefined} color={flagTex ? '#ffffff' : '#ffd700'} side={THREE.DoubleSide} />
+          <meshBasicMaterial key={flagTex ? 'flag-photo' : 'flag-plain'} map={flagTex ?? undefined} color={flagTex ? '#ffffff' : '#ffd700'} side={THREE.DoubleSide} />
         </mesh>
         {/* OLYMPUS was fontSize 0.9 — ~2.6 m in front of the spawn
             camera, filling the whole screen over the help line.
@@ -561,7 +565,7 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
         </mesh>
       ))}
 
-      {/* Pebbles on and around the pad. */}
+      {/* Pebbles on the ground around the landing site. */}
       {pebbles.map((pebble, i) => (
         <mesh key={`peb-${i}`} position={[pebble.pos.x, pebble.pos.y, pebble.pos.z]} rotation={[0, pebble.rot, 0]} material={i % 2 ? rockMatB : rockMatA}>
           <dodecahedronGeometry args={[pebble.size, 0]} />
