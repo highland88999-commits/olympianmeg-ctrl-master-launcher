@@ -1,23 +1,17 @@
-// tests/earth-driving-ground.test.mjs — Pins for the 2026-10-27
-// driving-void fix (Merlin's phone video: walking kept its
-// photographic mosaic, but at Aventador boost the ground fell
-// back to flat patch-green, then bare dark globe — a black void
-// — while the chase camera pulled far back intermittently).
-//
-// Mechanism, measured from the code: boosted Aventador speed is
-// 180 × 3 = 540 display m/s, so it crosses the 2700 m far disc
-// in 5 s while a 1296-tile far build takes far longer; the
-// mounted far sheets were always kilometres behind the car,
-// the fine sheet is frozen while driving by design, and the
-// patch (338 m) was the only current layer — beyond its rim
-// lay bare lit globe, dark against the unlit sheets. The
-// third-person camera lagged by speed/20 = 27 m at boost.
+// tests/earth-driving-ground.test.mjs — Pins for the 2026-11-15
+// Earth 1 ground rework (Merlin: "The tiles should no longer
+// render either in earth 1, they should be prerendered around
+// the entire map"). The whole lens system — near/far/coarse
+// sheets, render queue, restore path, mapping marks, street
+// patch — is deleted from every live Earth 1 path. The ground
+// is ONE prerendered sphere wearing the ground-loop video
+// (one fading colour + mirror sheen), baked once, mounted at
+// street level; the car drives over finished ground. The old
+// 2026-10-27 driving-void pins (lens presets, build freezes)
+// are gone with the system they pinned; the lens lib itself
+// stays on disk, unwired, pinned by earth-lens.test.mjs.
 // Run: node tests/earth-driving-ground.test.mjs (from the repo root).
-import { readFileSync } from 'fs';
-import {
-  LENS_PRESETS,
-  lensTilePlan,
-} from '../lib/earth/lens.js';
+import { readFileSync, existsSync } from 'fs';
 
 let passed = 0, failed = 0;
 function t(name, cond) {
@@ -25,59 +19,65 @@ function t(name, cond) {
   else { failed++; console.error(`FAIL: ${name}`); }
 }
 
-// --- The coarse fallback preset: same 1350 m radius as far,
-// but 64 tiles (zoom 6, grid 8 spans exactly the 45° disc) so a
-// build finishes in seconds and centre-first painting puts
-// photographic ground under the car in its first fetches.
+// --- The prerendered ground component ---
 {
-  const c = LENS_PRESETS.streetCoarse;
-  t('streetCoarse preset exists', !!c);
-  t('streetCoarse radius matches far (21.6)', c.radiusUnits === 21.6);
-  t('streetCoarse zoom 6', c.zoom === 6);
-  t('streetCoarse grid 8', c.grid === 8);
-  t('streetCoarse canvas 640', c.canvasPx === 640);
-  t('streetCoarse lift sits between patch (0.002) and far (0.003)',
-    c.lift > 0.002 && c.lift < 0.003);
-  const plan = lensTilePlan(53.55, -113.49, c.zoom, c.grid, c.canvasPx);
-  t('streetCoarse plan is 64 tiles', plan.tiles.length === 64);
-  t('streetCoarse plan tiles carry ESRI urls',
-    plan.tiles.filter((x) => x.url).length > 0);
-  // Pre-existing presets untouched (no mapping-math change).
-  t('street preset unchanged', LENS_PRESETS.street.radiusUnits === 1.44
-    && LENS_PRESETS.street.zoom === 12 && LENS_PRESETS.street.grid === 36);
-  t('streetFar preset unchanged', LENS_PRESETS.streetFar.radiusUnits === 21.6
-    && LENS_PRESETS.streetFar.zoom === 8 && LENS_PRESETS.streetFar.grid === 36);
+  const p = 'components/earth/PrerenderedEarthGround.jsx';
+  t('prerender component exists', existsSync(p));
+  const src = readFileSync(p, 'utf8');
+  t('ground is one full sphere at TERRAIN_RADIUS',
+    src.includes('sphereGeometry args={[TERRAIN_RADIUS, 96, 64]}'));
+  t('ground wears the shared floor video as map + emissive',
+    src.includes('getGroundVideoTexture()')
+    && src.includes('map: videoTex') && src.includes('emissiveMap: videoTex'));
+  t('mirror law kept: metalness 1.0, roughness 0.08',
+    src.includes('GROUND_MIRROR_METALNESS') && src.includes('GROUND_MIRROR_ROUGHNESS'));
+  t('emissive + env sheen kept',
+    src.includes('GROUND_MIRROR_EMISSIVE_INTENSITY')
+    && src.includes('getGroundEnvMap(gl)') && src.includes('GROUND_MIRROR_ENV_INTENSITY'));
+  t('full-frame equirect wrap (no square crop)',
+    src.includes('videoTex.repeat.set(1, 1)') && src.includes('videoTex.offset.set(0, 0)'));
+  t('ground is double-sided', src.includes('side: THREE.DoubleSide'));
+  t('ground fades in over ~0.4 s on mount',
+    src.includes('dt / 0.4') && src.includes('opacity: 0'));
+  t('video is started on mount', src.includes('startGroundVideo()'));
+  t('material disposed on unmount, shared texture never disposed',
+    src.includes('material.dispose()') && !src.includes('videoTex.dispose()'));
 }
 
-// --- NexusEarth wiring (source-level: the component is JSX and
-// headless tests pin its structure, as the other Earth suites do).
+// --- The video module no longer square-crops (the sheets are gone) ---
+{
+  const gv = readFileSync('lib/earth/ground-video.js', 'utf8');
+  t('square-crop helper is gone', !gv.includes('applySquare'));
+  t('no loadedmetadata crop listener', !gv.includes("loadedmetadata"));
+  t('video still plays on texture creation', gv.includes("void groundVideo.play().catch(() => {});"));
+}
+
+// --- NexusEarth wiring: prerender in, lens/mapping out ---
 {
   const src = readFileSync('components/NexusEarth.jsx', 'utf8');
-  t('coarse pool + state exist',
-    src.includes('coarseSheetsRef') && src.includes('coarseSheets, setCoarseSheets'));
-  t('coarse ctx renders below far (renderOrder 1)',
-    src.includes('COARSE_CTX') && /renderOrder: 1/.test(src));
-  t('coarse sheets rendered in JSX', src.includes('coarseSheets.map((s)'));
-  t('coarse centre follows the traveler (not led ahead)',
-    src.includes('coarseCenterRef.current = { lat: roamState.lat, lon: roamState.lon }'));
-  // 2026-10-27 (render queue): the coarse job's preset now comes
-  // from coarsePresetFor(driving) — streetCoarse on foot,
-  // streetCoarseWide in a car — so the literal presetName pin
-  // moved to the selector. The intent stands: no driving freeze
-  // on the coarse pool; driving only doubles its radius.
-  t('coarse effect has no driving gate (it IS the driving layer)',
-    src.includes('coarsePresetFor(driving)')
-    && !/if \(driving\) \{ mgr\.pending = job; return undefined; \}\n[\s\S]{0,400}coarsePresetFor/.test(src));
-  t('far builds freeze while driving (like the fine sheet)',
-    /if \(driving\) \{ mgr\.pending = job; return undefined; \}\n[\s\S]{0,600}presetName: 'streetFar'/.test(src)
-    || (src.includes("presetName: 'streetFar'") && src.includes('if (driving) { mgr.pending = job; return undefined; }')));
-  t('stale-drop helper exists and far + coarse use it',
-    src.includes('dropStaleBuild') && src.includes('dropStaleBuild(FAR_CTX')
-    && src.includes('dropStaleBuild(COARSE_CTX'));
-  t('finish only clears the pool for its own job (no race with a replacement build)',
-    src.includes('if (mgr.job === job) { mgr.job = null; mgr.busy = false; }'));
-  t('unmount disposes coarse sheets',
-    src.includes('coarseLensBuildRef.current.alive = false'));
+  t('NexusEarth mounts the prerender at street level',
+    src.includes("<PrerenderedEarthGround />")
+    && src.includes("phase === 'earth_roam' && <PrerenderedEarthGround />"));
+  t('photographic globe hidden at street level (stays mounted)',
+    src.includes('<group visible={phase !== \'earth_roam\'}>')
+    && src.includes('<ProceduralEarthGlobe'));
+  t('no lens sheet state or refs remain',
+    !src.includes('lensSheets') && !src.includes('farSheets') && !src.includes('coarseSheets')
+    && !src.includes('sheetsRef') && !src.includes('lensBuildRef'));
+  t('no live tile-build machinery remains',
+    !src.includes('startLensBuild') && !src.includes('lensTilePlan')
+    && !src.includes('buildLensGeometryData') && !src.includes('pumpLensQueue')
+    && !src.includes('nextRestoreJob') && !src.includes('dropStaleBuild'));
+  t('no mapping marks or sync remain',
+    !src.includes('markDisc') && !src.includes('mappedBitset')
+    && !src.includes('setMappedPercent') && !src.includes('reportEarthSync')
+    && !src.includes('coveragePercent'));
+  t('street ground patch mount is gone',
+    !src.includes('<StreetGroundPatch') && !src.includes('patchCenter'));
+  t('kart systems still mounted at street level',
+    src.includes('<EarthSupercar') && src.includes('<EarthKart />')
+    && src.includes('<EarthBoostPads />') && src.includes('<EarthPeers />')
+    && src.includes('<EarthCracks />'));
 }
 
 // --- Chase camera: third-person follow rate scales with mounted

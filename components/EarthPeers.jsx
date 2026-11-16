@@ -66,7 +66,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { createPresenceClient } from '@/lib/presence';
 import { supabase } from '@/lib/supabase';
-import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
+import { roamState, tangentFrame, headingVector, destinationPoint } from '@/lib/earth/roam';
 import { carState } from '@/lib/earth/parachute';
 import { latLonToVec3 } from '@/lib/geo';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
@@ -87,7 +87,10 @@ import {
   peerHitStates,
   advancePeerHit,
   flipRollAngle,
+  bearingTo,
+  SPAWN_MIN_SEPARATION_M,
 } from '@/lib/earth/kart';
+import { EARTH_RADIUS_M } from '@/lib/earth/boost-pads';
 
 const UPM = DISPLAY_UNITS_PER_METRE;
 
@@ -282,10 +285,40 @@ export default function EarthPeers() {
     const time = state.clock.elapsedTime;
     const nowMs = performance.now();
     const shared = [];
+    // NO OVERLAPPING SPAWNS, render-side (Merlin, 2026-11-15):
+    // peers are real users at real positions — their true spot
+    // is never moved — but when two vehicles would render on top
+    // of each other (two users tapping the same spawn), the
+    // RENDERED body is pushed apart to SPAWN_MIN_SEPARATION_M
+    // (25 m). The shared list below still publishes the true
+    // position (torpedo/collision truth); only the group moves.
+    // The player anchors the placed list; each peer is checked
+    // against everything placed before it, two passes so a push
+    // off one neighbour never lands it on another.
+    const placed = [{
+      lat: carState.mounted ? carState.lat : roamState.lat,
+      lon: carState.mounted ? carState.lon : roamState.lon,
+    }];
     for (const [, e] of entriesRef.current.entries()) {
       // Lerp toward the latest fix (2.5 s cadence would jump).
       e.display = lerpEarthPos(e.display, e.lastFix, dt);
-      const { lat, lon, yawDeg } = e.display;
+      let renderLat = e.display.lat;
+      let renderLon = e.display.lon;
+      for (let pass = 0; pass < 2; pass++) {
+        for (const o of placed) {
+          if (earthDistanceM(renderLat, renderLon, o.lat, o.lon) < SPAWN_MIN_SEPARATION_M) {
+            const at = destinationPoint(o.lat, o.lon,
+              bearingTo(o.lat, o.lon, renderLat, renderLon),
+              SPAWN_MIN_SEPARATION_M / EARTH_RADIUS_M);
+            renderLat = at.lat;
+            renderLon = at.lon;
+          }
+        }
+      }
+      placed.push({ lat: renderLat, lon: renderLon });
+      const { yawDeg } = e.display;
+      const lat = renderLat;
+      const lon = renderLon;
       const craft = e.craftId ? getVehicle(e.craftId) : null;
       const hoverM = craft ? craft.hoverM : 0;
       const surfR = surfaceRadiusOrBase(lat, lon);
@@ -343,13 +376,15 @@ export default function EarthPeers() {
       e.craftGroup.visible = craftReady;
 
       // Publish the shared peer list for EarthKart (torpedo
-      // targeting + bumper-car collisions). Speed goes stale
-      // 5 s after the last fix — a peer who stopped sending
-      // reads as stopped, not as coasting forever.
+      // targeting + bumper-car collisions). The TRUE position —
+      // not the render-offset one above — so a torpedo aims at
+      // where the peer really is. Speed goes stale 5 s after the
+      // last fix — a peer who stopped sending reads as stopped,
+      // not as coasting forever.
       shared.push({
         id: e.key,
-        lat,
-        lon,
+        lat: e.display.lat,
+        lon: e.display.lon,
         yawDeg,
         craftId: e.craftId,
         speedMps: nowMs - e.fixAtMs < 5000 ? e.speedMps : 0,

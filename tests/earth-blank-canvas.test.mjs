@@ -4,41 +4,49 @@
 // drawImage throwing, so a build "succeeded" with a blank canvas
 // and mounted a black sheet — which then defeated the coverage
 // check AND the rendered-record dedup, so the ground stayed black
-// forever. There is no canvas any more — the ground is one
-// looping video — so the failure mode is now a video that fails
-// to load. finish() must treat a failed video as a failed build:
-// no sheet, no record, so the 10 s reconciler retries.
+// forever.
+//
+// 2026-11-15 (Merlin — tiles no longer render): there is no
+// canvas, no build, no sheet, no finish() and no record any
+// more. The ground is one prerendered sphere wearing the
+// looping video; the failure mode the guard protected against
+// (a black ground that never recovers) is gone with the build
+// that could produce it. What remains, pinned here: NexusEarth
+// carries no build gate, no per-sheet failure branch and no
+// record call; the prerender renders nothing when the texture
+// is missing instead of mounting black ground; and the video
+// module still reports a load failure at the lib level.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const src = readFileSync('components/NexusEarth.jsx', 'utf8');
+const prerender = readFileSync('components/earth/PrerenderedEarthGround.jsx', 'utf8');
+const groundVideo = readFileSync('lib/earth/ground-video.js', 'utf8');
 
-test('finish() checks the video for error before calling a build good', () => {
-  assert.match(src, /else if \(groundVideoHasError\(\)\) \{/);
+test('no finish() build gate remains in NexusEarth', () => {
+  assert.doesNotMatch(src, /onGroundVideoReady/);
+  assert.doesNotMatch(src, /groundVideoHasError/);
+  assert.doesNotMatch(src, /startLensBuild/);
 });
 
-test('a failed video fails the build (no black sheet, no record)', () => {
-  const failStart = src.indexOf('} else if (groundVideoHasError()) {');
-  assert.notEqual(failStart, -1, 'the failed-video branch is missing');
-  const failEnd = src.indexOf('} else {', failStart);
-  const branch = src.slice(failStart, failEnd);
-  assert.match(branch, /bctx\.remove\(job\.key\)/);
-  assert.doesNotMatch(branch, /recordRenderedTileKey/);
-});
-
-test('the build finishes only once the video has data (or failed)', () => {
-  assert.match(src, /onGroundVideoReady\(\(\) => finish\(\)\)/);
+test('a missing texture renders nothing (no black sheet)', () => {
+  assert.match(prerender, /if \(!material\) return null/);
 });
 
 test('no canvas guard remains (no canvas, no getImageData, no okCount)', () => {
   assert.doesNotMatch(src, /canvasIsBlank/);
   assert.doesNotMatch(src, /getImageData/);
   assert.doesNotMatch(src, /okCount/);
+  assert.doesNotMatch(prerender, /canvasIsBlank/);
 });
 
-test('the success branch still records the cell exactly as before', () => {
-  const okStart = src.indexOf('} else {', src.indexOf('} else if (groundVideoHasError()) {'));
-  const branch = src.slice(okStart, okStart + 1200);
-  assert.match(branch, /recordRenderedTileKey\(cellKey\)/);
+test('no rendered record runs from the ground path', () => {
+  assert.doesNotMatch(src, /recordRenderedTileKey/);
+  assert.doesNotMatch(prerender, /recordRenderedTileKey/);
+});
+
+test('the video module still reports a load failure (lib level)', () => {
+  assert.match(groundVideo, /export function groundVideoHasError/);
+  assert.match(groundVideo, /groundVideoError = true/);
 });

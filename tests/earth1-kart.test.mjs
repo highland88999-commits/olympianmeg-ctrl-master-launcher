@@ -68,6 +68,8 @@ import {
   applyCollisionDamage,
   buildRivals,
   stepRivals,
+  SPAWN_MIN_SEPARATION_M,
+  spawnPointClearOf,
 } from '../lib/earth/kart.js';
 import { haversineM } from '../lib/earth/boost-pads.js';
 import { getVehicle, VEHICLES } from '../lib/earth/vehicles.js';
@@ -427,6 +429,49 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
     t(`rival ${r.id} never exceeds 60% top speed`, r.speed <= top + 0.01);
   }
   resetKartStateForTests();
+}
+
+// --- Spawn separation (Merlin, 2026-11-15): no vehicles ever
+// spawn on top of each other — 25 m minimum between the player
+// spawn, every rival, and every peer render position. ---
+{
+  t('minimum separation is 25 m (clears the 7 m hauler several times over)',
+    SPAWN_MIN_SEPARATION_M === 25);
+  const mk = () => buildRivals({ playerLat: 53.5, playerLon: -113.5, playerCraftId: 'wedge-supercar' });
+  const rivals = mk();
+  for (const r of rivals) {
+    const d = haversineM(53.5, -113.5, r.lat, r.lon);
+    t(`rival ${r.id} spawns >= 25 m from the player (${Math.round(d)} m)`, d >= SPAWN_MIN_SEPARATION_M);
+  }
+  for (let i = 0; i < rivals.length; i++) {
+    for (let j = i + 1; j < rivals.length; j++) {
+      const d = haversineM(rivals[i].lat, rivals[i].lon, rivals[j].lat, rivals[j].lon);
+      t(`rivals ${rivals[i].id} / ${rivals[j].id} spawn >= 25 m apart (${Math.round(d)} m)`,
+        d >= SPAWN_MIN_SEPARATION_M);
+    }
+  }
+  // Separation holds across seeds, not just the default one.
+  for (const seed of [1, 7, 42, 20261115, 999999]) {
+    const rs = buildRivals({ playerLat: 0, playerLon: 0, playerCraftId: 'wedge-supercar', seed });
+    let ok = true;
+    for (let i = 0; i < rs.length; i++) {
+      if (haversineM(0, 0, rs[i].lat, rs[i].lon) < SPAWN_MIN_SEPARATION_M) ok = false;
+      for (let j = i + 1; j < rs.length; j++) {
+        if (haversineM(rs[i].lat, rs[i].lon, rs[j].lat, rs[j].lon) < SPAWN_MIN_SEPARATION_M) ok = false;
+      }
+    }
+    t(`seed ${seed}: all rivals >= 25 m apart and >= 25 m from the player`, ok);
+  }
+  // spawnPointClearOf unit checks (the pure helper buildRivals uses).
+  t('clear point passes', spawnPointClearOf(0, 0, [{ lat: 1, lon: 1 }]) === true);
+  t('point 10 m from another fails',
+    spawnPointClearOf(0, 0, [{ lat: 0.00009, lon: 0 }]) === false);
+  t('point 30 m from another passes (minimum is 25)',
+    spawnPointClearOf(0, 0, [{ lat: 30 / 111320, lon: 0 }]) === true);
+  t('empty others list passes', spawnPointClearOf(0, 0, []) === true);
+  t('custom minimum respected',
+    spawnPointClearOf(0, 0, [{ lat: 0.0004, lon: 0 }], 50) === false
+    && spawnPointClearOf(0, 0, [{ lat: 0.0004, lon: 0 }], 40) === true);
 }
 
 // --- Globe click: world point → lat/lon round-trip ---

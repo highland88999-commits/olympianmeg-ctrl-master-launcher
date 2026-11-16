@@ -116,9 +116,9 @@ clearStreetPatch();
 
 // --- Source contracts ---
 const nexus = read('../components/NexusEarth.jsx');
-check('lens: serialized progressive manager present', nexus.includes('pumpLensQueue') && nexus.includes('onGroundVideoReady') && nexus.includes('startLensBuild'));
+check('lens: no build manager remains — the ground is prerendered', !nexus.includes('pumpLensQueue') && !nexus.includes('onGroundVideoReady') && !nexus.includes('startLensBuild'));
 check('lens: abandonment guard gone (old onload kill-switch)', !nexus.includes('if (!alive) return'));
-check('lens: pending queue on recenter', nexus.includes('mgr.pending = job'));
+check('lens: no pending queue on recenter — nothing recenters', !nexus.includes('mgr.pending = job'));
 check('globe: orbit water passed from NexusEarth', nexus.includes('waterInOrbit={!roaming}'));
 
 const globe = read('../components/ProceduralEarthGlobe.jsx');

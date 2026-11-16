@@ -29,13 +29,15 @@
 //   * the mirror finish is polished mirror metal (metalness 1,
 //     roughness 0.08, emissive 0.55, env map) — and no Reflector
 //     pass (a second render of the whole scene per frame)
-//   * the ground build wears the video (MeshStandardMaterial,
-//     shared texture, never disposed per-sheet) and finishes
-//     only once the video has data — or has failed
-//   * the tile SYSTEM is untouched: phone caps (near 4 / far 2
-//     / coarse 3), the rendered record, the watchdog, the tile
-//     identity (tileCellKey format) and the restore path —
-//     and the old per-tile ESRI fetch is gone from the build
+//   * the prerendered ground wears the video (MeshStandardMaterial
+//     in PrerenderedEarthGround, shared texture, never disposed)
+//   * the tile SYSTEM is gone (Merlin, 2026-11-15 — tiles no
+//     longer render in Earth 1): no sheet pools or phone caps,
+//     no rendered record, no watchdog, no rim feather — the
+//     ground is one sphere; the tile identity (tileCellKey
+//     format) and the restore path survive only as unwired
+//     lib functions, pinned for the record
+//   * and the old per-tile ESRI fetch is gone from the build
 //   * the hub Earth globe files never import the metal module
 import { createHash } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
@@ -243,26 +245,31 @@ t('mirror emissive is 0.55 (the colour still reads)', GROUND_MIRROR_EMISSIVE_INT
 t('mirror env intensity is 1.0', GROUND_MIRROR_ENV_INTENSITY === 1.0);
 {
   const nexusSrc = readFileSync(join(ROOT, 'components', 'NexusEarth.jsx'), 'utf8');
+  const prerenderSrc = readFileSync(join(ROOT, 'components', 'earth', 'PrerenderedEarthGround.jsx'), 'utf8');
   t('no Reflector pass anywhere (a second render per frame is too heavy for a phone)',
-    !nexusSrc.includes('new Reflector') && !nexusSrc.includes('Reflector.js') && !nexusSrc.includes('<Reflector'));
-  t('the ground material is a mirror standard material',
-    nexusSrc.includes('MeshStandardMaterial') && nexusSrc.includes('GROUND_MIRROR_METALNESS')
-    && nexusSrc.includes('GROUND_MIRROR_ROUGHNESS') && nexusSrc.includes('GROUND_MIRROR_EMISSIVE_INTENSITY'));
-  t('the ground reflects an environment map', nexusSrc.includes('getGroundEnvMap(gl)'));
-  t('the rim feather is the shared radial alpha map', nexusSrc.includes('getGroundFeatherAlphaMap()'));
+    !nexusSrc.includes('new Reflector') && !nexusSrc.includes('Reflector.js') && !nexusSrc.includes('<Reflector')
+    && !prerenderSrc.includes('new Reflector') && !prerenderSrc.includes('Reflector.js') && !prerenderSrc.includes('<Reflector'));
+  t('the ground material is a mirror standard material (in the prerender)',
+    prerenderSrc.includes('MeshStandardMaterial') && prerenderSrc.includes('GROUND_MIRROR_METALNESS')
+    && prerenderSrc.includes('GROUND_MIRROR_ROUGHNESS') && prerenderSrc.includes('GROUND_MIRROR_EMISSIVE_INTENSITY'));
+  t('the ground reflects an environment map (in the prerender)',
+    prerenderSrc.includes('getGroundEnvMap(gl)'));
+  t('no rim feather: the full sphere has no rim to feather',
+    !nexusSrc.includes('getGroundFeatherAlphaMap()') && !prerenderSrc.includes('getGroundFeatherAlphaMap()'));
 }
 
-/* --- the ground build wears the video (source pins) --- */
+/* --- the prerendered ground wears the video (source pins) --- */
 {
   const nexusSrc = readFileSync(join(ROOT, 'components', 'NexusEarth.jsx'), 'utf8');
-  t('the build takes the shared floor video texture', nexusSrc.includes('getGroundVideoTexture()'));
-  t('the build finishes only once the video has data (or failed)',
-    nexusSrc.includes('onGroundVideoReady(() => finish())'));
-  t('a failed video drops the sheet and records nothing',
-    nexusSrc.includes('groundVideoHasError()'));
-  t('no CanvasTexture remains in the lens build', !nexusSrc.includes('CanvasTexture'));
-  t('the shared video texture is never disposed per-sheet',
-    !nexusSrc.includes('material.map?.dispose()'));
+  const prerenderSrc = readFileSync(join(ROOT, 'components', 'earth', 'PrerenderedEarthGround.jsx'), 'utf8');
+  t('the prerender takes the shared floor video texture', prerenderSrc.includes('getGroundVideoTexture()'));
+  t('no per-sheet ready gate: the prerender mounts with the texture directly',
+    prerenderSrc.includes('getGroundVideoTexture()') && !prerenderSrc.includes('onGroundVideoReady'));
+  t('no per-sheet failure path: a missing texture renders nothing',
+    prerenderSrc.includes('if (!material) return null'));
+  t('no CanvasTexture remains in the ground', !nexusSrc.includes('CanvasTexture') && !prerenderSrc.includes('CanvasTexture'));
+  t('the shared video texture is never disposed',
+    !nexusSrc.includes('material.map?.dispose()') && !prerenderSrc.includes('videoTex.dispose()'));
   t('the floor video starts with the scene and pauses on unmount',
     nexusSrc.includes('startGroundVideo()') && nexusSrc.includes('stopGroundVideo()'));
   const kartSrc = readFileSync(join(ROOT, 'components', 'EarthKart.jsx'), 'utf8');
@@ -295,17 +302,16 @@ check('restore rebuilds the same key', () => {
   assert.strictEqual(key, recordedKey, 'restore plan rebuilds the recorded key exactly');
 });
 
-/* --- the tile system is untouched (source pins) --- */
+/* --- the tile system is gone (source pins) --- */
 const nexusSrc = readFileSync(join(ROOT, 'components', 'NexusEarth.jsx'), 'utf8');
-t('phone caps intact: near 4 / far 2 / coarse 3',
-  /const MAX_LENS_SHEETS = 4;/.test(nexusSrc)
-  && /const MAX_FAR_LENS_SHEETS = 2;/.test(nexusSrc)
-  && /const MAX_COARSE_LENS_SHEETS = 3;/.test(nexusSrc));
-t('rendered record still runs on every finished sheet',
-  nexusSrc.includes('recordRenderedTileKey(cellKey)')
-  && nexusSrc.includes('RENDERED_RECORD_PRESETS'));
-t('the build still frees the pool through the watchdog',
-  nexusSrc.includes('LENS_BUILD_WATCHDOG_MS'));
+t('no sheet pools, no phone caps: the ground is one sphere',
+  !nexusSrc.includes('MAX_LENS_SHEETS') && !nexusSrc.includes('MAX_FAR_LENS_SHEETS')
+  && !nexusSrc.includes('MAX_COARSE_LENS_SHEETS'));
+t('no rendered-tile record runs from NexusEarth',
+  !nexusSrc.includes('recordRenderedTileKey(cellKey)')
+  && !nexusSrc.includes('RENDERED_RECORD_PRESETS'));
+t('no build watchdog: no builds left to free',
+  !nexusSrc.includes('LENS_BUILD_WATCHDOG_MS'));
 t('old per-tile ESRI fetch is gone from the build',
   !nexusSrc.includes('img.src = t.url')
   && !nexusSrc.includes('ctx.drawImage(img, t.px, t.py, S, S)')

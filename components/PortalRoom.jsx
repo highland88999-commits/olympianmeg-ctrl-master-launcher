@@ -36,6 +36,7 @@ import {
 import { updateBackpack } from '@/lib/backpack/store';
 import { maybeAwardPortalGun } from '@/lib/portal/gun';
 import { portalCardBackground } from '@/lib/portal/portal-graphics';
+import PortalFaceVideo from './PortalFaceVideo';
 
 const BOOT_MS = 1600;
 const NOTICE_MS = 1600;
@@ -215,6 +216,7 @@ export default function PortalRoom({ side = 'nether', open = false, onClose }) {
                   disabled={!!selectedRealm}
                   style={{
                     flex: '0 0 auto', width: 208, minHeight: 148, textAlign: 'left', cursor: 'pointer',
+                    position: 'relative', overflow: 'hidden',
                     borderRadius: 14, padding: '14px 14px 12px', color: lighting.text,
                     background: portalCardBackground(realm.key, realm.hue),
                     backgroundSize: 'cover',
@@ -224,13 +226,19 @@ export default function PortalRoom({ side = 'nether', open = false, onClose }) {
                     fontFamily: 'inherit',
                   }}
                 >
-                  <span style={{ display: 'block', width: 14, height: 14, borderRadius: 999, background: realm.hue, boxShadow: `0 0 12px ${realm.hue}` }} />
-                  <span style={{ display: 'block', fontSize: 18, fontWeight: 800, marginTop: 10 }}>{realm.label}</span>
-                  <span style={{ display: 'block', fontSize: 12, opacity: 0.75, marginTop: 2 }}>{realm.mythos} {realm.side === 'both' ? '· both sides' : realm.side === 'heaven' ? '· heaven' : '· hell'}</span>
+                  {/* Video portal face (Merlin, Nov 15 ~22:25): the
+                      muted looping video over the static graphic;
+                      nothing when the realm has no video yet. The
+                      text spans below carry position relative so
+                      they paint above this absolute layer. */}
+                  <PortalFaceVideo realmKey={realm.key} hue={realm.hue} />
+                  <span style={{ position: 'relative', display: 'block', width: 14, height: 14, borderRadius: 999, background: realm.hue, boxShadow: `0 0 12px ${realm.hue}` }} />
+                  <span style={{ position: 'relative', display: 'block', fontSize: 18, fontWeight: 800, marginTop: 10 }}>{realm.label}</span>
+                  <span style={{ position: 'relative', display: 'block', fontSize: 12, opacity: 0.75, marginTop: 2 }}>{realm.mythos} {realm.side === 'both' ? '· both sides' : realm.side === 'heaven' ? '· heaven' : '· hell'}</span>
                   {realmCardNote(realm, side) && (
-                    <span style={{ display: 'block', fontSize: 12, opacity: 0.9, marginTop: 8, lineHeight: 1.35 }}>{realmCardNote(realm, side)}</span>
+                    <span style={{ position: 'relative', display: 'block', fontSize: 12, opacity: 0.9, marginTop: 8, lineHeight: 1.35 }}>{realmCardNote(realm, side)}</span>
                   )}
-                  <span style={{ display: 'block', fontSize: 13, fontWeight: 700, marginTop: 10, color: realm.hue }}>
+                  <span style={{ position: 'relative', display: 'block', fontSize: 13, fontWeight: 700, marginTop: 10, color: realm.hue }}>
                     {selectedRealm && selectedRealm.key === realm.key ? 'Entering…' : 'Enter →'}
                   </span>
                 </button>

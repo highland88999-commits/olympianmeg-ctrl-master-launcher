@@ -6,7 +6,7 @@ import { stepFlight } from '@/lib/nova-flight';
 import { latLonToVec3 } from '@/lib/geo';
 import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
-import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
+import { roamState, tangentFrame, headingVector, forwardOnlyStep } from '@/lib/earth/roam';
 import { carState } from '@/lib/earth/parachute';
 import { getVehicle, resolveCraftId, boostTopSpeed } from '@/lib/earth/vehicles';
 import { readPadBoost } from '@/lib/earth/boost-pads';
@@ -184,7 +184,7 @@ export default function EarthSupercar({ controls }) {
     g.visible = !(carState.mounted && effectiveEarthViewMode() === 'first')
       && kartState.playerHit.phase !== 'exploding';
     const dt = Math.min(0.05, rawDt || 0.016);
-    const tuning = (craft && craft.tuning) || { maxSpeed: 45, accel: 30, turnRate: 1.9, boostMult: 1.6, brakeRate: 55 };
+    const tuning = (craft && craft.tuning) || { maxSpeed: 45, accel: 38, turnRate: 2.9, boostMult: 1.6, brakeRate: 45 };
     // A hit car does not drive — it flips, then explodes.
     const hitActive = kartState.playerHit.phase === 'flipping' || kartState.playerHit.phase === 'exploding';
 
@@ -212,7 +212,10 @@ export default function EarthSupercar({ controls }) {
       const effTuning = pad.active
         ? { ...tuning, boostMult: tuning.boostMult * pad.mult }
         : tuning;
-      const next = stepFlight(f, { thrust, turn, pitch: 0, boost, brake }, dt, effTuning);
+      // COAST (Merlin, 2026-11-15 — loosened controls): with no
+      // throttle the car rolls down at 10/s instead of halting
+      // dead the instant the stick is released.
+      const next = stepFlight(f, { thrust, turn, pitch: 0, boost, brake }, dt, { ...effTuning, coastRate: 10 });
       carState.speed = next.speed;
       carState.yawDeg = ((next.yaw * 180) / Math.PI) % 360;
 
@@ -239,8 +242,14 @@ export default function EarthSupercar({ controls }) {
       // radius) so the hauler doesn't clip through its own nose.
       const radiusM = Math.max(2.2, (craft ? craft.lengthM : 4.6) / 2);
       const moved = moveWithCollision(carState.lat, carState.lon, newLat, lonD, radiusM, true);
-      carState.lat = moved.lat;
-      carState.lon = moved.lon;
+      // NO-SIDEWAYS LAW (Merlin, 2026-11-15): the car only ever
+      // moves along where it points. moveWithCollision slides
+      // lat-only/lon-only when blocked — that slide is lateral
+      // motion. Keep only the forward component of the actual
+      // displacement (lib/earth/roam.js forwardOnlyStep).
+      const straight = forwardOnlyStep(carState.lat, carState.lon, moved.lat, moved.lon, carState.yawDeg);
+      carState.lat = straight.lat;
+      carState.lon = straight.lon;
 
       // Sync the walker so the street camera follows the craft.
       roamState.lat = carState.lat;

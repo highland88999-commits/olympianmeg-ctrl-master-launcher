@@ -34,7 +34,6 @@ import { useEffect, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { formatCoords } from '@/lib/geo';
 import EarthViewToggle from '@/components/EarthViewToggle';
-import EarthSyncLine from '@/components/earth/EarthSyncLine';
 import { readBoostNotice } from '@/lib/earth/boost-pads';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import {
@@ -158,11 +157,10 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
                 : t('earth.locating')}
             </div>
           )}
-          {/* Mapped-coverage sync readout (Merlin, 2026-10-29): the
-              sync used to fail silently, so a 0-cell registry gave
-              no clue which link broke. This line shows the real
-              outcome — token, HTTP status, marked cells. */}
-          <EarthSyncLine />
+          {/* The mapped-coverage sync readout is gone with the
+              mapping system (Merlin, 2026-11-15: the map goes
+              away completely) — no pill, no percentage, no
+              tracking. */}
           {atStreet && (
             <button
               onClick={onAscend}
@@ -216,9 +214,12 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
           {/* FIRE sits ABOVE the drive stick: the page's drive
               stick owns bottom-right at 92px (112px tall, so
               92–204px from the bottom); the FIRE cluster rides
-              at 216px so the two never overlap. */}
+              at 216px so the two never overlap. VERTICAL STACK
+              (Merlin, 2026-11-15): the rocket pill sits where
+              the FIRE button was, and FIRE sits below the
+              rocket pill — a right-edge column, not a row. */}
           <div
-            className="fixed z-[70] ui-element flex items-center gap-2 pointer-events-none"
+            className="fixed z-[70] ui-element flex flex-col items-end gap-2 pointer-events-none"
             style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 216px)' }}
           >
             <div className="rounded-full border border-amber-500/50 bg-zinc-950/80 px-3 py-2 text-sm font-black tabular-nums text-amber-100 backdrop-blur-md">

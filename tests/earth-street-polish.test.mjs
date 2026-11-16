@@ -1,27 +1,13 @@
 // tests/earth-street-polish.test.mjs — the 2026-10-27 Earth 1
-// street polish: progress sync that actually lands, a lens
-// queue that cannot wedge, and the crack glow retune's wiring.
-//
-//   1. PROGRESS: the three Earth ui-state calls used to send NO
-//      Authorization header, so every one 401'd (the route
-//      requires Bearer) and no mapped ground ever reached the
-//      server — the live registry held zero cells while the pill
-//      read 0.0% all session. They now carry the session token
-//      (the Concourse pattern), the 30 s beat clears its dirty
-//      flag only on a confirmed ok response, and the mount flags
-//      local-ahead ground so a failed flush still syncs later.
-//   2. LENS QUEUE: a null 2D canvas context, a throwing tile
-//      draw, a setup fault, or a hung tile fetch used to hold a
-//      pool's busy flag forever — no later build in the session
-//      ever started ("new ground never paints"). The build now
-//      guards its inputs, catches setup faults, finishes only
-//      once the video has data, and force-finishes past Merlin's
-//      ~1-minute lag tolerance via a watchdog. (Video era,
-//      2026-11-15: there is no canvas and no tile painting any
-//      more — the ground is one looping video, so the old
-//      canvas-context guard and the settle-before-paint rule
-//      became the missing-height-data guard, the missing-video
-//      guard, and the video-ready gate.)
+// street polish, as reworked 2026-11-15 (Merlin: mapping goes
+// away completely, tiles no longer render — the ground is
+// prerendered). The progress sync (ui-state calls, session
+// token, dirty flag, local-ahead probe) and the lens queue
+// (build guards, setup-fault freeing, video-ready finish,
+// watchdog) are GONE with the systems they polished: this file
+// pins their absence from NexusEarth, and keeps the pure
+// mapping-progress probe semantics for the record (the lib
+// stays on disk, unwired).
 //   3. The crack glow pins live in tests/earth-cracks.test.mjs.
 //
 // Run: node tests/earth-street-polish.test.mjs (from the repo root).
@@ -49,37 +35,22 @@ function check(name, fn) {
 
 const nexus = read('components/NexusEarth.jsx');
 
-check('Earth sync carries the session token on every ui-state call', () => {
-  // The helper itself (Concourse pattern: dynamic import, session token).
-  assert.ok(nexus.includes('async function getEarthUiToken()'), 'token helper exists');
-  assert.ok(nexus.includes("await import('@/lib/supabase')"), 'token comes from the Supabase session');
-  assert.ok(nexus.includes('session?.access_token'), 'token is the session access token');
-  // All three call sites attach it: mount GET, roam-end flush, 30 s beat.
-  const bearer = nexus.match(/Authorization: `Bearer \$\{token\}`/g) || [];
-  assert.ok(bearer.length >= 3, `three authenticated calls (found ${bearer.length})`);
+check('no ui-state sync remains in NexusEarth (mapping is gone)', () => {
+  assert.ok(!nexus.includes('getEarthUiToken'), 'token helper is gone');
+  assert.ok(!nexus.includes("await import('@/lib/supabase')"), 'no session-token fetch');
+  assert.ok(!nexus.includes('Authorization: `Bearer'), 'no authenticated ui-state calls');
+  assert.ok(!nexus.includes('earth_mapped'), 'no mapped preference sync');
 });
 
-check('dirty flag clears only on a confirmed sync, never before', () => {
-  // Every place that clears the flag sits behind an ok check.
-  const clears = nexus.match(/mappedDirtyRef\.current = false/g) || [];
-  assert.ok(clears.length >= 1, `at least one dirty-clear (found ${clears.length})`);
-  const clearLines = nexus.split('\n').filter((l) => l.includes('mappedDirtyRef.current = false'));
-  for (const line of clearLines) {
-    assert.ok(/if \(r\.ok\) \{ mappedDirtyRef\.current = false/.test(line), `clear happens only on ok: ${line.trim()}`);
-  }
-  // The old bug: the beat cleared the flag before the fetch.
-  assert.ok(
-    !/mappedSyncRef\.current = nowMs;\s*mappedDirtyRef\.current = false/.test(nexus),
-    'no clear-before-fetch left in the beat',
-  );
+check('no mapped dirty flag remains', () => {
+  assert.ok(!nexus.includes('mappedDirtyRef'), 'no dirty ref');
+  assert.ok(!nexus.includes('mappedSyncRef'), 'no sync ref');
+  assert.ok(!nexus.includes('mappedBitsetRef'), 'no bitset ref');
 });
 
-check('mount flags local-ahead ground for the next beat', () => {
-  // Probe pattern: copy the server bitset, union local into it —
-  // true means the device holds marks the server has never seen.
-  assert.ok(nexus.includes('server.slice()'), 'probe copies the server bitset');
-  assert.ok(nexus.includes('unionInto(probe, bitset)'), 'probe unions local into the copy');
-  assert.ok(nexus.includes('createBitset()'), 'no-server case probes against an empty bitset');
+check('no local-ahead probe remains in NexusEarth', () => {
+  assert.ok(!nexus.includes('server.slice()'), 'no server-bitset probe copy');
+  assert.ok(!nexus.includes('unionInto(probe, bitset)'), 'no probe union');
 });
 
 check('local-ahead probe semantics (headless, via mapping-progress)', () => {
@@ -104,35 +75,24 @@ check('local-ahead probe semantics (headless, via mapping-progress)', () => {
   assert.equal(unionInto(grown, localMore), true, 'union still grows the device record');
 });
 
-check('lens build guards its inputs (no height data, no video)', () => {
-  // Video era: there is no canvas context to be null any more.
-  // The build drops honestly — frees the pool, pumps the queue,
-  // records nothing — when the height data is missing, and when
-  // the shared floor video texture cannot be created.
-  assert.ok(nexus.includes('if (!hd) {'), 'missing height data skips the build honestly');
-  assert.ok(nexus.includes('if (!videoTex) {'), 'missing video texture drops the build honestly');
-  assert.doesNotMatch(nexus, /if \(!hd \|\| !ctx\)/, 'the old canvas-context guard is gone with the canvas');
+check('no lens build guards remain (no build to guard)', () => {
+  assert.ok(!nexus.includes('if (!hd) {'), 'no missing-height-data build guard');
+  assert.ok(!nexus.includes('if (!videoTex) {'), 'no missing-video build guard');
+  assert.ok(!nexus.includes('bctx.remove'), 'no partial-sheet drop');
 });
 
-check('lens setup faults free the pool instead of wedging it', () => {
-  assert.ok(nexus.includes('try { bctx.remove(job.key); } catch {}'), 'partial sheet dropped on setup fault');
-});
-
-check('the build finishes only once the video has data (or failed)', () => {
-  // The settle-before-paint rule, video era: finish() runs on
-  // the video-ready gate, never before the texture is real.
-  assert.ok(nexus.includes('onGroundVideoReady(() => finish())'), 'finish waits for video data');
-  assert.ok(nexus.includes('else if (groundVideoHasError())'), 'a failed video fails the build');
+check('no finish gate or watchdog remains', () => {
+  assert.ok(!nexus.includes('onGroundVideoReady(() => finish())'), 'no video-ready finish gate');
+  assert.ok(!nexus.includes('else if (groundVideoHasError())'), 'no failed-video build branch');
+  assert.ok(!nexus.includes('LENS_BUILD_WATCHDOG_MS'), 'no build watchdog');
+  assert.ok(!nexus.includes('watchTimer'), 'no watchdog timer');
   assert.doesNotMatch(nexus, /ctx\.drawImage/, 'no tile painting remains');
   assert.doesNotMatch(nexus, /okCount/, 'no tile settle counting remains');
 });
 
-check('lens watchdog force-finishes stalled builds at ~1 minute', () => {
-  assert.ok(nexus.includes('LENS_BUILD_WATCHDOG_MS = 60000'), 'watchdog is 60 s (Merlin tolerance)');
-  assert.ok(nexus.includes('watchTimer = setTimeout'), 'watchdog timer set per build');
-  assert.ok(nexus.includes('if (!finished) finish()'), 'watchdog force-finishes unfinished builds');
-  assert.ok(nexus.includes('if (finished) return'), 'finish is guarded against double-run');
-  assert.ok(nexus.includes('clearTimeout(watchTimer)'), 'clean finish clears the watchdog');
+check('the prerender is the only ground path', () => {
+  assert.ok(nexus.includes("<PrerenderedEarthGround />"), 'prerender mounted');
+  assert.ok(nexus.includes("phase === 'earth_roam' && <PrerenderedEarthGround />"), 'prerender mounts at street level');
 });
 
 console.log(`earth-street-polish: ${passed} checks passed`);

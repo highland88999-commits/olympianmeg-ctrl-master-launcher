@@ -168,29 +168,29 @@ const approx = (a, b, eps) => Math.abs(a - b) <= eps;
     !lacksMountedCoverage(away.lat, away.lon, [wide]));
 }
 
-// --- Component wiring (source-level, as the other Earth suites do).
+// --- Component wiring is GONE (Merlin, 2026-11-15 — tiles no
+// longer render in Earth 1): the render queue, the coarse pool,
+// the pumps and the recovery reconciler all went with the lens
+// system. The pure queue helpers above stay pinned for the
+// record; NexusEarth must not reference any of them.
 {
   const src = readFileSync('components/NexusEarth.jsx', 'utf8');
-  t('component imports the render queue', src.includes("from '@/lib/earth/render-queue'"));
-  t('coarse pool animates opacity (the invisible-sheet fix)',
-    src.includes('for (const s of coarseSheetsRef.current)'));
-  t('coarse pool cap is 3 (ahead + current + behind)',
-    src.includes('MAX_COARSE_LENS_SHEETS = 3'));
-  t('coarse manager has a real queue', src.includes('queue: []'));
-  t('coarse pump drains the queue', src.includes('mgr.queue.shift()'));
-  t('coarse effect plans the trail', src.includes('planTrailCentres('));
-  t('coarse effect dedups against the painted record',
-    src.includes('filterUnrenderedCentres(') && src.includes('loadRenderedTileKeys()'));
-  t('coarse effect re-ranks most-ahead first', src.includes('sortByAheadness('));
-  t('coarse effect prunes stale queue entries', src.includes('pruneStaleQueue('));
-  t('coarse effect caps the queue', src.includes('capTrailQueue('));
-  t('coarse effect re-runs when driving flips', /\[coarseCenterKey, heightReady, roaming, driving\]/.test(src));
-  t('coarse recenter uses the driving-aware radius',
-    src.includes("coarsePresetFor(drivingRef.current)"));
-  t('recovery reconciler exists on the 10 s beat',
-    src.includes('RENDER_QUEUE_RECONCILE_MS') && src.includes('lacksMountedCoverage('));
-  t('recovery bypasses dedup (screen wins over record)',
-    src.includes('mgr.queue.unshift('));
+  t('component no longer imports the render queue', !src.includes("from '@/lib/earth/render-queue'"));
+  t('no coarse pool remains',
+    !src.includes('coarseSheetsRef') && !src.includes('MAX_COARSE_LENS_SHEETS = 3'));
+  t('no queue manager remains', !src.includes('queue: []') && !src.includes('mgr.queue.shift()'));
+  t('no trail planning remains', !src.includes('planTrailCentres('));
+  t('no dedup against the painted record remains',
+    !src.includes('filterUnrenderedCentres(') && !src.includes('loadRenderedTileKeys()'));
+  t('no aheadness re-ranking remains', !src.includes('sortByAheadness('));
+  t('no stale pruning remains', !src.includes('pruneStaleQueue('));
+  t('no queue capping remains', !src.includes('capTrailQueue('));
+  t('no driving-flip re-run remains', !/\[coarseCenterKey, heightReady, roaming, driving\]/.test(src));
+  t('no driving-aware recenter remains',
+    !src.includes('coarsePresetFor(drivingRef.current)'));
+  t('no recovery reconciler remains',
+    !src.includes('RENDER_QUEUE_RECONCILE_MS') && !src.includes('lacksMountedCoverage('));
+  t('no dedup bypass remains', !src.includes('mgr.queue.unshift('));
   t('no governor mechanism anywhere in the queue path (the word survives only in comments explaining its absence)',
     !/governorRef|useGovernor|GOVERNOR|governorMs/.test(src)
     && !/governorRef|useGovernor|GOVERNOR|governorMs/.test(readFileSync('lib/earth/render-queue.js', 'utf8')));

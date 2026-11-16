@@ -22,7 +22,6 @@ import EntranceSequence from '@/components/EntranceSequence';
 import { createEntranceMachine } from '@/lib/entrance-sequence';
 import EarthConsole from '@/components/EarthConsole';
 import EarthOblivionPrompt from '@/components/EarthOblivionPrompt';
-import EarthMappedTracker from '@/components/EarthMappedTracker';
 import { generateMarsProfile } from '@/lib/mars/engine';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
@@ -846,6 +845,12 @@ function NexusHub() {
     const clientY = e.clientY;
 
     if (clientX < window.innerWidth / 2) {
+      // Earth street: the visible drive stick owns the left half —
+      // the hub's invisible floating stick stands down here, or
+      // the two would fight over the same moveX/moveY channels
+      // (the stick's own onMove writes them now). The right-half
+      // look drag below is untouched.
+      if (appState === 'earth_roam') return;
       setJoyBase({ x: clientX, y: clientY });
       setJoyStick({ x: clientX, y: clientY });
       setJoyActive(true);
@@ -1022,42 +1027,6 @@ function NexusHub() {
             </div>
           )}
 
-          {/* Persistent Earth street drive stick (video QA V2-2):
-              bottom-right square (Merlin, 2026-10-26: steering
-              lives in a bottom-right square of the screen) — it
-              steers the supercar (thrust + turn on the same
-              moveX/moveY channels). The wrapper carries
-              .ui-element so the page's own drag-look handler
-              ignores touches on the stick. */}
-          {(user || cloudOffline) && appState === 'earth_roam' && (
-            <div
-              className="absolute z-[70] ui-element pointer-events-auto"
-              style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
-            >
-              <WalkJoystick
-                size={112}
-                onMove={(x, y) => {
-                  // WalkJoystick reports y fwd-positive (up); the
-                  // hub channels carry moveY down-positive (the
-                  // page drag convention the flight controller
-                  // negates), so flip y here.
-                  controlsRef.current.moveX = x;
-                  controlsRef.current.moveY = -y;
-                }}
-              />
-            </div>
-          )}
-
-          {/* First-entry Earth movement hint (video QA V2-2). */}
-          {(user || cloudOffline) && appState === 'earth_roam' && earthMoveHint && (
-            <button
-              type="button"
-              onClick={dismissEarthMoveHint}
-              className="absolute top-5 left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg whitespace-nowrap"
-            >
-              Bottom-right stick steers · drag the right side to look · tap to dismiss
-            </button>
-          )}
         </>
       )}
 
@@ -1106,19 +1075,57 @@ function NexusHub() {
         />
       )}
 
+      {/* Persistent Earth street drive stick (video QA V2-2):
+          bottom-right square (Merlin, 2026-10-26: steering lives
+          in a bottom-right square of the screen) — it steers the
+          supercar (thrust + turn on the same moveX/moveY
+          channels). The wrapper carries .ui-element so the page's
+          own drag-look handler ignores touches on the stick.
+          TOP LEVEL, NOT inside the hub_freeroam block (Merlin,
+          2026-11-15 — the 0 km/h root cause: the stick lived
+          inside the (hub_intro || hub_freeroam) fragment, so its
+          own appState === 'earth_roam' gate could never fire
+          and the stick never rendered on the phone — the only
+          throttle was the invisible left-half floating stick). */}
+      {(user || cloudOffline) && appState === 'earth_roam' && (
+        <div
+          className="absolute z-[70] ui-element pointer-events-auto"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
+        >
+          <WalkJoystick
+            size={112}
+            onMove={(x, y) => {
+              // WalkJoystick reports y fwd-positive (up); the
+              // hub channels carry moveY down-positive (the
+              // page drag convention the flight controller
+              // negates), so flip y here.
+              controlsRef.current.moveX = x;
+              controlsRef.current.moveY = -y;
+            }}
+          />
+        </div>
+      )}
+
+      {/* First-entry Earth movement hint (video QA V2-2). */}
+      {(user || cloudOffline) && appState === 'earth_roam' && earthMoveHint && (
+        <button
+          type="button"
+          onClick={dismissEarthMoveHint}
+          className="absolute top-5 left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg whitespace-nowrap"
+        >
+          Bottom-right stick steers · drag the right side to look · tap to dismiss
+        </button>
+      )}
+
       {/* Oblivion advisory (Merlin, 2026-10-26): street level only,
           top of screen — the component itself gates on earth_roam. */}
       {(user || cloudOffline) && (
         <EarthOblivionPrompt phase={appState} />
       )}
 
-      {/* Mapped percentage tracker (Merlin, 2026-10-26): very top
-          right of the street view; the component itself gates on
-          street phases and hides while the first-entry hint shows. */}
-      {(user || cloudOffline) && (
-        <EarthMappedTracker phase={appState} hintVisible={earthMoveHint} />
-      )}
-
+      {/* The mapped percentage tracker is gone with the mapping
+          system (Merlin, 2026-11-15: the map goes away
+          completely) — no pill, no percentage, no tracking. */}
       {(user || cloudOffline) && appState === 'mars_surface' && (
         <MarsConsole
           profile={marsProfile}

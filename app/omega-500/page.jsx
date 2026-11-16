@@ -23,6 +23,8 @@ import {
   RACE_CAR_IDS,
 } from '@/lib/omega-500/race';
 import { ensureVehicleModel } from '@/lib/earth/vehicle-model';
+import WalkJoystick from '@/components/world/WalkJoystick';
+import { mergeRaceInputs, steerFromJoystick } from '@/lib/omega-500/input';
 
 const RaceScene = dynamic(() => import('@/components/omega-500/RaceScene'), {
   ssr: false,
@@ -44,9 +46,9 @@ function HoldButton({ label, onHold, active, className }) {
   return (
     <button
       type="button"
-      className={`flex-1 select-none rounded-xl px-3 py-4 text-lg font-bold ${
+      className={`select-none rounded-xl font-bold ${
         active ? 'bg-yellow-400 text-black' : 'bg-white/10 text-white'
-      } ${className || ''}`}
+      } ${className || 'flex-1 px-3 py-4 text-lg'}`}
       style={{ touchAction: 'none' }}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -74,19 +76,19 @@ export default function Omega500Page() {
   const [hud, setHud] = useState(null);
 
   const keysRef = useRef({ up: false, down: false, left: false, right: false, boost: false });
-  const touchRef = useRef({ up: false, down: false, left: false, right: false, boost: false });
+  // Touch controls (Merlin, 2026-11-15): joystick steers (proportional),
+  // GAS accelerates, releasing GAS is the brake — no separate brake button.
+  const touchRef = useRef({ gas: false, steer: 0, boost: false });
   const inputRef = useRef({ throttle: 0, brake: 0, steer: 0, boost: false });
-  const [touchState, setTouchState] = useState({ left: false, right: false, up: false, down: false, boost: false });
+  const [touchState, setTouchState] = useState({ gas: false, boost: false });
+  const [isTouch, setIsTouch] = useState(false);
+  const isTouchRef = useRef(false);
 
   const mergeInputs = useCallback(() => {
-    const k = keysRef.current;
-    const t = touchRef.current;
-    inputRef.current = {
-      throttle: k.up || t.up ? 1 : 0,
-      brake: k.down || t.down ? 1 : 0,
-      steer: (k.left || t.left ? 1 : 0) + (k.right || t.right ? -1 : 0),
-      boost: k.boost || t.boost,
-    };
+    inputRef.current = mergeRaceInputs(keysRef.current, {
+      ...touchRef.current,
+      isTouch: isTouchRef.current,
+    });
   }, []);
 
   const setTouch = useCallback(
@@ -97,6 +99,37 @@ export default function Omega500Page() {
     },
     [mergeInputs],
   );
+
+  // Joystick steer: no React state per move (the knob is DOM-managed),
+  // or the page would re-render on every pointermove.
+  const setTouchSteer = useCallback(
+    (x) => {
+      touchRef.current.steer = steerFromJoystick(x);
+      mergeInputs();
+    },
+    [mergeInputs],
+  );
+
+  // A held control must never survive a screen change (the buttons
+  // unmount at the finish, so their pointerup never fires).
+  const resetInputs = useCallback(() => {
+    keysRef.current = { up: false, down: false, left: false, right: false, boost: false };
+    touchRef.current = { gas: false, steer: 0, boost: false };
+    setTouchState({ gas: false, boost: false });
+    mergeInputs();
+  }, [mergeInputs]);
+
+  // Touch devices get the joystick + gas instead of the buttons.
+  // useEffect (not initial state) so the server render and the first
+  // client render agree — no hydration mismatch.
+  useEffect(() => {
+    const coarse =
+      (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) ||
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+    isTouchRef.current = coarse;
+    setIsTouch(coarse);
+    mergeInputs();
+  }, [mergeInputs]);
 
   // Keyboard: W/S throttle+brake, A/D steer, Shift boost. Active on the race screen.
   useEffect(() => {
@@ -135,6 +168,7 @@ export default function Omega500Page() {
     setLoadCount(0);
     setResults(null);
     setHud(null);
+    resetInputs();
     setScreen('loading');
     let done = 0;
     await Promise.all(
@@ -151,20 +185,22 @@ export default function Omega500Page() {
     setRace(nextRace);
     setRaceKey((k) => k + 1);
     setScreen('race');
-  }, [trackId, distance, carId]);
+  }, [trackId, distance, carId, resetInputs]);
 
   const onHud = useCallback((h) => setHud(h), []);
   const onFinish = useCallback((r) => {
     setResults(r);
+    resetInputs();
     setScreen('results');
-  }, []);
+  }, [resetInputs]);
 
   const quitRace = useCallback(() => {
     setRace(null);
     setResults(null);
     setHud(null);
+    resetInputs();
     setScreen('menu');
-  }, []);
+  }, [resetInputs]);
 
   const selectedTrack = getTrack(trackId);
   const selectedCar = CARS.find((c) => c.id === carId) || CARS[0];
@@ -310,7 +346,9 @@ export default function Omega500Page() {
           )}
           {screen === 'race' && (
             <p className="mb-2 text-center text-xs text-white/50">
-              W/↑ throttle · S/↓ brake · A/D steer · Shift boost — or use the buttons below.
+              {isTouch
+                ? 'Joystick steers · hold GAS to go · let go of GAS to brake · hold BOOST for boost.'
+                : 'W/↑ throttle · S/↓ brake · A/D steer · Shift boost.'}
             </p>
           )}
 
@@ -337,13 +375,28 @@ export default function Omega500Page() {
 
           {screen === 'race' && (
             <div className="mt-2">
-              <div className="flex gap-2">
-                <HoldButton label="◀ STEER" active={touchState.left} onHold={(v) => setTouch('left', v)} />
-                <HoldButton label="▲ THROTTLE" active={touchState.up} onHold={(v) => setTouch('up', v)} />
-                <HoldButton label="▼ BRAKE" active={touchState.down} onHold={(v) => setTouch('down', v)} />
-                <HoldButton label="STEER ▶" active={touchState.right} onHold={(v) => setTouch('right', v)} />
-                <HoldButton label="BOOST" active={touchState.boost} onHold={(v) => setTouch('boost', v)} />
-              </div>
+              {isTouch && (
+                <div className="flex items-end justify-between gap-3">
+                  <div className="flex flex-col items-center gap-1">
+                    <WalkJoystick size={128} onMove={(x) => setTouchSteer(x)} />
+                    <span className="text-xs font-bold tracking-widest text-white/60">STEER</span>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <HoldButton
+                      label="BOOST"
+                      active={touchState.boost}
+                      onHold={(v) => setTouch('boost', v)}
+                      className="w-20 px-3 py-6 text-base"
+                    />
+                    <HoldButton
+                      label="▲ GAS"
+                      active={touchState.gas}
+                      onHold={(v) => setTouch('gas', v)}
+                      className="w-28 px-3 py-10 text-xl"
+                    />
+                  </div>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={quitRace}

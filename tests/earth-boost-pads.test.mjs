@@ -194,8 +194,8 @@ function eq(name, a, b) {
   t('supercar imports the pad boost reader', car.includes("readPadBoost } from '@/lib/earth/boost-pads'"));
   t('supercar forces boost while a pad boost is active', car.includes('|| pad.active'));
   t('supercar multiplies its own boostMult by the pad mult', car.includes('boostMult: tuning.boostMult * pad.mult'));
-  t('supercar roster tuning numbers untouched', car.includes("tuning: { maxSpeed: 90, accel: 55, turnRate: 2.0, boostMult: 2.0, brakeRate: 80 }") === false
-    && car.includes("(craft && craft.tuning) || { maxSpeed: 45, accel: 30, turnRate: 1.9, boostMult: 1.6, brakeRate: 55 }"));
+  t('supercar roster tuning numbers loosened (Merlin, 2026-11-15)',
+    car.includes("(craft && craft.tuning) || { maxSpeed: 45, accel: 38, turnRate: 2.9, boostMult: 1.6, brakeRate: 45 }"));
   // The TRON bike is gone (vehicles only, 2026-11-15) — there is
   // no second vehicle component to wire pads into.
   t('EarthBike.jsx is gone', !existsSync('components/EarthBike.jsx'));

@@ -6,59 +6,21 @@ import { useRouter } from 'next/navigation';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { IcPlus, IcMinus, AquariumCrest } from '@/app/artemis-ui/icons';
+import {
+  BUILTIN_NODES,
+  extractYouTubeID,
+  isUserFeed,
+  loadUserFeedsBackup,
+  mergeNodes,
+  saveUserFeedsBackup,
+} from '@/lib/aquarium/nodes';
+import { verifyAresPin } from '@/lib/aquarium/pin-gate';
 
-const defaultNodes = [
-    { id: "DHUnz4dyb54", name: "AQUARIUM" }, // Renamed from GEORGIA AQUARIUM
-    { id: "XsOU8JnEpNM", name: "OL DONYO LODGE" },
-    { id: "5e4lsEe4Vew", name: "WOLF CENTER NORTH" },
-    { id: "3n-5EA9augs", name: "TEXAS WILDLIFE" },
-    { id: "dIChLG4_WNs", name: "NKORHO BUSH LODGE" },
-    { id: "ItdXaWUVF48", name: "ROSIE'S PAN AFRICA" },
-    { id: "ydYDqZQpim8", name: "NAMIB DESERT LIVE" },
-    { id: "S46DdA8Mc4I", name: "MAKOV STORK NEST" },
-    { id: "qHXFLsnKDq0", name: "MOUNTAIN STREAM" },
-    { id: "F0GOOP82094", name: "MORTEN HILMER FOREST" },
-    { id: "4BrvMGznLTo", name: "MOUNTAIN WATERFALL" },
-    { id: "ayMw6zvsUpQ", name: "PACIFIC REEF CAM" },
-    { id: "iws3rh5vLAQ", name: "KILAUEA VOLCANO" },
-    { id: "jzx_n25g3kA", name: "UTOPIA UNDERWATER" },
-    { id: "ouWBQoVFegI", name: "BALD EAGLE NEST" },
-    { id: "3szkFHfr6sA", name: "WOLONG PANDA GROVE" },
-    { id: "FqQJmDiW0xs", name: "ANCIENT EGYPT LIVE" },
-    { id: "aXAsMcmtJTc", name: "NETHERLANDS SEAL CAM" },
-    { id: "qJ8lYplu1y0", name: "MAUNAKEA METEOR CAM" },
-    { id: "yfSyjwY6zSQ", name: "GRACE GORILLA FOREST" },
-    { id: "azNqXbUW-K4", name: "TROPICAL FISH CAM" },
-    { id: "yuIm1V7Ne7I", name: "ONGUMA WATERHOLE" },
-    { id: "QOzC_AbsPlw", name: "SPACE AMBIENT HUD" },
-    { id: "XyPU5-pNg5E", name: "AQUARIUM FEED 01" },
-    { id: "Io1Kle7QR-E", name: "AQUARIUM FEED 02" },
-    { id: "RZFMYVNhd4k", name: "AQUARIUM FEED 03" },
-    { id: "JMMoRwYo5kE", name: "AQUARIUM FEED 04" },
-    { id: "HlJ4aRtYhoo", name: "AQUARIUM FEED 05" },
-    { id: "iWCeBAxRCBo", name: "AQUARIUM FEED 06" },
-    { id: "g6wxYiESkE4", name: "AQUARIUM FEED 07" },
-    { id: "-qvYCbvbeN8", name: "AQUARIUM FEED 08" },
-    { id: "SUXPnIEpbn4", name: "AQUARIUM FEED 09" },
-    { id: "tEtg5Kg3voQ", name: "AQUARIUM FEED 10" },
-    { id: "abbR-Ttd-cA", name: "AQUARIUM FEED 11" },
-    { id: "dN1uDn-Luno", name: "AQUARIUM FEED 12" },
-    { id: "-479TZi-EAs", name: "AQUARIUM FEED 13" },
-    { id: "qi0mY6zVQnY", name: "AQUARIUM FEED 14" },
-    { id: "MwcqP3ta6RI", name: "AQUARIUM FEED 15" },
-    { id: "fIMbMz2P7Bs", name: "AQUARIUM FEED 16" },
-    { id: "h8O0UXsL7uk", name: "AQUARIUM FEED 17" },
-    { id: "0FBiyFpV__g", name: "AQUARIUM FEED 18" },
-    { id: "UDAZWxehMAI", name: "AQUARIUM FEED 19" },
-    { id: "w3LjpFhySTg", name: "AQUARIUM FEED 20" },
-    { id: "3e_uPkJCTNo", name: "AQUARIUM FEED 21" },
-    { id: "ZrePsYz4c6g", name: "AQUARIUM FEED 22" },
-    { id: "gJVnp5fF0vM", name: "AQUARIUM FEED 23" },
-    { id: "-Vck0hn-zqk", name: "AQUARIUM FEED 24" },
-    { id: "typxqJU-pFQ", name: "AQUARIUM FEED 25" },
-    { id: "UpwNqncnqTE", name: "AQUARIUM FEED 26" },
-    { id: "E0TZTmTK-Ws", name: "AQUARIUM FEED 27" }
-];
+// Built-in rotation (40 live feeds) — lib/aquarium/nodes.js. The 10
+// dead feeds were deleted from the list (see DELETED_DEAD_NODES there);
+// the live site also needs supabase/aquarium-feed-cleanup.sql to run
+// before the dead feeds leave the database rotation.
+const defaultNodes = BUILTIN_NODES;
 
 export default function AquariumConsole() {
   const router = useRouter();
@@ -66,9 +28,23 @@ export default function AquariumConsole() {
   const [nodes, setNodes] = useState(defaultNodes);
   const [currentIndex, setCurrentIndex] = useState(0);
   
-  const [uiOpen, setUiOpen] = useState(true);
+  // The page opens on the fullscreen feed, not on the menu card — tap
+  // the feed to open the menu (ADD / REMOVE / REQUEST CONSOLE).
+  const [uiOpen, setUiOpen] = useState(false);
   const [mirrored, setMirrored] = useState(false);
   const [isFading, setIsFading] = useState(false);
+  // The id of the feed whose embed document has actually loaded. The
+  // "ESTABLISHING CONNECTION..." line shows only while the current
+  // feed has not loaded yet — it used to ride the fade timer and sit
+  // over a playing feed for 2.5 s after every swipe.
+  const [loadedId, setLoadedId] = useState(null);
+  // PIN gate for REMOVE FEED (same PIN as the ARES login — see
+  // lib/aquarium/pin-gate.js). Nothing is deleted until the gate
+  // answers yes.
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinValue, setPinValue] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinBusy, setPinBusy] = useState(false);
   const [statusText, setStatusText] = useState("ESTABLISHING DATABASE UPLINK...");
   const [cloudOffline, setCloudOffline] = useState(false);
   
@@ -103,22 +79,32 @@ export default function AquariumConsole() {
   }, [router]);
 
   async function initSystem() {
+    const localUserFeeds = loadUserFeedsBackup();
     const { data, error } = await supabase
         .from('nexus_nodes')
         .select('*')
         .order('created_at', { ascending: true });
 
     if (error || !data || data.length === 0) {
+        // Database did not answer (or is empty): built-ins plus the
+        // local-backup user feeds, so a user feed survives an outage
+        // and is never lost from view.
         setStatusText("UPLINK FAILED. USING LOCAL CACHE.");
-        setNodes(defaultNodes);
+        setNodes(mergeNodes({ builtin: defaultNodes, dbRows: null, localUserFeeds }));
     } else {
-        setNodes(data);
+        // Database is the source of truth; local-backup user feeds
+        // missing from it are appended, never dropped.
+        const merged = mergeNodes({ builtin: defaultNodes, dbRows: data, localUserFeeds });
+        setNodes(merged);
+        // Keep the backup current from the server's own user rows.
+        saveUserFeedsBackup(merged.filter(isUserFeed));
     }
   }
 
   // Trigger fade when index changes
   useEffect(() => {
     setIsFading(true);
+    setLoadedId(null);
     if (safetyTimeout.current) clearTimeout(safetyTimeout.current);
     
     safetyTimeout.current = setTimeout(() => {
@@ -127,12 +113,6 @@ export default function AquariumConsole() {
 
     return () => clearTimeout(safetyTimeout.current);
   }, [currentIndex]);
-
-  const extractYouTubeID = (url) => {
-      const regExp = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|live\/|shorts\/))([\w-]{11})/;
-      const match = url.match(regExp);
-      return match ? match[1] : null;
-  };
 
   const promptAddNode = async () => {
       const url = window.prompt("Enter YouTube URL (Live, Shorts, or Standard):");
@@ -149,10 +129,15 @@ export default function AquariumConsole() {
       }
 
       const customName = window.prompt("Enter a Name for this feed:", "CUSTOM USER FEED") || "CUSTOM FEED";
-      
+
+      const newNode = { id: ytId, name: customName.toUpperCase(), origin: 'user' };
+      // NOTE: the insert sends {id, name} only — the nexus_nodes.origin
+      // column defaults to 'user' once supabase/aquarium-feed-cleanup.sql
+      // runs; sending origin today would fail on the live table, which
+      // does not have the column yet.
       const { error } = await supabase
           .from('nexus_nodes')
-          .insert([{ id: ytId, name: customName.toUpperCase() }]); 
+          .insert([{ id: ytId, name: customName.toUpperCase() }]);
 
       if (error) {
           console.error("Insert error:", error);
@@ -160,10 +145,13 @@ export default function AquariumConsole() {
           return;
       }
 
-      const newNodes = [...nodes, { id: ytId, name: customName.toUpperCase() }];
+      const newNodes = [...nodes, newNode];
       setNodes(newNodes);
       setCurrentIndex(newNodes.length - 1);
-      setUiOpen(false); 
+      // Permanence backstop: the user feed is also kept in localStorage,
+      // so it survives a database outage and is never pruned by a sweep.
+      saveUserFeedsBackup([...loadUserFeedsBackup(), newNode]);
+      setUiOpen(false);
   };
 
   const removeCurrentNode = async () => {
@@ -172,9 +160,30 @@ export default function AquariumConsole() {
           setUiOpen(false);
           return;
       }
-      
+      // Deletion needs Merlin's PIN — the same PIN as the ARES login
+      // (see lib/aquarium/pin-gate.js). The PIN form opens inside the
+      // menu; nothing is deleted until the gate answers yes.
+      setPinValue('');
+      setPinError('');
+      setPinOpen(true);
+  };
+
+  const confirmRemoveWithPin = async () => {
+      if (pinBusy) return;
+      setPinError('');
+      setPinBusy(true);
+      const ok = await verifyAresPin(pinValue);
+      setPinBusy(false);
+      if (!ok) {
+          setPinError("That didn't open it.");
+          setPinValue('');
+          return;
+      }
+      setPinOpen(false);
+      setPinValue('');
+
       const nodeToDelete = nodes[currentIndex];
-      
+
       if (window.confirm(`PURGE "${nodeToDelete.name}" FROM GLOBAL DATABASE?`)) {
           const { error } = await supabase
               .from('nexus_nodes')
@@ -190,16 +199,18 @@ export default function AquariumConsole() {
           const newNodes = [...nodes];
           newNodes.splice(currentIndex, 1);
           setNodes(newNodes);
-          
+          // A deleted user feed leaves the local backup too.
+          saveUserFeedsBackup(newNodes.filter(isUserFeed));
+
           if (currentIndex >= newNodes.length) {
               setCurrentIndex(0);
           } else {
               setIsFading(true);
           }
-          
+
           setUiOpen(false);
       } else {
-          setUiOpen(false); 
+          setUiOpen(false);
       }
   };
 
@@ -281,7 +292,10 @@ export default function AquariumConsole() {
         }
 
         .mirror-btn {
-            position: fixed; top: 20px; right: 20px; z-index: 250; width: 45px; height: 45px;
+            /* Moved off the top-right corner: the Concourse orb lives
+               there and the two overlapped on his phone. Left edge,
+               below the EXIT MATRIX button. */
+            position: fixed; top: 76px; left: 20px; z-index: 250; width: 45px; height: 45px;
             background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 242, 255, 0.3); border-radius: 8px;
             cursor: pointer; display: flex; align-items: center; justify-content: center;
             backdrop-filter: blur(5px); transition: 0.3s; opacity: 0.6;
@@ -317,15 +331,23 @@ export default function AquariumConsole() {
         .btn-row { display: flex; gap: 10px; margin-top: 15px; }
         .btn-row .btn { margin-top: 0; }
 
-        .hud {
-            position: fixed; bottom: 60px; font-size: 0.65rem; letter-spacing: 3px;
-            color: rgba(255,255,255,0.6); z-index: 150; transition: 0.5s; text-shadow: 0 0 5px rgba(0,0,0,0.8);
+        /* One bottom HUD bar: the node counter on its own row, the
+           swipe hint on its own row. The two used to share bottom:60px
+           as separate fixed elements and run into each other on his
+           phone ("NODE: 04/50 SWIPE NEXUS" as one colliding line).
+           bottom:60px clears the global RadioBar, as before. */
+        .hud-bar {
+            position: fixed; bottom: 60px; left: 0; right: 0; z-index: 150;
+            display: flex; flex-direction: column; align-items: center; gap: 6px;
+            pointer-events: none;
+            font-size: 0.65rem; letter-spacing: 3px;
+            color: rgba(255,255,255,0.6); text-shadow: 0 0 5px rgba(0,0,0,0.8);
+            transition: 0.5s;
         }
 
-        .swipe-indicator {
-            position: fixed; bottom: 60px; width: 100%; text-align: center; font-size: 0.6rem;
-            letter-spacing: 4px; color: var(--glow); z-index: 150; opacity: 0.5;
-            pointer-events: none; display: flex; justify-content: center; align-items: center; gap: 15px;
+        .hud-swipe {
+            font-size: 0.6rem; letter-spacing: 4px; color: var(--glow); opacity: 0.5;
+            display: flex; justify-content: center; align-items: center; gap: 15px;
         }
         .chevron { font-size: 1.2rem; animation: swipe-pulse 2s infinite ease-in-out; }
         .chevron.left { animation-delay: 0s; }
@@ -365,11 +387,11 @@ export default function AquariumConsole() {
 
         <div className={`video-engine ${isFading ? 'fade-out' : ''} ${mirrored ? 'mirrored' : ''}`} onClick={() => setUiOpen(true)}>
             {currentNode.id && (
-              <iframe 
-                className="yt-iframe" 
-                src={`https://www.youtube.com/embed/${currentNode.id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${currentNode.id}&rel=0&modestbranding=1`} 
+              <iframe
+                className="yt-iframe"
+                src={`https://www.youtube.com/embed/${currentNode.id}?autoplay=1&mute=1&controls=0&loop=1&playlist=${currentNode.id}&rel=0&modestbranding=1`}
                 allow="autoplay; fullscreen"
-                onLoad={() => setIsFading(false)}
+                onLoad={() => { setIsFading(false); setLoadedId(currentNode.id); }}
               ></iframe>
             )}
         </div>
@@ -378,35 +400,65 @@ export default function AquariumConsole() {
             <svg viewBox="0 0 24 24"><path d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></svg>
         </div>
 
-        <div className={`nexus-overlay ${!uiOpen ? 'hidden' : ''}`} onClick={() => setUiOpen(false)}>
+        <div className={`nexus-overlay ${!uiOpen ? 'hidden' : ''}`} onClick={() => { setUiOpen(false); setPinOpen(false); setPinValue(''); setPinError(''); }}>
             <div className="holo-frame" onClick={(e) => e.stopPropagation()}>
                 <div className="holo-crest"><AquariumCrest size={34} /></div>
                 <h1 style={{margin:0, fontSize: '1.1rem', letterSpacing: '4px', color: 'var(--glow)'}}>{currentNode.name}</h1>
                 <p style={{fontSize: '0.6rem', opacity: 0.6, marginTop: '10px'}}>
-                  {isFading ? (
+                  {loadedId !== currentNode.id ? (
                     <span className="aqua-spinner"><span className="aqua-ring" aria-hidden="true" /><span className="aqua-shimmer">{statusText}</span></span>
                   ) : `ACTIVE FEED: NODE_${String(currentIndex + 1).padStart(2, '0')}`}
                 </p>
-                
+
                 <div className="btn-row">
                     <button className="btn" onClick={promptAddNode}><IcPlus /><span>Add Feed</span></button>
                     <button className="btn btn-danger" onClick={removeCurrentNode}><IcMinus /><span>Remove Feed</span></button>
                 </div>
-                
+
+                {pinOpen ? (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); confirmRemoveWithPin(); }}
+                      style={{ marginTop: '15px', textAlign: 'left' }}
+                    >
+                        <label htmlFor="aquarium-pin" style={{ fontSize: '0.6rem', letterSpacing: '2px', opacity: 0.7 }}>
+                          PIN REQUIRED TO REMOVE &ldquo;{currentNode.name}&rdquo;
+                        </label>
+                        <input
+                          id="aquarium-pin"
+                          type="password"
+                          autoComplete="off"
+                          value={pinValue}
+                          onChange={(e) => setPinValue(e.target.value)}
+                          placeholder="Enter your PIN"
+                          style={{ display: 'block', width: '100%', boxSizing: 'border-box', marginTop: '8px', padding: '12px', borderRadius: '12px', border: '1px solid var(--danger)', background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: '1rem', fontFamily: 'inherit' }}
+                        />
+                        {pinError && <p style={{ color: '#ff8095', fontSize: '0.65rem', margin: '8px 0 0' }}>{pinError}</p>}
+                        <div className="btn-row">
+                            <button type="submit" className="btn btn-danger" disabled={pinBusy || !pinValue}>
+                              {pinBusy ? 'Checking…' : 'Confirm removal'}
+                            </button>
+                            <button type="button" className="btn" onClick={() => { setPinOpen(false); setPinValue(''); setPinError(''); }}>
+                              Cancel
+                            </button>
+                        </div>
+                    </form>
+                ) : null}
+
                 <a href="mailto:stakeme10000@gmail.com" className="btn">Request Console</a>
             </div>
         </div>
 
-        <div className={`hud ${uiOpen ? 'hidden' : ''}`} style={{left: '30px'}}>
-            {isFading ? (
-              <span className="aqua-spinner"><span className="aqua-ring" aria-hidden="true" /><span className="aqua-shimmer">ESTABLISHING CONNECTION...</span></span>
-            ) : (
-              `NODE: ${String(currentIndex + 1).padStart(2, '0')}/${nodes.length}`
-            )}
-        </div>
-        
-        <div className={`swipe-indicator hud ${uiOpen ? 'hidden' : ''}`}>
-            <span className="chevron left">‹‹</span> SWIPE NEXUS <span className="chevron right">››</span>
+        <div className={`hud-bar ${uiOpen ? 'hidden' : ''}`}>
+            <div>
+                {loadedId !== currentNode.id ? (
+                  <span className="aqua-spinner"><span className="aqua-ring" aria-hidden="true" /><span className="aqua-shimmer">ESTABLISHING CONNECTION...</span></span>
+                ) : (
+                  `NODE: ${String(currentIndex + 1).padStart(2, '0')}/${nodes.length}`
+                )}
+            </div>
+            <div className="hud-swipe">
+                <span className="chevron left">‹‹</span> SWIPE NEXUS <span className="chevron right">››</span>
+            </div>
         </div>
         {/* Safari bottom-bar clearance */}
         <div aria-hidden="true" className="player-clear" />
