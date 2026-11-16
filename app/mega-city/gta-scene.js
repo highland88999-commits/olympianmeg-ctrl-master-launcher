@@ -4,6 +4,15 @@
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { generateCity, createGroundTexture, buildStreetlights, SUBWAY_STATIONS } from './city.js';
+import {
+  materialForFacade, facadeKindForDistrict, buildHarborWater,
+  buildSkyDome, buildSunSprite, buildMoonSprite, buildStars, buildClouds,
+  cloudAngle, skyDayness, skyPalette, CITY_SUN_DIST,
+  makeRainField, updateRainField,
+  TRAFFIC_COUNT, trafficCarFor, PEDESTRIAN_COUNT, pedestrianFor,
+  buildVehicleMesh, buildCopMesh, copFlashAt, buildPedestrianMesh,
+  neonSignPlacements, buildNeonSignMesh,
+} from '@/lib/gta/city-cgi.js';
 import { createPlayer, updatePlayer } from '@/lib/gta/player.js';
 import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle, VEHICLE_TYPES } from '@/lib/gta/vehicle.js';
 import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetWanted } from '@/lib/gta/wanted.js';
@@ -66,25 +75,69 @@ export function createGTAScene(canvas, opts = {}) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Buildings (instanced)
-  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  const buildMat = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 });
-  const buildMesh = new THREE.InstancedMesh(boxGeo, buildMat, cityData.buildings.length);
-  const dummy = new THREE.Object3D();
-  const col = new THREE.Color();
-  cityData.buildings.forEach((b, i) => {
-    dummy.position.set(b.x, b.h / 2, b.z);
-    dummy.scale.set(b.w, b.h, b.d);
-    dummy.updateMatrix();
-    buildMesh.setMatrixAt(i, dummy.matrix);
-    col.setHex(b.color);
-    buildMesh.setColorAt(i, col);
-  });
-  buildMesh.castShadow = true;
-  buildMesh.receiveShadow = true;
-  scene.add(buildMesh);
+  // Buildings: grouped instanced meshes by facade kind — downtown
+  // glass towers, harbor brick, the rest concrete / industrial —
+  // each wearing its lit-window emissive map (city-cgi). The old
+  // single flat material is gone; instance colours still tint.
+  const facadeMats = [];
+  {
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+    const byKind = new Map();
+    for (const b of cityData.buildings) {
+      const kind = facadeKindForDistrict(b.district);
+      if (!byKind.has(kind)) byKind.set(kind, []);
+      byKind.get(kind).push(b);
+    }
+    const dummy = new THREE.Object3D();
+    const col = new THREE.Color();
+    for (const [kind, list] of byKind) {
+      const mat = materialForFacade(kind, 1337);
+      facadeMats.push(mat);
+      const mesh = new THREE.InstancedMesh(boxGeo, mat, list.length);
+      list.forEach((b, i) => {
+        dummy.position.set(b.x, b.h / 2, b.z);
+        dummy.scale.set(b.w, b.h, b.d);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        col.setHex(b.color);
+        mesh.setColorAt(i, col);
+      });
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+    }
+  }
 
-  buildStreetlights(scene);
+  // CGI sky: gradient dome + sun / moon sprites + stars + clouds.
+  // The dome replaces the old flat background colour; the scene's
+  // own 10-minute day cycle still drives it (see updateTimeOfDay).
+  const skyDome = buildSkyDome();
+  scene.add(skyDome);
+  const sunSprite = buildSunSprite();
+  scene.add(sunSprite);
+  const moonSprite = buildMoonSprite();
+  scene.add(moonSprite);
+  const stars = buildStars();
+  scene.add(stars);
+  const clouds = buildClouds();
+  scene.add(clouds);
+
+  // The Harbor finally has water (its `water: true` flag used to
+  // mean "no buildings here" and nothing else).
+  scene.add(buildHarborWater());
+
+  // Neon rooftop signs on the tallest towers (south faces, real towers).
+  const neonSigns = neonSignPlacements(cityData.buildings).map((p) => {
+    const sign = buildNeonSignMesh(p);
+    scene.add(sign);
+    return sign;
+  });
+
+  const streetlights = buildStreetlights(scene);
+
+  // City rain, following the player (pure clock motion, see loop).
+  const rain = makeRainField();
+  scene.add(rain);
 
   // Subway stations (simple entrances)
   const stationGroup = new THREE.Group();
@@ -103,6 +156,12 @@ export function createGTAScene(canvas, opts = {}) {
     );
     sign.position.set(st.x, 3.8, st.z);
     stationGroup.add(sign);
+    // Station name on the entrance face (canvas sign, same maker as
+    // the platform signs below — hoisted function declaration).
+    const nameSign = makeStationSign(st.name);
+    nameSign.scale.set(0.55, 0.55, 1);
+    nameSign.position.set(st.x, 4.9, st.z + 3.15);
+    stationGroup.add(nameSign);
   }
   scene.add(stationGroup);
 
@@ -274,21 +333,9 @@ export function createGTAScene(canvas, opts = {}) {
     const v = createVehicle(type, spot.x, spot.z, rand() * Math.PI * 2);
     vehicles.push(v);
 
-    // Simple car mesh: body + cabin
-    const carGroup = new THREE.Group();
-    const bodyColor = [0xdc2626, 0x2563eb, 0x16a34a, 0xf59e0b, 0x6b7280][i % 5];
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 0.8, 4.2),
-      new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.3, metalness: 0.6 })
-    );
-    body.position.y = 0.6;
-    body.castShadow = true;
-    const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 0.6, 2.0),
-      new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.2, metalness: 0.8 })
-    );
-    cabin.position.set(0, 1.2, -0.2);
-    carGroup.add(body, cabin);
+    // Parked car: shared CGI builder — wheels, glass, headlights
+    // and taillights (the old inline body + cabin boxes are gone).
+    const carGroup = buildVehicleMesh(type, [0xdc2626, 0x2563eb, 0x16a34a, 0xf59e0b, 0x6b7280][i % 5]);
     carGroup.position.set(v.x, 0, v.z);
     carGroup.rotation.y = v.heading;
     scene.add(carGroup);
@@ -301,23 +348,35 @@ export function createGTAScene(canvas, opts = {}) {
   for (let i = 0; i < 3; i++) {
     const cop = { x: 100 + i * 50, z: 100, heading: 0, speed: 0, vx: 0, vz: 0, radius: 1.6 };
     cops.push(cop);
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 0.8, 4.2),
-      new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.3, metalness: 0.6 })
-    );
-    body.position.y = 0.6;
-    const lightbar = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 0.25, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1 })
-    );
-    lightbar.position.y = 1.35;
-    g.add(body, lightbar);
+    const g = buildCopMesh();
     g.position.set(cop.x, 0, cop.z);
     g.visible = false;
     scene.add(g);
     copMeshes.set(cop, g);
   }
+
+  // ---- CGI life: moving traffic + pedestrians (operators — pure
+  // functions of the clock; the scene only renders what they say).
+  // Visual only: no colliders, no crime, no mission hooks.
+  const trafficMeshes = [];
+  for (let i = 0; i < TRAFFIC_COUNT; i++) {
+    const spec = trafficCarFor(i, 0);
+    const mesh = buildVehicleMesh(spec.type, spec.color);
+    scene.add(mesh);
+    trafficMeshes.push(mesh);
+  }
+  const pedestrianMeshes = [];
+  for (let i = 0; i < PEDESTRIAN_COUNT; i++) {
+    const spec = pedestrianFor(i, 0);
+    const mesh = buildPedestrianMesh(spec.coat);
+    scene.add(mesh);
+    pedestrianMeshes.push(mesh);
+  }
+  // Every headlight / taillight in the city, for the night pass.
+  const lampMats = [];
+  for (const m of vehicleMeshes.values()) lampMats.push(m.userData.lampMats);
+  for (const m of trafficMeshes) lampMats.push(m.userData.lampMats);
+  for (const m of copMeshes.values()) lampMats.push(m.userData.lampMats);
 
   // Wanted + missions
   const wanted = createWanted();
@@ -346,15 +405,40 @@ export function createGTAScene(canvas, opts = {}) {
       Math.sin(sunAngle) * 150 + 50,
       100
     );
-    const dayness = Math.max(0, Math.sin(sunAngle));
+    const dayness = skyDayness(timeOfDay);
+    const night = 1 - dayness;
     sun.intensity = 0.2 + dayness * 1.0;
-    const skyColor = new THREE.Color().lerpColors(
-      new THREE.Color(0x0a0a20), // night
-      new THREE.Color(0x87ceeb), // day
-      dayness
+    // Warm low sun, white noon sun.
+    sun.color.setRGB(1, 0.72 + 0.28 * dayness, 0.45 + 0.55 * dayness);
+    const palette = skyPalette(dayness);
+    scene.background = new THREE.Color(palette.horizon);
+    scene.fog.color = new THREE.Color(palette.horizon);
+    // Sky dome tint: white at noon, dark blue-grey at deep night.
+    skyDome.material.color.setRGB(
+      0.08 + 0.92 * dayness, 0.10 + 0.90 * dayness, 0.22 + 0.78 * dayness
     );
-    scene.background = skyColor;
-    scene.fog.color = skyColor;
+    // Sun sprite rides the same angle as the directional sun; the
+    // moon hangs opposite and only shows at night.
+    const sunUp = Math.sin(sunAngle) > -0.05;
+    sunSprite.position.set(
+      Math.cos(sunAngle) * CITY_SUN_DIST,
+      Math.sin(sunAngle) * CITY_SUN_DIST * 0.75 + 40,
+      100 * (CITY_SUN_DIST / 200)
+    );
+    sunSprite.visible = sunUp;
+    sunSprite.material.opacity = sunUp ? 0.35 + 0.65 * dayness : 0;
+    moonSprite.material.opacity = 0.15 + 0.85 * night;
+    moonSprite.visible = night > 0.05;
+    stars.material.opacity = night * 0.9;
+    clouds.material.opacity = 0.25 + 0.3 * dayness;
+    // Emissive night pass — no new real lights, ever.
+    for (const m of facadeMats) m.emissiveIntensity = 0.05 + night * 1.15;
+    streetlights.headMat.emissiveIntensity = 0.2 + night * 1.8;
+    for (const s of neonSigns) s.userData.signMat.opacity = 0.35 + 0.65 * night;
+    for (const lamps of lampMats) {
+      lamps.head.emissiveIntensity = 0.4 + night * 1.8;
+      lamps.tail.emissiveIntensity = 0.5 + night * 1.2;
+    }
   }
 
   let lastT = performance.now();
@@ -368,6 +452,27 @@ export function createGTAScene(canvas, opts = {}) {
 
     const inp = input.update();
     updateTimeOfDay(dt);
+
+    // ---- CGI life, per frame (pure clock operators) ----
+    clouds.rotation.y = cloudAngle(now);
+    updateRainField(rain, now);
+    rain.position.set(player.x, 0, player.z);
+    for (let i = 0; i < TRAFFIC_COUNT; i++) {
+      const spec = trafficCarFor(i, now);
+      const mesh = trafficMeshes[i];
+      mesh.position.set(spec.x, 0, spec.z);
+      mesh.rotation.y = spec.heading;
+      for (const w of mesh.userData.wheels) w.rotation.x += (spec.speed * dt) / 0.42;
+    }
+    for (let i = 0; i < PEDESTRIAN_COUNT; i++) {
+      const spec = pedestrianFor(i, now);
+      const mesh = pedestrianMeshes[i];
+      mesh.position.set(spec.x, Math.abs(spec.bob) * 0.06, spec.z);
+      mesh.rotation.y = spec.heading;
+      const swing = spec.bob * 0.45;
+      mesh.userData.legs.left.rotation.x = swing;
+      mesh.userData.legs.right.rotation.x = -swing;
+    }
 
     // ---- Subway: the Line One train always runs its loop ----
     updateSubway(subway, dt);
@@ -539,6 +644,10 @@ export function createGTAScene(canvas, opts = {}) {
         updateCop(cop, player.x, player.z, wanted.stars, cityData.colliders, dt);
         mesh.position.set(cop.x, 0, cop.z);
         mesh.rotation.y = cop.heading;
+        // Lightbar flash alternates red / blue on the clock.
+        const flash = copFlashAt(now);
+        mesh.userData.lightbar.red.emissiveIntensity = flash === 'red' ? 2.4 : 0.15;
+        mesh.userData.lightbar.blue.emissiveIntensity = flash === 'blue' ? 2.4 : 0.15;
       }
     });
 

@@ -2,8 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { HOTSPOTS, SEASONS, ACCENT } from "@/lib/aethelgard/data";
-import { timeLabel, timeString } from "./scene";
+import { HOTSPOTS, SEASONS, ACCENT, timeLabel, timeString } from "@/lib/aethelgard/data";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcWings, IcClose, IcMarker, IcSprout, IcSnowflake, IcRoute } from "@/app/artemis-ui/icons";
 
 // R3F scene loads client-side only (WebGL).

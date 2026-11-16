@@ -2,33 +2,34 @@
 // Ported from nexus-vortex's components/3d/MiniViewport.jsx.
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { guardCanvasContext } from '@/lib/scene-context-guard';
-import { buildWeapon } from '@/lib/world-engine/weapon-builder';
-import { buildWeatherSystem } from '@/lib/world-engine/weather-builder';
-import { buildWorld } from '@/lib/world-engine/world-builder';
-import { makeOmegaBadge } from '@/lib/omega-brand';
+import { buildCreationMesh, creationThemeColor } from '@/lib/world-engine/creation-mesh';
+import {
+  UPLINK_LOAD_TIMEOUT_MS,
+  applyUplinkScale,
+  groundUplinkModel,
+  isLoadableAssetUrl,
+  uplinkPreviewState,
+} from '@/lib/world-engine/uplink-load';
 
-const getThemeColor = (category) => {
-  const colors = {
-    weapon: 0xffd700,
-    character: 0xff00ff,
-    object: 0x00ffcc,
-    vehicle: 0xff5500,
-    weather: 0x0055ff,
-    world: 0x00f0ff,
-    asset_link: 0x00ff00,
-  };
-  return colors[category] || 0xffffff;
-};
+const getThemeColor = creationThemeColor;
 
 export default function MiniViewport({ category, params }) {
   const mountRef = useRef(null);
   const sceneRef = useRef(null);
   const meshRef = useRef(null);
   const requestRef = useRef(null);
+  // Uplink only: the GLB once loaded (keyed by its URL, so a scale
+  // slider drag never re-downloads it) and the URL of a load in
+  // flight. loadTokenRef invalidates a stale load when a newer load
+  // starts or the viewport unmounts.
+  const loadedRef = useRef(null);
+  const loadingUrlRef = useRef('');
+  const loadTokenRef = useRef(0);
+  const [uplinkStatus, setUplinkStatus] = useState('idle');
 
   useEffect(() => {
     const container = mountRef.current;
@@ -94,6 +95,9 @@ export default function MiniViewport({ category, params }) {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      // Invalidate any uplink load still in flight: a late success
+      // must never add a model to a disposed scene.
+      loadTokenRef.current += 1;
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(requestRef.current);
       contextGuard.dispose();
@@ -110,6 +114,32 @@ export default function MiniViewport({ category, params }) {
     if (!sceneRef.current) return;
     const scene = sceneRef.current;
 
+    // ASSET UPLINK (GAP 4): when the params carry a loadable .glb URL,
+    // the linked model replaces the placeholder box once loaded. The
+    // box stays visible while loading and on failure, with a
+    // plain-words line under the preview (rendered below). Every other
+    // category runs the original path untouched.
+    const url = category === 'asset_link' ? params?.url : '';
+    const loadable = isLoadableAssetUrl(url);
+
+    // Same URL already loaded: a scale slider drag only re-applies
+    // the scale — it never re-downloads the model.
+    if (loadable && loadedRef.current && loadedRef.current.userData.uplinkUrl === url) {
+      applyUplinkScale(loadedRef.current, params?.scale);
+      groundUplinkModel(THREE, loadedRef.current);
+      if (meshRef.current && meshRef.current !== loadedRef.current) {
+        scene.remove(meshRef.current);
+      }
+      if (!scene.children.includes(loadedRef.current)) scene.add(loadedRef.current);
+      meshRef.current = loadedRef.current;
+      setUplinkStatus('loaded');
+      return;
+    }
+
+    // Same URL already loading: leave the load alone, just rebuild
+    // the placeholder box at the current scale.
+    const alreadyLoading = loadable && loadingUrlRef.current === url;
+
     if (meshRef.current) {
       scene.remove(meshRef.current);
       // Deep-dispose: weapon builds are Groups of many meshes. The shared
@@ -121,80 +151,18 @@ export default function MiniViewport({ category, params }) {
           mats.forEach((m) => m.dispose());
         }
       });
+      meshRef.current = null;
     }
+    // A loaded model from another URL (or another category) is gone
+    // with meshRef above; drop the reference so it cannot be reused.
+    if (!alreadyLoading) loadedRef.current = null;
 
-    const themeHex = getThemeColor(category);
-    let geometry, material, mesh;
-
-    if (category !== 'weapon') {
-      material = new THREE.MeshStandardMaterial({
-        color: themeHex,
-        emissive: themeHex,
-        emissiveIntensity: 0.4,
-        wireframe: category === 'world',
-        transparent: true,
-        opacity: 0.9,
-      });
-    }
-
-    switch (category) {
-      case 'weapon':
-        // CoD-level procedural build with gold Omega branding.
-        mesh = buildWeapon(THREE, params || {});
-        mesh.rotation.y = Math.PI / 2; // side profile to the camera
-        mesh.position.y = 0.85;
-        break;
-      case 'character':
-        geometry = new THREE.CapsuleGeometry(0.5, params?.height || 1.8, 4, 16);
-        break;
-      case 'object':
-      case 'asset_link':
-        geometry = new THREE.BoxGeometry(params?.scale?.x || 1, params?.scale?.y || 1, params?.scale?.z || 1);
-        break;
-      case 'vehicle':
-        geometry = new THREE.BoxGeometry(2, 0.8, 4);
-        if (params?.speed) geometry.scale(1, 1, 1 + params.speed * 0.005);
-        break;
-      case 'world':
-        // Textured procedural planet: displaced terrain, biome colors,
-        // atmosphere shell, slow spin, gold Ω stamp (inside buildWorld).
-        mesh = buildWorld(THREE, params || {});
-        mesh.position.y = 0.4;
-        break;
-      case 'weather': {
-        // Full weather system: rain, snow, fog, storm, ash, clear — each with
-        // its own particles, palette, and per-frame behavior.
-        mesh = buildWeatherSystem(THREE, params || {});
-        mesh.position.y = 0.5;
-        break;
-      }
-      default:
-        geometry = new THREE.BoxGeometry(1, 1, 1);
-    }
-
-    if (!mesh) mesh = new THREE.Mesh(geometry, material);
-
-    // Golden Ω brand stamp on every forge preview (weapons brand inside buildWeapon).
-    // Each badge is placed for the category: chest emblem, front decal, hood mark, floating stamp.
-    if (category === 'character') {
-      const badge = makeOmegaBadge(THREE, 0.35);
-      badge.position.set(0, 0.55, 0.52); // chest, just off the capsule surface
-      mesh.add(badge);
-    } else if (category === 'object' || category === 'asset_link') {
-      const badge = makeOmegaBadge(THREE, 0.3);
-      const depth = params?.scale?.z || 1;
-      badge.position.set(0, 0, depth / 2 + 0.012); // front face
-      mesh.add(badge);
-    } else if (category === 'vehicle') {
-      const badge = makeOmegaBadge(THREE, 0.4);
-      badge.position.set(0, 0.1, 2.012); // hood/front mark
-      mesh.add(badge);
-    }
-    // world carries its Ω stamp inside buildWorld; weather is raw particles.
-
-    if (category === 'character') mesh.position.y = (params?.height || 1.8) / 2 + 0.25;
-    if (category === 'object' || category === 'asset_link') mesh.position.y = (params?.scale?.y || 1) / 2;
-    if (category === 'vehicle') mesh.position.y = 0.4;
+    // The mesh itself is built by the shared creation-mesh helper — the
+    // same mesh the profile download exports, so preview and file can
+    // never drift apart. Scene dressing (lights, grid, background)
+    // stays here. For the uplink this box is the loading / failed /
+    // no-URL placeholder; the loaded GLB swaps in below.
+    const mesh = buildCreationMesh(THREE, category, params || {});
 
     // Weather systems set their own sky.
     if (category === 'weather' && typeof mesh.userData.skyColor === 'number') {
@@ -205,7 +173,84 @@ export default function MiniViewport({ category, params }) {
 
     scene.add(mesh);
     meshRef.current = mesh;
+
+    if (!loadable) {
+      // The URL went away (or the builder changed) while a load was
+      // in flight: invalidate it so a late success cannot resurrect
+      // a model for a URL that is no longer there.
+      if (loadingUrlRef.current) {
+        loadTokenRef.current += 1;
+        loadingUrlRef.current = '';
+      }
+      setUplinkStatus('idle');
+      return;
+    }
+    if (alreadyLoading) return;
+
+    // Fresh load for this URL. The loader is imported lazily so the
+    // GLTFLoader never enters the bundle until an uplink preview
+    // actually needs it (the repo's established pattern). A 404, a
+    // CORS block, or a bad file rejects the load; the timeout caps a
+    // hung fetch so the preview can never spin forever.
+    const token = ++loadTokenRef.current;
+    loadingUrlRef.current = url;
+    setUplinkStatus('loading');
+    let timeoutId = null;
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('Uplink load timed out.')), UPLINK_LOAD_TIMEOUT_MS);
+    });
+    const loaded = (async () => {
+      const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
+      return new GLTFLoader().loadAsync(url);
+    })();
+    Promise.race([loaded, timeout])
+      .then((gltf) => {
+        clearTimeout(timeoutId);
+        if (token !== loadTokenRef.current) return; // superseded or unmounted
+        loadingUrlRef.current = '';
+        const model = gltf.scene;
+        model.userData.uplinkUrl = url;
+        applyUplinkScale(model, params?.scale);
+        groundUplinkModel(THREE, model);
+        if (meshRef.current) {
+          scene.remove(meshRef.current);
+          meshRef.current.traverse((o) => {
+            if (o.geometry) o.geometry.dispose();
+            if (o.material) {
+              const mats = Array.isArray(o.material) ? o.material : [o.material];
+              mats.forEach((m) => m.dispose());
+            }
+          });
+        }
+        scene.add(model);
+        meshRef.current = model;
+        loadedRef.current = model;
+        setUplinkStatus('loaded');
+      })
+      .catch(() => {
+        clearTimeout(timeoutId);
+        if (token !== loadTokenRef.current) return; // superseded or unmounted
+        loadingUrlRef.current = '';
+        setUplinkStatus('failed');
+      });
   }, [category, params]);
 
-  return <div className="absolute inset-0 z-0 h-full w-full" ref={mountRef} />;
+  // Plain-words uplink state line, rendered from the shared preview
+  // state (uplink-load.js). Only the uplink ever shows one; every
+  // other category gets null here, so their previews are unchanged.
+  const preview = uplinkPreviewState({
+    category,
+    url: params?.url,
+    loadStatus: uplinkStatus,
+  });
+
+  return (
+    <div className="absolute inset-0 z-0 h-full w-full" ref={mountRef}>
+      {preview.statusLine && (
+        <div className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap bg-black/70 px-3 py-1 text-xs text-gray-200">
+          {preview.statusLine}
+        </div>
+      )}
+    </div>
+  );
 }

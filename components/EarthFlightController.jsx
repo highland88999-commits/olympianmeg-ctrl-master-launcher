@@ -6,7 +6,6 @@ import { latLonToVec3, vec3ToLatLon, easeInOutCubic } from '@/lib/geo';
 import {
   roamState,
   beginRoam,
-  stepRoam,
   cameraRig,
   ROAM_PITCH_MIN,
   ROAM_PITCH_MAX,
@@ -17,10 +16,7 @@ import {
   surfaceRadiusOrBase,
 } from '@/lib/earth/heightmap';
 import {
-  bikeState,
   carState,
-  stepClimb,
-  getClimbAltM,
 } from '@/lib/earth/parachute';
 import {
   DISPLAY_UNITS_PER_METRE,
@@ -33,18 +29,22 @@ import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 export const EARTH_CENTER = new THREE.Vector3(0, -30, -80);
 const HUB_HOME = new THREE.Vector3(0, 75, 20);
 
-// Cinematic Earth flights. The core idea (Merlin's walking experiment):
-// the traveler stands still — the WORLD moves. Destination travel rotates
-// the planet under a fixed camera instead of flying the camera across it.
+// Cinematic Earth flights. The core idea (Merlin's driving
+// experiment): the traveler drives — the WORLD moves.
+// Destination travel rotates the planet under a fixed camera
+// instead of flying the camera across it.
 //
-// Day 2 (2026-10-15) adds the street: 'diving_to_street' continues
-// the dive past the overlook all the way down to the embodied
-// traveler, and 'earth_roam' walks them — the shared page joystick
-// (full-tilt analog: push farther, move faster) and right-side
-// drag-look drive lib/earth/roam.js's great-circle stepping on the
-// real heightmap, with a third-person rig behind the character.
-// Street level runs on the terrain globe (the layer that carries
-// the placed world); NexusEarth forces that layer while roaming.
+// VEHICLES ONLY (Merlin, 2026-11-15): Earth 1 has no walker, no
+// on-foot mode, no climb (ladders / monument elevators served
+// the walker), no bike, and no Redwater journey (it was reached
+// on foot). The street is driving only: 'diving_to_street'
+// continues the dive past the overlook all the way down to the
+// mounted vehicle, and 'earth_roam' drives it — the page
+// joystick (full-tilt analog: push farther, move faster) and
+// right-side drag-look drive the supercar (EarthSupercar owns
+// roamState while mounted). Street level runs on the terrain
+// globe (the layer that carries the placed world); NexusEarth
+// forces that layer while roaming.
 export default function EarthFlightController({
   launchState, setLaunchState, quatRef, focus, pendingDest, onArriveDest, controls,
 }) {
@@ -65,8 +65,7 @@ export default function EarthFlightController({
   // REMOVED 2026-10-26 (Merlin: "Remove the quantum realm
   // completely"): the old shrink/reanimate scaling is gone. The
   // camera offsets are used exactly as the rig computes them — one
-  // level, normal size, always. The climb altitude
-  // (ladders/elevators) lifts the whole rig along the normal.
+  // level, normal size, always.
   const streetRigWorld = () => {
     const hd = getHeightData();
     // View mode (lib/earth/view-mode.js): the traveler's first /
@@ -83,12 +82,11 @@ export default function EarthFlightController({
     const q = quatRef.current;
     const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(q).add(EARTH_CENTER);
 
-    // Rig lift along the surface normal: climb altitude (ladders /
-    // elevators, real metres) plus — while mounted — the bike's hover
-    // altitude. Without this the camera stayed glued to the ground
-    // while the bike flew above it.
-    const bikeLiftM = bikeState.mounted ? bikeState.altM : 0;
-    const altU = (getClimbAltM() + getInteriorAltM() + bikeLiftM) * DISPLAY_UNITS_PER_METRE;
+    // Rig lift along the surface normal: interior altitude only
+    // (climb — ladders/elevators — and the bike's hover lift are
+    // gone with the walker and the bike; the rig no longer lifts
+    // for either).
+    const altU = getInteriorAltM() * DISPLAY_UNITS_PER_METRE;
     const n = new THREE.Vector3(rig.normal.x, rig.normal.y, rig.normal.z);
     const ground = new THREE.Vector3(rig.ground.x, rig.ground.y, rig.ground.z);
 
@@ -209,8 +207,6 @@ export default function EarthFlightController({
       }
     } else if (launchState === 'earth_roam' && quatRef.current) {
       const c = controls.current;
-      // Climb: ladders and monument elevators (altitude in metres)
-      stepClimb(delta);
       // Look: the page's right-side drag, in compass terms (drag
       // right turns right, drag down pitches the view down — the
       // hub's own drag feel, mapped onto the orbit rig).
@@ -223,30 +219,16 @@ export default function EarthFlightController({
         c.lookDeltaX = 0;
         c.lookDeltaY = 0;
       }
-      // Walk: hub control convention — forward is the negated
-      // moveY channel (joystick up / W), strafe is moveX (D / A).
-      // While the bike OR the supercar is mounted it owns
-      // roamState (EarthBike / EarthSupercar sync it every frame)
-      // — stepping the walker too would double-move.
-      const forward = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));
-      const strafe = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
-      if (!bikeState.mounted && !carState.mounted) {
-        const hdNow = getHeightData();
-        stepRoam(roamState, {
-          forward, strafe,
-        }, delta, {
-          radius: surfaceRadiusOrBase(roamState.lat, roamState.lon),
-          heightData: hdNow ? { data: hdNow.data, w: hdNow.w, h: hdNow.h } : null,
-        });
-      }
+      // No walk stepping (vehicles only): the supercar owns
+      // roamState while mounted (EarthSupercar syncs it every
+      // frame) — the walker stepping that used to run here is
+      // gone with the walker.
       if (!roamState.moving) roamState.faceDeg = roamState.yawDeg;
 
-      // The Redwater journey owns the lens while journeyActive
-      // (RedwaterMount): the street camera block stands down so
-      // it never fights the journey's sink/descent/core shots —
-      // but the walk stepping above keeps running, so the walker
-      // can still reach the core's NYC portal on foot.
-      if (!roamState.journeyActive) {
+      // Street camera: the Redwater journey used to own the lens
+      // while journeyActive — the journey is gone with the walker,
+      // so the street camera block always runs.
+      {
         const { rig, camPos, look, up } = streetRigWorld();
         // First person sits AT the head (2026-10-26, street QA 3):
         // the old exponential lerp trailed the lens behind a fast
@@ -328,14 +310,10 @@ export default function EarthFlightController({
     // This is the ABSOLUTE cutoff — the land layer is the limit, no exceptions.
     // Uses the TRUE local surface radius at the traveler (not a flat 55):
     // at high-elevation sites the flat value let the clamp fight the rig
-    // (the Christ the Redeemer shake). While a ladder/elevator climb is
-    // active the authored climb path owns altitude, so the clamp stands
-    // down entirely.
-    // The Redwater journey's core sits ~4,000 display metres
-    // below the surface — under every floor this clamp knows.
-    // While the journey owns the lens the clamp stands down
-    // entirely, or it would eject the core camera to the surface.
-    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && !roamState.journeyActive && getClimbAltM() <= 0.05 && getInteriorAltM() <= 0.05) {
+    // (the Christ the Redeemer shake). While inside an interior the
+    // authored interior path owns altitude, so the clamp stands down
+    // entirely there.
+    if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && getInteriorAltM() <= 0.05) {
       const camPos = camera.position;
       // Earth center in world space
       const ex = 0, ey = -60, ez = -120;

@@ -4,7 +4,9 @@
 // console copy, first-person car camera, orbit water,
 // Oblivion prompt.
 // Run: node tests/earth-street-qa3.test.mjs (from the repo root).
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildStreetPatchGeometryData,
   registerStreetPatch,
@@ -124,18 +126,28 @@ check('globe: orbitWater uniform + bright blue', globe.includes('orbitWater') &&
 check('globe: street behavior unchanged at orbitWater 0', globe.includes('(1.0 - orbitWater)'));
 
 const home = read('../components/HomeScene.jsx');
+const homeLines = home.split('\n');
 for (const comp of ['TextureProvider', 'GodOrbitRings', 'SystemRings', 'BackdropPlanets', 'MarsBackground', 'SunBackground', 'AsteroidField', 'HubTieFlight']) {
-  const gated = home.split('\n').some((line) => line.includes(comp) && line.includes('diving_to_street'));
+  // A mount is gated when 'diving_to_street' appears on its own
+  // line or on the gate opener just above it (multi-line mounts
+  // like SunBackground carry the gate on the `{!... && (` line
+  // above the `<Comp` line — the old single-line check missed
+  // those and failed a correctly gated mount).
+  const gated = homeLines.some((line, i) => line.includes(`<${comp}`)
+    && (line.includes('diving_to_street')
+      || homeLines.slice(Math.max(0, i - 2), i).some((prev) => prev.includes('diving_to_street'))));
   check(`hub vista gated at street: ${comp}`, gated);
 }
 
-const bike = read('../components/EarthBike.jsx');
 const car = read('../components/EarthSupercar.jsx');
-check('rings: bike ring REMOVED (Merlin 2026-10-26 — visual only, no logic rode on it)', !bike.includes('ringGeometry'));
 check('rings: car ring REMOVED (Merlin 2026-10-26 — visual only, no logic rode on it)', !car.includes('ringGeometry'));
-check('rings: no raw 1.6–1.9 hub-unit rings left', !bike.includes('[1.6, 1.9') && !car.includes('[1.6, 1.9'));
-check('vehicles: facet grounding present', bike.includes('patchFacetRadiusAt') && car.includes('patchFacetRadiusAt'));
-check('walker: facet grounding present', read('../components/EarthWalker.jsx').includes('patchFacetRadiusAt'));
+check('rings: no raw 1.6–1.9 hub-unit rings left', !car.includes('[1.6, 1.9'));
+check('vehicles: facet grounding present', car.includes('patchFacetRadiusAt'));
+// The TRON bike and the walker are gone (vehicles only,
+// 2026-11-15) — the facet-grounding law now rides on the car
+// alone, and the walker file is gone with the walker.
+check('walker file is gone', !existsSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'components', 'EarthWalker.jsx')));
+check('bike file is gone', !existsSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'components', 'EarthBike.jsx')));
 check('camera: facet clamp present', read('../components/EarthFlightController.jsx').includes('patchFacetRadiusAt'));
 check('camera: first-person snaps to head', read('../components/EarthFlightController.jsx').includes('camera.position.copy(camPos)'));
 check('car: hidden when mounted in first person', car.includes("effectiveEarthViewMode() === 'first'") && car.includes('carState.mounted'));

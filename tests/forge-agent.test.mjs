@@ -22,6 +22,7 @@ import {
   forgePromptToWeaponParams,
   applyPromptKeywordNets,
   damageForBackpack,
+  isPortalGunForgePrompt,
   mintForgeWeapon,
   forgeCommissionUrl,
   patronFromForgeUrl,
@@ -106,6 +107,89 @@ describe('the portal-gun prompt', () => {
     const first = mintForgeWeapon(emptyBackpackRecord(), PORTAL_GUN_FORGE_PROMPT, new Date('2026-11-15T00:00:00.000Z'));
     assert.equal(first.ok, true);
     const second = mintForgeWeapon(first.record, PORTAL_GUN_FORGE_PROMPT, new Date('2026-11-15T00:00:00.000Z'));
+    assert.equal(second.ok, false);
+    assert.equal(second.reason, 'already-held');
+    assert.equal(itemsOfKind(second.record, 'weapon').length, 1);
+  });
+
+  it('mints the gun from the forge form\'s shape — no presenter, name + canonical description only', () => {
+    // ForgeSector mints with exactly these fields: the form carries
+    // no presenter input, so the prompt itself must carry the
+    // identity. This is the shape Merlin's gun was forged with.
+    const forgeForm = {
+      name: 'Portal Gun',
+      description: PORTAL_GUN_FORGE_PROMPT.description,
+      assetUrl: '',
+      length: 0.9,
+      damage: 0,
+      weaponType: 'smg',
+    };
+    assert.equal(isPortalGunForgePrompt(forgeForm), true);
+    const res = mintForgeWeapon(emptyBackpackRecord(), forgeForm, new Date('2026-11-15T00:00:00.000Z'));
+    assert.equal(res.ok, true);
+    assert.equal(res.item.id, 'portal-gun');
+    assert.equal(res.item.meta.damage, 0);
+    assert.equal(res.item.meta.source, 'portal-system');
+  });
+
+  it('a weapon merely named Portal Gun with any other description mints as a generic weapon', () => {
+    const impostor = {
+      name: 'Portal Gun',
+      description: 'A chunky sci-fi hand cannon that shoots glowing plasma bolts.',
+      assetUrl: '',
+      length: 0.9,
+      damage: 20,
+      weaponType: 'smg',
+    };
+    assert.equal(isPortalGunForgePrompt(impostor), false);
+    const res = mintForgeWeapon(emptyBackpackRecord(), impostor, new Date('2026-11-15T00:00:00.000Z'));
+    assert.equal(res.ok, true);
+    assert.match(res.item.id, /^world-engine-weapon-/);
+    assert.notEqual(res.item.id, 'portal-gun');
+  });
+
+  it('the canonical description under another name mints as a generic weapon', () => {
+    const renamed = {
+      name: 'My Portal Blaster',
+      description: PORTAL_GUN_FORGE_PROMPT.description,
+      assetUrl: '',
+      length: 0.9,
+      damage: 0,
+      weaponType: 'smg',
+    };
+    assert.equal(isPortalGunForgePrompt(renamed), false);
+    const res = mintForgeWeapon(emptyBackpackRecord(), renamed, new Date('2026-11-15T00:00:00.000Z'));
+    assert.equal(res.ok, true);
+    assert.match(res.item.id, /^world-engine-weapon-/);
+  });
+
+  it('a one-word change to the canonical description mints as a generic weapon', () => {
+    const altered = {
+      name: 'Portal Gun',
+      description: PORTAL_GUN_FORGE_PROMPT.description.replace('never projectiles', 'sometimes projectiles'),
+      assetUrl: '',
+      length: 0.9,
+      damage: 0,
+      weaponType: 'smg',
+    };
+    assert.equal(isPortalGunForgePrompt(altered), false);
+    const res = mintForgeWeapon(emptyBackpackRecord(), altered, new Date('2026-11-15T00:00:00.000Z'));
+    assert.equal(res.ok, true);
+    assert.match(res.item.id, /^world-engine-weapon-/);
+  });
+
+  it('refuses a second gun from the forge-form shape when already held', () => {
+    const forgeForm = {
+      name: 'Portal Gun',
+      description: PORTAL_GUN_FORGE_PROMPT.description,
+      assetUrl: '',
+      length: 0.9,
+      damage: 0,
+      weaponType: 'smg',
+    };
+    const first = mintForgeWeapon(emptyBackpackRecord(), forgeForm, new Date('2026-11-15T00:00:00.000Z'));
+    assert.equal(first.ok, true);
+    const second = mintForgeWeapon(first.record, forgeForm, new Date('2026-11-15T00:00:01.000Z'));
     assert.equal(second.ok, false);
     assert.equal(second.reason, 'already-held');
     assert.equal(itemsOfKind(second.record, 'weapon').length, 1);
@@ -236,6 +320,43 @@ describe('prompt-keyword safety nets', () => {
     assert.equal(applyPromptKeywordNets({}, 'a clear sunny day', 'weather').weatherType, 'clear');
     assert.equal(applyPromptKeywordNets({}, 'a rifle', 'weather').weatherType, undefined);
     assert.equal(applyPromptKeywordNets({ opticType: 'iron' }, 'a blizzard', 'weapon').weatherType, undefined);
+  });
+
+  it('maps vehicle class words — space, then air, then ground', () => {
+    assert.equal(applyPromptKeywordNets({}, 'a spaceship for the void', 'vehicle').vehicleClass, 'space');
+    assert.equal(applyPromptKeywordNets({}, 'a rocket to orbit', 'vehicle').vehicleClass, 'space');
+    assert.equal(applyPromptKeywordNets({}, 'a jet plane', 'vehicle').vehicleClass, 'air');
+    assert.equal(applyPromptKeywordNets({}, 'a helicopter with rotors', 'vehicle').vehicleClass, 'air');
+    // "flying car" reads as air, not ground — air is checked first.
+    assert.equal(applyPromptKeywordNets({}, 'a flying car', 'vehicle').vehicleClass, 'air');
+    assert.equal(applyPromptKeywordNets({}, 'a survey rover for rough ground', 'vehicle').vehicleClass, 'ground');
+    assert.equal(applyPromptKeywordNets({}, 'a truck', 'vehicle').vehicleClass, 'ground');
+    // Class words do not leak into other categories.
+    assert.equal(applyPromptKeywordNets({}, 'a spaceship', 'weapon').vehicleClass, undefined);
+    assert.equal(applyPromptKeywordNets({}, 'a spaceship', 'character').vehicleClass, undefined);
+  });
+
+  it('maps creature archetype / size / temper words', () => {
+    const stalker = applyPromptKeywordNets({}, 'a fierce predator stalking the herd', 'creature');
+    assert.equal(stalker.archetype, 'stalker');
+    assert.equal(stalker.aggression, 0.9);
+    const grazer = applyPromptKeywordNets({}, 'a calm herd herbivore', 'creature');
+    assert.equal(grazer.archetype, 'grazer');
+    assert.equal(grazer.aggression, 0.1);
+    assert.equal(applyPromptKeywordNets({}, 'a giant leviathan', 'creature').archetype, 'leviathan');
+    assert.equal(applyPromptKeywordNets({}, 'a giant leviathan', 'creature').sizeClass, 'huge');
+    assert.equal(applyPromptKeywordNets({}, 'a tiny darting mimic', 'creature').sizeClass, 'tiny');
+    assert.equal(applyPromptKeywordNets({}, 'a tiny darting mimic', 'creature').archetype, 'darter');
+    assert.equal(applyPromptKeywordNets({}, 'a camouflaged ambusher', 'creature').archetype, 'mimic');
+    // Creature words do not leak into other categories.
+    assert.equal(applyPromptKeywordNets({}, 'a fierce predator', 'vehicle').archetype, undefined);
+    assert.equal(applyPromptKeywordNets({}, 'a fierce predator', 'vehicle').aggression, undefined);
+  });
+
+  it('character, object and asset_link get no net — relative words have no number', () => {
+    assert.deepEqual(applyPromptKeywordNets({ height: 1.8 }, 'a tall giant guardian', 'character'), { height: 1.8 });
+    assert.deepEqual(applyPromptKeywordNets({ scale: { x: 1, y: 1, z: 1 } }, 'a big dense monolith', 'object'), { scale: { x: 1, y: 1, z: 1 } });
+    assert.deepEqual(applyPromptKeywordNets({ url: 'https://example.com/x.glb' }, 'a glb model', 'asset_link'), { url: 'https://example.com/x.glb' });
   });
 
   it('never mutates its input', () => {

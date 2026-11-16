@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useVideoTexture } from '@react-three/drei';
 import { AdaptivePOM } from './POMMaterial';
+import CityViewWindow from './CityViewWindow';
 
 const VIDEO_MAPS = { 1: '/media/skyscraper/0qdcn7.mp4', 2: 'https://files.catbox.moe/awr0ry.mp4', 0: '/media/skyscraper/lugn8p.mp4' };
 const CORRECT_SEQUENCE = [1, 2, 0];
@@ -105,6 +106,11 @@ export default function Floor3({ elevation, isMobile }) {
             <Pillar id={0} position={[0, 7.5, -15]} active={activePillars.includes(0)} isError={errorPillarId === 0} onClick={handlePillarClick} isMobile={isMobile} />
             <Pillar id={1} position={[20, 7.5, 10]} active={activePillars.includes(1)} isError={errorPillarId === 1} onClick={handlePillarClick} isMobile={isMobile} />
             <Pillar id={2} position={[-20, 7.5, 5]} active={activePillars.includes(2)} isError={errorPillarId === 2} onClick={handlePillarClick} isMobile={isMobile} />
+
+            {/* CGI: one window onto the city far below — the puzzle
+                room keeps its height. Pillars, button, scan and
+                vortex untouched. */}
+            <CityViewWindow position={[29.7, 30, 0]} rotation={[0, -Math.PI / 2, 0]} />
 
             <mesh position={[0, 10, -29.7]} onClick={handleButtonClick}>
                 <boxGeometry args={[2, 2, 0.5]} />

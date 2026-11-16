@@ -29,8 +29,9 @@ import {
   portalGunEarned,
   portalsToGun,
 } from '../lib/portal/progress.js';
-import { hasPortalGun, maybeAwardPortalGun, PORTAL_GUN_ID } from '../lib/portal/gun.js';
-import { emptyBackpackRecord } from '../lib/backpack/backpack.js';
+import { FORGED_PORTAL_GUN_OPENING, hasForgedPortalGunEntry, hasPortalGun, healForgedPortalGun, maybeAwardPortalGun, PORTAL_GUN_ID } from '../lib/portal/gun.js';
+import { PORTAL_GUN_FORGE_PROMPT } from '../lib/world-engine/forge-agent.js';
+import { addItem, createItem, emptyBackpackRecord } from '../lib/backpack/backpack.js';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS } from '../lib/god-orbits.js';
 
 const src = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -177,6 +178,85 @@ test('the gun is granted once, only when earned, with a reticle', () => {
   assert.equal(maybeAwardPortalGun(granted, p), granted, 'already held: same record back, never duplicated');
 });
 
+// A Portal Gun forged through the forge before the mint learned
+// the gun's identity: a generic timestamp-id weapon entry, name
+// 'Portal Gun', description the canonical prompt.
+function forgedGunPack() {
+  const entry = createItem({
+    id: 'world-engine-weapon-m1234',
+    kind: 'weapon',
+    name: 'Portal Gun',
+    meta: {
+      weaponClass: 'firearm',
+      damage: 0,
+      source: 'world-engine-weapon-builder',
+      description: PORTAL_GUN_FORGE_PROMPT.description,
+    },
+  });
+  return addItem(emptyBackpackRecord(), entry);
+}
+
+test('the heal re-ids a forged Portal Gun to portal-gun, in place', () => {
+  const pack = forgedGunPack();
+  assert.equal(hasPortalGun(pack), false, 'before the heal: no gun by id');
+  assert.equal(hasForgedPortalGunEntry(pack), true);
+  const before = pack.items.find((e) => e.name === 'Portal Gun');
+  const healed = healForgedPortalGun(pack);
+  assert.notEqual(healed, pack, 'a new record when something heals');
+  assert.equal(hasPortalGun(healed), true, 'after the heal: the Fire button appears');
+  assert.equal(hasForgedPortalGunEntry(healed), false, 'nothing left to heal');
+  const gun = healed.items.find((e) => e.id === PORTAL_GUN_ID);
+  assert.equal(gun.uid, before.uid, 'same entry — an equipped gun stays equipped');
+  assert.equal(gun.meta.description, PORTAL_GUN_FORGE_PROMPT.description, 'meta untouched');
+  assert.equal(gun.meta.damage, 0);
+  assert.equal(healed.items.length, pack.items.length, 'no entry added, none removed');
+  assert.equal(healForgedPortalGun(healed), healed, 'second heal: same record back, idempotent');
+});
+
+test('the heal leaves other weapons alone and never fires on a lookalike', () => {
+  const lookalike = createItem({
+    id: 'world-engine-weapon-m5678',
+    kind: 'weapon',
+    name: 'Portal Gun',
+    meta: { weaponClass: 'firearm', description: 'A chunky sci-fi hand cannon that shoots glowing plasma bolts.' },
+  });
+  const pack = addItem(emptyBackpackRecord(), lookalike);
+  assert.equal(hasForgedPortalGunEntry(pack), false, 'name alone is not the gun');
+  assert.equal(healForgedPortalGun(pack), pack, 'same record back, untouched');
+  // The award gun's description opens differently — never re-healed.
+  const award = maybeAwardPortalGun(emptyBackpackRecord(), (() => {
+    let p = emptyPortalProgress();
+    for (let i = 0; i < 10; i += 1) p = recordPortalEntryFromRoom(p, 'hades', 'nether');
+    return p;
+  })());
+  assert.equal(healForgedPortalGun(award), award);
+  assert.ok(!award.items[0].meta.description.startsWith(FORGED_PORTAL_GUN_OPENING));
+});
+
+test('no second gun at 10 portals once the forged gun is healed', () => {
+  const healed = healForgedPortalGun(forgedGunPack());
+  let p = emptyPortalProgress();
+  for (let i = 0; i < 10; i += 1) p = recordPortalEntryFromRoom(p, 'hades', 'nether');
+  assert.equal(portalGunEarned(p), true);
+  assert.equal(maybeAwardPortalGun(healed, p), healed, 'already held: same record back, never duplicated');
+  assert.equal(healed.items.filter((e) => e.id === PORTAL_GUN_ID).length, 1);
+});
+
+test('the heal never duplicates when the real gun is already held', () => {
+  let p = emptyPortalProgress();
+  for (let i = 0; i < 10; i += 1) p = recordPortalEntryFromRoom(p, 'hades', 'nether');
+  const withAward = maybeAwardPortalGun(emptyBackpackRecord(), p);
+  const forged = createItem({
+    id: 'world-engine-weapon-m9999',
+    kind: 'weapon',
+    name: 'Portal Gun',
+    meta: { weaponClass: 'firearm', description: PORTAL_GUN_FORGE_PROMPT.description },
+  });
+  const both = addItem(withAward, forged);
+  assert.equal(healForgedPortalGun(both), both, 'gun already held: same record back, no re-id');
+  assert.equal(both.items.filter((e) => e.id === PORTAL_GUN_ID).length, 1);
+});
+
 // --- 5. Wiring: the portals, the room, and the gun, in the app ---
 
 test('hub mounts both discs behind the street-level gate, heaven gated on unlock', () => {
@@ -227,6 +307,34 @@ test('the gun catches up when the count already says earned but the pack does no
   assert.ok(card.includes('maybeAwardPortalGun'), 'card can grant the gun itself');
   assert.ok(card.includes('updateBackpack'), 'card writes the grant into the backpack');
   assert.ok(card.includes('useEffect'), 'the catch-up runs on mount, not on a tap');
+});
+
+test('the card heals a forged Portal Gun the moment it mounts', () => {
+  const card = src('../components/PortalGunCard.jsx');
+  assert.ok(card.includes('healForgedPortalGun'), 'card runs the forged-gun heal');
+  assert.ok(card.includes('hasForgedPortalGunEntry'), 'card only writes when a forged gun is waiting');
+  assert.ok(card.includes('needsHeal'), 'the heal write is guarded, so the effect no-ops once healed');
+});
+
+test('the Portal Gun card in My Weapons fires, and no other weapon card does', () => {
+  const mine = src('../components/profile/MyCreations.jsx');
+  assert.ok(mine.includes("import PortalRoom from '@/components/PortalRoom'"), 'PortalRoom imported');
+  assert.ok(mine.includes("FORGED_PORTAL_GUN_OPENING"), 'the card is recognised by the forged gun\'s prompt line');
+  assert.ok(mine.includes('<PortalRoom side="gun"'), 'firing opens the gun room');
+  assert.ok(mine.includes('isPortalGun'), 'a portal-gun gate on the card');
+  // The Fire button renders only behind that gate — every other
+  // weapon card (Rename / View prompt / List for sale) carries no
+  // Fire button. The Download button (Merlin, Nov 15 — the
+  // profile order, same push) is the one sanctioned addition to
+  // every card, gun or not: it downloads the asset and never
+  // fires a portal.
+  const gateAt = mine.indexOf('{isPortalGun && (');
+  const fireAt = mine.indexOf('🔫 Fire');
+  assert.ok(gateAt >= 0, 'the portal-gun gate exists');
+  assert.ok(fireAt > gateAt, 'Fire sits behind the portal-gun gate');
+  assert.equal((mine.match(/🔫 Fire/g) || []).length, 1, 'exactly one Fire button in the file');
+  assert.ok(mine.includes('⬇ Download'), 'the sanctioned Download button is on every card');
+  assert.ok(mine.includes("await import('@/lib/world-engine/creation-download')"), 'Download loads the download module, not the portal room');
 });
 
 // --- 6. Billboards 16:9 (point 8): the monument face is 16:9, look unchanged ---

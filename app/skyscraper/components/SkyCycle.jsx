@@ -4,12 +4,24 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import SunCalc from '../utils/suncalc'; // vendored: launcher has no suncalc package
 import { Clouds, Cloud } from '@react-three/drei';
+import {
+    makeSkyDome, updateSkyDome, makeStarField, updateStars,
+    skyStateFor, skyStateKey,
+} from '@/lib/skyscraper-cgi/sky.js';
 
 export default function SkyCycle() {
     const { scene } = useThree();
     const sunLightRef = useRef();
     const moonLightRef = useRef();
     const moonMeshRef = useRef();
+
+    // CGI (Nov 15, 2026): the sky was one flat background colour.
+    // The gradient dome + star field + city-glow horizon now ride
+    // the same SunCalc altitude the lights already use — the
+    // day/night law does not change, only what it paints.
+    const skyDome = useMemo(() => makeSkyDome(), []);
+    const starField = useMemo(() => makeStarField('omega-tower'), []);
+    const lastSkyKey = useRef(null);
 
     // Default to Edmonton coordinates (53.5461° N, 113.4938° W)
     const [coords, setCoords] = useState({ lat: 53.5461, lon: -113.4938 });
@@ -70,10 +82,28 @@ export default function SkyCycle() {
             if (scene.fog) scene.fog.color.copy(nightColor);
             if (sunLightRef.current) sunLightRef.current.intensity = 0;
         }
+
+        // CGI: repaint the gradient dome + stars only when the sky
+        // itself moves (quantized key) — the vertex colours are a
+        // ~500-vertex repaint, not a per-frame cost.
+        const skyState = skyStateFor(sunPos.altitude);
+        const skyKey = skyStateKey(skyState);
+        if (skyKey !== lastSkyKey.current) {
+            lastSkyKey.current = skyKey;
+            updateSkyDome(skyDome, skyState);
+        }
+        updateStars(starField, skyState);
     });
 
     return (
         <group>
+            {/* CGI: the gradient dome + stars sit behind everything
+                (renderOrder -1, depthWrite off, fog off). The flat
+                scene.background above stays as the fallback behind
+                the dome. */}
+            <primitive object={skyDome} />
+            <primitive object={starField} />
+
             {/* The Harvested Sun */}
             <directionalLight ref={sunLightRef} color={0xffffee} castShadow />
             

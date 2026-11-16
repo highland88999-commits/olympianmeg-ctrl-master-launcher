@@ -2,9 +2,11 @@
 //
 // BASE SHELL (Merlin, Nov 12, 2026): the world only — bright sky,
 // The Silver River, The Southern Heaven Gate, The Celestial Palace, the three regions, the entry
-// portal, and five portal arches to realms that already exist. No game
-// mechanics yet, and no sound engine in the page — that system plugs
-// in separately later.
+// portal, and five portal arches to realms that already exist.
+// Peaches in the Peach Gardens are pickable (Merlin, Nov 15,
+// 2026) — the garden's first mechanic: a picked peach lands in
+// the backpack under Other. No sound engine in the page — that
+// system plugs in separately later.
 //
 // First-person walk. WebGL via @react-three/fiber + drei (the Erebus /
 // Cerberus stack), SceneContextGuard on the canvas, vortex travel on
@@ -23,6 +25,16 @@ import { useRealmInfoFade } from '@/components/useRealmInfoFade';
 import { RealmLifeLine } from '@/components/RealmLifeLine';
 import { TiangongScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/tiangong/world';
+import {
+  availablePeaches,
+  emptyPeachState,
+  peachItem,
+  pickPeach,
+  sanitizePeachState,
+  PEACH_STORAGE_KEY,
+} from '@/lib/tiangong/peaches';
+import { addItem } from '@/lib/backpack/backpack';
+import { updateBackpack } from '@/lib/backpack/store';
 
 const STICK_RADIUS = 60;
 
@@ -43,6 +55,49 @@ export default function TiangongPage() {
   const [reduced, setReduced] = useState(false);
   const { infoHidden, fadeInfo, restoreInfo, infoStyle } = useRealmInfoFade({ reduced });
   const [stick, setStick] = useState({ dx: 0, dy: 0, active: false });
+
+  // PEACHES (Merlin, 2026-11-15): the garden's pick state is
+  // device-local (three peaches, each regrowing a day after
+  // being picked — lib/tiangong/peaches.js). nearPeach is the
+  // standing peach within reach, offered by the scene's rig.
+  const [peachState, setPeachState] = useState(() => emptyPeachState());
+  const [nearPeach, setNearPeach] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const noticeTimerRef = useRef(null);
+
+  const savePeachState = useCallback((next) => {
+    setPeachState(next);
+    try { localStorage.setItem(PEACH_STORAGE_KEY, JSON.stringify(next)); } catch { /* on-device only */ }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PEACH_STORAGE_KEY);
+      if (raw) setPeachState(sanitizePeachState(JSON.parse(raw)));
+    } catch { /* a fresh garden stands */ }
+    return () => { if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current); };
+  }, []);
+
+  const onPeachNearby = useCallback((spot) => {
+    setNearPeach(spot);
+  }, []);
+
+  // Pick the peach within reach: it lands in the backpack under
+  // Other (kind 'other' — the backpack is the cross-realm
+  // carrier), and the spot regrows in a day.
+  const pickNearbyPeach = useCallback(() => {
+    if (!nearPeach) return;
+    const res = pickPeach(peachState, nearPeach.id, Date.now());
+    if (!res.ok) return;
+    savePeachState(res.state);
+    try {
+      updateBackpack((rec) => addItem(rec, peachItem(1)));
+    } catch { /* pack unavailable — the peach still regrows */ }
+    setNearPeach(null);
+    setNotice('🍑 Peach of Long Life added to your backpack (Other).');
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
+  }, [nearPeach, peachState, savePeachState]);
 
   useEffect(() => {
     regionRef.current = region;
@@ -208,6 +263,8 @@ export default function TiangongPage() {
             onPortal={onPortal}
             onRegion={onRegion}
             reduced={reduced}
+            peaches={availablePeaches(peachState)}
+            onPeachNearby={onPeachNearby}
           />
         </Canvas>
       </div>
@@ -275,6 +332,26 @@ export default function TiangongPage() {
           ← Leave Tiangong
         </Link>
       </div>
+
+      {/* Peach pick — the egg-steal pattern: a top-centre button
+          appears when a peach is within reach (6 m); one tap
+          picks it into the backpack. The notice confirms the
+          landing, then clears itself. */}
+      {nearPeach && (
+        <button
+          type="button"
+          onClick={pickNearbyPeach}
+          className="absolute left-1/2 top-[9.5rem] z-30 -translate-x-1/2 rounded-full border border-amber-200/60 bg-black/70 px-5 py-3 text-sm font-bold text-amber-100"
+          aria-label="Pick the peach of long life"
+        >
+          🍑 Pick peach
+        </button>
+      )}
+      {notice && (
+        <p className="absolute left-1/2 top-[13rem] z-30 -translate-x-1/2 rounded-full bg-black/70 px-4 py-2 text-xs text-stone-100" role="status">
+          {notice}
+        </p>
+      )}
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (

@@ -8,7 +8,7 @@
 //  - cameraRig first person: the lens sits in the head and the
 //    pitch model matches the boom rig's;
 //  - frame math at Merlin's spot (53.63N, 113.41W): tangent frame
-//    orthonormal/right-handed, street-ground + EarthWalker bases
+//    orthonormal/right-handed, street-ground + car bases
 //    det +1;
 //  - the pose driver's unitScale: arena-metre lift constants
 //    (floor margins idle 0.014 / walk 0.020) must scale to the
@@ -115,15 +115,15 @@ check('tangent frame at 53.63N: orthonormal and right-handed', () => {
   assert.ok(near(exn.dot(n), 1), 'east x north must equal the normal');
 });
 
-check('street-ground + EarthWalker bases: determinant +1 (never mirrored)', () => {
+check('street-ground + car bases: determinant +1 (never mirrored)', () => {
   const f = tangentFrame(53.63, -113.41);
   const n = V3(f.normal), e = V3(f.east), no = V3(f.north);
   const disc = new THREE.Matrix4().makeBasis(e, no, n);
   assert.ok(near(disc.determinant(), 1));
   const fwd = V3(headingVector(f, 140));
   const xAxis = new THREE.Vector3().crossVectors(n, fwd);
-  const walker = new THREE.Matrix4().makeBasis(xAxis, n, fwd);
-  assert.ok(near(walker.determinant(), 1));
+  const car = new THREE.Matrix4().makeBasis(xAxis, n, fwd);
+  assert.ok(near(car.determinant(), 1));
 });
 
 // ---------------------------------------------------------------- pose-driver unit scale

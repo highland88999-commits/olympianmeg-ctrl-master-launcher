@@ -53,12 +53,12 @@ test('publishColliders drops staged entries', () => {
   assert.ok(!ids.includes('e049-eiffel-tower'));
 });
 
-test('NexusEarth mounts no removed layer and keeps player + journey systems', () => {
+test('NexusEarth mounts no removed layer and keeps the vehicles-only systems', () => {
   const src = read('components/NexusEarth.jsx');
-  for (const gone of ['EarthAssets', 'EarthLocalScatter', 'EarthLadders', 'MonumentElevator']) {
+  for (const gone of ['EarthAssets', 'EarthLocalScatter', 'EarthLadders', 'MonumentElevator', 'EarthWalker', 'EarthBike', 'RedwaterMount', 'EarthPitMarker']) {
     assert.ok(!src.includes(gone), `NexusEarth must not reference ${gone}`);
   }
-  for (const kept of ['RedwaterFarmstead', 'EarthWalker', 'EarthBike', 'EarthSupercar', 'RedwaterMount', 'EarthPitMarker', 'ProceduralEarthGlobe', 'GoogleEarthTiles']) {
+  for (const kept of ['RedwaterFarmstead', 'EarthSupercar', 'EarthKart', 'EarthBoostPads', 'EarthPeers', 'ProceduralEarthGlobe', 'GoogleEarthTiles']) {
     assert.ok(src.includes(kept), `NexusEarth must still mount ${kept}`);
   }
 });

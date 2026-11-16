@@ -15,6 +15,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import MiniViewport from '@/components/world-engine/MiniViewport';
+import PortalRoom from '@/components/PortalRoom';
+import { FORGED_PORTAL_GUN_OPENING } from '@/lib/portal/gun';
 import { supabase } from '@/lib/supabase';
 
 const SECTIONS = [
@@ -248,8 +250,19 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
   const [directing, setDirecting] = useState(false);
   const [directPrompt, setDirectPrompt] = useState('');
   const [directError, setDirectError] = useState(null);
+  const [roomOpen, setRoomOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadNote, setDownloadNote] = useState(null);
 
   const listed = !!asset.is_listed;
+  // The Portal Gun (Merlin, Nov 15): the one forged weapon that
+  // fires — its stored prompt opens with the forged gun's line,
+  // which is how it is recognised here (a rename changes the
+  // display name, never the prompt). Only this card gets a Fire
+  // button; every other weapon stays exactly as it was.
+  const isPortalGun = asset.category === 'weapon'
+    && typeof asset.prompt === 'string'
+    && asset.prompt.startsWith(FORGED_PORTAL_GUN_OPENING);
   // Worlds get the Communiverse treatment (Merlin, 2026-10-22): click the
   // world to go right to it, publish it into the Communiverse, and direct
   // its building with Muse (the Concourse Muse icon).
@@ -317,6 +330,28 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
     }
   };
 
+  // DOWNLOAD (Merlin, Nov 15): every creation downloads as a
+  // real, openable file. A stored file/GLB URL saves as-is; a
+  // params-only asset downloads as a .zip (data file + rebuilt
+  // GLB) — lib/world-engine/creation-download.js. The module is
+  // loaded on tap, so three.js + the exporter never weigh down
+  // the profile until a download is asked for.
+  const handleDownload = async () => {
+    setDownloadNote(null);
+    setDownloading(true);
+    try {
+      const { downloadCreation } = await import('@/lib/world-engine/creation-download');
+      const res = await downloadCreation(asset);
+      setDownloadNote(res.kind === 'opened'
+        ? 'Opened the original file in a new tab — save it from there.'
+        : 'Downloaded ' + res.fileName + '.');
+    } catch (err) {
+      setDownloadNote(err && err.message ? err.message : 'The download failed. Try again.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-white/10 bg-black/30 overflow-hidden flex flex-col">
       {isWorld ? (
@@ -376,6 +411,15 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
           <ListForm busy={busy} error={formError} onSubmit={handleList} onCancel={() => { setListing(false); setFormError(null); }} />
         ) : (
           <div className="flex flex-wrap gap-2 mt-auto pt-1">
+            {isPortalGun && (
+              <button
+                type="button"
+                onClick={() => setRoomOpen(true)}
+                className="min-h-[44px] px-3 rounded-lg bg-cyan-300/90 text-black text-xs font-bold hover:bg-cyan-200"
+              >
+                🔫 Fire
+              </button>
+            )}
             {isWorld && (
               <Link
                 href={'/communiverse/world/' + asset.id}
@@ -418,6 +462,14 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
                 {busy ? 'Working…' : inCommuniverse ? 'Remove from Communiverse' : 'Publish to Communiverse'}
               </button>
             )}
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={downloading}
+              className="min-h-[44px] px-3 rounded-lg border border-white/15 text-xs text-neutral-300 hover:bg-white/10 disabled:opacity-50"
+            >
+              {downloading ? 'Preparing…' : '⬇ Download'}
+            </button>
             <button
               type="button"
               onClick={() => { setEditing(true); setConfirmUnlist(false); }}
@@ -499,6 +551,7 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
           </form>
         )}
         {formError && !listing && <p className="text-xs text-red-300">{formError}</p>}
+        {downloadNote && <p className="text-xs text-neutral-400">{downloadNote}</p>}
         {showPrompt && asset.prompt && (
           <div className="rounded-lg border border-white/10 bg-white/5 p-3">
             <p className="text-[10px] tracking-[0.15em] uppercase text-neutral-500 mb-1">Original prompt</p>
@@ -506,6 +559,9 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
           </div>
         )}
       </div>
+      {isPortalGun && (
+        <PortalRoom side="gun" open={roomOpen} onClose={() => setRoomOpen(false)} />
+      )}
     </div>
   );
 }

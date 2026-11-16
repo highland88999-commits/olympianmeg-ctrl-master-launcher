@@ -137,7 +137,9 @@ test('quantum code IS deleted — the realm modules are gone, the street modules
   assert.ok(!parachute.includes('beginParachuteDive'), 'shrink entry is gone');
   const nexus = read('components/NexusEarth.jsx');
   assert.ok(nexus.includes('<ProceduralEarthGlobe'), 'the globe survives');
-  assert.ok(nexus.includes('<EarthWalker'), 'the walker survives');
+  assert.ok(nexus.includes('<EarthSupercar'), 'the car survives (vehicles only)');
+  assert.ok(nexus.includes('<EarthKart'), 'the kart systems survive');
+  assert.ok(!nexus.includes('<EarthWalker'), 'the walker is gone (vehicles only, 2026-11-15)');
   assert.ok(read('components/StreetGroundPatch.jsx').includes('export default function StreetGroundPatch'),
     'the street patch survives');
   assert.ok(!read('components/StreetGroundPatch.jsx').includes('MicroGroundDisc'),
@@ -151,7 +153,6 @@ test('EARTH SEED ISOLATION: no Earth dive/roam file reads the planet seed regist
   // the dive state machine must stay seed-free.
   const earthPathFiles = [
     'components/NexusEarth.jsx',
-    'components/EarthWalker.jsx',
     'components/EarthAssets.jsx',
     'components/EarthFlightController.jsx',
     'components/EarthInteriorRoom.js',

@@ -1,7 +1,11 @@
 'use client';
+import { useFrame } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import {
+  AETHELGARD_LEAF_CARD_COUNT, aethelgardWindAt, canopySway, leafClusterTexture,
+} from '@/lib/aethelgard/cgi';
 
 // AETHELGARD canopy — three instanced forest layers for a dense rainforest:
 //   emergent  — very tall kapok-like trees with buttress roots (36)
@@ -10,6 +14,12 @@ import { mulberry32 } from '@/lib/babel/rand';
 // Trunks, buttresses, and foliage blobs are separate InstancedMeshes with
 // per-instance color variation. Layout is seeded (mulberry32) so the forest
 // is identical on every load.
+//
+// CGI pass (Nov 15, 2026): a fourth layer of instanced LEAF CARDS —
+// crossed planes wearing the seeded leaf-cluster cutout texture, so the
+// roof reads as leaves, not just smooth blobs — and the whole crown
+// mass SWAYS on the canopy breeze (pure clock function, crowns move,
+// trunks don't — the way real trees look in wind).
 
 const WORLD_R = 92;
 
@@ -54,10 +64,28 @@ function useInstances(ref, items, apply) {
   }, [ref, items, apply]);
 }
 
+// crossed-quad leaf-card geometry (two intersecting planes, 1×1)
+function leafCardGeometry() {
+  const g = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    -0.5, 0, 0,   0.5, 0, 0,   0.5, 1, 0,   -0.5, 0, 0,   0.5, 1, 0,   -0.5, 1, 0,
+    0, 0, -0.5,   0, 0, 0.5,   0, 1, 0.5,   0, 0, -0.5,   0, 1, 0.5,   0, 1, -0.5,
+  ]);
+  g.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  const uv = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
 export default function Canopy() {
   const trunkRef = useRef();
   const buttressRef = useRef();
   const blobRef = useRef();
+  const leafRef = useRef();
+  const leafGeo = useMemo(leafCardGeometry, []);
+  const leafTex = useMemo(() => leafClusterTexture('aethelgard-leaf'), []);
+  const swayObj = useMemo(() => new THREE.Object3D(), []);
 
   const data = useMemo(() => {
     const rand = mulberry32(20261017);
@@ -115,7 +143,24 @@ export default function Canopy() {
         color: GREENS[Math.floor(rand() * GREENS.length)].clone().multiplyScalar(1.15),
       });
     }
-    return { trunks, buttresses, blobs };
+
+    // leaf cards — crossed leaf-cluster planes hung through the
+    // canopy band, so the roof reads as leaves at eye level too.
+    const leafCards = [];
+    for (let i = 0; i < AETHELGARD_LEAF_CARD_COUNT; i++) {
+      const r = 5 + rand() * (WORLD_R - 5);
+      const a = rand() * Math.PI * 2;
+      leafCards.push({
+        x: Math.cos(a) * r,
+        z: Math.sin(a) * r,
+        y: 7 + rand() * 24,
+        s: 2.2 + rand() * 3.4,
+        rot: rand() * Math.PI * 2,
+        phase: rand() * Math.PI * 2,
+        color: GREENS[Math.floor(rand() * GREENS.length)].clone().multiplyScalar(0.9 + rand() * 0.35),
+      });
+    }
+    return { trunks, buttresses, blobs, leafCards };
   }, []);
 
   const applyTrunk = useMemo(() => (o, c, it) => {
@@ -139,9 +184,53 @@ export default function Canopy() {
     c.copy(it.color);
   }, []);
 
+  const applyLeafCard = useMemo(() => (o, c, it) => {
+    o.position.set(it.x, it.y, it.z);
+    o.rotation.set(0, it.rot, 0);
+    o.scale.set(it.s, it.s, it.s);
+    c.copy(it.color);
+  }, []);
+
   useInstances(trunkRef, data.trunks, applyTrunk);
   useInstances(buttressRef, data.buttresses, applyButtress);
   useInstances(blobRef, data.blobs, applyBlob);
+  useInstances(leafRef, data.leafCards, applyLeafCard);
+
+  // Crown sway on the canopy breeze: crowns drift laterally, trunks
+  // stay planted. Leaf cards sway wider (they hang free); blobs
+  // sway by crown height. Pure clock function — same instant, same
+  // forest on every phone.
+  useFrame(() => {
+    const now = Date.now();
+    const wind = aethelgardWindAt(now);
+    const o = swayObj;
+    const blobs = blobRef.current;
+    if (blobs) {
+      for (let i = 0; i < data.blobs.length; i++) {
+        const it = data.blobs[i];
+        const s = canopySway(i * 1.7, now, wind, Math.min(1, it.y / 48));
+        o.position.set(it.x + s.x, it.y, it.z + s.z);
+        o.rotation.set(0, 0, 0);
+        o.scale.set(it.s, it.s * 0.62, it.s);
+        o.updateMatrix();
+        blobs.setMatrixAt(i, o.matrix);
+      }
+      blobs.instanceMatrix.needsUpdate = true;
+    }
+    const cards = leafRef.current;
+    if (cards) {
+      for (let i = 0; i < data.leafCards.length; i++) {
+        const it = data.leafCards[i];
+        const s = canopySway(it.phase, now, wind, 1);
+        o.position.set(it.x + s.x * 1.6, it.y + s.z * 0.3, it.z + s.z * 1.6);
+        o.rotation.set(s.z * 0.03, it.rot, s.x * 0.03);
+        o.scale.set(it.s, it.s, it.s);
+        o.updateMatrix();
+        cards.setMatrixAt(i, o.matrix);
+      }
+      cards.instanceMatrix.needsUpdate = true;
+    }
+  });
 
   return (
     <group>
@@ -159,6 +248,13 @@ export default function Canopy() {
       <instancedMesh ref={blobRef} args={[undefined, undefined, data.blobs.length]} frustumCulled={false}>
         <icosahedronGeometry args={[1, 1]} />
         <meshStandardMaterial roughness={0.95} flatShading />
+      </instancedMesh>
+      {/* leaf cards: crossed planes wearing the seeded leaf-cluster
+          cutout texture — the roof reads as leaves, not smooth blobs */}
+      <instancedMesh ref={leafRef} args={[undefined, undefined, data.leafCards.length]} frustumCulled={false}
+        geometry={leafGeo}>
+        <meshStandardMaterial map={leafTex} alphaTest={0.35} roughness={0.9}
+          side={THREE.DoubleSide} />
       </instancedMesh>
     </group>
   );

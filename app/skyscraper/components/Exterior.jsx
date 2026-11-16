@@ -6,11 +6,24 @@ import { useFrame } from '@react-three/fiber';
 
 import EternalFlame from './EternalFlame';
 import ProceduralRoads from './ProceduralRoads';
+import StreetLights from './StreetLights';
 import { useMapObjects } from './MapContext';
+
+// CGI (Nov 15, 2026): procedural tower/city textures, tower wind +
+// cloud drift, air traffic + crown beacon. Emissive only — no new
+// real lights anywhere in this file (the four pointLights that
+// were already here stay exactly four).
+import { materialForSkyscraper } from '@/lib/skyscraper-cgi/textures.js';
+import { cloudBankAt } from '@/lib/skyscraper-cgi/weather.js';
+import {
+    airTaxiFor, AIR_TAXI_COUNT, AIR_TAXI_COLORS, elevatorBeaconAt,
+} from '@/lib/skyscraper-cgi/life.js';
 
 const BLOCK_SIZE = 100; 
 const ROAD_WIDTH = 12;  
-const slabMaterial = new THREE.MeshStandardMaterial({ color: "#111111", roughness: 0.9, metalness: 0.1 });
+// CGI: the plot slabs were flat #111. Same geometry, same edges —
+// the tops now wear dark paving with panel seams + a faint glow.
+const slabMaterial = materialForSkyscraper('plaza', 'omega-city', '#ffffff', { repeat: { x: 8, y: 8 } });
 const lineMaterial = new THREE.LineBasicMaterial({ color: "#00ffff", transparent: true, opacity: 0.3 });
 
 const RespawnCube = memo(({ position }) => {
@@ -123,8 +136,10 @@ const BillboardNode = memo(({ onActivate, videoTex }) => {
 BillboardNode.displayName = 'BillboardNode';
 
 const ForestNode = memo(({ onActivate }) => {
-    const leafMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#39ff14", wireframe: true }), []);
-    const trunkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#1a100a", wireframe: true }), []);
+    // CGI: the signpost tree was wireframe green — a placeholder
+    // silhouette. Same geometry, real canopy + bark textures now.
+    const leafMat = useMemo(() => materialForSkyscraper('canopy', 'outland-forest'), []);
+    const trunkMat = useMemo(() => materialForSkyscraper('bark', 'outland-forest'), []);
     
     return (
         <group position={[0, 0, 0]}>
@@ -219,14 +234,23 @@ const edgesOcta = new THREE.EdgesGeometry(bldgOctaGeo);
 const edgesCone = new THREE.EdgesGeometry(bldgConeGeo);
 
 const TensegrityBuilding = memo(({ width, height, color }) => {
-    const matGlow = useMemo(() => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2, transparent: true, opacity: 0.3 }), [color]);
+    // CGI: the neighbour towers were transparent glow cylinders —
+    // light with no building behind it. Same silhouette, now dark
+    // glass curtain wall with lit windows glowing in the node's
+    // own colour (emissive tint, white map tint — the dark glass
+    // would swallow a multiplied colour). Crown + cone lines stay.
+    const facadeMat = useMemo(() => materialForSkyscraper('towerFacade', `node-${color}`, '#ffffff', {
+        repeat: { x: 2, y: Math.max(2, Math.round(height / 32)) },
+        emissive: color,
+        emissiveIntensity: 1.4,
+    }), [color, height]);
     const matTop = useMemo(() => new THREE.MeshStandardMaterial({ color: "#111", metalness: 0.9, roughness: 0.1 }), []);
     const matLine = useMemo(() => new THREE.LineBasicMaterial({ color }), [color]);
     const matLineTrans = useMemo(() => new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.4 }), [color]);
     
     return (
         <group position={[0, 15, 0]}>
-            <mesh position={[0, height / 2, 0]} scale={[1, height, 1]} geometry={bldgCylGeo} material={matGlow} dispose={null} />
+            <mesh position={[0, height / 2, 0]} scale={[1, height, 1]} geometry={bldgCylGeo} material={facadeMat} dispose={null} />
             <mesh position={[0, height, 0]} scale={[width, width, width]} geometry={bldgOctaGeo} material={matTop} dispose={null}>
                 <lineSegments geometry={edgesOcta} material={matLine} dispose={null} />
             </mesh>
@@ -311,6 +335,90 @@ const GiantGoldHoodie = memo(({ onActivate }) => {
 });
 GiantGoldHoodie.displayName = 'GiantGoldHoodie';
 
+// CGI: the tower's flanks had no face — only the front wore its
+// video, the east/west sides were bare box edges. Two proud
+// curtain-wall skins (lit windows, emissive) hug the flanks for
+// the full 730 m shaft, 0.6 m clear of the video boxes so nothing
+// z-fights. The video front is untouched.
+const TowerFlanks = memo(() => {
+    const flankMat = useMemo(() => materialForSkyscraper('towerFacade', 'omega-tower', '#ffffff', {
+        repeat: { x: 1, y: 22 },
+        emissiveIntensity: 1.2,
+    }), []);
+    return (
+        <group>
+            <mesh position={[80.6, -115, -20]} rotation={[0, Math.PI / 2, 0]} material={flankMat} dispose={null}>
+                <planeGeometry args={[30, 730]} />
+            </mesh>
+            <mesh position={[-80.6, -115, -20]} rotation={[0, -Math.PI / 2, 0]} material={flankMat} dispose={null}>
+                <planeGeometry args={[30, 730]} />
+            </mesh>
+        </group>
+    );
+});
+TowerFlanks.displayName = 'TowerFlanks';
+
+// CGI: six glowing air taxis circling the tower shaft at
+// staggered heights and radii — the life at height. Positions
+// are a pure function of the clock (lib/skyscraper-cgi/life.js);
+// the scene only places what that says. Emissive bodies + a
+// blinking beacon each; no new real lights.
+const AirTraffic = memo(() => {
+    const taxiRefs = useRef([]);
+    useFrame(() => {
+        const nowMs = Date.now();
+        for (let i = 0; i < AIR_TAXI_COUNT; i++) {
+            const g = taxiRefs.current[i];
+            if (!g) continue;
+            const taxi = airTaxiFor(i, nowMs);
+            g.position.set(taxi.x, taxi.y, taxi.z);
+            g.rotation.y = taxi.heading;
+            const beacon = g.children[1];
+            if (beacon) beacon.visible = taxi.blink;
+        }
+    });
+    return (
+        <group>
+            {Array.from({ length: AIR_TAXI_COUNT }, (_, i) => (
+                <group key={i} ref={(el) => { taxiRefs.current[i] = el; }}>
+                    <mesh dispose={null}>
+                        <boxGeometry args={[3, 0.8, 1.2]} />
+                        <meshBasicMaterial color={AIR_TAXI_COLORS[i]} />
+                    </mesh>
+                    <mesh position={[0, 0.9, 0]} dispose={null}>
+                        <sphereGeometry args={[0.35, 8, 8]} />
+                        <meshBasicMaterial color="#ffffff" />
+                    </mesh>
+                </group>
+            ))}
+        </group>
+    );
+});
+AirTraffic.displayName = 'AirTraffic';
+
+// CGI: the tower top was a bare box edge. A red crown beacon
+// pulses on the clock so the 250 m top reads from the city below.
+// Emissive only — the pulse is an opacity ride, no light.
+const TowerCrownBeacon = memo(() => {
+    const matRef = useRef();
+    useFrame(() => {
+        if (matRef.current) matRef.current.opacity = 0.35 + elevatorBeaconAt(Date.now()) * 0.65;
+    });
+    return (
+        <group position={[0, 252, -20]}>
+            <mesh dispose={null}>
+                <sphereGeometry args={[2, 16, 16]} />
+                <meshBasicMaterial ref={matRef} color="#ff2244" transparent opacity={1} />
+            </mesh>
+            <mesh rotation-x={Math.PI / 2} dispose={null}>
+                <ringGeometry args={[3, 4, 32]} />
+                <meshBasicMaterial color="#ff2244" transparent opacity={0.5} side={THREE.DoubleSide} />
+            </mesh>
+        </group>
+    );
+});
+TowerCrownBeacon.displayName = 'TowerCrownBeacon';
+
 const Plot = memo(({ gridX, gridZ, spanX = 1, spanZ = 1, name, mapName, mapColor = '#ffffff', children }) => {
     const { registerPlot, unregisterPlot } = useMapObjects();
 
@@ -370,7 +478,17 @@ export default function Exterior({
     portalVidTex.colorSpace = THREE.SRGBColorSpace;
 
     const underworldRef = useRef();
+    const windCloudRef = useRef();
     const [rovingPos, setRovingPos] = useState([0, 0]);
+
+    // CGI: the city floor was flat #050508. Same plane, same
+    // DRIVE_CityFloor name the bike raycasts against — now a
+    // tileable night-city block (streets + rooftop lights), 40
+    // repeats over the 4000 m floor, one tile per 100 m block.
+    const cityGroundMat = useMemo(() => materialForSkyscraper('cityGround', 'omega-city', '#ffffff', {
+        repeat: { x: 40, y: 40 },
+        emissiveIntensity: 0.9,
+    }), []);
 
     useEffect(() => {
         const updateRoving = () => {
@@ -389,14 +507,28 @@ export default function Exterior({
             const isUnder = camera.position.y < -200 || isGhostMode || isDead;
             underworldRef.current.visible = isUnder;
         }
+        // CGI: the mid-level cloud bank drifts around the tower
+        // shaft on the Tower wind (pure function of the clock).
+        if (windCloudRef.current) {
+            const bank = cloudBankAt(Date.now());
+            windCloudRef.current.position.set(bank.x, 0, bank.z);
+        }
     });
 
     return (
         <group>
+            {/* CGI: the low cloud hugs the city; the mid-level bank
+                (y=-200, wrapping the shaft, + a high bank above the
+                crown) drifts on the wind. */}
             <Clouds material={THREE.MeshBasicMaterial}>
                 <Cloud position={[0, -5, 0]} bounds={[150, 10, 150]} volume={200} color="#112233" opacity={0.8} speed={0.2} />
-                <Cloud position={[0, -200, 0]} bounds={[400, 50, 400]} volume={400} color="#050a10" opacity={0.9} speed={0.1} />
             </Clouds>
+            <group ref={windCloudRef}>
+                <Clouds material={THREE.MeshBasicMaterial}>
+                    <Cloud position={[0, -200, 0]} bounds={[400, 50, 400]} volume={400} color="#050a10" opacity={0.9} speed={0.1} />
+                    <Cloud position={[0, 100, 0]} bounds={[300, 40, 300]} volume={300} color="#1a2436" opacity={0.7} speed={0.15} />
+                </Clouds>
+            </group>
 
             <group ref={underworldRef} position={[0, -550, 0]}>
                 <mesh dispose={null}>
@@ -434,12 +566,22 @@ export default function Exterior({
             <mesh position={[0, -240, -20]} onPointerDown={(e) => e.stopPropagation()} dispose={null}><boxGeometry args={[160, 480, 30]} /><meshBasicMaterial map={videoTex} side={THREE.FrontSide} /></mesh>
             
             <mesh name="DRIVE_CloudFloor" rotation-x={-Math.PI / 2} position-y={0} onPointerDown={(e) => e.stopPropagation()} dispose={null}><planeGeometry args={[4000, 4000]} /><meshStandardMaterial color="#020202" roughness={1} metalness={0} side={THREE.FrontSide} /></mesh>
-            <mesh name="DRIVE_CityFloor" rotation-x={-Math.PI / 2} position-y={-480} onPointerDown={(e) => e.stopPropagation()} dispose={null}><planeGeometry args={[4000, 4000]} /><meshStandardMaterial color="#050508" roughness={0.6} metalness={0.4} side={THREE.FrontSide} /></mesh>
+            <mesh name="DRIVE_CityFloor" rotation-x={-Math.PI / 2} position-y={-480} onPointerDown={(e) => e.stopPropagation()} material={cityGroundMat} dispose={null}><planeGeometry args={[4000, 4000]} /></mesh>
             
             <group position={[0, -479.9, 0]}>
                 <ProceduralRoads gridSize={40} blockSize={BLOCK_SIZE} roadWidth={ROAD_WIDTH} />
+                {/* CGI: StreetLights existed but was never mounted —
+                    the roads had no lamps. Central 2000 m only
+                    (fog far is 800, the rest is unseen); two
+                    instanced draw calls. */}
+                <StreetLights gridSize={20} blockSize={BLOCK_SIZE} />
                 <NeonTunnel startPos={[300, 0, -200]} color="#00ffff" isUnderworld={false} />
             </group>
+
+            {/* CGI: lit tower flanks, air traffic, crown beacon. */}
+            <TowerFlanks />
+            <AirTraffic />
+            <TowerCrownBeacon />
 
             <EternalFlame position={[0, -479.9, 120]} />
             <pointLight position={[100, -450, 100]} color="#00ffff" intensity={2} distance={800} decay={1.5} />

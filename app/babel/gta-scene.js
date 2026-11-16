@@ -11,6 +11,11 @@ import {
   VAULT_DOOR,
   BABEL,
 } from './babel-district.js';
+import {
+  buildBabelCgi,
+  materialForBabelStone,
+  materialForBabelGlass,
+} from './cgi.js';
 import { createPlayer, updatePlayer } from '@/lib/gta/player.js';
 import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle, VEHICLE_TYPES } from '@/lib/gta/vehicle.js';
 import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetWanted } from '@/lib/gta/wanted.js';
@@ -18,6 +23,7 @@ import { createMission, updateMission, startMission, currentObjective, MISSION_S
 import { createInput } from '@/lib/gta/input.js';
 import { findClearSpot } from '@/lib/gta/collisions.js';
 import { createWalkerEmbodiment, capsuleProcSize } from '@/lib/gta/walker-embodiment.js';
+import { buildVehicleMesh, buildCopMesh, copFlashAt, materialForFacade } from '@/lib/gta/city-cgi.js';
 
 function mulberry32(seed) {
   let s = seed >>> 0;
@@ -38,9 +44,10 @@ export function createGTAScene(canvas, opts = {}) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-  // Scene + camera
+  // Scene + camera. No flat background colour any more — the CGI
+  // sky dome (app/babel/cgi.js) is the sky; fog still blends the
+  // far district into the horizon.
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x87ceeb);
   scene.fog = new THREE.Fog(0x87ceeb, 120, 600);
 
   const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1500);
@@ -68,15 +75,29 @@ export function createGTAScene(canvas, opts = {}) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // THE TOWER
-  buildTowerMeshes(scene);
+  // THE TOWER — textured stone with gold veining + streaked glass
+  // (app/babel/cgi.js). The streetlight bulb material rides on the
+  // group so the scene can drive it brighter at night.
+  const towerGroup = buildTowerMeshes(scene, {
+    stone: materialForBabelStone(),
+    glass: materialForBabelGlass(),
+  });
+  const streetlightBulbMat = towerGroup.userData.streetlightBulbMat || null;
 
   // Vault door at the base
   buildVaultDoorMesh(scene);
 
-  // Surrounding buildings (instanced)
+  // CGI sky + life (app/babel/cgi.js): gradient dome with Babel's
+  // gold horizon, one golden sun, clouds, stars, gold dust, ring-road
+  // traffic, plaza pedestrians. No new real lights.
+  const cgi = buildBabelCgi(THREE);
+  scene.add(cgi.group);
+
+  // Surrounding buildings (instanced) — shared CGI facade: lit
+  // windows at night via the emissive map, no new lights. The old
+  // flat material is gone; instance colours still tint.
   const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  const buildMat = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 });
+  const buildMat = materialForFacade('slab', 2026);
   const buildMesh = new THREE.InstancedMesh(boxGeo, buildMat, district.buildings.length);
   const dummy = new THREE.Object3D();
   const col = new THREE.Color();
@@ -123,20 +144,8 @@ export function createGTAScene(canvas, opts = {}) {
     const v = createVehicle(type, spot.x, spot.z, rand() * Math.PI * 2);
     vehicles.push(v);
 
-    const carGroup = new THREE.Group();
-    const bodyColor = [0x8a6a2f, 0x2a2d38, 0xd4a24e, 0x4a5568, 0x1a1a1a][i % 5];
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 0.8, 4.2),
-      new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.3, metalness: 0.6 })
-    );
-    body.position.y = 0.6;
-    body.castShadow = true;
-    const cabin = new THREE.Mesh(
-      new THREE.BoxGeometry(1.7, 0.6, 2.0),
-      new THREE.MeshStandardMaterial({ color: 0x1a1a2a, roughness: 0.2, metalness: 0.8 })
-    );
-    cabin.position.set(0, 1.2, -0.2);
-    carGroup.add(body, cabin);
+    // Parked car: shared CGI builder (wheels, glass, lights).
+    const carGroup = buildVehicleMesh(type, [0x8a6a2f, 0x2a2d38, 0xd4a24e, 0x4a5568, 0x1a1a1a][i % 5]);
     carGroup.position.set(v.x, 0, v.z);
     carGroup.rotation.y = v.heading;
     scene.add(carGroup);
@@ -149,18 +158,7 @@ export function createGTAScene(canvas, opts = {}) {
   for (let i = 0; i < 2; i++) {
     const cop = { x: 120 + i * 60, z: -100, heading: 0, speed: 0, vx: 0, vz: 0, radius: 1.6 };
     cops.push(cop);
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 0.8, 4.2),
-      new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.3, metalness: 0.6 })
-    );
-    body.position.y = 0.6;
-    const lightbar = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 0.25, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1 })
-    );
-    lightbar.position.y = 1.35;
-    g.add(body, lightbar);
+    const g = buildCopMesh();
     g.position.set(cop.x, 0, cop.z);
     g.visible = false;
     scene.add(g);
@@ -181,8 +179,12 @@ export function createGTAScene(canvas, opts = {}) {
   // Camera
   let camYaw = Math.PI, camPitch = 0.35, camDist = 9; // start facing the tower
 
-  // Day/night
+  // Day/night — the scene's own 10-minute cycle, unchanged.
+  // dayness / sunDir are shared with the CGI layer (dome tint, sun
+  // sprite, stars, motes, window glow) via the per-frame update.
   let timeOfDay = 0.5;
+  let dayness = 1;
+  let sunDir = { x: 0, y: 1, z: 0 };
 
   function updateTimeOfDay(dt) {
     timeOfDay = (timeOfDay + dt / 600) % 1;
@@ -192,14 +194,25 @@ export function createGTAScene(canvas, opts = {}) {
       Math.sin(sunAngle) * 180 + 60,
       120
     );
-    const dayness = Math.max(0, Math.sin(sunAngle));
+    const len = Math.hypot(sun.position.x, sun.position.y, sun.position.z);
+    sunDir = {
+      x: sun.position.x / len,
+      y: sun.position.y / len,
+      z: sun.position.z / len,
+    };
+    dayness = Math.max(0, Math.sin(sunAngle));
     sun.intensity = 0.2 + dayness * 1.0;
+    // Facade windows glow after dark (emissive only, no new lights).
+    buildMat.emissiveIntensity = 0.05 + (1 - dayness) * 1.15;
+    // Plaza streetlight bulbs brighten at night (emissive only).
+    if (streetlightBulbMat) streetlightBulbMat.emissiveIntensity = 0.5 + (1 - dayness) * 1.3;
+    // Fog blends the far district into the horizon. The sky itself
+    // is the CGI dome now — no flat scene.background any more.
     const skyColor = new THREE.Color().lerpColors(
       new THREE.Color(0x0a0a20),
       new THREE.Color(0x87ceeb),
       dayness
     );
-    scene.background = skyColor;
     scene.fog.color = skyColor;
   }
 
@@ -220,6 +233,11 @@ export function createGTAScene(canvas, opts = {}) {
 
     const inp = input.update();
     updateTimeOfDay(dt);
+
+    // CGI sky + life on the wall clock (Date.now, not the rAF
+    // timestamp — the operators are pure functions of the device
+    // clock, so every phone shows the same street at the same time).
+    cgi.update(Date.now(), { player, dayness, sunDir, parked: vehicles, dt });
 
     // E: enter/exit vehicle, or open the vault door
     if (inp.action) {
@@ -293,6 +311,9 @@ export function createGTAScene(canvas, opts = {}) {
         updateCop(cop, player.x, player.z, wanted.stars, district.colliders, dt);
         mesh.position.set(cop.x, 0, cop.z);
         mesh.rotation.y = cop.heading;
+        const flash = copFlashAt(now);
+        mesh.userData.lightbar.red.emissiveIntensity = flash === 'red' ? 2.4 : 0.15;
+        mesh.userData.lightbar.blue.emissiveIntensity = flash === 'blue' ? 2.4 : 0.15;
       }
     });
 
@@ -364,6 +385,7 @@ export function createGTAScene(canvas, opts = {}) {
       window.removeEventListener('resize', resize);
       input.detach();
       walker.dispose();
+      cgi.dispose();
       renderer.dispose();
     },
     setCamYaw(yaw) { camYaw = yaw; },

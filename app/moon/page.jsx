@@ -62,6 +62,12 @@ export default function MoonPage() {
 
   const goBack = useCallback(() => travel('/', 'Hub'), [travel]);
 
+  // Clicking Earth in the sky opens the Earth menu (Merlin, Nov 15,
+  // 2026): vortex ride home, landing with the hub's ?enter=earth
+  // deep link — the hub opens its Earth chooser (Earth 1/2/3/4) on
+  // arrival, exactly as if the Earth planet had been tapped there.
+  const goEarthMenu = useCallback(() => travel('/?enter=earth', 'Earth'), [travel]);
+
   if (auth === 'checking') {
     return (
       <div style={{ minHeight: '100dvh', background: '#050507', color: '#fff', display: 'grid', placeItems: 'center' }}>
@@ -107,7 +113,7 @@ export default function MoonPage() {
         gl={{ antialias: true }}
         camera={{ position: spawnCam, fov: 60, near: 0.1, far: 1000 }}
       >
-        <MoonScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} />
+        <MoonScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} onEarthClick={goEarthMenu} />
       </Canvas>
 
       <div

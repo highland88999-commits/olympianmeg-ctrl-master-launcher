@@ -1,9 +1,22 @@
 'use client';
 import { useRef, useLayoutEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { materialForSkyscraper } from '@/lib/skyscraper-cgi/textures.js';
 
 export default function ProceduralRoads({ gridSize = 40, blockSize = 100, roadWidth = 12 }) {
     const roadRef = useRef();
+
+    // CGI (Nov 15, 2026): the roads were flat emissive-blue planes.
+    // Same instancing, same geometry — the strip now wears asphalt
+    // with pale edge lines and a dashed glowing cyan centre line.
+    // One dash tile is 40 m; the repeat runs the full 4000 m road.
+    const roadMat = useMemo(() => materialForSkyscraper('road', 'omega-city', '#ffffff', {
+        repeat: { x: 100, y: 1 },
+        emissiveIntensity: 0.8,
+        transparent: true,
+        opacity: 0.8,
+        depthWrite: false,
+    }), []);
 
     // Generates the horizontal and vertical road network
     const { count, transforms } = useMemo(() => {
@@ -40,17 +53,8 @@ export default function ProceduralRoads({ gridSize = 40, blockSize = 100, roadWi
     }, [transforms]);
 
     return (
-        <instancedMesh ref={roadRef} args={[null, null, count]}>
+        <instancedMesh ref={roadRef} args={[null, null, count]} material={roadMat}>
             <planeGeometry args={[1, 1]} />
-            {/* The light-up road material */}
-            <meshStandardMaterial 
-                color="#001133" 
-                emissive="#0088ff" 
-                emissiveIntensity={0.3} 
-                transparent 
-                opacity={0.8} 
-                depthWrite={false} 
-            />
         </instancedMesh>
     );
 }

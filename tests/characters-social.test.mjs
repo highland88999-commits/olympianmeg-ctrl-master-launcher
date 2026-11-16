@@ -296,12 +296,17 @@ const { createEmbodimentScene } = await import('../lib/characters/character-glb.
     src.includes("profileCharacterAvatar } from '@/lib/characters/embodiment'")
     && !src.includes('presence-embodiment'));
   t('the character option is offered by name',
-    src.includes('Or use your character') && src.includes('Your profile character'));
+    // Copy reworded by the Nov 15 avatar makeover ("Your character"
+    // heading; "Your profile character" subtitle) — the option is
+    // still offered by name, under the new words.
+    src.includes('Your character') && src.includes('Your profile character'));
   t('picking it hands the roster preview to onPick like any avatar',
     src.includes('onPick(character.preview)')
     && src.includes('characterSelected') && src.includes('value === character.preview'));
   t('the defaults grid is untouched',
-    src.includes('DEFAULT_AVATARS.map') && src.includes('Or pick a default avatar'));
+    // Heading reworded by the Nov 15 avatar makeover ("Default
+    // avatars") — the grid itself is untouched.
+    src.includes('DEFAULT_AVATARS.map') && src.includes('Default avatars'));
 }
 
 console.log(`\ncharacters-social: ${passed} passed, ${failed} failed`);

@@ -45,8 +45,6 @@ check('removal: no Earth file imports the quantum flag or the shrink state', () 
     'components/HomeScene.jsx',
     'components/EarthConsole.jsx',
     'components/EarthFlightController.jsx',
-    'components/EarthWalker.jsx',
-    'components/EarthBike.jsx',
     'components/EarthSupercar.jsx',
     'components/EarthViewToggle.jsx',
     'components/StreetGroundPatch.jsx',
@@ -113,29 +111,25 @@ check('spawn law: the street dive is a pure camera descent at normal size', () =
 });
 
 // ------------------------------------------------------------ vehicle vanish law
-check('vehicle law: dismount vanishes the bike AND the car', () => {
-  const bike = read('components/EarthBike.jsx');
-  assert.match(bike, /summoned = false/);
-  assert.match(bike, /speed = 0/);
+check('vehicle law: no dismount — the car never vanishes, the bike is gone (vehicles only, 2026-11-15)', () => {
+  assert.throws(() => read('components/EarthBike.jsx'), /ENOENT/);
+  assert.throws(() => read('components/EarthWalker.jsx'), /ENOENT/);
   const car = read('components/EarthSupercar.jsx');
-  assert.match(car, /summoned = false/);
-  assert.match(car, /speed = 0/);
-  // Dismount hands the vehicle position to the walker (the
-  // character takes its place), via the shared roam state.
-  assert.ok(bike.includes('roamState'));
+  assert.ok(!car.includes('dismissCar'), 'no dismiss export');
+  assert.ok(!car.includes('toggleCarMount'), 'no dismount toggle');
+  assert.ok(!car.includes('swapCarCraft'), 'no mid-drive swap');
+  assert.ok(!car.includes('summoned = false'), 'the car never un-summons itself');
+  // Summon still auto-mounts: spawn driving.
+  assert.match(car, /auto-mount: spawn driving/);
   assert.ok(car.includes('roamState'));
 });
 
-check('vehicle law: the walker hides its rig while mounted (bike or car)', () => {
-  const walker = read('components/EarthWalker.jsx');
-  // Effective visibility = roamState.active AND neither vehicle
-  // mounted: the frame first returns hidden when roam is inactive,
-  // then hides the rig while the bike or the car is mounted.
-  assert.match(walker, /if \(!roamState\.active\) \{\s*rig\.visible = false;/);
-  assert.match(walker, /rig\.visible = !bikeState\.mounted && !carState\.mounted;/);
-  // No shrink scale compensates the rig anymore.
-  assert.ok(!walker.includes('parachuteState'));
-  assert.ok(!walker.includes('rig.scale.setScalar'));
+check('vehicle law: the car hides while exploding (the burst replaces it)', () => {
+  const car = read('components/EarthSupercar.jsx');
+  // The craft hides while its hit is exploding (EarthKart plays
+  // the burst); while flipping it rolls 3x around the forward axis.
+  assert.match(car, /kartState\.playerHit\.phase !== 'exploding'/);
+  assert.match(car, /flipRollAngle\(kartState\.playerHit/);
 });
 
 // ------------------------------------------------------------ globe ocean fix

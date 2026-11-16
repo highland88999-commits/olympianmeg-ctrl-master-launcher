@@ -35,6 +35,8 @@ import {
   stepPosition,
 } from '@/lib/helheim/world';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
@@ -117,17 +119,22 @@ function Ground() {
 }
 
 function FrostPools({pools}) {
+  // CYAN SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the frost pools
+  // wear cyan scratched metal; the fallback is the frost disc each
+  // circle wore before, so it never goes blank while the photo loads.
+  const outerMat = useScratchedMaterial('cyan', { color: FROST, transparent: true, opacity: 0.18 });
+  const innerMat = useScratchedMaterial('cyan', { color: '#cfeeff', transparent: true, opacity: 0.75 });
   return (
     <group>
       {pools.map((p) => (
         <group key={p.id} position={[p.x, 0, p.z]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
             <circleGeometry args={[p.r * 1.5, 24]} />
-            <meshBasicMaterial color={FROST} transparent opacity={0.18} />
+            <meshStandardMaterial {...outerMat} />
           </mesh>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.12, 0]}>
             <circleGeometry args={[p.r, 24]} />
-            <meshBasicMaterial color="#cfeeff" transparent opacity={0.75} />
+            <meshStandardMaterial {...innerMat} />
           </mesh>
         </group>
       ))}
@@ -324,6 +331,11 @@ function Nastrond({stones, shades}) {
 function FrozenShore({pits, shades, reduced}) {
   const floor = useMemo(() => floorSurface('helheim', 2), []);
   const pitRefs = useRef([]);
+  // CYAN SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the frozen pits
+  // wear cyan scratched metal — the frost ring and the ice spike.
+  // The shore ground disc stays the dark floor: it is shore, not ice.
+  const pitRingMat = useScratchedMaterial('cyan', { color: FROST, transparent: true, opacity: 0.3 });
+  const pitConeMat = useScratchedMaterial('cyan', { color: '#cfeeff', transparent: true, opacity: 0.9 });
   useFrame((state) => {
     if (reduced) return;
     const t = state.clock.elapsedTime;
@@ -344,14 +356,14 @@ function FrozenShore({pits, shades, reduced}) {
         <group key={p.id} position={[p.x, 0, p.z]}>
           <mesh position={[0, 0.1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
             <circleGeometry args={[p.r * 1.6, 20]} />
-            <meshBasicMaterial color={FROST} transparent opacity={0.3} />
+            <meshStandardMaterial {...pitRingMat} />
           </mesh>
           <mesh
             ref={(m) => { pitRefs.current[p.id] = m; }}
             position={[0, 1.8, 0]}
           >
             <coneGeometry args={[p.r * 0.7, 3.6, 8]} />
-            <meshBasicMaterial color="#cfeeff" transparent opacity={0.9} />
+            <meshStandardMaterial {...pitConeMat} />
           </mesh>
         </group>
       ))}
@@ -370,6 +382,7 @@ function FrozenShore({pits, shades, reduced}) {
 
 function PortalArches() {
   const stone = useMemo(() => stoneSurface('helheim'), []);
+  const archMat = useGoldArchMaterial({ ...stone, color: STONE, roughness: 0.9 });
   // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
   // the illustrated art of the place it leads to; before a texture
   // loads the arch shows its plain glow disc.
@@ -385,12 +398,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

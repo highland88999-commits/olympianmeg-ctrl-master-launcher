@@ -64,24 +64,34 @@ function check(name, fn) {
 }
 
 // ---- ORDER 1: SUMMON BIKE button removed, B key kept ----
-check('ORDER 1: Earth console no longer summons/dismisses the bike (button gone)', () => {
+// (Superseded 2026-11-15 — Earth 1 is vehicles only: the bike
+// is gone, the console is the in-drive HUD, and there is no
+// summon/dismiss at all. The pins below are the new law.)
+check('ORDER 1: Earth console never summons/dismisses anything (no bike, no craft buttons)', () => {
   const src = read('components/EarthConsole.jsx');
   assert.ok(!src.includes('summonBike()'), 'console must not call summonBike');
   assert.ok(!src.includes('dismissBike()'), 'console must not call dismissBike');
   assert.ok(!src.includes('🏍 Summon bike'), 'console must not carry the Summon bike label');
   assert.ok(!src.includes('✕ Dismiss bike'), 'console must not carry the Dismiss bike label');
-  // The console's other controls survive: the ride controls and
-  // the craft picker still render from the same file.
-  assert.ok(src.includes('BikeControls'), 'BikeControls must stay');
-  assert.ok(src.includes('toggleMount'), 'ride toggle import must stay');
+  // 'BikeControls' survives only in the header's removal note —
+  // the live component (JSX use or definition) is gone.
+  assert.ok(!src.includes('<BikeControls') && !src.includes('const BikeControls'), 'BikeControls is gone with the bike');
+  assert.ok(!src.includes('toggleMount'), 'no ride toggle in the HUD');
+  assert.ok(!src.includes('EarthCraftPicker'), 'no craft picker in the HUD');
+  assert.ok(!src.includes('<CharacterPicker'), 'no character picker in the HUD');
+  // The HUD's own controls survive: FIRE + torpedo count + speed.
+  assert.ok(src.includes('fireFromHud'), 'FIRE button fires a torpedo');
+  assert.ok(src.includes('FIRE'), 'FIRE label renders');
+  assert.ok(src.includes('EarthViewToggle'), 'view toggle stays');
 });
 
-check('ORDER 1: B-key summon + E-key ride survive independently in EarthBike.jsx', () => {
-  const src = read('components/EarthBike.jsx');
-  assert.ok(src.includes("k === 'b'"), 'B key handler must stay');
-  assert.ok(src.includes("k === 'e'"), 'E key handler must stay');
-  assert.ok(src.includes('export function summonBike'), 'summonBike export must stay');
-  assert.ok(src.includes('export function dismissBike'), 'dismissBike export must stay');
+check('ORDER 1: no bike file, no summon keys — the car is always out (vehicles only)', () => {
+  assert.throws(() => read('components/EarthBike.jsx'), /ENOENT/);
+  const src = read('components/EarthSupercar.jsx');
+  assert.ok(!src.includes("k === 'v'"), 'no V summon key');
+  assert.ok(!src.includes("k === 'f'"), 'no F mount key');
+  assert.ok(src.includes('export function summonCar'), 'summonCar export stays (entry flow calls it)');
+  assert.match(src, /auto-mount: spawn driving/);
 });
 
 // ---- ORDER 2: crack color cycle + mounts (TRON grid reworked) ----

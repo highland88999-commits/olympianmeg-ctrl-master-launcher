@@ -50,6 +50,7 @@ import {
   migrateEarth2Tallies,
   sacCount,
 } from '../lib/backpack/earth2-bridge.js';
+import { BACKPACK_KIND_GROUPS, groupForKind } from '../lib/backpack/groups.js';
 
 describe('the record', () => {
   it('an empty record is valid and wears the default style', () => {
@@ -460,5 +461,44 @@ describe('raised dinos are backpack items (Merlin, 2026-11-14)', () => {
     const gone = removeEntry(rec, itemsOfKind(rec, 'dino')[0].uid);
     assert.equal(itemsOfKind(gone, 'dino').length, 1);
     assert.equal(itemsOfKind(gone, 'dino')[0].meta.species, 'velociraptor');
+  });
+});
+
+describe('kind homes — every minted kind has a visible group (Merlin, 2026-11-15)', () => {
+  it('every kind in BACKPACK_ITEM_KINDS appears in BACKPACK_KIND_GROUPS', () => {
+    // The regression: medusa-head and flaming-chain sat in the
+    // record, invisible in the profile pack, because each panel
+    // carried its own hand-written group list. One canonical list
+    // now, pinned here.
+    for (const kind of BACKPACK_ITEM_KINDS) {
+      assert.ok(groupForKind(kind), `kind ${kind} has no group`);
+    }
+  });
+
+  it('the groups list every kind exactly once, with a label and an icon', () => {
+    const kinds = BACKPACK_KIND_GROUPS.map((g) => g.kind);
+    assert.equal(new Set(kinds).size, kinds.length);
+    for (const g of BACKPACK_KIND_GROUPS) {
+      assert.equal(typeof g.label, 'string');
+      assert.ok(g.label.length > 0);
+      assert.equal(typeof g.icon, 'string');
+    }
+    assert.ok(groupForKind('other'));
+    assert.equal(groupForKind('other').label, 'Other');
+    assert.equal(groupForKind('nope'), null);
+  });
+
+  it('kind "other" is a real kind: it mints and stacks like a collectible', () => {
+    const peach = { id: 'peach', kind: 'other', name: 'Peach of Long Life', meta: { source: 'tiangong-peach-gardens' } };
+    const entry = createItem(peach);
+    assert.ok(entry);
+    assert.equal(entry.kind, 'other');
+    assert.equal(entry.qty, 1);
+    let rec = emptyBackpackRecord();
+    rec = addItem(rec, peach, 1);
+    rec = addItem(rec, peach, 2);
+    assert.equal(countItem(rec, 'peach'), 3);
+    assert.equal(itemsOfKind(rec, 'other').length, 1);
+    assert.equal(itemsOfKind(rec, 'other')[0].qty, 3);
   });
 });

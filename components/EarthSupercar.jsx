@@ -9,34 +9,38 @@ import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector } from '@/lib/earth/roam';
 import { carState } from '@/lib/earth/parachute';
 import { getVehicle, resolveCraftId, boostTopSpeed } from '@/lib/earth/vehicles';
+import { readPadBoost } from '@/lib/earth/boost-pads';
 import { getVehicleModel, subscribeVehicleModel, ensureVehicleModel } from '@/lib/earth/vehicle-model';
 import { buildJetFlame, animateJetFlame } from '@/lib/earth/jet-flame';
 import { moveWithCollision } from '@/lib/earth/collision';
 import { patchFacetRadiusAt } from '@/lib/earth/street-patch';
 import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
+import { kartState, flipRollAngle, kartHud } from '@/lib/earth/kart';
 
-// EarthSupercar — the summonable Earth 1 vehicle (file name is
-// historical: it began as the Lamborghini Aventador only).
+// EarthSupercar — the Earth 1 vehicle (file name is historical:
+// it began as the Lamborghini Aventador only).
 //
-// 2026-10-26, craft expansion (Merlin: "when a user clicks car,
-// make it get them to let them select their craft, just like the
-// character selection"): this component now renders the SELECTED
-// craft from the Earth vehicle roster (lib/earth/vehicles.js) —
-// the wedge-supercar stays the default, so nothing changes for a
-// traveler who never opens the picker. The drive pattern is the
-// EarthBike pattern exactly (shared singleton carState, summon +
-// auto-mount, great-circle stepping, solid collision, roamState
-// sync so the street camera follows), with per-craft tuning,
-// hover height, and length from the roster.
+// VEHICLES ONLY (Merlin, 2026-11-15): Earth 1 has no walker, no
+// on-foot mode, no dismount — the driver is always in a vehicle
+// from spawn onward. Entry is the vehicle menu + click-the-Earth
+// to spawn (components/EarthVehicleSelect.jsx), which calls
+// summonCar() with the picked craft. There is no V summon key,
+// no F mount/dismount, no click-to-toggle-mount, no craft swap
+// while driving, and no dismiss: the car stays out until the
+// driver leaves Earth (or it blows up — then it respawns with
+// them, same craft, same spot). The old summon/dismount/swap
+// exports are gone with the walker.
 //
-// PICK FLOW (mirrors character selection): tapping the car button
-// in the Earth console (either branch) while no craft is out
-// opens the craft picker; picking a craft spawns it, auto-mounted.
-// Picking while mounted swaps the craft in place (position,
-// heading, speed kept). The V key keeps its old fast path —
-// nothing out summons the currently selected craft directly;
-// F still mounts/dismounts. Clicking the 3D craft itself still
-// toggles mount (it never opened selection — reported plainly).
+// HIT SEQUENCE (Mario Kart, lib/earth/kart.js): while the
+// player's hit is flipping, the drive input is cut and the group
+// rolls 3 times around its forward axis; while exploding the
+// group hides and the burst plays at the blast spot (EarthKart);
+// on respawn the car is back at the blast spot, same craft,
+// speed 0 (EarthKart applies the respawn to carState).
+//
+// PICK FLOW (was the craft picker — removed with the walker):
+// the entry menu selects the craft before the dive; summonCar()
+// spawns it, auto-mounted, exactly where the driver clicked.
 //
 // BLUE JET FEEL: engine-powered craft (roster engine 'jet') carry
 // the Tatooine speeder's blue flame (lib/earth/jet-flame.js — two
@@ -56,10 +60,10 @@ import { effectiveEarthViewMode } from '@/lib/earth/view-mode';
 // craft's model is cached for the session, so swapping back to a
 // ridden craft never re-downloads it.
 //
-// Dismount law (Merlin, 2026-10-26): exiting the craft VANISHES
-// it and the walker takes its place — same law as the bike. The
-// character is hidden while driving (EarthWalker) and reappears
-// exactly where the craft was.
+// (The 2026-10-26 dismount law — exiting the craft VANISHES it
+// and the walker takes its place — is gone with the walker.
+// Earth 1 is vehicles only: there is no dismount, no walker to
+// take the craft's place, and no re-appearing character.)
 //
 // Model orientation note: a GLB's nose direction is not encoded
 // anywhere, so the longest horizontal axis is aligned to the
@@ -99,53 +103,9 @@ export function summonCar(craftId) {
   // LAZY LOAD (see header): the model starts downloading only
   // now, on the summon — never at street entry.
   void ensureVehicleModel(carState.craftId);
-  // Nudge a few metres east so it sits beside the walker.
-  const frame = tangentFrame(carState.lat, carState.lon);
-  const r = surfaceRadiusOrBase(carState.lat, carState.lon);
-  const p = latLonToVec3(carState.lat, carState.lon, r);
-  const side = new THREE.Vector3(
-    p.x + frame.east.x * 3 * UPM,
-    p.y + frame.east.y * 3 * UPM,
-    p.z + frame.east.z * 3 * UPM,
-  );
-  const ll = vec3ToLatLon(side.x, side.y, side.z);
-  carState.lat = ll.lat;
-  carState.lon = ll.lon;
-  return true;
-}
-
-export function dismissCar() {
-  carState.summoned = false;
-  carState.mounted = false;
-  carState.speed = 0;
-}
-
-export function toggleCarMount() {
-  if (!carState.summoned) return false;
-  carState.mounted = !carState.mounted;
-  if (carState.mounted) {
-    carState.yawDeg = roamState.yawDeg;
-  } else {
-    // Dismount: walker takes the craft's position — and the craft
-    // vanishes (Merlin, 2026-10-26). The walker reappears exactly
-    // where the craft was; summoning again brings a fresh craft.
-    roamState.lat = carState.lat;
-    roamState.lon = carState.lon;
-    roamState.yawDeg = carState.yawDeg;
-    carState.summoned = false;
-    carState.speed = 0;
-  }
-  return carState.mounted;
-}
-
-/** Swap the mounted craft in place (picker swap while driving):
- *  position, heading, and speed are kept; only the body changes. */
-export function swapCarCraft(craftId) {
-  const next = getVehicle(craftId);
-  if (!next || !carState.summoned) return false;
-  carState.craftId = next.id;
-  carState.altM = next.hoverM;
-  void ensureVehicleModel(next.id);
+  // Spawn EXACTLY where the driver clicked (vehicles only): the
+  // old 3 m east nudge ("beside the walker") is gone with the
+  // walker — there is nobody to stand beside.
   return true;
 }
 
@@ -181,21 +141,13 @@ export default function EarthSupercar({ controls }) {
     };
   }, [flame]);
 
-  // V = summon/dismiss (fast path: summons the selected craft
-  // directly — the console buttons are the picker path), F =
-  // mount/dismount.
+  // Keyboard, vehicles only: the drive loop reads Shift (boost)
+  // from keys.current. V (summon) and F (mount/dismount) are
+  // gone with the walker — entry is the vehicle menu, and there
+  // is no dismount. F now fires a torpedo (the HUD owns it).
   useEffect(() => {
     const down = (e) => {
-      if (e.repeat) return;
-      const k = e.key.toLowerCase();
-      keys.current[k] = true;
-      if (!roamState.active) return;
-      if (k === 'v') {
-        if (carState.summoned) dismissCar();
-        else summonCar();
-      } else if (k === 'f') {
-        toggleCarMount();
-      }
+      keys.current[e.key.toLowerCase()] = true;
     };
     const up = (e) => {
       keys.current[e.key.toLowerCase()] = false;
@@ -227,17 +179,27 @@ export default function EarthSupercar({ controls }) {
     // walker already leaves the frame in first person; the craft
     // does the same while mounted — its roof sits under the lens,
     // so any downward look filled the screen with bodywork.
-    // Third person still shows the craft.
-    g.visible = !(carState.mounted && effectiveEarthViewMode() === 'first');
+    // Third person still shows the craft. While exploding the
+    // craft hides entirely (EarthKart plays the burst).
+    g.visible = !(carState.mounted && effectiveEarthViewMode() === 'first')
+      && kartState.playerHit.phase !== 'exploding';
     const dt = Math.min(0.05, rawDt || 0.016);
     const tuning = (craft && craft.tuning) || { maxSpeed: 45, accel: 30, turnRate: 1.9, boostMult: 1.6, brakeRate: 55 };
+    // A hit car does not drive — it flips, then explodes.
+    const hitActive = kartState.playerHit.phase === 'flipping' || kartState.playerHit.phase === 'exploding';
 
-    if (carState.mounted) {
+    if (carState.mounted && !hitActive) {
       const c = controls?.current || {};
       const k = keys.current;
       const thrust = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));
       const turn = (c.moveX || 0) + ((c.keyD ? 1 : 0) - (c.keyA ? 1 : 0));
-      const boost = !!(k['shift'] || c.carBoost);
+      // Boost pads (Earth 1, 2026-11-15): a pad boost forces boost
+      // for PAD_BOOST_MS and multiplies this craft's boostMult by
+      // PAD_BOOST_MULT. The pad state is written by EarthBoostPads
+      // each frame; reading it here is one frame behind by design
+      // (16 ms, invisible) — and the roster tuning is untouched.
+      const pad = readPadBoost(performance.now());
+      const boost = !!(k['shift'] || c.carBoost) || pad.active;
       const brake = thrust < -0.5;
       // Grounded: no rise/sink — a craft drives on the ground
       // (the skiff's hoverM lifts it instead, same channel).
@@ -247,7 +209,10 @@ export default function EarthSupercar({ controls }) {
         pitch: 0,
         speed: carState.speed,
       };
-      const next = stepFlight(f, { thrust, turn, pitch: 0, boost, brake }, dt, tuning);
+      const effTuning = pad.active
+        ? { ...tuning, boostMult: tuning.boostMult * pad.mult }
+        : tuning;
+      const next = stepFlight(f, { thrust, turn, pitch: 0, boost, brake }, dt, effTuning);
       carState.speed = next.speed;
       carState.yawDeg = ((next.yaw * 180) / Math.PI) % 360;
 
@@ -283,6 +248,9 @@ export default function EarthSupercar({ controls }) {
       roamState.yawDeg = carState.yawDeg;
       roamState.moving = Math.abs(next.speed) > 0.5;
       roamState.speed01 = Math.min(1, Math.abs(next.speed) / tuning.maxSpeed);
+    } else if (carState.mounted) {
+      // A hit car does not drive — it flips, then explodes.
+      carState.speed = 0;
     }
 
     // Position on the globe: ground-hugging, like the bike.
@@ -309,6 +277,12 @@ export default function EarthSupercar({ controls }) {
     const basis = new THREE.Matrix4().makeBasis(xAxis, normal, zAxis);
     g.quaternion.setFromRotationMatrix(basis);
 
+    // Hit sequence: flip 3x around the forward axis while flipping.
+    if (kartState.playerHit.phase === 'flipping') {
+      const roll = flipRollAngle(kartState.playerHit, performance.now());
+      g.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll));
+    }
+
     // Blue jet flame: only while driving, length with speed.
     if (flame) {
       animateJetFlame(flame, {
@@ -317,6 +291,12 @@ export default function EarthSupercar({ controls }) {
         time: state.clock.elapsedTime,
       });
     }
+
+    // HUD snapshot (EarthConsole polls this): speed + boost state.
+    // The missile count + hit phase are written by EarthKart.
+    kartHud.speedMps = Math.abs(carState.speed || 0) * 3;
+    kartHud.speedKmh = kartHud.speedMps * 3.6;
+    kartHud.boostActive = readPadBoost(performance.now()).active || !!keys.current['shift'];
   });
 
   // Keep the camera variable referenced (the mount's frame loop
@@ -329,10 +309,6 @@ export default function EarthSupercar({ controls }) {
     <group
       ref={groupRef}
       visible={false}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (carState.summoned && roamState.active) toggleCarMount();
-      }}
     >
       <group scale={model.scale} rotation={[0, model.rotY, 0]}>
         <group position={[0, model.liftY, 0]}>

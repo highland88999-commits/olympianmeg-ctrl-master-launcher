@@ -10,9 +10,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import * as THREE from 'three';
-
 import { MOON_ORBIT_RADIUS, MOON_ORBIT_SPEED, moonPositionAt } from '../lib/hub-layout.js';
 import { EARTH_CENTER, orbitTime } from '../lib/god-orbits.js';
 import {
@@ -160,5 +159,157 @@ describe('flag, dust, label', () => {
     assert.ok(MOON_OLYMPUS_LABEL_SIZE <= 0.35, `label is a label, not a billboard (${MOON_OLYMPUS_LABEL_SIZE})`);
     assert.ok(MOON_OLYMPUS_LABEL_SIZE < 0.9, 'smaller than the old screen-filling 0.9');
     assert.ok(moonSceneSrc.includes('fontSize={MOON_OLYMPUS_LABEL_SIZE}'), 'the scene renders the constant, not a literal');
+  });
+});
+
+// ── Moon photo wrap (Merlin, Nov 15, 2026) ─────────────────────────
+// His lunar photograph wraps both Moon spheres — the hub orb and the
+// /moon ground (one source of truth: HubMoon makeMoonTexture). The
+// photo is a 1170x585 (2:1) equirectangular JPEG; the procedural
+// lunar maps stay as the fallback if the photo fails to load. Run:
+// node --test tests/moon-cgi.test.mjs
+
+// Minimal JPEG dimension reader (SOF0/SOF2) — no image deps.
+function jpegDimensions(buf) {
+  assert.equal(buf[0], 0xff);
+  assert.equal(buf[1], 0xd8, 'not a JPEG (no SOI marker)');
+  let off = 2;
+  while (off < buf.length - 1) {
+    if (buf[off] !== 0xff) { off += 1; continue; }
+    const marker = buf[off + 1];
+    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { off += 2; continue; }
+    const len = buf.readUInt16BE(off + 2);
+    if (marker === 0xc0 || marker === 0xc2) {
+      return { width: buf.readUInt16BE(off + 7), height: buf.readUInt16BE(off + 5) };
+    }
+    off += 2 + len;
+  }
+  throw new Error('no SOF marker found in the Moon photo');
+}
+
+describe('Moon photo wrap (Merlin\u2019s lunar map)', () => {
+  it('the photo exists at the wired path, is a JPEG, 1170x585, exactly 2:1', () => {
+    const buf = readFileSync(new URL('../public/images/moon/moon-surface.jpg', import.meta.url));
+    assert.equal(buf.length, 325593, 'the photo is Merlin\u2019s file, uncut (325,593 bytes)');
+    const { width, height } = jpegDimensions(buf);
+    assert.equal(width, 1170, 'photo is 1170 wide');
+    assert.equal(height, 585, 'photo is 585 high');
+    assert.equal(width, height * 2, 'exactly 2:1 — a proper equirectangular map');
+    assert.ok(hubMoonSrc.includes("'/images/moon/moon-surface.jpg'"), 'HubMoon wires this exact path');
+  });
+
+  it('makeMoonTexture loads the photo and keeps the procedural maps as fallback', () => {
+    assert.ok(hubMoonSrc.includes("planetMaps('lunarRegolith', 'moon')"), 'procedural lunar maps still the fallback');
+    assert.ok(hubMoonSrc.includes('MOON_SURFACE_PHOTO_URL'), 'the photo URL is a named constant');
+    assert.ok(hubMoonSrc.includes('new THREE.TextureLoader().load('), 'the photo loads through TextureLoader');
+    assert.ok(hubMoonSrc.includes('MOON_SURFACE_PHOTO_URL,'), 'the loader loads the named photo URL');
+    assert.ok(hubMoonSrc.includes('tex.image = loaded.image'), 'the photo swaps into the shared texture on load');
+    assert.ok(hubMoonSrc.includes('photo failed'), 'a failed load keeps the procedural canvas');
+    assert.ok(hubMoonSrc.includes("typeof document === 'undefined'"), 'node/prerender stays procedural (no DOM)');
+    assert.ok(!hubMoonSrc.includes('CanvasTexture'), 'still no one-off canvas texture');
+  });
+
+  it('the photo is north-up on the sphere and the fallback keeps its orientation', () => {
+    assert.ok(hubMoonSrc.includes('tex.flipY = false'), 'procedural canvas matches the south-up DataTexture');
+    assert.ok(hubMoonSrc.includes('tex.flipY = true'), 'the north-up photo flips to the pole on load');
+    assert.ok(hubMoonSrc.includes('tex.colorSpace = THREE.SRGBColorSpace'), 'photo keeps sRGB colour like the procedural map');
+  });
+
+  it('both Moon spheres still share the one source of truth', () => {
+    assert.ok(moonSceneSrc.includes("makeMoonTexture } from './HubMoon'"), '/moon ground still shares HubMoon makeMoonTexture');
+    assert.ok(moonSceneSrc.includes('map={moonMaps.map}'), 'the ground sphere renders the shared map');
+    assert.ok(hubMoonSrc.includes('useMemo(makeMoonTexture, [])'), 'the hub orb renders the shared map');
+    assert.ok(hubMoonSrc.includes('<sphereGeometry args={[MOON_RADIUS, 48, 32]}'), 'hub orb is a sphere — the equirect wrap is correct');
+    assert.ok(moonSceneSrc.includes('<sphereGeometry args={[MOON_RADIUS, 64, 48]}'), '/moon ground is a sphere too — the same wrap is correct there');
+  });
+
+  it('the shadow-realm moon disc is deliberately untouched', () => {
+    const shadowSrc = readFileSync(new URL('../app/shadow-realm/scene.jsx', import.meta.url), 'utf8');
+    assert.ok(shadowSrc.includes('function moonTexture()'), 'the shadow disc keeps its own texture');
+    assert.ok(!shadowSrc.includes('MOON_SURFACE_PHOTO_URL'), 'the shadow disc does not take the Moon photo');
+    assert.ok(!shadowSrc.includes('moon-surface.jpg'), 'the shadow disc is not re-wrapped');
+  });
+});
+
+// ── Flag photos + pole + Earth click (Merlin, Nov 15, 2026) ───────────
+// His gold-Omega-on-silver photograph wraps the flag cloth (both
+// sides, Omega upright on both) and his scratched-gold photograph
+// wraps the flag pole (light reflecting: metalness 1.0, roughness
+// 0.18, night Environment). The flag moves with the Moon's wind.
+// Clicking the Earth in the /moon sky opens the Earth menu (the
+// hub's Earth chooser) via the existing ?enter=earth deep link.
+
+const moonPageSrc = readFileSync(new URL('../app/moon/page.jsx', import.meta.url), 'utf8');
+const hubPageSrc = readFileSync(new URL('../app/page.jsx', import.meta.url), 'utf8');
+
+describe('flag photos (Omega cloth, gold pole)', () => {
+  it('the Omega flag photo exists at the wired path: JPEG, 1170x653, 1.792', () => {
+    const buf = readFileSync(new URL('../public/images/moon/flag-omega.jpg', import.meta.url));
+    assert.equal(buf.length, 375835, 'the flag photo is Merlin’s file, uncut (375,835 bytes)');
+    const { width, height } = jpegDimensions(buf);
+    assert.equal(width, 1170, 'flag photo is 1170 wide');
+    assert.equal(height, 653, 'flag photo is 653 high');
+    assert.ok(Math.abs(width / height - 1.792) < 0.001, 'aspect 1.792 — a 1.3% squeeze onto the 1.769 cloth');
+    assert.ok(moonSceneSrc.includes("'/images/moon/flag-omega.jpg'"), 'MoonScene wires this exact path');
+  });
+
+  it('the pole shares the ONE gold file: JPEG, 1170x653, 1.792, no second copy', () => {
+    const buf = readFileSync(new URL('../public/textures/gold/gold-scratched.jpg', import.meta.url));
+    assert.equal(buf.length, 400196, 'the gold file is Merlin’s upload, uncut (400,196 bytes)');
+    const { width, height } = jpegDimensions(buf);
+    assert.equal(width, 1170, 'gold photo is 1170 wide');
+    assert.equal(height, 653, 'gold photo is 653 high');
+    assert.ok(Math.abs(width / height - 1.792) < 0.001, 'aspect 1.792');
+    assert.ok(moonSceneSrc.includes('GOLD_TEXTURE_URL'), 'MoonScene wires the shared GOLD_TEXTURE_URL');
+    assert.ok(moonSceneSrc.includes("from '@/lib/portal/gold-texture'"), 'the URL comes from the arch gold module — one source of truth');
+    assert.ok(!existsSync(new URL('../public/images/moon/flag-pole-gold.jpg', import.meta.url)), 'no second copy of the 400 KB gold file');
+    assert.ok(!moonSceneSrc.includes('flag-pole-gold'), 'MoonScene no longer references the deleted duplicate path');
+  });
+
+  it('the flag cloth wears the photo on both sides, gold fallback until it lands', () => {
+    assert.ok(moonSceneSrc.includes('FLAG_OMEGA_PHOTO_URL'), 'the flag photo URL is a named constant');
+    assert.ok(moonSceneSrc.includes('new THREE.TextureLoader().load('), 'the photos load through TextureLoader');
+    assert.ok(moonSceneSrc.includes("side={THREE.DoubleSide}"), 'the cloth is double-sided — both sides show the Omega');
+    assert.ok(moonSceneSrc.includes("map={flagTex ?? undefined}"), 'the cloth takes the photo when it lands');
+    assert.ok(moonSceneSrc.includes("color={flagTex ? '#ffffff' : '#ffd700'}"), 'plain gold until the photo lands, true colour after');
+    assert.ok(moonSceneSrc.includes('photo failed'), 'a failed load keeps the plain-colour fallback');
+    assert.ok(moonSceneSrc.includes("typeof document === 'undefined'"), 'node/prerender loads nothing (no DOM)');
+  });
+
+  it('the pole wears the gold photo and is light reflecting', () => {
+    assert.ok(moonSceneSrc.includes('GOLD_TEXTURE_URL'), 'the pole loads the shared gold URL');
+    assert.ok(moonSceneSrc.includes("map={poleTex ?? undefined}"), 'the pole takes the photo when it lands');
+    assert.ok(moonSceneSrc.includes("metalness={poleTex ? 1.0 : 0.8}"), 'metalness 1.0 with the photo (0.8 silver fallback)');
+    assert.ok(moonSceneSrc.includes("roughness={poleTex ? 0.18 : 0.4}"), 'roughness 0.18 with the photo (0.4 fallback)');
+    assert.ok(moonSceneSrc.includes('tex.repeat.set(1, 8)'), 'the wrap repeats (1, 8) — near-square scratches on the thin pole');
+    assert.ok(moonSceneSrc.includes('<Environment preset="night" />'), 'the night Environment gives the metal something to reflect');
+    assert.ok(moonSceneSrc.includes('<Suspense fallback={null}>'), 'the Environment suspends alone — a slow HDR fetch never blanks the Moon');
+  });
+
+  it('the flag moves with the wind, not a fixed loop', () => {
+    assert.ok(moonSceneSrc.includes('moonWind'), 'the scene reads the Moon wind');
+    assert.ok(moonSceneSrc.includes('moonWind(now)'), 'the wave is driven by the live wind each frame');
+    assert.ok(moonSceneSrc.includes('waveFlag(flagGeo, now, MOON_FLAG_CLOTH.width, MOON_FLAG_CLOTH.amplitude, moonWind(now))'), 'the cloth wave takes the wind');
+  });
+});
+
+describe('clicking Earth opens the Earth menu', () => {
+  it('the Moon-sky Earth mesh is clickable with a pointer cursor', () => {
+    assert.ok(moonSceneSrc.includes('onEarthClick'), 'EarthInSky takes an onEarthClick prop');
+    assert.ok(moonSceneSrc.includes('onClick: (e) => { e.stopPropagation(); onEarthClick(); }'), 'clicking Earth fires the callback');
+    assert.ok(moonSceneSrc.includes("document.body.style.cursor = 'pointer'"), 'hovering Earth shows a pointer (the hub PlanetBody pattern)');
+    assert.ok(moonSceneSrc.includes('<EarthInSky onEarthClick={onEarthClick} />'), 'the scene passes the callback into the sky Earth');
+  });
+
+  it('the Moon page rides the vortex home with the chooser deep link', () => {
+    assert.ok(moonPageSrc.includes("travel('/?enter=earth', 'Earth')"), 'the Earth click travels to /?enter=earth via the vortex');
+    assert.ok(moonPageSrc.includes('onEarthClick={goEarthMenu}'), 'the page passes the Earth-menu trip into the scene');
+  });
+
+  it('the hub opens its Earth chooser on ?enter=earth — no new param, no hub change', () => {
+    assert.ok(hubPageSrc.includes("get('enter') === 'earth'"), 'the hub reads the ?enter=earth deep link');
+    assert.ok(hubPageSrc.includes('beginEarthDive()'), 'the deep link dives to Earth');
+    assert.ok(hubPageSrc.includes('setShowEarthChooser(true)'), 'the dive opens the chooser');
+    assert.ok(hubPageSrc.includes('Choose your Earth'), 'the chooser offers Earth 1/2/3/4');
   });
 });

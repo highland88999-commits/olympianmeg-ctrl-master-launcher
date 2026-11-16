@@ -1,6 +1,6 @@
 // components/HubMoon.jsx
-// A proper Moon for the hub: a clearly lunar body — procedural cratered
-// texture on a real sphere, never another glowing orb — in a slow, stately
+// A proper Moon for the hub: Merlin's lunar photograph wrapped on
+// a real sphere, never another glowing orb — in a slow, stately
 // prograde orbit around NexusEarth (same direction as Earth's spin), at a
 // believable distance (~3.3 Earth radii). Solid: registers a collider
 // (bounce/deflect, never kill). Carries its own small nav beam so travelers
@@ -21,15 +21,70 @@ import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 import { MOON_TRIGGER_RADIUS, isMoonTriggerPoint } from '@/lib/moon';
 import { planetMaps } from '@/lib/planet-cgi/textures';
 
-// Procedural lunar surface — one source of truth for the Moon's
-// look, shared with the /moon scene. Delegates to the shared
-// planet-CGI module (lib/planet-cgi/textures.js): seeded grey
-// regolith + a real crater bump map, cached per family+seed,
-// node-safe (DataTexture, no DOM canvas). Returns { map, bumpMap,
-// roughness, bumpScale } — the maps are cache-owned, never
-// disposed by a consumer.
+// Merlin's lunar map (Nov 15, 2026): his photograph wraps the Moon —
+// a 1170x585 (2:1) equirectangular JPEG, the exact shape a sphere
+// wants, grayscale so the Moon keeps its look. No colourising, no
+// new lights, no re-cut. The procedural lunar maps stay as the
+// fallback: the returned texture object starts on a canvas painted
+// with the procedural pixels and swaps its image to the photo the
+// moment it lands, so a failed load never leaves a blank Moon. One
+// texture object is shared by both spheres (the hub orb here and
+// the /moon ground in MoonScene) — a single load, one source of
+// truth, same as before. The procedural bump map stays (its craters
+// do not line up with the photo's real ones, but at bumpScale 0.08
+// it only adds relief — the photo's own shading does the work).
+// Node-safe: without a DOM (tests, prerender) the procedural maps
+// stand as-is and no loader runs.
+export const MOON_SURFACE_PHOTO_URL = '/images/moon/moon-surface.jpg';
+
+let moonTextureShared = null;
+
 export function makeMoonTexture() {
-  return planetMaps('lunarRegolith', 'moon');
+  if (moonTextureShared) return moonTextureShared;
+  const fallback = planetMaps('lunarRegolith', 'moon');
+  const out = {
+    map: fallback.map,
+    bumpMap: fallback.bumpMap,
+    roughness: fallback.roughness,
+    bumpScale: fallback.bumpScale,
+  };
+  moonTextureShared = out;
+  if (typeof document === 'undefined') return out;
+  try {
+    const src = fallback.map.image;
+    const canvas = document.createElement('canvas');
+    canvas.width = src.width;
+    canvas.height = src.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return out;
+    const imgData = ctx.createImageData(src.width, src.height);
+    imgData.data.set(src.data);
+    ctx.putImageData(imgData, 0, 0);
+    const tex = new THREE.Texture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    // The procedural DataTexture is south-up (flipY false); the
+    // canvas must match it or the fallback renders upside down.
+    tex.flipY = false;
+    tex.needsUpdate = true;
+    out.map = tex;
+    new THREE.TextureLoader().load(
+      MOON_SURFACE_PHOTO_URL,
+      (loaded) => {
+        // The photo is a standard north-up equirectangular map.
+        tex.image = loaded.image;
+        tex.flipY = true;
+        tex.needsUpdate = true;
+      },
+      undefined,
+      () => { /* photo failed: the procedural canvas stays */ },
+    );
+  } catch {
+    // Canvas unavailable: the procedural maps stand as-is.
+    out.map = fallback.map;
+  }
+  return out;
 }
 
 // MOON LANDING (Merlin, Nov 13, 2026): the Moon is now a door.

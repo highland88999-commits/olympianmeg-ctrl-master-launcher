@@ -19,13 +19,14 @@ test('geolocation memo is in lib/geo.js source', () => {
   assert.match(src, /if \(positionPromise\) return positionPromise;/);
 });
 
-test('walker rides the higher of true, drawn-grid and drawn-facet surface', () => {
-  const src = readFileSync('components/EarthWalker.jsx', 'utf8');
-  assert.match(src, /Math\.max\(\s*surfaceRadiusOrBase\(roamState\.lat, roamState\.lon\),\s*globeGridRadiusOrBase\(roamState\.lat, roamState\.lon\),\s*facetR != null \? facetR : -Infinity,\s*\)/);
-  assert.match(src, /patchFacetRadiusAt\(roamState\.lat, roamState\.lon\)/);
+test('car rides the higher of true and drawn-facet surface (walker gone — the law rides on the car)', () => {
+  const src = readFileSync('components/EarthSupercar.jsx', 'utf8');
+  assert.match(src, /const groundR = facetR != null \? Math\.max\(surfR, facetR\) : surfR;/);
+  assert.match(src, /patchFacetRadiusAt\(carState\.lat, carState\.lon\)/);
   const hm = readFileSync('lib/earth/heightmap.js', 'utf8');
   assert.match(hm, /export function globeGridRadiusOrBase/);
   assert.match(hm, /globeGridSurfaceRadius\(cache\.data, cache\.w, cache\.h, lat, lon\)/);
+  assert.throws(() => readFileSync('components/EarthWalker.jsx', 'utf8'), /ENOENT/);
 });
 
 test('veil is gone: UnderwaterVeil renders nothing on dry Earth', () => {

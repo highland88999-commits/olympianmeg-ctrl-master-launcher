@@ -31,6 +31,8 @@ import {
   stepPosition,
 } from '@/lib/duat/world';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
@@ -188,6 +190,12 @@ function Gates() {
 
 function Barque() {
   const stone = useMemo(() => stoneSurface('duat'), []);
+  // BRIGHT-GOLD scratched-metal wrap (Merlin, 2026-11-15): the
+  // barque's HULL (hull + bow + stern boxes) wears bright gold; the
+  // fallback is the hull's existing stone material, so it never goes
+  // blank. NOT wrapped: the sun disc (glow disc, MeshBasicMaterial),
+  // the point light, or the label.
+  const barqueWrapMat = useScratchedMaterial('bright-gold', { ...stone, color: '#8a6d2f', roughness: 0.8 });
   // Ra's solar barque, sailing the river of the dead — it passes
   // through the Duat every night, and the sun rises again.
   return (
@@ -195,15 +203,15 @@ function Barque() {
       <pointLight position={[0, 8, 0]} color="#ffd34d" intensity={30} distance={60} />
       <mesh position={[0, 1, 0]}>
         <boxGeometry args={[14, 1.2, 3]} />
-        <meshStandardMaterial {...stone} color="#8a6d2f" roughness={0.8} />
+        <meshStandardMaterial {...barqueWrapMat} />
       </mesh>
       <mesh position={[-7, 2, 0]} rotation={[0, 0, 0.6]}>
         <boxGeometry args={[3, 1, 2.4]} />
-        <meshStandardMaterial {...stone} color="#8a6d2f" roughness={0.8} />
+        <meshStandardMaterial {...barqueWrapMat} />
       </mesh>
       <mesh position={[7, 2, 0]} rotation={[0, 0, -0.6]}>
         <boxGeometry args={[3, 1, 2.4]} />
-        <meshStandardMaterial {...stone} color="#8a6d2f" roughness={0.8} />
+        <meshStandardMaterial {...barqueWrapMat} />
       </mesh>
       {/* the sun disc Ra sails with */}
       <mesh position={[0, 6.5, 0]}>
@@ -219,6 +227,12 @@ function Barque() {
 
 function Hall({columns}) {
   const stone = useMemo(() => stoneSurface('duat'), []);
+  // BRIGHT-GOLD scratched-metal wrap (Merlin, 2026-11-15): the hall
+  // COLUMNS only — the 8 inner columns and the outer ring columns —
+  // wear bright gold; the fallback is the columns' existing stone
+  // material. NOT wrapped: the plinth, the great scales (beam, post,
+  // pans), the roof slab, the point light, or the label.
+  const columnWrapMat = useScratchedMaterial('bright-gold', { ...stone, color: '#cbb98a', roughness: 0.9 });
   // The Hall of Two Truths: the heart is weighed against the feather
   // of Maat, on the great scales, under the columns.
   const innerColumns = [];
@@ -251,14 +265,14 @@ function Hall({columns}) {
       {innerColumns.map((c) => (
         <mesh key={c.key} position={[c.x, 6, c.z]}>
           <cylinderGeometry args={[0.9, 1.1, 12, 10]} />
-          <meshStandardMaterial {...stone} color="#cbb98a" roughness={0.9} />
+          <meshStandardMaterial {...columnWrapMat} />
         </mesh>
       ))}
       {/* the outer ring, from the seeded dressing */}
       {columns.map((c) => (
         <mesh key={c.id} position={[c.x, c.h / 2, c.z]}>
           <cylinderGeometry args={[0.9, 1.1, c.h, 10]} />
-          <meshStandardMaterial {...stone} color="#cbb98a" roughness={0.9} />
+          <meshStandardMaterial {...columnWrapMat} />
         </mesh>
       ))}
       <mesh position={[0, 13, 0]}>
@@ -384,6 +398,7 @@ function TwelfthGate() {
 
 function PortalArches() {
   const stone = useMemo(() => stoneSurface('duat'), []);
+  const archMat = useGoldArchMaterial({ ...stone, color: STONE, roughness: 0.9 });
   // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
   // the illustrated art of the place it leads to; before a texture
   // loads the arch shows its plain glow disc.
@@ -399,12 +414,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

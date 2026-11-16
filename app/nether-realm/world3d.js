@@ -42,6 +42,7 @@ import {
 } from '@/lib/nether-realm/world';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import {
   LAIR_RUN_MPS,
@@ -457,6 +458,7 @@ function Tartarus({pits, shades, reduced}) {
 
 function PortalArches() {
   const stone = useMemo(() => stoneSurface('hades'), []);
+  const archMat = useGoldArchMaterial({ ...stone, color: STONE, roughness: 0.9 });
   // Arch doorway art (Merlin, 2026-11-15): every arch's doorway wears
   // the illustrated art of the place it leads to. The medusa door keeps
   // the same lair texture, crop, position and opacity as before — the
@@ -475,12 +477,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

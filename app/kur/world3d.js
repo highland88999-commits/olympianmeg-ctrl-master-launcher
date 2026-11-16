@@ -35,6 +35,8 @@ import {
   stepPosition,
 } from '@/lib/kur/world';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
@@ -198,32 +200,39 @@ function SevenGates() {
 
 function ThroneHall() {
   const stone = useMemo(() => stoneSurface('kur'), []);
+  // PURPLE SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the Throne
+  // Hall wears the purple wrap — all three stepped tiers and both
+  // thrones. The ember insets stay plain — they are lights, not clay.
+  const tier1Mat = useScratchedMaterial('purple', { ...stone, color: '#1c130c', roughness: 0.95 });
+  const tier2Mat = useScratchedMaterial('purple', { ...stone, color: '#241a12', roughness: 0.95 });
+  const tier3Mat = useScratchedMaterial('purple', { ...stone, color: '#2e2114', roughness: 0.95 });
+  const throneMat = useScratchedMaterial('purple', { ...stone, color: '#120c07', roughness: 0.9 });
   return (
     <group position={[PALACE.x, 0, PALACE.z]}>
       <pointLight position={[0, 14, 10]} color="#ff7a2a" intensity={60} distance={110} />
       {/* stepped clay platform, three tiers */}
       <mesh position={[0, 0.6, 0]}>
         <boxGeometry args={[34, 1.2, 34]} />
-        <meshStandardMaterial {...stone} color="#1c130c" roughness={0.95} />
+        <meshStandardMaterial {...tier1Mat} />
       </mesh>
       <mesh position={[0, 1.8, 0]}>
         <boxGeometry args={[26, 1.2, 26]} />
-        <meshStandardMaterial {...stone} color="#241a12" roughness={0.95} />
+        <meshStandardMaterial {...tier2Mat} />
       </mesh>
       <mesh position={[0, 3, 0]}>
         <boxGeometry args={[18, 1.2, 18]} />
-        <meshStandardMaterial {...stone} color="#2e2114" roughness={0.95} />
+        <meshStandardMaterial {...tier3Mat} />
       </mesh>
       {/* two thrones: Ereshkigal and Nergal, side by side */}
       {[-4, 4].map((x) => (
         <group key={x} position={[x, 3.6, 2]}>
           <mesh position={[0, 1.5, 0]}>
             <boxGeometry args={[4, 3, 2]} />
-            <meshStandardMaterial {...stone} color="#120c07" roughness={0.9} />
+            <meshStandardMaterial {...throneMat} />
           </mesh>
           <mesh position={[0, 3.6, -0.8]}>
             <boxGeometry args={[4, 3.4, 0.8]} />
-            <meshStandardMaterial {...stone} color="#120c07" roughness={0.9} />
+            <meshStandardMaterial {...throneMat} />
           </mesh>
           <mesh position={[0, 3.4, -0.3]}>
             <boxGeometry args={[2.4, 0.5, 0.3]} />
@@ -337,6 +346,7 @@ function ThroneGrounds({pillars, pits, shades, reduced}) {
 
 function PortalArches() {
   const stone = useMemo(() => stoneSurface('kur'), []);
+  const archMat = useGoldArchMaterial({ ...stone, color: STONE, roughness: 0.9 });
   // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
   // the illustrated art of the place it leads to; before a texture
   // loads the arch shows its plain glow disc.
@@ -352,12 +362,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

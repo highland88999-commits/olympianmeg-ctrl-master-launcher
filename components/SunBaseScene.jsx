@@ -42,6 +42,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { buildInteriorRoom } from '@/lib/earth2/interior-room';
+import SunBaseCgi from '@/components/SunBaseCgi';
 import {
   buildGhostGroup,
   buildPieceGroup,
@@ -60,6 +61,7 @@ import {
   SUN_BASE_WALK_SPEED_MPS,
   SUN_BASE_WALL_MARGIN_M,
 } from '@/lib/sun-base';
+import { applyScratchedToMaterial } from '@/lib/portal/scratched-textures';
 import {
   SUN_BASE_PIECE_SCALE,
   sunBaseAutoRotY,
@@ -492,7 +494,43 @@ function BuildLayer({
 }
 
 export default function SunBaseScene({ spec, moveRef, build, pieces, walkerRef, onGhostVerdict, onPlace, onSelect, onPickup, onPortalWalk }) {
-  const { group } = useMemo(() => buildInteriorRoom(spec, 0), [spec]);
+  // BRIGHT-GOLD scratched-metal wrap (Merlin, 2026-11-15): the
+  // interior's STRUCTURAL meshes — walls, floor, ceiling, door-frame
+  // trim — wear bright gold. The room factory (lib/earth2/
+  // interior-room.js buildInteriorRoom) is SHARED with Earth 2, so
+  // the wrap is applied here, to THIS instance's own materials only
+  // (the factory mints fresh materials per call, so Earth 2 rooms
+  // are untouched). Matched by the factory's own structural colours:
+  // walls #8d8578, floor #5d5348, ceiling #6b6257, trim #3a332a.
+  // NOT wrapped: lit windows (#241a10, emissive 1.7 — glow, not
+  // structure), the door light-spill plane (additive glow), the
+  // lift shaft / pads (translucent + functional). The sun disc
+  // outside the door is left as it is.
+  const { group } = useMemo(() => {
+    const built = buildInteriorRoom(spec, 0);
+    const STRUCTURAL_COLORS = new Set([0x8d8578, 0x5d5348, 0x6b6257, 0x3a332a]);
+    const wrapped = new Set();
+    built.group.traverse((obj) => {
+      const mats = Array.isArray(obj.material)
+        ? obj.material
+        : obj.material
+          ? [obj.material]
+          : [];
+      mats.forEach((m) => {
+        if (
+          m &&
+          m.isMeshStandardMaterial &&
+          m.color &&
+          STRUCTURAL_COLORS.has(m.color.getHex()) &&
+          !wrapped.has(m)
+        ) {
+          wrapped.add(m);
+          applyScratchedToMaterial(m, 'bright-gold');
+        }
+      });
+    });
+    return built;
+  }, [spec]);
   useEffect(() => () => disposeGroup(group), [group]);
   const D = spec.depthM * 0.94;
 
@@ -508,6 +546,10 @@ export default function SunBaseScene({ spec, moveRef, build, pieces, walkerRef, 
       />
       <directionalLight position={[4, 8, 6]} intensity={0.7} color="#ffd98a" />
       <primitive object={group} />
+      {/* CGI overlay (Nov 15, 2026): new meshes only — textured timber
+          frame, lived-in props, lanterns, dust. It never touches the
+          factory room or the bright-gold wrap on its structure. */}
+      <SunBaseCgi spec={spec} />
       {/* The sun outside the door — a gold disc glowing through the doorway. */}
       <mesh position={[0, 2.2, D / 2 + 4]} rotation={[0, Math.PI, 0]}>
         <circleGeometry args={[7, 32]} />

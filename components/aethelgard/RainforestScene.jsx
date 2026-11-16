@@ -9,6 +9,7 @@ import Ground from './Ground';
 import Atmosphere from './Atmosphere';
 import Water from './Water';
 import Wildlife from './Wildlife';
+import SkyDome from './SkyDome';
 import { AncientKapok, CanopyBridge, OrchidGrove, JaguarDen } from './Landmarks';
 
 // AETHELGARD pocket rainforest — R3F scene.
@@ -297,17 +298,19 @@ function SceneContent({ mode, timeOfDay, seasonIdx, inputRef, focusReq, onHotspo
       <color attach="background" args={[sky.bg]} />
       <fog attach="fog" args={[sky.fog, sky.fogNear * season.fogMul, sky.fogFar * season.fogMul]} />
 
-      {/* lights */}
+      {/* lights — the existing set only; the CGI pass adds no new lights */}
       <ambientLight intensity={sky.ambient} color={sky.hemiSky} />
       <hemisphereLight args={[sky.hemiSky, sky.hemiGround, 0.5]} />
       <directionalLight position={sky.sunPos} intensity={sky.sunIntensity} color={sky.sunColor} />
       {/* cool fill from the opposite side so the gloom never goes black */}
       <directionalLight position={[-40, 24, 40]} intensity={0.25} color="#6a8a7a" />
 
-      <Ground />
+      <SkyDome sky={sky} timeOfDay={timeOfDay} />
+      <Ground dapple={sky.godRay * season.rayMul} />
       <Canopy />
       <Water flowSpeed={0.7 + season.rain * 0.9} />
-      <Atmosphere rainLevel={season.rain} rayOpacity={sky.godRay * season.rayMul} />
+      <Atmosphere rainLevel={season.rain} rayOpacity={sky.godRay * season.rayMul}
+        fogMul={season.fogMul} dayFactor={sky.day} />
       <Wildlife nightFactor={sky.firefly} flutterMul={season.flutterMul} />
 
       <AncientKapok />

@@ -1,8 +1,9 @@
 'use client';
 // app/agora/page.jsx — AGORA feed: the community town square.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { supabase } from '@/lib/supabase';
 import Starfield from '@/components/agora/Starfield';
 import CategoryTabs from '@/components/agora/CategoryTabs';
@@ -10,6 +11,36 @@ import PostCard from '@/components/agora/PostCard';
 import AphroIcon from '@/components/aphrodite/icons';
 import { AphroVideoBg, aphroPanel } from '@/components/aphrodite/ambience';
 import { PAGE_SIZE, pageOffset } from '@/lib/agora/format';
+import { timeOfDay01, getDayNightPlace, requestDayNightPlace, dayNightFor } from '@/lib/day-night';
+import { AGORA_SEED, AGORA_WORLD_NAME } from '@/lib/agora/world';
+
+// THE MARKET — the 3D market city (Merlin, Nov 15, 2026). Agora
+// was a 2D feed with no 3D scene at all, so the market is built
+// fresh as a stage above the feed: cobbled square, stoa, temple,
+// stalls, crowd, Meltemi breeze, day/night on the shared law.
+// The feed below is untouched — same posts, same mechanics.
+// R3F scene loads client-side only (WebGL).
+const AgoraScene = dynamic(() => import('@/components/agora/AgoraScene'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f2c879', letterSpacing: 3, fontSize: 12 }}>
+      BUILDING THE MARKET…
+    </div>
+  ),
+});
+
+// Same clock helpers the other surface pages use (t: 0..1 of a day).
+function timeLabel(t) {
+  const h = Math.floor((((t % 1) + 1) % 1) * 24);
+  if (h >= 5 && h < 8) return 'DAWN';
+  if (h >= 8 && h < 17) return 'DAY';
+  if (h >= 17 && h < 20) return 'DUSK';
+  return 'NIGHT';
+}
+function timeString(t) {
+  const mins = Math.floor((((t % 1) + 1) % 1) * 24 * 60);
+  return String(Math.floor(mins / 60)).padStart(2, '0') + ':' + String(mins % 60).padStart(2, '0');
+}
 
 // APHRODITE treatment: ambient video town-square backdrop (Video→Still→Off,
 // persisted), art-framed header, icon buttons, skeleton loading state.
@@ -43,6 +74,49 @@ export default function AgoraFeed() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
   const [cloudOffline, setCloudOffline] = useState(false);
+
+  // THE MARKET — day/night + walk mode for the 3D stage above
+  // the feed. The clock runs on REAL time by default (the shared
+  // law's timeOfDay01 for the walker's place, refreshed every
+  // 10 s). The slider and presets take it manual; REAL TIME
+  // hands it back. Same pattern as Mars 2.
+  const marketInputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
+  const [marketTime, setMarketTime] = useState(0.32);
+  const [marketLiveTime, setMarketLiveTime] = useState(true);
+  const marketLiveTimeRef = useRef(true);
+  const [marketMode, setMarketMode] = useState('orbit'); // orbit | walk
+  const setManualMarketTime = (t) => {
+    marketLiveTimeRef.current = false;
+    setMarketLiveTime(false);
+    setMarketTime(t);
+  };
+  const resumeMarketLiveTime = () => {
+    marketLiveTimeRef.current = true;
+    setMarketLiveTime(true);
+  };
+
+  useEffect(() => {
+    requestDayNightPlace();
+    if (!marketLiveTime) return undefined;
+    const applyRealTime = () => {
+      try {
+        const place = getDayNightPlace();
+        setMarketTime(timeOfDay01(Date.now(), place.lat, place.lon));
+      } catch {}
+    };
+    applyRealTime();
+    const id = setInterval(applyRealTime, 10000);
+    return () => clearInterval(id);
+  }, [marketLiveTime]);
+
+  const marketClock = (() => {
+    try {
+      const place = getDayNightPlace();
+      return dayNightFor(Date.now(), place.lat, place.lon).clock;
+    } catch {
+      return '';
+    }
+  })();
 
   useEffect(() => {
     let auth;
@@ -113,6 +187,71 @@ export default function AgoraFeed() {
         opacity={0.4}
       />
       <Starfield />
+      {/* THE MARKET — the 3D market city above the feed. Orbit to
+          look around, Walk to stroll the square. */}
+      <div className="relative z-10 mx-auto max-w-5xl px-4 pt-6">
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-300">Agora · {AGORA_WORLD_NAME}</p>
+            <h2 className="mt-1 text-xl font-black text-white">The Market</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              The square itself — stalls, stoa, temple, and the crowd. Walk it, then read the voices below.
+            </p>
+          </div>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl border border-amber-400/25 bg-black" style={{ height: 'min(62dvh, 560px)', minHeight: 320 }}>
+          <AgoraScene
+            worldKey={AGORA_SEED}
+            timeOfDay={marketTime}
+            mode={marketMode}
+            inputRef={marketInputRef}
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs uppercase tracking-[0.2em] text-zinc-500">Time</span>
+          <input
+            type="range" min="0" max="1000" value={Math.round(marketTime * 1000)}
+            onChange={(e) => setManualMarketTime(Number(e.target.value) / 1000)}
+            aria-label="Time of day in the market"
+            className="w-36 accent-amber-400"
+          />
+          <span className="text-xs font-semibold tabular-nums text-white">
+            {timeString(marketTime)} · {timeLabel(marketTime)}{marketLiveTime ? ' · LIVE' : ' · MANUAL'}{marketClock ? ` · ${marketClock}` : ''}
+          </span>
+          {[['Dawn', 0.26], ['Day', 0.5], ['Dusk', 0.72], ['Night', 0.95]].map(([label, t]) => (
+            <button
+              key={label}
+              onClick={() => setManualMarketTime(t)}
+              aria-label={`Set market time to ${label}`}
+              className="inline-flex min-h-[36px] items-center rounded-full bg-white/10 px-4 text-xs font-semibold text-zinc-200 hover:bg-white/15"
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            onClick={resumeMarketLiveTime}
+            aria-pressed={marketLiveTime}
+            className={`inline-flex min-h-[36px] items-center rounded-full px-4 text-xs font-semibold ${marketLiveTime ? 'bg-amber-400 text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
+          >
+            REAL TIME
+          </button>
+          <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" aria-hidden="true" />
+          <button
+            onClick={() => setMarketMode((m) => (m === 'walk' ? 'orbit' : 'walk'))}
+            aria-pressed={marketMode === 'walk'}
+            className={`inline-flex min-h-[36px] items-center rounded-full px-4 text-xs font-semibold ${marketMode === 'walk' ? 'bg-amber-400 text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
+          >
+            {marketMode === 'walk' ? 'WALKING' : 'WALK'}
+          </button>
+          <button
+            onClick={() => setMarketMode('orbit')}
+            aria-pressed={marketMode === 'orbit'}
+            className={`inline-flex min-h-[36px] items-center rounded-full px-4 text-xs font-semibold ${marketMode === 'orbit' ? 'bg-amber-400 text-black' : 'bg-white/10 text-zinc-200 hover:bg-white/15'}`}
+          >
+            ORBIT
+          </button>
+        </div>
+      </div>
       <div className="relative z-10 mx-auto max-w-3xl px-4 pb-24 pt-10">
         {/* Header art: town-square banner in a rose-gold frame */}
         <header className="mb-6 overflow-hidden rounded-2xl border border-rose-400/25 shadow-[0_0_40px_rgba(244,114,182,0.12)]">

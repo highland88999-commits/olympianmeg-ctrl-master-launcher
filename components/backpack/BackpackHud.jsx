@@ -36,22 +36,24 @@ import {
   weaponReticle,
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
+import { BACKPACK_KIND_GROUPS } from '@/lib/backpack/groups';
 import { dinoStateOf, isEggItem } from '@/lib/earth2/breeding';
+import { trophyDetailFor } from '@/lib/backpack/trophies';
+import OrbButton, { HOLO_PANEL } from '@/components/backpack/OrbButton';
+import usePackTrophies from '@/components/backpack/usePackTrophies';
 import useEggHatch from '@/components/backpack/useEggHatch';
 import PortalGunCard from '@/components/PortalGunCard';
 
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
 
-const KIND_GROUPS = [
-  // Raised dinos ride first (Merlin, 2026-11-14): they are the
-  // only entries you summon — the state line says where each one
-  // is (with you / at home / in the pack) and the tap summons or
-  // sends it home.
-  { kind: 'dino', label: 'Raised dinos', icon: '🦖' },
-  { kind: 'material', label: 'Materials', icon: '🧪' },
-  { kind: 'collectible', label: 'Collectibles', icon: '💠' },
-  { kind: 'consumable', label: 'Consumables', icon: '🧴' },
-];
+// The HUD's group order, from the ONE canonical list: raised
+// dinos first (they are the only entries you summon), then the
+// rest in the canonical order. Weapons ride in their own section
+// above, so they are not a group here.
+const HUD_GROUP_ORDER = ['dino', 'material', 'collectible', 'consumable', 'medusa-head', 'flaming-chain', 'other'];
+const KIND_GROUPS = HUD_GROUP_ORDER
+  .map((kind) => BACKPACK_KIND_GROUPS.find((g) => g.kind === kind))
+  .filter(Boolean);
 
 function weaponLine(entry) {
   const r = weaponReticle(entry);
@@ -123,6 +125,14 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   const weapons = itemsOfKind(record, 'weapon');
   const saber = lightsaberEntry(record);
   const totalQty = record.items.reduce((n, e) => n + e.qty, 0);
+  // The selected orb for head / chain / Other rows (tap to
+  // select -> the row's detail opens; weapons and dinos use
+  // their own state — equipped / out — as their selection).
+  const [selectedUid, setSelectedUid] = useState(null);
+  // Trophies + souls, fetched when the panel opens: the server
+  // statuses for the head/chain rows, the soul tally, and the
+  // heal that puts an earned head (or chain) into the pack.
+  const trophies = usePackTrophies(open);
 
   // --- Circle icon position (item 9b, Merlin 2026-10-26) ------------
   // The trigger is a small draggable CIRCLE, exactly like the
@@ -401,7 +411,8 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
           <div
             style={{
               width: 'min(92vw, 360px)', maxHeight: '82vh', overflowY: 'auto',
-              background: '#12101c', border: '2px solid #d8b25c', borderRadius: 16,
+              background: HOLO_PANEL.background, border: '2px solid #d8b25c', borderRadius: 16,
+              boxShadow: HOLO_PANEL.boxShadow, backdropFilter: 'blur(6px)',
               padding: '1rem', color: '#fff', fontFamily: 'inherit', textAlign: 'left',
             }}
             onClick={(e) => e.stopPropagation()}
@@ -428,7 +439,10 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
 
             <div style={{ fontSize: 13, opacity: 0.85, marginTop: 6 }}>
               🪙 {record.tallies.gold.toLocaleString('en-US')} field gold · ◆ {record.tallies.aether.toLocaleString('en-US')} field aether
-              <span style={{ opacity: 0.6 }}> — Earth 2 field tallies, not ledger balances</span>
+              {trophies.souls != null && (
+                <> · 👻 {trophies.souls.toLocaleString('en-US')} souls</>
+              )}
+              <span style={{ opacity: 0.6 }}> — Earth 2 field tallies, not ledger balances; souls are the underworld ledger</span>
             </div>
 
             <div style={{ fontSize: 13, marginTop: 10, padding: '0.5rem 0.7rem', borderRadius: 10, background: 'rgba(216,178,92,0.12)', border: '1px solid rgba(216,178,92,0.35)' }}>
@@ -466,16 +480,16 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                   <span style={{ opacity: 0.7 }}> at the Kyber Smith&apos;s crystal forge</span>
                 </div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 2 }}>
-                  <span style={{ minWidth: 0 }}>{weaponLine(saber)}</span>
-                  {equipped && equipped.uid === saber.uid ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                  <OrbButton
+                    selected={!!(equipped && equipped.uid === saber.uid)}
+                    tone="cyan"
+                    label={equipped && equipped.uid === saber.uid ? `Unequip ${saber.name}` : `Equip ${saber.name}`}
+                    onSelect={() => updateBackpack((rec) => setActiveWeapon(rec, equipped && equipped.uid === saber.uid ? null : saber.uid, realm))}
+                  />
+                  <span style={{ minWidth: 0, flex: 1 }}>{weaponLine(saber)}</span>
+                  {equipped && equipped.uid === saber.uid && (
                     <span style={{ color: '#d8b25c', fontWeight: 700, flexShrink: 0 }}>Equipped</span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => updateBackpack((rec) => setActiveWeapon(rec, saber.uid, realm))}
-                      style={{ background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.25rem 0.8rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
-                    >Equip</button>
                   )}
                 </div>
               )}
@@ -491,16 +505,15 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
             {weapons.map((w) => {
               const isEq = equipped && equipped.uid === w.uid;
               return (
-                <div key={w.uid} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13, padding: '0.35rem 0' }}>
-                  <span style={{ minWidth: 0 }}>{weaponLine(w)}</span>
-                  {isEq ? (
+                <div key={w.uid} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '0.35rem 0' }}>
+                  <OrbButton
+                    selected={!!isEq}
+                    label={isEq ? `Unequip ${w.name}` : `Equip ${w.name}`}
+                    onSelect={() => updateBackpack((rec) => setActiveWeapon(rec, isEq ? null : w.uid, realm))}
+                  />
+                  <span style={{ minWidth: 0, flex: 1 }}>{weaponLine(w)}</span>
+                  {isEq && (
                     <span style={{ color: '#d8b25c', fontWeight: 700, flexShrink: 0 }}>Equipped</span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => updateBackpack((rec) => setActiveWeapon(rec, w.uid, realm))}
-                      style={{ background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.25rem 0.8rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
-                    >Equip</button>
                   )}
                 </div>
               );
@@ -550,18 +563,39 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                     const eggAction = canHatch ? 'hatch' : null;
                     const eggHint = eggAction === 'hatch' ? ' · tap to hatch 🐣' : '';
                     const rowAction = dinoAction || eggAction;
+                    // ORBS (Merlin, 2026-11-15): the orb is the
+                    // selection control. Dinos: lit when with you,
+                    // tap the orb to summon / send home. Eggs: tap
+                    // the orb to hatch. Head, chain, Other: the orb
+                    // selects the row and opens its detail (their
+                    // uses live where they work, so the pack shows,
+                    // never fires). Materials and the rest keep
+                    // today's display — their use is at a merchant.
+                    const selectable = it.kind === 'medusa-head' || it.kind === 'flaming-chain' || it.kind === 'other';
+                    const selected = selectable && selectedUid === it.uid;
+                    const orbLabel = dinoAction === 'summon' ? `Summon ${it.name}`
+                      : dinoAction === 'recall' ? `Send ${it.name} to pack`
+                      : eggAction === 'hatch' ? `Hatch ${it.name}`
+                      : selectable ? `Select ${it.name}` : null;
+                    const onOrb = dinoAction === 'summon' ? () => onDinoSummon(it)
+                      : dinoAction === 'recall' ? () => onDinoRecall(it)
+                      : eggAction === 'hatch' ? () => hatchEgg(it)
+                      : selectable ? () => setSelectedUid(selected ? null : it.uid) : undefined;
                     return (
-                      <div
-                        key={it.uid}
-                        style={{
-                          fontSize: 13, opacity: 0.85, padding: '0.15rem 0',
-                          ...(rowAction ? { cursor: 'pointer', color: '#6ee7b7', fontWeight: 700 } : {}),
-                        }}
-                        onClick={dinoAction === 'summon' ? () => onDinoSummon(it) : dinoAction === 'recall' ? () => onDinoRecall(it) : eggAction === 'hatch' ? () => hatchEgg(it) : undefined}
-                      >
-                        {isDino ? '🦖 ' : ''}{it.name}{isDino ? '' : ` × ${it.qty}`}
-                        {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}>{dinoNote}{dinoHint}</span>}
-                        {isEgg && eggAction && <span style={{ fontSize: 11, opacity: 0.7 }}>{eggHint}</span>}
+                      <div key={it.uid} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, padding: '0.15rem 0' }}>
+                        {orbLabel && (
+                          <OrbButton
+                            selected={isDino ? dinoState === 'out' : selected}
+                            label={orbLabel}
+                            onSelect={onOrb}
+                          />
+                        )}
+                        <span style={{ opacity: 0.85, flex: 1, minWidth: 0, ...(rowAction ? { color: '#6ee7b7', fontWeight: 700 } : {}) }}>
+                          {isDino ? '🦖 ' : ''}{it.name}{isDino ? '' : ` × ${it.qty}`}
+                          {isDino && <span style={{ fontSize: 11, opacity: 0.7 }}>{dinoNote}{dinoHint}</span>}
+                          {isEgg && eggAction && <span style={{ fontSize: 11, opacity: 0.7 }}>{eggHint}</span>}
+                          {selected && <span style={{ display: 'block', fontSize: 11, opacity: 0.7, color: '#fff', fontWeight: 400 }}>{trophyDetailFor(it, trophies)}</span>}
+                        </span>
                       </div>
                     );
                   })}

@@ -46,6 +46,7 @@ import {
   drawCoverFit,
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, middleLevelBillboardNumberFor, bottomLevelBillboardNumberFor } from '@/lib/tower-panels';
 import {
   videoCoverFit,
@@ -575,6 +576,14 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
 
   const { propTex, bodyTex, hullTex, tailTex, adTex } = textures;
   const darkMetal = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#121214', emissiveIntensity: 0.5 }), []);
+  // BRIGHT-GOLD scratched-metal wrap (Merlin, 2026-11-15): the four
+  // level-break RING discs (the tower's trim rings) wear bright
+  // gold; the fallback is the tower's existing dark metal, so a ring
+  // never goes blank. NOT wrapped: the billboard panels and their
+  // faces/borders (ads), the pillar (bodyTex), hull/tail cones, the
+  // propeller blades, or the god-name labels. The propeller hub
+  // cylinders keep the plain darkMetal material.
+  const ringWrapMat = useScratchedMaterial('bright-gold', { color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#121214', emissiveIntensity: 0.5 });
   // New-level slots are derived from this tower's level-2 panels,
   // one house entry each (lib/tower-panels.js houseLevelSlot).
   // Memoized so the panel components never see a fresh slot identity.
@@ -679,16 +688,18 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           </group>
         ))}
 
-        <mesh position={[0, 8.3, 0]} material={darkMetal} receiveShadow>
+        <mesh position={[0, 8.3, 0]} receiveShadow>
           <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
+          <meshStandardMaterial {...ringWrapMat} />
         </mesh>
         <Billboard position={[0, 6.6, 0]}>
           <VanGoghText fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
             {god}
           </VanGoghText>
         </Billboard>
-        <mesh position={[0, 4.9, 0]} material={darkMetal} receiveShadow>
+        <mesh position={[0, 4.9, 0]} receiveShadow>
           <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
+          <meshStandardMaterial {...ringWrapMat} />
         </mesh>
 
         {/* Level 2 MIDDLE — the current 44 boards: slots and video
@@ -709,16 +720,18 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
           </group>
         ))}
 
-        <mesh position={[0, -6.9, 0]} material={darkMetal} receiveShadow>
+        <mesh position={[0, -6.9, 0]} receiveShadow>
           <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
+          <meshStandardMaterial {...ringWrapMat} />
         </mesh>
         <Billboard position={[0, -8.6, 0]}>
           <VanGoghText fontSize={1.5} color={color} letterSpacing={0.3} fontWeight="bold">
             {god}
           </VanGoghText>
         </Billboard>
-        <mesh position={[0, -10.3, 0]} material={darkMetal} receiveShadow>
+        <mesh position={[0, -10.3, 0]} receiveShadow>
           <cylinderGeometry args={[15.0, 15.0, 0.4, 32]} />
+          <meshStandardMaterial {...ringWrapMat} />
         </mesh>
 
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (

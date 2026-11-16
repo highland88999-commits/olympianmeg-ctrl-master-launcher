@@ -418,13 +418,13 @@ describe('earth-1 tron bike (globe mount — config registered, no flat-plane ca
     assert.equal(bikeState.mounted, false, 'starts unmounted');
   });
 
-  it('pin: EarthBike.jsx keeps the summon = mount / dismount = vanish law', () => {
-    const src = read('components/EarthBike.jsx');
-    assert.ok(src.includes('EARTH_BIKE_MOUNT_CONFIG'), 'the component points at its mount config');
-    assert.ok(src.includes('auto-mount: spawn riding'), 'summon auto-mounts');
-    assert.ok(src.includes('bikeState.summoned = false;'), 'dismount vanishes the bike');
+  it('pin: Earth 1 has no bike file — the car keeps the ×3 globe step, auto-mount, no dismount (vehicles only, 2026-11-15)', () => {
+    assert.throws(() => read('components/EarthBike.jsx'), /ENOENT/);
+    const src = read('components/EarthSupercar.jsx');
+    assert.ok(src.includes('auto-mount: spawn driving'), 'summon auto-mounts');
+    assert.ok(!src.includes('dismissCar'), 'no dismount — the car never vanishes');
+    assert.ok(!src.includes('toggleCarMount'), 'no mount toggle');
     assert.ok(src.includes('next.speed * dt * 3'), 'the ×3 globe ground-speed factor is still the step');
-    assert.ok(src.includes("tuningFor('wisp')"), 'the ride still runs the Wisp tuning');
   });
 
   it('pin: the Earth 1 config lives in the node-safe bike-state home', () => {

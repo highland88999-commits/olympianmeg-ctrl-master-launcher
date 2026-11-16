@@ -16,7 +16,7 @@
 import { useEffect, useState } from 'react';
 import { updateBackpack, useBackpack } from '@/lib/backpack/store';
 import { portalGunEarned, portalsToGun, usePortalProgress } from '@/lib/portal/progress';
-import { hasPortalGun, maybeAwardPortalGun } from '@/lib/portal/gun';
+import { hasForgedPortalGunEntry, hasPortalGun, healForgedPortalGun, maybeAwardPortalGun } from '@/lib/portal/gun';
 import PortalRoom from './PortalRoom';
 
 export default function PortalGunCard({ onClosePanel }) {
@@ -39,6 +39,23 @@ export default function PortalGunCard({ onClosePanel }) {
       updateBackpack((rec) => maybeAwardPortalGun(rec, progress));
     }
   }, [progress, held]);
+
+  // Heal (Merlin, Nov 15): a Portal Gun forged through the forge
+  // landed in the pack as a generic timestamp-id weapon, so the
+  // card above stayed on the "N / 10 portals" branch even though
+  // its owner holds the gun. Re-id that entry to 'portal-gun' the
+  // moment this card mounts — the profile pack and every realm's
+  // pack panel both mount it, so the heal runs everywhere the
+  // backpack lives, with no portal count needed. Idempotent:
+  // healForgedPortalGun returns the same record when there is
+  // nothing to heal, and the guard below keeps the write from
+  // firing at all once the gun is held.
+  const needsHeal = !held && hasForgedPortalGunEntry(record);
+  useEffect(() => {
+    if (needsHeal) {
+      updateBackpack((rec) => healForgedPortalGun(rec));
+    }
+  }, [needsHeal]);
 
   const fire = () => {
     if (onClosePanel) onClosePanel();

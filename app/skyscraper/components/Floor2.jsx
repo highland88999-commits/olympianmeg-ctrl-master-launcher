@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useTexture, useVideoTexture, Html } from '@react-three/drei';
 import { AdaptivePOM } from './POMMaterial';
+import CityViewWindow from './CityViewWindow';
 
 const StaticPoster = ({ url }) => {
     const tex = useTexture(url);
@@ -77,6 +78,12 @@ export default function Floor2({ elevation, isMobile }) {
             </mesh>
 
             <Portal url="https://valkyries-of-olympus.vercel.app" videoUrl="/media/skyscraper/jbl8mg.mp4" fallbackUrl="/media/skyscraper/fwv664.jpeg" position={[0, 30, -30]} rotation={[0, 0, 0]} isMobile={isMobile} />
+
+            {/* CGI: the city far below, seen from inside the tower —
+                the height you can feel. Portal wall (z=-30) untouched;
+                windows hang on the side walls. */}
+            <CityViewWindow position={[29.7, 30, 0]} rotation={[0, -Math.PI / 2, 0]} />
+            <CityViewWindow position={[-29.7, 30, 0]} rotation={[0, Math.PI / 2, 0]} />
         </group>
     );
 }

@@ -30,7 +30,7 @@ export default function DefaultAvatarPicker({ value, onPick }) {
       {character && (
         <div className="mb-4">
           <div className="text-[10px] tracking-[0.3em] uppercase text-zinc-500 mb-2">
-            Or use your character
+            Your character
           </div>
           <button
             type="button"
@@ -54,7 +54,7 @@ export default function DefaultAvatarPicker({ value, onPick }) {
         </div>
       )}
       <div className="text-[10px] tracking-[0.3em] uppercase text-zinc-500 mb-2">
-        Or pick a default avatar
+        Default avatars
       </div>
       <div className="grid grid-cols-4 gap-2">
         {DEFAULT_AVATARS.map((a) => {

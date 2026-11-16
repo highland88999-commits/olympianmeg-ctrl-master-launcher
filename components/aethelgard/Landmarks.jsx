@@ -18,6 +18,15 @@ export function AncientKapok() {
       s: 5 + rand() * 2,
     }));
   }, []);
+  // The crown + hanging vines sway on the breeze; the trunk and
+  // buttress roots stay planted (same law as the instanced canopy).
+  const crownRef = useRef();
+  useFrame((state) => {
+    if (!crownRef.current) return;
+    const t = state.clock.elapsedTime;
+    crownRef.current.rotation.z = Math.sin(t * 0.7) * 0.008;
+    crownRef.current.rotation.x = Math.cos(t * 0.55) * 0.006;
+  });
   return (
     <group position={[0, 0, -18]}>
       {/* trunk */}
@@ -33,7 +42,8 @@ export function AncientKapok() {
           <meshStandardMaterial color="#5f4c36" roughness={1} />
         </mesh>
       ))}
-      {/* crown — layered blobs */}
+      {/* crown — layered blobs + hanging vines, swaying as one */}
+      <group ref={crownRef}>
       {[
         [0, 46, 0, 11], [7, 43, 3, 8], [-6, 44, -4, 8.5],
         [3, 49, -6, 7], [-4, 48, 6, 7.5],
@@ -50,6 +60,7 @@ export function AncientKapok() {
           <meshStandardMaterial color="#3d5a2e" roughness={1} />
         </mesh>
       ))}
+      </group>
     </group>
   );
 }

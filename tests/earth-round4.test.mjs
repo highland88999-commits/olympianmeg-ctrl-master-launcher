@@ -213,11 +213,12 @@ check('D3: the micro disc is GONE from StreetGroundPatch (quantum removed)', () 
   assert.match(patchSrc, /export function StreetFillLight/);
 });
 
-check('D6: the console card centers by flex, carries its own layer, no translate centering', () => {
+check('D6: the HUD is corner clusters, not a centered card (vehicles only, 2026-11-15)', () => {
   assert.ok(!consoleSrc.includes('-translate-x-1/2 -translate-y-1/2'),
     'the transform-centered wrapper is gone');
-  assert.match(consoleSrc, /flex items-center justify-center pointer-events-none/);
-  assert.match(consoleSrc, /\[transform:translateZ\(0\)\]/);
+  // Top card: absolute corner cluster; drive cluster: fixed layer.
+  assert.match(consoleSrc, /absolute right-4 top-4 z-\[80\]/);
+  assert.match(consoleSrc, /fixed z-\[70\] ui-element flex flex-col items-start gap-1\.5 pointer-events-none/);
 });
 
 // ------------------------------------------------------------ E. veil is gone (water removed 2026-10-26)

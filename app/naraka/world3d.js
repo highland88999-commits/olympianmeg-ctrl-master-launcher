@@ -33,6 +33,8 @@ import {
   stepPosition,
 } from '@/lib/naraka/world';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
@@ -199,6 +201,13 @@ function Gates() {
 
 function Landmark() {
   const stone = useMemo(() => stoneSurface('naraka'), []);
+  // PURPLE SCRATCHED-METAL WRAP (Merlin, 2026-11-15): Yama's Court
+  // wears the purple wrap. The throne's saffron glow panel stays
+  // plain — it is a light, not stone.
+  const daisMat = useScratchedMaterial('purple', { ...stone, color: '#1a1206', roughness: 0.9 });
+  const pillarMat = useScratchedMaterial('purple', { ...stone, color: '#4a3410', roughness: 0.9 });
+  const canopyMat = useScratchedMaterial('purple', { ...stone, color: '#7a4a08', roughness: 0.9 });
+  const throneMat = useScratchedMaterial('purple', { ...stone, color: '#2a1a06', roughness: 0.85 });
   // Yama's Court: a raised throne dais under a saffron canopy, ringed
   // with judgment pillars. Yama sits here and weighs every soul.
   const pillars = [];
@@ -211,22 +220,22 @@ function Landmark() {
       <pointLight position={[0, 10, 0]} color="#ffb03a" intensity={45} distance={95} />
       <mesh position={[0, 1, 0]}>
         <cylinderGeometry args={[13, 15, 2, 24]} />
-        <meshStandardMaterial {...stone} color="#1a1206" roughness={0.9} />
+        <meshStandardMaterial {...daisMat} />
       </mesh>
       {pillars.map((p) => (
         <mesh key={p.key} position={[p.x, 6, p.z]}>
           <cylinderGeometry args={[0.8, 1, 12, 8]} />
-          <meshStandardMaterial {...stone} color="#4a3410" roughness={0.9} />
+          <meshStandardMaterial {...pillarMat} />
         </mesh>
       ))}
       <mesh position={[0, 13, 0]}>
         <coneGeometry args={[12, 5, 6]} />
-        <meshStandardMaterial {...stone} color="#7a4a08" roughness={0.9} />
+        <meshStandardMaterial {...canopyMat} />
       </mesh>
       {/* the throne, facing the plaza */}
       <mesh position={[0, 4, 6]}>
         <boxGeometry args={[6, 6, 2.5]} />
-        <meshStandardMaterial {...stone} color="#2a1a06" roughness={0.85} />
+        <meshStandardMaterial {...throneMat} />
       </mesh>
       <mesh position={[0, 7.4, 6]}>
         <boxGeometry args={[2.5, 2, 0.8]} />
@@ -364,6 +373,7 @@ function NorthRegion({dressing, shades, reduced}) {
 
 function PortalArches() {
   const stone = useMemo(() => stoneSurface('naraka'), []);
+  const archMat = useGoldArchMaterial({ ...stone, color: STONE, roughness: 0.9 });
   // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
   // the illustrated art of the place it leads to; before a texture
   // loads the arch shows its plain glow disc.
@@ -379,12 +389,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

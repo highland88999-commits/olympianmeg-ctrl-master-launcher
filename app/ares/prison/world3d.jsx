@@ -54,6 +54,8 @@ import {
   prisonerFaceYawAt,
   oneWayPaneYaw,
 } from '@/lib/ares/prison';
+import { prisonMaterial } from '@/lib/ares/prison-cgi';
+import { PrisonCgiDressing } from './cgi';
 import {
   createWalker,
   stepWalker,
@@ -286,7 +288,12 @@ function FigureBody({ form, side }) {
 }
 
 // --- one cell -----------------------------------------------------------------
-function PrisonCell({ cell }) {
+// floorMat / backMat are the CGI dressings from PrisonScene (shared
+// prison-cgi materials): the cell floor wears the worn deck, the back
+// wall wears stained concrete. The cell FRONT is never dressed here —
+// bars, rails and one-way glass stay exactly as built (the
+// silver-wraps worker owns the frames).
+function PrisonCell({ cell, floorMat, backMat }) {
   const pos = cell.position;
   const form = cell.prisoner;
   const frontZ = pos.side === 'left'
@@ -319,10 +326,10 @@ function PrisonCell({ cell }) {
   return (
     <group>
       {/* cell floor: a thin slab, not a one-sided plane — the level
-          below looks up at its underside, and it must be there */}
-      <mesh position={[pos.x, pos.floorY + 0.05, pos.z]}>
+          below looks up at its underside, and it must be there.
+          CGI: worn deck, shared material from PrisonScene. */}
+      <mesh position={[pos.x, pos.floorY + 0.05, pos.z]} material={floorMat}>
         <boxGeometry args={[PRISON_CELL.widthM, 0.1, PRISON_CELL.depthM]} />
-        <meshStandardMaterial color="#0b1220" roughness={0.9} />
       </mesh>
       {/* back wall: the FAR side of the cell — left cells at -z, right
           cells at +z. A sign error once built it at the FRONT, which
@@ -330,11 +337,12 @@ function PrisonCell({ cell }) {
           black fronts and no prisoner at all (Merlin's phone video,
           Nov 15 ~06:33). The front stays open: bars + one-way glass
           only, so the keeper sees straight in. */}
+      {/* CGI: stained concrete, shared material from PrisonScene. */}
       <mesh
         position={[pos.x, pos.floorY + PRISON_CELL.heightM / 2, pos.z + (pos.side === 'left' ? -PRISON_CELL.depthM / 2 : PRISON_CELL.depthM / 2)]}
+        material={backMat}
       >
         <boxGeometry args={[PRISON_CELL.widthM, PRISON_CELL.heightM, 0.15]} />
-        <meshStandardMaterial color="#0d1526" roughness={0.9} />
       </mesh>
       {/* occupied cell: blue wash on the back wall so the figure reads.
           The plane faces the walkway on both sides (right cells turn). */}
@@ -417,6 +425,21 @@ export function PrisonScene({ cells, walkerRef, inputRef, layout }) {
   const hall = layout?.hall || PRISON_HALL;
   const levels = layout?.levels || PRISON_CELL.levels;
   const lightPositions = layout?.lightPositions || PRISON_LIGHT_POSITIONS;
+  // CGI shell materials, built once per scene: the flat colours are
+  // gone — the floor wears the worn deck, the ceiling and the level
+  // separators wear gunmetal, the end/side walls wear cold concrete.
+  // One material per surface (repeat tiled to ~4 m); the cell mats
+  // are shared down to every PrisonCell so 72+ cells don't mint
+  // 72+ materials. Bars, rails, glass and figures are untouched.
+  const shellMats = useMemo(() => ({
+    floor: prisonMaterial('prisonDeck', 'prison-hall-floor', '#ffffff', { repeatX: 12, repeatY: 4 }),
+    ceiling: prisonMaterial('prisonSteel', 'prison-hall-ceiling', '#ffffff', { repeatX: 12, repeatY: 4 }),
+    endWall: prisonMaterial('prisonConcrete', 'prison-hall-end', '#ffffff', { repeatX: 4, repeatY: 3 }),
+    sideWall: prisonMaterial('prisonConcrete', 'prison-hall-side', '#ffffff', { repeatX: 12, repeatY: 3 }),
+    separator: prisonMaterial('prisonSteel', 'prison-hall-separator', '#ffffff', { repeatX: 12, repeatY: 4 }),
+    cellFloor: prisonMaterial('prisonDeck', 'prison-cell-floor'),
+    cellBack: prisonMaterial('prisonCellBack', 'prison-cell-back'),
+  }), []);
   // Level separator slabs + the walkway floor strips, computed once.
   const separators = useMemo(() => {
     const out = [];
@@ -440,26 +463,28 @@ export function PrisonScene({ cells, walkerRef, inputRef, layout }) {
         />
       ))}
 
-      {/* hall shell: floor, ceiling, end walls */}
-      <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      {/* CGI dressing: fixture housings over the lights, the Warden's
+          dais at the far end, cold dust in the walkway. Additive
+          only — no new real lights, no mechanic touched. */}
+      <PrisonCgiDressing hall={hall} lightPositions={lightPositions} />
+
+      {/* hall shell: floor, ceiling, end walls — CGI materials now,
+          same geometry, same footprint */}
+      <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} material={shellMats.floor}>
         <planeGeometry args={[hall.lengthM, hall.widthM]} />
-        <meshStandardMaterial color="#0a0f1a" roughness={0.85} />
       </mesh>
-      <mesh position={[0, hall.heightM, 0]} rotation={[Math.PI / 2, 0, 0]}>
+      <mesh position={[0, hall.heightM, 0]} rotation={[Math.PI / 2, 0, 0]} material={shellMats.ceiling}>
         <planeGeometry args={[hall.lengthM, hall.widthM]} />
-        <meshStandardMaterial color="#070b14" roughness={0.95} />
       </mesh>
       {[-hall.lengthM / 2, hall.lengthM / 2].map((x) => (
-        <mesh key={x} position={[x, hall.heightM / 2, 0]}>
+        <mesh key={x} position={[x, hall.heightM / 2, 0]} material={shellMats.endWall}>
           <boxGeometry args={[0.3, hall.heightM, hall.widthM]} />
-          <meshStandardMaterial color="#0d1526" roughness={0.9} />
         </mesh>
       ))}
       {/* side walls behind the cells */}
       {[-hall.widthM / 2, hall.widthM / 2].map((z) => (
-        <mesh key={z} position={[0, hall.heightM / 2, z]}>
+        <mesh key={z} position={[0, hall.heightM / 2, z]} material={shellMats.sideWall}>
           <boxGeometry args={[hall.lengthM, hall.heightM, 0.3]} />
-          <meshStandardMaterial color="#0b1220" roughness={0.9} />
         </mesh>
       ))}
 
@@ -474,15 +499,14 @@ export function PrisonScene({ cells, walkerRef, inputRef, layout }) {
       {/* level separator slabs (the stacked floors) — real slabs, not
           one-sided planes, so the level below sees a ceiling */}
       {separators.map((y) => (
-        <mesh key={y} position={[0, y, 0]}>
+        <mesh key={y} position={[0, y, 0]} material={shellMats.separator}>
           <boxGeometry args={[hall.lengthM, 0.15, hall.widthM]} />
-          <meshStandardMaterial color="#0b1220" roughness={0.9} />
         </mesh>
       ))}
 
       {/* the cells */}
       {cells.map((cell) => (
-        <PrisonCell key={cell.position.index} cell={cell} />
+        <PrisonCell key={cell.position.index} cell={cell} floorMat={shellMats.cellFloor} backMat={shellMats.cellBack} />
       ))}
 
       {/* entrance sign, constant size */}

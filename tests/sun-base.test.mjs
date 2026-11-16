@@ -214,10 +214,10 @@ test('the sun-base route exists: picker, scene, walk rig, sign-in gate', () => {
   assert.ok(scene.includes('SUN_BASE_EYE_HEIGHT_M'), 'eye height is the shrunken eye (0.34 m)');
 });
 
-test('no menu entry: the sun in the hub is the only door (dual-registry)', () => {
+test('menu entry: the sun base is registered in both registries (dual-registry)', () => {
   const menus = src('../lib/god-menus.js');
   const sats = src('../lib/i18n/satellites.ts');
-  assert.ok(!menus.includes('sun-base'), 'sun base is not a god menu');
-  assert.ok(!sats.includes('sun-base'), 'sun base is not a satellite entry');
+  assert.ok(menus.includes('sun-base'), 'sun base is a god menu');
+  assert.ok(sats.includes('sun-base'), 'sun base is a satellite entry');
   assert.equal(SUN_BASE_ROUTE, '/sun-base');
 });

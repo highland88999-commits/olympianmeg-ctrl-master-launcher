@@ -305,10 +305,16 @@ test('animation + interiors are wired into the Earth render path', () => {
   const collision = read('lib/earth/collision.js');
   assert.match(collision, /c\.door/, 'door-aware collision');
 
-  const walker = read('components/EarthWalker.jsx');
-  assert.match(walker, /getInteriorAltM\(\)/, 'walker rides interior altitude');
+  // The walker is gone (vehicles only, 2026-11-15) — the
+  // interior-altitude law now rides on the flight controller's
+  // street rig alone (no climb, no bike lift): the rig lifts by
+  // interior altitude only, and the floor clamp still stands down
+  // inside an interior.
+  assert.throws(() => read('components/EarthWalker.jsx'), /ENOENT/);
   const flight = read('components/EarthFlightController.jsx');
-  assert.match(flight, /getClimbAltM\(\) \+ getInteriorAltM\(\) \+ bikeLiftM/, 'street camera includes interior altitude');
+  assert.match(flight, /getInteriorAltM\(\) \* DISPLAY_UNITS_PER_METRE/, 'street rig lifts by interior altitude');
+  assert.ok(!flight.includes('getClimbAltM'), 'no climb altitude in the rig');
+  assert.ok(!flight.includes('bikeLiftM'), 'no bike lift in the rig');
   assert.match(flight, /getInteriorAltM\(\) <= 0\.05/, 'floor clamp stands down inside');
 
   // Staged contract (2026-10-26, street QA 3): interiors are

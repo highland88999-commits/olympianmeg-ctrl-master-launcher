@@ -113,8 +113,8 @@ check('the jet flame module builds Earth-axis flames (exhaust at -Z)', () => {
   assert.ok(src.includes('0xbfe6ff'), 'inner cone keeps the pale core');
 });
 
-check('the gold ring is gone from both Earth 1 vehicle components', () => {
-  for (const f of ['components/EarthSupercar.jsx', 'components/EarthBike.jsx']) {
+check('the gold ring is gone from the Earth 1 vehicle component', () => {
+  for (const f of ['components/EarthSupercar.jsx']) {
     const src = readFileSync(join(root, f), 'utf8');
     assert.ok(!src.includes('ringGeometry'), `${f} still draws a ring`);
   }

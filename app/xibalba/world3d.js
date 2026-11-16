@@ -33,6 +33,8 @@ import {
   stepPosition,
 } from '@/lib/xibalba/world';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
@@ -294,6 +296,12 @@ function BatHouse({perches, shades}) {
 
 function Ballcourt() {
   const stone = useMemo(() => stoneSurface('xibalba'), []);
+  // PURPLE SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the ballcourt
+  // of the Hero Twins wears the purple wrap — floor, both sloped
+  // walls, and the stone ring.
+  const floorMat = useScratchedMaterial('purple', { ...stone, color: '#12100c', roughness: 0.9 });
+  const wallMat = useScratchedMaterial('purple', { ...stone, color: '#1c1812', roughness: 0.9 });
+  const ringMat = useScratchedMaterial('purple', { ...stone, color: '#8a6d2f', roughness: 0.8 });
   // The ballcourt of the Hero Twins — two long walls, one stone ring,
   // and a game the dead play for their lives.
   return (
@@ -301,17 +309,17 @@ function Ballcourt() {
       <pointLight position={[0, 12, 0]} color="#ff3a1a" intensity={60} distance={110} />
       <mesh position={[0, 1, 0]}>
         <boxGeometry args={[16, 2, 60]} />
-        <meshStandardMaterial {...stone} color="#12100c" roughness={0.9} />
+        <meshStandardMaterial {...floorMat} />
       </mesh>
       {[-10, 10].map((x) => (
         <mesh key={x} position={[x, 4, 0]} rotation={[0, 0, x > 0 ? -0.4 : 0.4]}>
           <boxGeometry args={[1.5, 9, 60]} />
-          <meshStandardMaterial {...stone} color="#1c1812" roughness={0.9} />
+          <meshStandardMaterial {...wallMat} />
         </mesh>
       ))}
       <mesh position={[-9, 8, 0]} rotation={[0, Math.PI / 2, 0]}>
         <torusGeometry args={[2.2, 0.5, 10, 24]} />
-        <meshStandardMaterial {...stone} color="#8a6d2f" roughness={0.8} />
+        <meshStandardMaterial {...ringMat} />
       </mesh>
       <Html center distanceFactor={140} position={[0, 14, 0]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Ballcourt
@@ -371,6 +379,7 @@ function PlaceOfFear({pits, shades}) {
 
 function PortalArches() {
   const stone = useMemo(() => stoneSurface('xibalba'), []);
+  const archMat = useGoldArchMaterial({ ...stone, color: STONE, roughness: 0.9 });
   // Arch doorway art (Merlin, 2026-11-15): each arch's doorway wears
   // the illustrated art of the place it leads to; before a texture
   // loads the arch shows its plain glow disc.
@@ -386,12 +395,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial {...stone} color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

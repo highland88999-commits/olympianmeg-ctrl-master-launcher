@@ -176,7 +176,9 @@ describe('makeStormWrapCanvas', () => {
 describe('livery wiring (per-instance, hub only)', () => {
   const rig = readFileSync(join(repo, 'components/BikeRig.jsx'), 'utf8');
   const tron = readFileSync(join(repo, 'components/nova/TronBikes.jsx'), 'utf8');
-  const earth = readFileSync(join(repo, 'components/EarthBike.jsx'), 'utf8');
+  // The Earth bike is gone (vehicles only, 2026-11-15) — the
+  // livery pin now rides on the remaining Earth 1 vehicle.
+  const earth = readFileSync(join(repo, 'components/EarthSupercar.jsx'), 'utf8');
 
   it('BikeRig generates the Storm texture and passes it to the hub Wisp', () => {
     assert.match(rig, /makeStormWrapCanvas/);
@@ -192,9 +194,9 @@ describe('livery wiring (per-instance, hub only)', () => {
     assert.match(tron, /repeat\.x = -1/);
   });
 
-  it('the Earth bike never receives the hub livery', () => {
-    assert.ok(!earth.includes('wrapTexture'), 'EarthBike must not pass wrapTexture');
-    assert.ok(!earth.includes('olympus-storm-wrap'), 'EarthBike must not import the storm wrap');
+  it('the Earth 1 vehicle never receives the hub livery', () => {
+    assert.ok(!earth.includes('wrapTexture'), 'EarthSupercar must not pass wrapTexture');
+    assert.ok(!earth.includes('olympus-storm-wrap'), 'EarthSupercar must not import the storm wrap');
   });
 });
 

@@ -8,6 +8,7 @@ import {
   refreshDelayMs,
   withSession,
 } from '@/lib/maptiles';
+import { globeWorldPointToLatLon, GLOBE_CENTER } from '@/lib/earth/globe-click';
 
 // Renders Google's photorealistic 3D tiles as the hub Earth globe.
 //
@@ -42,7 +43,7 @@ async function fetchSessionToken() {
   return data;
 }
 
-export default function GoogleEarthTiles({ onSelect, onActive, onInactive, quatRef }) {
+export default function GoogleEarthTiles({ onSelect, onGlobeClick, onActive, onInactive, quatRef }) {
   const { camera, gl, size, raycaster } = useThree();
   const [tiles, setTiles] = useState(null);
   const sessionRef = useRef(null);
@@ -224,7 +225,18 @@ export default function GoogleEarthTiles({ onSelect, onActive, onInactive, quatR
 
   return (
     <group
-      onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (onSelect) onSelect();
+        // Click-to-spawn (Earth 1, vehicles only, 2026-11-15):
+        // the entry menu's pick step turns a globe tap into a
+        // spawn lat/lon — the world-space hit point, un-rotated
+        // by the globe's spin quaternion (lib/earth/globe-click).
+        if (onGlobeClick && quatRef?.current) {
+          const ll = globeWorldPointToLatLon(e.point, GLOBE_CENTER, quatRef.current);
+          if (ll) onGlobeClick(ll);
+        }
+      }}
       onPointerDown={handlePointerDown}
     >
       <primitive object={tiles.group} />

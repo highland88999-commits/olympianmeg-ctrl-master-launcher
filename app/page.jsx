@@ -27,9 +27,10 @@ import { generateMarsProfile } from '@/lib/mars/engine';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import { generatePlanetProfile } from '@/lib/planets/profiles';
 import { PLANET_CHOOSERS } from '@/lib/planets/planet-choosers';
-import { getUserPosition, FALLBACK_POSITION } from '@/lib/geo';
-import { roamState, beginRoam, endRoam, landmarkSpawns } from '@/lib/earth/roam';
-import { bikeState } from '@/lib/earth/parachute';
+import { roamState, beginRoam, endRoam } from '@/lib/earth/roam';
+import { summonCar } from '@/components/EarthSupercar';
+import EarthVehicleSelect from '@/components/EarthVehicleSelect';
+import { DEFAULT_CRAFT_ID } from '@/lib/earth/vehicles';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import { fx, unlockFx } from '@/lib/fx';
 import { shadowRealmUrl } from '@/app/shadow-realm/launch';
@@ -250,6 +251,14 @@ function NexusHub() {
   const [earthFocus, setEarthFocus] = useState(null);
   const [pendingDest, setPendingDest] = useState(null);
   const [showEarthChooser, setShowEarthChooser] = useState(false);
+  // Earth 1 entry (vehicles only, Merlin 2026-11-15): the chooser's
+  // Earth 1 button opens ONLY the vehicle menu (select + live 3D
+  // preview); the menu's pick step then turns the hub globe into
+  // the spawn picker. The chosen craft rides in a ref (the globe
+  // click handler reads it) until the driver taps the Earth.
+  const [showEarthVehicleSelect, setShowEarthVehicleSelect] = useState(false);
+  const [earthPickMode, setEarthPickMode] = useState(false);
+  const selectedEarthCraftRef = useRef(DEFAULT_CRAFT_ID);
   const [showJupiterChooser, setShowJupiterChooser] = useState(false);
   const [showMarsChooser, setShowMarsChooser] = useState(false);
 
@@ -261,14 +270,39 @@ function NexusHub() {
   };
 
   const chooseEarth1 = () => {
+    // Vehicles only: Earth 1 opens the vehicle menu, not the dive.
+    // The driver picks a vehicle (with a live 3D preview), then
+    // taps the Earth globe to spawn — already in the vehicle.
     setShowEarthChooser(false);
+    setShowEarthVehicleSelect(true);
+  };
+
+  const cancelEarthVehicleSelect = () => {
+    setShowEarthVehicleSelect(false);
+    setEarthPickMode(false);
+  };
+
+  // The menu's pick step calls this with the chosen craft; the
+  // globe click below does the spawning.
+  const handleEarthVehiclePick = (craftId) => {
+    selectedEarthCraftRef.current = craftId;
+  };
+
+  // Click-to-spawn (vehicles only): the hub Earth globe tap while
+  // the menu's pick banner is up spawns the driver exactly where
+  // they tapped, already in the selected vehicle — no overlook,
+  // no landmark, no on-foot interlude. The dive goes straight to
+  // diving_to_street; the flight controller's descent starts from
+  // the current camera and lands on the street rig.
+  const handleEarthGlobeClick = ({ lat, lon }) => {
+    if (!earthPickMode) return;
+    setEarthPickMode(false);
+    setShowEarthVehicleSelect(false);
     fx.earthDive();
-    setEarthFocus({ ...FALLBACK_POSITION, label: t('earth.locating') });
-    setAppState('diving_to_earth');
-    getUserPosition().then((pos) => {
-      if (pos) setEarthFocus({ lat: pos.lat, lon: pos.lon, label: t('earth.yourLocation') });
-      else setEarthFocus({ ...FALLBACK_POSITION });
-    });
+    setEarthFocus({ lat, lon, label: 'Spawn' });
+    beginRoam(roamState, lat, lon, 0);
+    summonCar(selectedEarthCraftRef.current);
+    setAppState('diving_to_street');
   };
 
   const chooseEarth2 = () => {
@@ -450,8 +484,6 @@ function NexusHub() {
     setPlanetMode((prev) => (prev === m ? 'orbit' : m));
   };
 
-  const travelToEarth = (dest) => { setPendingDest(dest); setAppState('earth_travel'); };
-  
   const arriveEarth = (dest) => {
     setEarthFocus(dest);
     setPendingDest(null);
@@ -463,7 +495,7 @@ function NexusHub() {
       setAppState('earth_surface');
     }
   };
-  
+
   const returnToOrbit = () => {
     pendingRoamRef.current = false;
     endRoam(roamState);
@@ -473,8 +505,7 @@ function NexusHub() {
   };
 
   const pendingRoamRef = useRef(false);
-  const earthSpawns = useMemo(() => landmarkSpawns(), []);
-  
+
   const beginStreetDive = () => {
     if (!earthFocus) return;
     fx.earthDive();
@@ -488,12 +519,13 @@ function NexusHub() {
   // level is entered only via beginStreetDive, which lands the
   // traveler at normal size on the surface — no shrink, no
   // second level, no tile selection state.
-  
-  const pickSpawn = (dest) => {
-    pendingRoamRef.current = true;
-    setPendingDest(dest);
-    setAppState('earth_travel');
-  };
+  //
+  // REMOVED 2026-11-15 (Merlin: Earth 1 has no landmarks
+  // anymore): the landmark spawn list (earthSpawns) and the
+  // landmark spawn picker (pickSpawn) are gone with the
+  // landmarks — click-to-spawn (handleEarthGlobeClick) replaces
+  // them. The old travelToEarth (console search / quick
+  // locations) is gone with the old console.
 
   const controlsRef = useRef({
     moveX: 0, moveY: 0, lookDeltaX: 0, lookDeltaY: 0, keyW: 0, keyS: 0, keyA: 0, keyD: 0, zoom: 52, lastPinchDist: null
@@ -532,23 +564,14 @@ function NexusHub() {
   // floating joystick only appears WHILE dragging, so a new
   // player on Earth street level saw no movement control at all
   // and had to guess the invisible left-half drag. During
-  // earth_roam a persistent walk stick now sits bottom-left
-  // (the same corner the bike's stick uses), writing the same
-  // moveX/moveY channels — it also steers the supercar, which
-  // reads those channels too. It stands down while the bike is
-  // out (the bike's own stick owns that corner then). The
-  // first-entry hint shows once, until dismissed or 8 s pass.
-  const [earthBikeOut, setEarthBikeOut] = useState(false);
+  // earth_roam a persistent DRIVE stick sits bottom-right
+  // (Merlin, 2026-10-26: steering lives in a bottom-right
+  // square of the screen), writing the same moveX/moveY
+  // channels the supercar reads for steering + thrust. There is
+  // no bike any more (vehicles only, 2026-11-15), so the stick
+  // never stands down. The first-entry hint shows once, until
+  // dismissed or 8 s pass.
   const [earthMoveHint, setEarthMoveHint] = useState(false);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setEarthBikeOut((prev) => {
-        const next = !!bikeState.summoned;
-        return prev === next ? prev : next;
-      });
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
   useEffect(() => {
     if (appState !== 'earth_roam') return undefined;
     let seen = false;
@@ -999,15 +1022,14 @@ function NexusHub() {
             </div>
           )}
 
-          {/* Persistent Earth street walk stick (video QA V2-2):
+          {/* Persistent Earth street drive stick (video QA V2-2):
               bottom-right square (Merlin, 2026-10-26: steering
-              lives in a bottom-right square of the screen) —
-              same corner as the bike stick, same channels, and
-              the two never show together (walk when the bike is
-              stowed, bike stick when it is out). The wrapper
-              carries .ui-element so the page's own drag-look
-              handler ignores touches on the stick. */}
-          {(user || cloudOffline) && appState === 'earth_roam' && !earthBikeOut && (
+              lives in a bottom-right square of the screen) — it
+              steers the supercar (thrust + turn on the same
+              moveX/moveY channels). The wrapper carries
+              .ui-element so the page's own drag-look handler
+              ignores touches on the stick. */}
+          {(user || cloudOffline) && appState === 'earth_roam' && (
             <div
               className="absolute z-[70] ui-element pointer-events-auto"
               style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 92px)' }}
@@ -1078,13 +1100,9 @@ function NexusHub() {
         <EarthConsole
           focus={earthFocus}
           phase={appState}
-          onTravel={travelToEarth}
           onReturn={returnToOrbit}
           onStreet={beginStreetDive}
           onAscend={() => setAppState('earth_surface')}
-          onSpawnPick={pickSpawn}
-          spawns={earthSpawns}
-          controlsRef={controlsRef}
         />
       )}
 
@@ -1184,6 +1202,8 @@ function NexusHub() {
         pendingDest={pendingDest}
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
+        onEarthGlobeClick={handleEarthGlobeClick}
+        earthPickMode={earthPickMode}
         beginMarsDive={beginMarsDive}
         marsProfile={marsProfile}
         marsTime={marsTime}
@@ -1340,6 +1360,19 @@ function NexusHub() {
             </div>
           </div>
         </div>
+      )}
+      {/* Earth 1 vehicle entry (vehicles only, Merlin 2026-11-15):
+          the chooser's Earth 1 button opens ONLY this menu — every
+          roster vehicle with a live 3D preview — and the menu's
+          pick step turns the hub globe into the spawn picker. The
+          menu stays in hub_freeroam; the dive starts on the globe
+          tap (handleEarthGlobeClick). */}
+      {showEarthVehicleSelect && appState === 'hub_freeroam' && (
+        <EarthVehicleSelect
+          onSelect={handleEarthVehiclePick}
+          onCancel={cancelEarthVehicleSelect}
+          onPickModeChange={setEarthPickMode}
+        />
       )}
       {/* Jupiter chooser (Merlin, 2026-11-15): tapping the Jupiter planet
           offers Jupiter 1 or Jupiter 2 — the same menu Earth got

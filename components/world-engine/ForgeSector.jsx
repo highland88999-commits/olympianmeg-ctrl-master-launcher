@@ -13,7 +13,7 @@
 // - Cost is shown up front from the shared cost map.
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useEngineStore } from '@/lib/world-engine/useEngineStore';
@@ -26,10 +26,13 @@ import ResourceToolkit from '@/components/world-engine/ResourceToolkit';
 import MuseEngineChat from '@/components/muse/MuseEngineChat';
 
 export default function ForgeSector({ config }) {
-  const { sectorName, tagline, category, accent, sliders, showAssetUrl, promptLabel, promptPlaceholder } = config;
+  const { sectorName, tagline, category, accent, sliders, showAssetUrl, promptLabel, promptPlaceholder, presets, creaturePresets } = config;
 
   const [prompt, setPrompt] = useState('');
-  const [assetUrl, setAssetUrl] = useState('');
+  // The pasted URL also lives in the store (assetLink.url — the slice
+  // is persisted) so the live preview can load it without a synthesis
+  // round-trip; the field rehydrates from the store on reload.
+  const [assetUrl, setAssetUrl] = useState(() => useEngineStore.getState()[config.storeKey]?.url || '');
   const [creationName, setCreationName] = useState('');
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -38,6 +41,77 @@ export default function ForgeSector({ config }) {
   const applyParams = useEngineStore((s) => s.applySynthesizedParams);
   const params = useEngineStore((s) => s[config.storeKey]);
   const setParams = useEngineStore((s) => s[config.storeSetter]);
+  const setCreatureParams = useEngineStore((s) => s.setCreatureParams);
+
+  // Saved creations for this category (world_engine_assets — the same
+  // table the synthesis handler saves to). null = not loaded yet.
+  const [savedItems, setSavedItems] = useState(null);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedSignedOut, setSavedSignedOut] = useState(false);
+
+  const savedLabel =
+    { world: 'worlds', character: 'characters', weapon: 'weapons', vehicle: 'vehicles', weather: 'weather', object: 'objects', asset_link: 'linked assets' }[category] || category;
+
+  const loadSaved = async () => {
+    setSavedLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        setSavedSignedOut(true);
+        setSavedItems([]);
+        return;
+      }
+      setSavedSignedOut(false);
+      const { data, error } = await supabase
+        .from('world_engine_assets')
+        .select('id, display_name, name, asset_url, generation_params, prompt, created_at')
+        .eq('user_id', session.user.id)
+        .eq('category', category)
+        .order('created_at', { ascending: false })
+        .limit(6);
+      if (error) throw error;
+      setSavedItems(data || []);
+    } catch (err) {
+      console.error('Failed to load saved creations:', err);
+      setSavedItems([]);
+    } finally {
+      setSavedLoading(false);
+    }
+  };
+
+  useEffect(() => { loadSaved(); }, [category]);
+
+  // Presets are free: they only set the sliders (and, for weapons, the
+  // prompt/name fields) — nothing is charged and nothing is saved until
+  // the user generates. The live preview updates because the store does.
+  const applyPreset = (preset) => {
+    if (!preset) return;
+    if (preset.params) setParams(preset.params);
+    if (preset.promptText) setPrompt(preset.promptText);
+    if (preset.nameText) setCreationName(preset.nameText);
+    if (preset.assetUrlText) setAssetUrl(preset.assetUrlText);
+    setNotice(`Started from “${preset.name}” — free: presets only set the sliders, nothing is charged or saved until you generate.`);
+  };
+
+  // Creature presets target the store's separate creature slice; the
+  // preview in this builder stays the humanoid capsule — creatures
+  // render in worlds, not here.
+  const applyCreaturePreset = (preset) => {
+    if (!preset) return;
+    if (preset.params) setCreatureParams(preset.params);
+    setNotice(`Started from creature “${preset.name}” — free, set on the creature slice. The preview here stays the humanoid capsule; creatures render in worlds.`);
+  };
+
+  // Loading a saved creation puts its stored params back into the
+  // builder (prompt, URL and name too) — tweak it and generate to save
+  // a new copy; the original row is never overwritten.
+  const loadSavedItem = (row) => {
+    if (row.generation_params && typeof row.generation_params === 'object') applyParams(category, row.generation_params);
+    if (row.prompt) setPrompt(row.prompt);
+    if (row.asset_url && row.asset_url !== 'procedural_generation') setAssetUrl(row.asset_url);
+    if (row.display_name) setCreationName(row.display_name);
+    setNotice(`Loaded “${row.display_name || 'saved creation'}” — tweak it and generate to save a new copy.`);
+  };
 
   const handleSynthesis = async () => {
     if (!prompt && !assetUrl) {
@@ -94,6 +168,7 @@ export default function ForgeSector({ config }) {
       if (error) throw error;
 
       setSavedName(displayName);
+      loadSaved();
 
       // WEAPONS LIVE IN THE BACKPACK (Merlin, 2026-10-24): a
       // weapon created here mints a backpack weapon entry at the
@@ -223,7 +298,16 @@ export default function ForgeSector({ config }) {
                 <input
                   type="url"
                   value={assetUrl}
-                  onChange={(e) => setAssetUrl(e.target.value)}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setAssetUrl(next);
+                    // Uplink preview wiring (GAP 4): MiniViewport reads
+                    // the store slice, so the pasted URL has to reach
+                    // the store to preview — no synthesis round-trip.
+                    // Other sectors keep the URL local-only (their
+                    // previews do not load it).
+                    if (category === 'asset_link') setParams({ url: next });
+                  }}
                   placeholder="Paste a .glb URL"
                   className="w-full bg-gray-950 border border-gray-800 p-3 text-sm text-gray-300 outline-none transition-colors"
                 />
@@ -257,6 +341,57 @@ export default function ForgeSector({ config }) {
               </div>
             )}
 
+            {presets && presets.length > 0 && (
+              <div className="pt-4 border-t border-gray-800 flex flex-col gap-2">
+                <span className="text-[10px] text-gray-500 uppercase tracking-widest">Start from a preset — free</span>
+                <div className="flex flex-wrap gap-2">
+                  {presets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyPreset(preset)}
+                      title={preset.description}
+                      className="border border-gray-700 bg-black/50 hover:text-white transition-all px-3 py-2 text-xs font-bold tracking-wide"
+                      style={{ color: accent }}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Presets only set the sliders — nothing is charged and nothing is saved until you generate.
+                </p>
+                {category === 'asset_link' && (
+                  <p className="text-[11px] text-gray-500">
+                    Preset URLs are example shapes, not real assets — paste your real .glb URL before generating.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {creaturePresets && creaturePresets.length > 0 && (
+              <div className="pt-4 border-t border-gray-800 flex flex-col gap-2">
+                <span className="text-[10px] text-gray-500 uppercase tracking-widest">Start from a creature — free</span>
+                <div className="flex flex-wrap gap-2">
+                  {creaturePresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyCreaturePreset(preset)}
+                      title={preset.description}
+                      className="border border-gray-700 bg-black/50 hover:text-white transition-all px-3 py-2 text-xs font-bold tracking-wide"
+                      style={{ color: accent }}
+                    >
+                      {preset.name}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Creatures live in the creature slice and render in worlds — the preview here stays the humanoid capsule.
+                </p>
+              </div>
+            )}
+
             <p className="text-[11px] text-gray-500">
               AI generation costs {costFor(category)} Aether (or one of your 20 free monthly generations). Manual slider
               changes are free and never leave your browser.
@@ -281,6 +416,42 @@ export default function ForgeSector({ config }) {
             </div>
             <MiniViewport category={category} params={params} />
           </div>
+        </div>
+
+        <div className="border border-gray-800 bg-black/80 p-6 flex flex-col gap-3">
+          <h2 className="text-sm font-bold tracking-widest border-b border-gray-800 pb-2" style={{ color: accent }}>
+            Your saved {savedLabel}
+          </h2>
+          {savedSignedOut ? (
+            <p className="text-xs text-gray-400">Sign in from the launcher to see your saved creations.</p>
+          ) : savedLoading && savedItems === null ? (
+            <p className="text-xs text-gray-400">Loading your saved {savedLabel}…</p>
+          ) : savedItems && savedItems.length > 0 ? (
+            <ul className="flex flex-col gap-2">
+              {savedItems.map((row) => (
+                <li key={row.id} className="flex items-center justify-between gap-3 border border-gray-800 bg-black/50 px-3 py-2">
+                  <span className="text-xs text-gray-300 truncate">
+                    {row.display_name || row.name || 'Unnamed creation'}
+                    {row.created_at && (
+                      <span className="text-gray-500"> — {new Date(row.created_at).toLocaleDateString()}</span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => loadSavedItem(row)}
+                    className="shrink-0 border border-gray-700 bg-black/50 hover:text-white transition-all px-3 py-1 text-xs font-bold tracking-wide"
+                    style={{ color: accent }}
+                  >
+                    Load
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-gray-400">
+              No saved {savedLabel} yet — generate one above and it will appear here.
+            </p>
+          )}
         </div>
 
         <ResourceToolkit />

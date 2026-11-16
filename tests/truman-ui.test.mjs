@@ -18,7 +18,7 @@ import {
 } from '../app/truman/ui.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const pageSrc = readFileSync(join(here, '../app/truman/page.jsx'), 'utf8');
+const pageSrc = readFileSync(join(here, '../app/truman/page-classic.jsx'), 'utf8');
 const uiSrc = readFileSync(join(here, '../app/truman/ui.js'), 'utf8');
 
 const CHARACTERS = [
@@ -81,8 +81,11 @@ test('toggleMenu expands and collapses', () => {
 // ---------- static audits on page.jsx ----------
 
 const CONTROL_LABELS = [
-  '❚❚ PAUSE', '▶ RUN',
-  '⚡ JUMP TO STORM', 'CALM MODE', 'CITY', "FOLLOW HENRY'S CAR", "HENRY'S APARTMENT",
+  // Rendered as <AphroIcon …/> + text since the Aphrodite icon
+  // refactor — the glyphs live in the icon component, the words
+  // in the source. The controls themselves are unchanged.
+  'PAUSE', 'RUN',
+  'JUMP TO STORM', 'CALM MODE', 'CITY', "FOLLOW HENRY'S CAR", "HENRY'S APARTMENT",
 ];
 for (const label of CONTROL_LABELS) {
   test(`control still present: ${label}`, () => {

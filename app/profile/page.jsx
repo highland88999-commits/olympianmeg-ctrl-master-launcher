@@ -34,6 +34,8 @@ import {
   unregisterProfileMedia,
 } from '@/lib/user-content/bridges';
 import DefaultAvatarPicker from '@/components/profile/DefaultAvatarPicker';
+import ForgedAvatarPicker from '@/components/profile/ForgedAvatarPicker';
+import MiniViewport from '@/components/world-engine/MiniViewport';
 import MyCreations from '@/components/profile/MyCreations';
 import BackpackSection from '@/components/profile/BackpackSection';
 import MyCharacters from '@/components/profile/MyCharacters';
@@ -153,6 +155,15 @@ export default function ProfilePage() {
   const [media, setMedia] = useState([]);
   const [urls, setUrls] = useState({});
   const [photoUrl, setPhotoUrl] = useState(null);
+  // The forged character picked as the avatar (the creation row behind
+  // profile.forgedAvatarId, reported by ForgedAvatarPicker once its
+  // list loads) and whether that report has landed yet.
+  const [forgedAvatar, setForgedAvatar] = useState(null);
+  const [forgedState, setForgedState] = useState('loading'); // loading | signed-out | loaded | error
+  const onForgedSelected = useCallback((creation, meta) => {
+    setForgedAvatar(creation || null);
+    setForgedState(meta && meta.state ? meta.state : 'loaded');
+  }, []);
   const [viewerId, setViewerId] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -306,7 +317,17 @@ export default function ProfilePage() {
   }
 
   const viewer = viewerId ? media.find((m) => m.id === viewerId) : null;
-  const initial = (profile.displayName || profile.callsign || '?').trim().charAt(0).toUpperCase();
+
+  // One live preview, first picture that exists wins: your uploaded photo,
+  // then your forged character (a live 3D render from its forge params),
+  // then a picked default avatar (or your profile character), then the
+  // drawn rider in your colours. Picking any one clears the others, so
+  // at most one picture source is ever set.
+  const previewImage = photoUrl || profile.defaultAvatar || null;
+
+  // A forged character has no image — its preview is the live
+  // MiniViewport render of the creation's generation_params.
+  const showForgedPreview = !photoUrl && !profile.defaultAvatar && !!forgedAvatar;
 
   return (
     <div className="min-h-dvh bg-[#050508] text-neutral-200">
@@ -332,37 +353,37 @@ export default function ProfilePage() {
       </div>
 
       <main className="max-w-3xl mx-auto px-4 pt-6 pb-10 flex flex-col gap-6">
-        {/* Identity header */}
-        <section aria-label="Identity" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5 flex items-center gap-4">
-          <AvatarFrame frame={profile.avatarStyle} glow={profile.bikeGlow} size={84} label="Profile avatar">
-            {photoUrl ? (
-              <Image src={photoUrl} alt="Profile" width={168} height={168} unoptimized className="w-full h-full object-cover" />
-            ) : (
-              <RiderPortrait suit={profile.suitColor} helmet={profile.helmetColor} glow={profile.bikeGlow} label="Rider preview" />
-            )}
-          </AvatarFrame>
-          <div className="min-w-0">
-            <div className="text-xl font-bold truncate">{profile.displayName || 'Unnamed rider'}</div>
-            <div className="text-sm text-neutral-400 tracking-widest uppercase">
-              {profile.callsign ? `“${profile.callsign}”` : 'No callsign yet'}
-            </div>
-            <div className="text-[11px] text-neutral-500 mt-1 h-4" role="status" aria-live="polite">
-              {saveState === 'saving' && 'Saving…'}
-              {saveState === 'saved' && <span className="text-emerald-300">Saved</span>}
-            </div>
-          </div>
-        </section>
-
-        {/* Character */}
-        <section aria-label="Character" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Character</h2>
+        {/* Your rider — the whole avatar setup in one panel: the live
+            preview stays front and centre, and every control that shapes
+            it (name, callsign, frame, colours, picture) lives here, so
+            setting up a rider takes no scrolling around the page. */}
+        <section aria-label="Your rider" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Your rider</h2>
           <p className="text-xs text-neutral-500 mb-4">Your rider, everywhere in the launcher. Changes save on their own.</p>
 
           <div className="flex flex-col sm:flex-row gap-5">
-            <div className="shrink-0 mx-auto sm:mx-0">
-              <AvatarFrame frame={profile.avatarStyle} glow={profile.bikeGlow} size={180} label="Character preview">
-                <RiderPortrait suit={profile.suitColor} helmet={profile.helmetColor} glow={profile.bikeGlow} label="Character preview" />
+            <div className="shrink-0 mx-auto sm:mx-0 text-center">
+              <AvatarFrame frame={profile.avatarStyle} glow={profile.bikeGlow} size={180} label="Your rider preview">
+                {photoUrl ? (
+                  <Image src={photoUrl} alt="Your rider" width={360} height={360} unoptimized className="w-full h-full object-cover" />
+                ) : showForgedPreview ? (
+                  <div className="relative w-full h-full">
+                    <MiniViewport category="character" params={forgedAvatar.generation_params || {}} />
+                  </div>
+                ) : previewImage ? (
+                  <Image src={previewImage} alt="Your rider" width={360} height={360} unoptimized className="w-full h-full object-cover" />
+                ) : (
+                  <RiderPortrait suit={profile.suitColor} helmet={profile.helmetColor} glow={profile.bikeGlow} label="Rider preview" />
+                )}
               </AvatarFrame>
+              <div className="text-lg font-bold truncate mt-3 max-w-[180px] mx-auto">{profile.displayName || 'Unnamed rider'}</div>
+              <div className="text-sm text-neutral-400 tracking-widest uppercase">
+                {profile.callsign ? `“${profile.callsign}”` : 'No callsign yet'}
+              </div>
+              <div className="text-[11px] text-neutral-500 mt-1 h-4" role="status" aria-live="polite">
+                {saveState === 'saving' && 'Saving…'}
+                {saveState === 'saved' && <span className="text-emerald-300">Saved</span>}
+              </div>
             </div>
             <div className="flex-1 flex flex-col gap-4 min-w-0">
               <div>
@@ -413,37 +434,68 @@ export default function ProfilePage() {
             <Swatches labelledBy="glowLabel" label="Tron bike glow" colors={GLOW_COLORS}
               value={profile.bikeGlow} onPick={(c) => patch({ bikeGlow: c })} />
           </div>
+
+          {/* Picture — pick a default, use your character, or upload your own. */}
+          <div className="mt-6 pt-5 border-t border-white/10">
+            <div className="text-[11px] tracking-[0.25em] uppercase text-neutral-400 mb-1">Picture</div>
+            <p className="text-xs text-neutral-500 mb-4">
+              What shows in the preview above. A photo beats a forged avatar;
+              a forged avatar beats a default avatar; a default avatar beats
+              the drawn rider.
+            </p>
+            <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
+              onChange={onFiles} aria-label="Choose photos or videos" />
+            <button type="button" onClick={() => fileRef.current && fileRef.current.click()}
+              disabled={uploading}
+              className="min-h-[44px] px-5 rounded-lg bg-cyan-300/90 text-black text-sm font-bold tracking-widest uppercase hover:bg-cyan-200 disabled:opacity-50">
+              {uploading ? 'Adding…' : 'Add photos / videos'}
+            </button>
+            <div className="mt-5">
+              <DefaultAvatarPicker
+                value={profile.defaultAvatar || null}
+                onPick={(src) => patch({ defaultAvatar: profile.defaultAvatar === src ? null : src, profilePhotoId: null, forgedAvatarId: null })}
+              />
+              <p className="text-[11px] text-neutral-500 mt-2">
+                {profile.profilePhotoId
+                  ? 'Using your photo as your rider picture.'
+                  : profile.forgedAvatarId
+                    ? forgedState === 'loaded' && forgedAvatar
+                      ? `Using your forged character “${forgedAvatar.display_name || 'Untitled character'}” as your rider picture.`
+                      : forgedState === 'signed-out'
+                        ? 'Your forged character needs sign-in to show — pick another picture, or sign in.'
+                        : forgedState === 'error'
+                          ? 'Your forged character could not be loaded — pick another picture, or try again below.'
+                          : forgedState === 'loaded'
+                            ? 'That forged character is gone from your account — pick another picture.'
+                            : 'Loading your forged character…'
+                    : profile.defaultAvatar
+                      ? 'Using a default avatar. Upload a photo above to use your own instead.'
+                      : 'No photo yet — pick a default avatar, forge your own, or upload a photo.'}
+              </p>
+            </div>
+            <div className="mt-5 pt-5 border-t border-white/10">
+              <ForgedAvatarPicker
+                value={profile.forgedAvatarId || null}
+                onPick={(id) => patch({ forgedAvatarId: profile.forgedAvatarId === id ? null : id, profilePhotoId: null, defaultAvatar: null })}
+                onSelectedCreation={onForgedSelected}
+              />
+            </div>
+          </div>
         </section>
 
-        {/* Photos & videos */}
+        {/* Photos & videos — your gallery. Photos are added from Your rider
+            above; they land here, and any photo can become your rider
+            picture from its viewer. */}
         <section aria-label="Photos and videos" className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">Photos &amp; videos</h2>
           <p className="text-xs text-neutral-500 mb-4">
             Yours, kept on this device in private browser storage. Nothing is uploaded
             anywhere — personal cloud sync arrives later with your own storage bucket.
+            Add photos from Your rider above; they land here.
           </p>
 
-          <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
-            onChange={onFiles} aria-label="Choose photos or videos" />
-          <button type="button" onClick={() => fileRef.current && fileRef.current.click()}
-            disabled={uploading}
-            className="min-h-[44px] px-5 rounded-lg bg-cyan-300/90 text-black text-sm font-bold tracking-widest uppercase hover:bg-cyan-200 disabled:opacity-50">
-            {uploading ? 'Adding…' : 'Add photos / videos'}
-          </button>
-          <div className="mt-5">
-            <DefaultAvatarPicker
-              value={profile.defaultAvatar || null}
-              onPick={(src) => patch({ defaultAvatar: profile.defaultAvatar === src ? null : src, profilePhotoId: null })}
-            />
-            <p className="text-[11px] text-neutral-500 mt-2">
-              {profile.defaultAvatar
-                ? 'Using a default avatar. Upload a photo above to use your own instead.'
-                : 'No photo yet — pick a default avatar or upload your own.'}
-            </p>
-          </div>
-
           {media.length === 0 ? (
-            <p className="text-sm text-neutral-500 mt-4">Nothing here yet — add your first photo or video above.</p>
+            <p className="text-sm text-neutral-500 mt-4">Nothing here yet — add your first photo or video from Your rider above.</p>
           ) : (
             <>
               <p className="text-[11px] text-neutral-500 tracking-widest uppercase mt-4 mb-2">
@@ -539,7 +591,7 @@ export default function ProfilePage() {
             <div className="flex flex-wrap gap-2">
               {viewer.kind === 'photo' && (
                 <button type="button"
-                  onClick={() => { patch({ profilePhotoId: viewer.id }); setViewerId(null); }}
+                  onClick={() => { patch({ profilePhotoId: viewer.id, defaultAvatar: null, forgedAvatarId: null }); setViewerId(null); }}
                   className="min-h-[44px] px-4 rounded-lg bg-cyan-300/90 text-black text-sm font-bold hover:bg-cyan-200">
                   {profile.profilePhotoId === viewer.id ? 'This is your profile photo ✓' : 'Use as profile photo'}
                 </button>

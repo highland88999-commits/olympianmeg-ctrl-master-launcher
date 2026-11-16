@@ -118,7 +118,13 @@ describe('realms wire summon + recall through the backpack', () => {
 
   it('the backpack HUD shows dinos with their state and both taps', () => {
     const hud = read('components/backpack/BackpackHud.jsx');
-    assert.ok(hud.includes("kind: 'dino', label: 'Raised dinos'"), 'dinos have their own group');
+    // The dino group lives in the ONE canonical list
+    // (lib/backpack/groups.js) and the HUD orders it first —
+    // dinos are the only entries you summon.
+    const groups = read('lib/backpack/groups.js');
+    assert.ok(groups.includes("kind: 'dino', label: 'Raised dinos'"), 'dinos have their own group');
+    assert.ok(hud.includes('HUD_GROUP_ORDER'), 'the HUD orders its groups from the canonical list');
+    assert.ok(hud.includes("'dino', 'material'"), 'dinos ride first in the HUD order');
     assert.ok(hud.includes('onDinoRecall'), 'the HUD takes a recall callback');
     assert.ok(hud.includes('— with you'), 'out dinos read as with you');
     assert.ok(hud.includes('— in your pack'), 'pack dinos read as in the pack');

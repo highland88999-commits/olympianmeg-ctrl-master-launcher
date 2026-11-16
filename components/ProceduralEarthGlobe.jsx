@@ -7,6 +7,7 @@ import {
   TERRAIN_RADIUS,
   buildTerrainGeometry,
 } from '@/lib/terrain';
+import { globeWorldPointToLatLon, GLOBE_CENTER } from '@/lib/earth/globe-click';
 
 // ProceduralEarthGlobe — the always-3D fallback Earth.
 //
@@ -103,7 +104,7 @@ const FRAGMENT_SHADER = /* glsl */ `
   }
 `;
 
-export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit, flatTarget = false }) {
+export default function ProceduralEarthGlobe({ onSelect, onGlobeClick, quatRef, waterInOrbit, flatTarget = false }) {
   const [ready, setReady] = useState(null);
   const disposables = useRef([]);
   const uniformsRef = useRef(null);
@@ -273,6 +274,14 @@ export default function ProceduralEarthGlobe({ onSelect, quatRef, waterInOrbit, 
       onClick={(e) => {
         e.stopPropagation();
         if (onSelect) onSelect();
+        // Click-to-spawn (Earth 1, vehicles only, 2026-11-15):
+        // the entry menu's pick step turns a globe tap into a
+        // spawn lat/lon — the world-space hit point, un-rotated
+        // by the globe's spin quaternion (lib/earth/globe-click).
+        if (onGlobeClick && quatRef?.current) {
+          const ll = globeWorldPointToLatLon(e.point, GLOBE_CENTER, quatRef.current);
+          if (ll) onGlobeClick(ll);
+        }
       }}
       onPointerOver={(e) => {
         e.stopPropagation();

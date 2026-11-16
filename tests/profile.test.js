@@ -15,6 +15,7 @@ import {
   MEDIA_DB,
   MEDIA_STORE,
 } from '../lib/profile.js';
+import { DEFAULT_AVATARS } from '../lib/avatars/defaults.js';
 
 let passed = 0;
 let failed = 0;
@@ -23,14 +24,51 @@ function t(name, cond) {
   else { failed++; console.error(`FAIL: ${name}`); }
 }
 function stripComments(s) {
-  return s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+  // String-aware comment stripper: a naive /\/\*...\*\// regex eats real
+  // code, because accept="image/*,video/*" contains /* inside a string.
+  // Strings are copied verbatim; only genuine // and /* */ comments go.
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (ch === "'" || ch === '"' || ch === '`') {
+      const q = ch;
+      out += ch;
+      i++;
+      while (i < s.length) {
+        out += s[i];
+        if (s[i] === '\\') {
+          i++;
+          if (i < s.length) { out += s[i]; i++; }
+          continue;
+        }
+        if (s[i] === q) { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    if (ch === '/' && s[i + 1] === '*') {
+      const end = s.indexOf('*/', i + 2);
+      i = end === -1 ? s.length : end + 2;
+      continue;
+    }
+    if (ch === '/' && s[i + 1] === '/') {
+      const end = s.indexOf('\n', i);
+      i = end === -1 ? s.length : end;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+  return out;
 }
 
 // --- defaults shape ---
 t('DEFAULT_PROFILE has all fields',
   ['displayName', 'callsign', 'suitColor', 'helmetColor', 'bikeGlow',
-   'avatarStyle', 'profilePhotoId', 'createdAt', 'updatedAt']
+   'avatarStyle', 'profilePhotoId', 'defaultAvatar', 'createdAt', 'updatedAt']
     .every((k) => k in DEFAULT_PROFILE));
+t('default avatar is null (drawn rider) until picked', DEFAULT_PROFILE.defaultAvatar === null);
 t('default colors are valid hex',
   isHexColor(DEFAULT_PROFILE.suitColor) &&
   isHexColor(DEFAULT_PROFILE.helmetColor) &&
@@ -44,12 +82,14 @@ const good = {
   displayName: 'Merlin', callsign: 'NIGHTFALL',
   suitColor: '#08F7FE', helmetColor: '#23233a', bikeGlow: '#FF2FD6',
   avatarStyle: 'hex', profilePhotoId: 'abc-123',
+  defaultAvatar: '/images/avatars/defaults/nebula-helm.webp',
   createdAt: '2026-09-29T00:00:00.000Z', updatedAt: '2026-09-29T01:00:00.000Z',
 };
 const vgood = validateProfile(good);
 t('validate: keeps good values',
   vgood.displayName === 'Merlin' && vgood.callsign === 'NIGHTFALL' &&
-  vgood.avatarStyle === 'hex' && vgood.profilePhotoId === 'abc-123');
+  vgood.avatarStyle === 'hex' && vgood.profilePhotoId === 'abc-123' &&
+  vgood.defaultAvatar === '/images/avatars/defaults/nebula-helm.webp');
 t('validate: lowercases hex colors',
   vgood.suitColor === '#08f7fe' && vgood.bikeGlow === '#ff2fd6');
 
@@ -65,6 +105,12 @@ t('validate: bad colors fall back to defaults',
   vbad.bikeGlow === DEFAULT_PROFILE.bikeGlow);
 t('validate: bad avatarStyle falls back', vbad.avatarStyle === 'ring');
 t('validate: non-string photo id falls back', vbad.profilePhotoId === null);
+t('validate: non-string default avatar falls back',
+  validateProfile({ defaultAvatar: 42 }).defaultAvatar === null);
+t('validate: empty default avatar falls back',
+  validateProfile({ defaultAvatar: '   ' }).defaultAvatar === null);
+t('validate: over-long default avatar is capped',
+  validateProfile({ defaultAvatar: 'x'.repeat(600) }).defaultAvatar.length === 512);
 t('validate: trims display name', vbad.displayName === 'x');
 t('validate: drops unknown fields', !('extra' in vbad));
 
@@ -111,7 +157,14 @@ t('save/load round-trip', (() => {
   const back = loadProfile(s);
   return back.displayName === 'Merlin' && back.callsign === 'NIGHTFALL' &&
     typeof back.createdAt === 'string' && typeof back.updatedAt === 'string' &&
-    back.suitColor === '#08f7fe';
+    back.suitColor === '#08f7fe' &&
+    back.defaultAvatar === '/images/avatars/defaults/nebula-helm.webp';
+})());
+t('save/load round-trip: clearing the default avatar sticks', (() => {
+  const s = mockStorage();
+  saveProfile({ ...good, createdAt: null, updatedAt: null }, s);
+  saveProfile({ ...loadProfile(s), defaultAvatar: null }, s);
+  return loadProfile(s).defaultAvatar === null;
 })());
 t('saveProfile: sanitizes on the way in', (() => {
   const s = mockStorage();
@@ -127,6 +180,17 @@ t('saveProfile: works with no storage, no throw', (() => {
 t('PROFILE_KEY stable', PROFILE_KEY === 'universal-profile-v1');
 t('media DB/store names stable',
   MEDIA_DB === 'universal-profile-media' && MEDIA_STORE === 'items');
+
+// --- default avatars ---
+t('DEFAULT_AVATARS has 9 entries',
+  Array.isArray(DEFAULT_AVATARS) && DEFAULT_AVATARS.length === 9);
+t('DEFAULT_AVATARS entries each have id/label/src',
+  DEFAULT_AVATARS.every((a) =>
+    typeof a.id === 'string' && a.id.length > 0 &&
+    typeof a.label === 'string' && a.label.length > 0 &&
+    typeof a.src === 'string' && a.src.startsWith('/images/avatars/defaults/')));
+t('DEFAULT_AVATARS ids are unique',
+  new Set(DEFAULT_AVATARS.map((a) => a.id)).size === DEFAULT_AVATARS.length);
 
 // --- source-level checks: lib/profile.js ---
 {
@@ -161,6 +225,24 @@ t('media DB/store names stable',
     /Rider name/.test(page) && /Callsign/.test(page) && /Tron bike glow/.test(page));
   t('page: avatar frames present', /FRAME_LABELS/.test(page) && /hex/.test(page));
   t('page: set-as-profile-photo present', /Use as profile photo/.test(page));
+  // One "Your rider" panel holds the whole avatar setup — no separate
+  // identity header or character section anymore.
+  t('page: single Your rider panel', /aria-label="Your rider"/.test(page));
+  t('page: no separate Identity header', !/aria-label="Identity"/.test(page));
+  t('page: no separate Character section', !/aria-label="Character"/.test(page));
+  t('page: preview shows a picked default avatar',
+    /previewImage/.test(page) && /profile\.defaultAvatar/.test(page));
+  t('page: upload + picker live inside the rider panel, before the gallery', (() => {
+    const riderAt = code.indexOf('aria-label="Your rider"');
+    const uploadAt = code.indexOf('Add photos / videos');
+    const pickerAt = code.indexOf('<DefaultAvatarPicker');
+    const galleryAt = code.indexOf('aria-label="Photos and videos"');
+    return riderAt !== -1 && uploadAt > riderAt && pickerAt > riderAt &&
+      galleryAt > uploadAt && galleryAt > pickerAt;
+  })());
+  t('page: picking a default clears the photo, using a photo clears the default',
+    /defaultAvatar: profile\.defaultAvatar === src \? null : src, profilePhotoId: null/.test(code) &&
+    /profilePhotoId: viewer\.id, defaultAvatar: null/.test(code));
 }
 
 // --- satellite registration + locales ---

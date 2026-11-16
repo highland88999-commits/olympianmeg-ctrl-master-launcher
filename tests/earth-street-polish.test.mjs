@@ -55,10 +55,13 @@ check('Earth sync carries the session token on every ui-state call', () => {
 });
 
 check('dirty flag clears only on a confirmed sync, never before', () => {
-  // Exactly one place clears the flag, and it sits behind an ok check.
+  // Every place that clears the flag sits behind an ok check.
   const clears = nexus.match(/mappedDirtyRef\.current = false/g) || [];
-  assert.equal(clears.length, 1, `one dirty-clear in the file (found ${clears.length})`);
-  assert.ok(nexus.includes('if (r.ok) mappedDirtyRef.current = false'), 'clear happens only on ok');
+  assert.ok(clears.length >= 1, `at least one dirty-clear (found ${clears.length})`);
+  const clearLines = nexus.split('\n').filter((l) => l.includes('mappedDirtyRef.current = false'));
+  for (const line of clearLines) {
+    assert.ok(/if \(r\.ok\) \{ mappedDirtyRef\.current = false/.test(line), `clear happens only on ok: ${line.trim()}`);
+  }
   // The old bug: the beat cleared the flag before the fetch.
   assert.ok(
     !/mappedSyncRef\.current = nowMs;\s*mappedDirtyRef\.current = false/.test(nexus),
@@ -109,7 +112,7 @@ check('lens setup faults free the pool instead of wedging it', () => {
 
 check('tile loads settle before they paint', () => {
   assert.ok(nexus.includes('let painted = false'), 'paint tracked separately from settle');
-  assert.ok(/try \{\s*ctx\.drawImage/.test(nexus), 'drawImage runs inside try');
+  assert.ok(/try \{[^}]*ctx\.drawImage/.test(nexus), 'drawImage runs inside try');
   assert.ok(nexus.includes('if (painted) okCount += 1'), 'ok counts only painted tiles');
 });
 

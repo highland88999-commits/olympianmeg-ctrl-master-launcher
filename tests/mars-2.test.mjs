@@ -286,7 +286,16 @@ describe('mars-2 hardware textures (outpost + rover wrapped)', () => {
   it('the scene wires textures into every structural part; geometry unchanged', () => {
     const scene = read('components/mars2/Mars2Scene.jsx');
     assert.ok(scene.includes('materialForHardware'), 'scene uses the hardware texture module');
-    assert.ok(!/meshStandardMaterial/.test(scene), 'no plain standard material left in the scene');
+    // Every standard material in the scene carries a texture spread:
+    // the red scratched-metal wrap (useScratchedMaterial) — no plain,
+    // untextured standard material left (reconciled Nov 15: the wraps
+    // worker's red wrap replaced the hardware texture on the domes,
+    // tube, mast, hull and rover metal with the scratched texture).
+    const stdMats = [...scene.matchAll(/<meshStandardMaterial([^>]*)\/>/g)];
+    assert.ok(stdMats.length > 0, 'scene uses standard materials');
+    for (const m of stdMats) {
+      assert.ok(/^\s*\{\.\.\.red/.test(m[1]), `standard material carries a texture spread: <meshStandardMaterial${m[1]} />`);
+    }
     // Outpost: every part carries its texture.
     for (const part of ['mats.dome', 'mats.hull', 'mats.tube', 'mats.pad', 'mats.mast', 'mats.solar']) {
       assert.ok(scene.includes(part), `outpost must use ${part}`);

@@ -62,8 +62,8 @@ t('page renders NexusEarth with onSelect', /<NexusEarth[\s\S]*?onSelect/.test(ho
 t('page renders flight controller', /<EarthFlightController/.test(homeScene));
 t('page renders console in earth states', /diving_to_earth.*earth_surface.*earth_travel/.test(page));
 t('page has tap hint', /earth\.tapHint/.test(page));
-t('dive/travel/return handlers defined', /beginEarthDive/.test(page) && /travelToEarth/.test(page) && /returnToOrbit/.test(page));
-t('geolocation with fallback', /getUserPosition/.test(page) && /FALLBACK_POSITION/.test(page));
+t('dive/click-spawn/return handlers defined', /beginEarthDive/.test(page) && /handleEarthGlobeClick/.test(page) && /returnToOrbit/.test(page));
+t('click-to-spawn replaces geolocation (no getUserPosition / FALLBACK_POSITION in the entry)', !/getUserPosition/.test(page) && !/FALLBACK_POSITION/.test(page) && /beginRoam\(roamState, lat, lon, 0\)/.test(page) && /summonCar\(selectedEarthCraftRef\.current\)/.test(page));
 
 // Clickability lives in the terrain globe (the always-3D fallback); NexusEarth
 // passes onSelect through to it.
@@ -78,7 +78,7 @@ t('flight rotates world to destination (treadmill)', /setFromUnitVectors/.test(f
 t('flight handles surface + return', /earth_surface/.test(flight) && /returning_to_orbit/.test(flight));
 t('flight lets user look around at surface', /lookDeltaX/.test(flight));
 
-t('console has search + quick destinations + return', /searchPlaces/.test(console_) && /QUICK/.test(console_) && /onReturn/.test(console_));
+t('console is the in-drive HUD: FIRE + torpedo count + speed + return (vehicles only, 2026-11-15)', /fireFromHud/.test(console_) && /missiles/.test(console_) && /speedKmh/.test(console_) && /onReturn/.test(console_) && !/searchPlaces/.test(console_) && !/QUICK/.test(console_));
 
 // --- i18n coverage for earth keys ---
 const locales = ['en', 'el', 'es', 'fr', 'de', 'pt', 'it'];

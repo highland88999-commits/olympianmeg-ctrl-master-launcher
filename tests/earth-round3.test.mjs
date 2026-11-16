@@ -55,8 +55,9 @@ check('A: CharacterPicker has an embedded in-flow mode, default off', () => {
   assert.match(pickerSrc, /\{!embedded && \(/); // "CHARACTER" word gated
 });
 
-check('A: EarthConsole mounts the picker embedded (inside the card)', () => {
-  assert.match(consoleSrc, /<CharacterPicker\s+embedded/);
+check('A: EarthConsole never mounts the picker (vehicles only — no character, 2026-11-15)', () => {
+  assert.ok(!consoleSrc.includes('<CharacterPicker'), 'no picker mount in the console');
+  assert.ok(!consoleSrc.includes('characters/CharacterPicker'), 'no picker import in the console');
 });
 
 check('B: the Quantum Realm is GONE from the console (no button, no size row, no drop flow)', () => {

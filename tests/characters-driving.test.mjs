@@ -330,12 +330,20 @@ function controllableScene() {
   const worlds = [
     'app/mega-city/gta-scene.js', 'app/truman/gta-scene.js', 'app/babel/gta-scene.js',
   ];
+  // Mega City + Babel build cars through the shared builder (lib/gta/city-cgi.js
+  // buildVehicleMesh); Truman still builds them inline in its scene. The
+  // geometry lives in exactly one of those two places — never nowhere.
+  const sharedBuilder = read('lib/gta/city-cgi.js');
   for (const p of worlds) {
     const src = read(p);
-    t(`${p}: builds the shared interior the contract describes`,
-      src.includes('new THREE.BoxGeometry(2, 0.8, 4.2)')
+    const viaShared = src.includes('buildVehicleMesh')
+      && sharedBuilder.includes('new THREE.BoxGeometry(isSports ? 1.9 : 2, isSports ? 0.65 : 0.8, isSports ? 4.4 : 4.2)')
+      && sharedBuilder.includes('new THREE.BoxGeometry(1.7, 0.6, 2.0)')
+      && sharedBuilder.includes('cabin.position.set(0, 1.2, -0.2)');
+    const inline = src.includes('new THREE.BoxGeometry(2, 0.8, 4.2)')
       && src.includes('new THREE.BoxGeometry(1.7, 0.6, 2.0)')
-      && src.includes('cabin.position.set(0, 1.2, -0.2)'));
+      && src.includes('cabin.position.set(0, 1.2, -0.2)');
+    t(`${p}: builds the shared interior the contract describes`, viaShared || inline);
     t(`${p}: driving embodiment arrives via the adapter alone (no scene-local mount)`,
       src.includes('walker.update(player, dt, now / 1000')
       && !src.includes('driver-embodiment'));

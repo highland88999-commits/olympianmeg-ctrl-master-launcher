@@ -31,7 +31,9 @@ for (const code of LOCALES) {
 
 // --- program files present --------------------------------------------------
 const comps = readdirSync(`${APP}/components`).filter((f) => /\.(jsx|tsx)$/.test(f));
-t('34 components ported', comps.length === 34);
+// CGI makeover (Nov 15, 2026): 35 — the original 34 plus the shared
+// CityViewWindow.jsx interior window (one component for floors 1-3).
+t('35 components ported', comps.length === 35);
 for (const must of ['page.jsx', 'components/NexusEngine.jsx', 'components/RadialMenu.jsx',
     'components/FloorMenu.jsx', 'components/SkyCycle.jsx', 'components/OmegaArchScene.jsx',
     'components/HermesTerminalScene.jsx', 'components/Telemetry.jsx',

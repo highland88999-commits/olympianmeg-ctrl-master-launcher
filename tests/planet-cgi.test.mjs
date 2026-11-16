@@ -25,6 +25,8 @@ import {
   makeDustField,
   updateDustField,
   waveFlag,
+  moonWind,
+  MOON_WIND,
   lightningFlash,
   devilFor,
 } from '../lib/planet-cgi/motion.js';
@@ -267,5 +269,73 @@ describe('planet motion', () => {
     const later = devilFor(0, PLANET_CGI_EPOCH_MS + 39000);
     assert.ok(later.opacity < d0.opacity || !later.alive, 'devils fade with age');
     assert.notEqual(devilFor(0, PLANET_CGI_EPOCH_MS + 41000).x, d0.x, 'a new cycle seeds elsewhere');
+  });
+});
+
+describe('moon wind (the flag moves with it)', () => {
+  it('moonWind is deterministic and breathes inside its band', () => {
+    const a = moonWind(PLANET_CGI_EPOCH_MS + 10000);
+    const b = moonWind(PLANET_CGI_EPOCH_MS + 10000);
+    assert.deepEqual(a, b, 'same instant, same wind');
+    assert.ok(a.speed >= 0.5 && a.speed <= 4.5, `speed in band (got ${a.speed})`);
+    assert.ok(a.direction >= 0.2 && a.direction <= 1.0, `direction veers around base (got ${a.direction})`);
+    const c = moonWind(PLANET_CGI_EPOCH_MS + 10000 + 47000);
+    assert.ok(
+      Math.abs(c.speed - a.speed) > 0.1 || Math.abs(c.direction - a.direction) > 0.01,
+      'the wind changes with time — gusts and veer, not a constant'
+    );
+    assert.equal(MOON_WIND.baseSpeed, 3.0, 'base 3.0 m/s');
+    assert.equal(MOON_WIND.gustPeriodS, 47, '47 s gust cycle, the Thule rhythm');
+    assert.equal(MOON_WIND.veerPeriodS, 240, '4 min veer cycle');
+  });
+
+  it('a stronger wind waves the flag harder', () => {
+    const maxZ = (geo) => {
+      let m = 0;
+      const arr = geo.getAttribute('position').array;
+      for (let i = 0; i < geo.getAttribute('position').count; i++) {
+        m = Math.max(m, Math.abs(arr[i * 3 + 2]));
+      }
+      return m;
+    };
+    const calm = new THREE.PlaneGeometry(1.15, 0.65, 12, 6);
+    waveFlag(calm, PLANET_CGI_EPOCH_MS + 3000, 1.15, 0.06, { direction: 0.6, speed: 0.5 });
+    const gale = new THREE.PlaneGeometry(1.15, 0.65, 12, 6);
+    waveFlag(gale, PLANET_CGI_EPOCH_MS + 3000, 1.15, 0.06, { direction: 0.6, speed: 4.5 });
+    assert.ok(maxZ(gale) > maxZ(calm), `stronger wind, taller wave (${maxZ(gale).toFixed(3)} > ${maxZ(calm).toFixed(3)})`);
+  });
+
+  it('the lean follows the wind direction and the pole edge stays pinned under wind', () => {
+    const meanZ = (geo) => {
+      let s = 0;
+      const arr = geo.getAttribute('position').array;
+      for (let i = 0; i < geo.getAttribute('position').count; i++) s += arr[i * 3 + 2];
+      return s / geo.getAttribute('position').count;
+    };
+    // Same instant, same speed, opposite directions: the wave term is
+    // identical, only the lean flips — so the difference is exact.
+    const plus = new THREE.PlaneGeometry(1.15, 0.65, 12, 6);
+    waveFlag(plus, PLANET_CGI_EPOCH_MS + 3000, 1.15, 0.06, { direction: Math.PI / 2, speed: 4.5 });
+    const minus = new THREE.PlaneGeometry(1.15, 0.65, 12, 6);
+    waveFlag(minus, PLANET_CGI_EPOCH_MS + 3000, 1.15, 0.06, { direction: -Math.PI / 2, speed: 4.5 });
+    assert.ok(meanZ(plus) - meanZ(minus) > 0.02, 'wind toward +Z leans the cloth +Z, toward -Z leans it -Z');
+    const pos = plus.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      if (plus.userData.flagBase[i * 3] < -0.5) {
+        assert.ok(Math.abs(pos.array[i * 3 + 2]) < 0.005, 'pole edge pinned under wind');
+      }
+    }
+  });
+
+  it('no wind = the old fixed loop, byte-identical', () => {
+    const a = new THREE.PlaneGeometry(1.15, 0.65, 12, 6);
+    waveFlag(a, PLANET_CGI_EPOCH_MS + 3000, 1.15, 0.06);
+    const b = new THREE.PlaneGeometry(1.15, 0.65, 12, 6);
+    waveFlag(b, PLANET_CGI_EPOCH_MS + 3000, 1.15, 0.06, null);
+    assert.deepEqual(
+      Array.from(a.getAttribute('position').array),
+      Array.from(b.getAttribute('position').array),
+      'the 4-arg call is unchanged'
+    );
   });
 });

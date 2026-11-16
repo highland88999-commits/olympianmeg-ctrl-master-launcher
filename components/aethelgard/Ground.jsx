@@ -1,10 +1,20 @@
 'use client';
+import { useFrame } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import {
+  AETHELGARD_DAPPLE_COUNT, aethelgardWindAt, canopySway, dappleAt, forestFloorMaps,
+} from '@/lib/aethelgard/cgi';
 
 // AETHELGARD forest floor — big mossy disc, instanced ferns (crossed quads),
 // moss patches, and fallen logs. All placement seeded.
+//
+// CGI pass (Nov 15, 2026): the disc wears the seeded leaf-litter +
+// damp-moss colour + bump maps (was one flat #22401f); DAPPLED LIGHT
+// patches drift across the floor (additive discs, opacity follows the
+// sky's god-ray strength — emissive, no new lights); the ferns SWAY
+// on the canopy breeze instead of standing frozen.
 
 const WORLD_R = 92;
 
@@ -39,11 +49,22 @@ function fernGeometry() {
   return g;
 }
 
-export default function Ground() {
+export default function Ground({ dapple = 0.4 }) {
   const fernRef = useRef();
   const mossRef = useRef();
   const logRef = useRef();
+  const dappleRef = useRef();
   const fernGeo = useMemo(fernGeometry, []);
+  const swayObj = useMemo(() => new THREE.Object3D(), []);
+  const dappleColor = useMemo(() => new THREE.Color(), []);
+  // Seeded leaf-litter + damp-moss floor maps; tiled so one texel
+  // reads as a leaf, not a continent.
+  const floorMaps = useMemo(() => {
+    const m = forestFloorMaps('aethelgard-floor');
+    m.map.repeat.set(10, 10);
+    m.bumpMap.repeat.set(10, 10);
+    return m;
+  }, []);
 
   const data = useMemo(() => {
     const rand = mulberry32(770031);
@@ -106,13 +127,57 @@ export default function Ground() {
   useInstances(mossRef, data.moss, applyMoss);
   useInstances(logRef, data.logs, applyLog);
 
+  // Fern sway + dappled light, both pure functions of the clock.
+  useFrame(() => {
+    const now = Date.now();
+    const wind = aethelgardWindAt(now);
+    const o = swayObj;
+    const ferns = fernRef.current;
+    if (ferns) {
+      for (let i = 0; i < data.ferns.length; i++) {
+        const it = data.ferns[i];
+        // Ferns lean with the breeze; the tilt is the sway itself.
+        const s = canopySway(i * 1.3, now, wind, 0.5);
+        o.position.set(it.x, 0, it.z);
+        o.rotation.set(s.z * 0.09, it.rot, s.x * 0.09);
+        o.scale.set(it.s, it.s * (0.9 + (it.s % 0.5)), it.s);
+        o.updateMatrix();
+        ferns.setMatrixAt(i, o.matrix);
+      }
+      ferns.instanceMatrix.needsUpdate = true;
+    }
+    const patches = dappleRef.current;
+    if (patches) {
+      for (let i = 0; i < AETHELGARD_DAPPLE_COUNT; i++) {
+        const d = dappleAt(i, now, dapple);
+        o.position.set(d.x, 0.03, d.z);
+        o.rotation.set(-Math.PI / 2, 0, i * 1.1);
+        o.scale.set(d.scale, d.scale, 1);
+        o.updateMatrix();
+        patches.setMatrixAt(i, o.matrix);
+        // Additive blending: colour brightness IS the opacity.
+        dappleColor.set('#ffe9a8').multiplyScalar(Math.max(0, d.opacity));
+        patches.setColorAt(i, dappleColor);
+      }
+      patches.instanceMatrix.needsUpdate = true;
+      if (patches.instanceColor) patches.instanceColor.needsUpdate = true;
+    }
+  });
+
   return (
     <group>
-      {/* forest floor */}
+      {/* forest floor — seeded leaf-litter + damp-moss maps */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow position={[0, -0.05, 0]}>
         <circleGeometry args={[WORLD_R + 6, 56]} />
-        <meshStandardMaterial color="#22401f" roughness={1} />
+        <meshStandardMaterial map={floorMaps.map} bumpMap={floorMaps.bumpMap}
+          bumpScale={floorMaps.bumpScale} roughness={floorMaps.roughness} />
       </mesh>
+      {/* dappled light — additive sun patches drifting across the floor */}
+      <instancedMesh ref={dappleRef} args={[undefined, undefined, AETHELGARD_DAPPLE_COUNT]} frustumCulled={false}>
+        <circleGeometry args={[1, 18]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={1}
+          blending={THREE.AdditiveBlending} depthWrite={false} />
+      </instancedMesh>
       {/* darker damp ring far out */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, 0]}>
         <ringGeometry args={[WORLD_R + 6, WORLD_R + 60, 48]} />

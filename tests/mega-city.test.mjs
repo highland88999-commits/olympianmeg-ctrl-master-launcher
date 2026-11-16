@@ -152,12 +152,16 @@ t('station cam is the wide shot (zoom-out target)', STATION_CAM.z < 1 && STATION
   t('scene: user grab cancels tween', /pointerdown[\s\S]{0,200}camTween = null/.test(code));
   t('scene: fly cancels tween', /setFly\(v\) \{ if \(v\) camTween = null/.test(stripped));
 
-  const page = readFileSync('app/mega-city/page.jsx', 'utf8');
+  // The descent overlay / station exit live on the classic
+  // (ARGUS Observatory) page, not the GTA page — the assertions
+  // below were written for that page (fixed Nov 15, 2026: the
+  // suite read page.jsx, where none of these strings exist).
+  const page = readFileSync('app/mega-city/page-classic.jsx', 'utf8');
   t('page: descent overlay', /DESCENDING/.test(page));
   t('page: altitude readout', /ALT/.test(page));
   t('page: skip control', /SKIP/.test(page));
   t('page: touchdown state', /TOUCHDOWN/.test(page));
-  t('page: station exit button', /◀ STATION/.test(page));
+  t('page: station exit button', /stationBtn/.test(page) && /label="STATION"/.test(page)); // was /◀ STATION/ — the classic page labels the button STATION with an antenna icon, no ◀ glyph (same button, same bar)
   t('page: exit zooms out then returns home', /tweenCamera\(STATION_CAM/.test(page) && /router\.push\("\/"\)/.test(page));
   t('page: reduced motion skips descent', /prefers-reduced-motion: reduce/.test(page));
   t('page: landing FX on entry', /fx\.landing\(\)/.test(page));

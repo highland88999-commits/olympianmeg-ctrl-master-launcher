@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useTexture, useVideoTexture, Html, Text, Sparkles } from '@react-three/drei';
 import { AdaptivePOM } from './POMMaterial';
+import CityViewWindow from './CityViewWindow';
 
 // OPTIMIZATION: Preload the heavy exterior texture so it caches before the user even reaches this floor
 useTexture.preload('/media/skyscraper/0s2n0h.png');
@@ -140,6 +141,12 @@ export default function Floor1({ elevation, isMobile, setCurrentFloor }) {
                 rotation={[0, 0, 0]} 
                 isMobile={isMobile} 
             />
+
+            {/* CGI: the city far below, seen from inside the tower —
+                the height you can feel. Portal wall (z=-30) and exit
+                (z=+30) untouched; windows hang on the side walls. */}
+            <CityViewWindow position={[29.7, 30, 0]} rotation={[0, -Math.PI / 2, 0]} />
+            <CityViewWindow position={[-29.7, 30, 0]} rotation={[0, Math.PI / 2, 0]} />
 
             <VortexExit onExit={() => setCurrentFloor(0)} />
         </group>

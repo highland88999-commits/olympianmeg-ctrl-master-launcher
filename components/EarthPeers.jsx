@@ -3,8 +3,17 @@
 //
 // Merlin, 2026-10-26 ("make sure users can see each other in
 // passing"): when two users are on Earth 1 near each other —
-// walking or driving — each sees the other: their character
-// plus the craft they are riding.
+// driving — each sees the other: their vehicle.
+//
+// VEHICLES ONLY (Merlin, 2026-11-15): Earth 1 has no walker,
+// no on-foot mode, no characters. Peers render as VEHICLES
+// only: their craft (cloned from the vehicle cache — the same
+// file you drive), blue jet flame while their fixes are moving,
+// name tag above. A peer whose row carries no vehicle ('on-foot'
+// or unknown) renders NOTHING — there is no on-foot figure any
+// more, not even a neutral one. The character sync (platform
+// embodiment manager, extension loader, neutral figure) is gone
+// with the walker; characterId is sent as null and never read.
 //
 // REAL, NOT FAKED: this wires the EXISTING presence
 // infrastructure (lib/presence.js — DB-polling presence, the
@@ -35,28 +44,22 @@
 // with the cache), one name sprite, and — for engine craft —
 // two static cones. No particles, no per-peer canvas.
 //
-// WHAT A PEER LOOKS LIKE:
-//   mounted  -> their craft (cloned from the vehicle cache —
-//               the same file you drive), blue jet flame while
-//               their fixes are moving, name tag above.
-//   on foot  -> their character: platform picks through the
-//               shared presence embodiment manager (live GLB
-//               up to the scene cap of 4, preview billboard
-//               beyond it); extension picks through the direct
-//               Earth extension loader (same files as your own
-//               extension body); anything unknown or still
-//               loading -> a neutral procedural figure, never
-//               a fake user and never nothing-at-all with a tag.
-//   stale/gone -> removed (stale rows never render: the
-//               client already filters them, and the nearby
-//               filter drops anything without a decodable fix).
+// COMBAT (Mario Kart, lib/earth/kart.js): this component also
+// publishes the shared peer list (setSharedPeerVehicles —
+// id/lat/lon/yaw/craft/speed/label) that EarthKart's torpedo
+// and collision checks read, and it renders the peer hit
+// sequence for peers THIS client shot: flip 3x around the
+// forward axis while flipping, hidden while exploding. (A hit
+// peer's own screen flips from the server event; a third
+// observer sees the peer stop and resume — the flip visual
+// renders on the shooter's screen.)
 //
 // WHAT IS SENT: lat/lon/yaw (encoded as pos x/y/z), the craft
-// id while mounted ('on-foot' otherwise), the character pick
-// (extension pick preferred — same mutual-exclusion rule as
-// your own body), and the label 'Traveler' (no name is
-// invented; the row's user_label is the client's sanitized
-// label, and Earth sends nothing personal).
+// id (always — the driver is always in a vehicle), and the
+// label 'Traveler' (no name is invented; the row's user_label
+// is the client's sanitized label, and Earth sends nothing
+// personal). characterId is sent as null — Earth 1 has no
+// characters.
 
 import { useEffect, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -79,46 +82,25 @@ import {
 import { getVehicle, isVehicleId } from '@/lib/earth/vehicles';
 import { getVehicleModel, ensureVehicleModel } from '@/lib/earth/vehicle-model';
 import { buildJetFlame, animateJetFlame } from '@/lib/earth/jet-flame';
-import { isExtensionCharacterId } from '@/lib/earth/earth-characters';
-import { getExtensionCharacterModel, ensureExtensionCharacterModel } from '@/lib/earth/extension-character-model';
-import { readExtensionCharacterPick } from '@/lib/earth/earth-extension-character';
-import { surfacePickKey, PROFILE_CHARACTER_LS_KEY } from '@/lib/characters/embodiment';
-import { createPresenceEmbodiments } from '@/lib/characters/presence-embodiment';
-import { getEmbodiment } from '@/lib/characters/embodiment';
+import {
+  setSharedPeerVehicles,
+  peerHitStates,
+  advancePeerHit,
+  flipRollAngle,
+} from '@/lib/earth/kart';
 
 const UPM = DISPLAY_UNITS_PER_METRE;
-const PROC_SIZE = { x: 1 * UPM, y: 2 * UPM, z: 1 * UPM };
 
 function localEarthState() {
-  if (carState.mounted) {
-    return { lat: carState.lat, lon: carState.lon, yawDeg: carState.yawDeg, mounted: true, craftId: carState.craftId };
-  }
-  return { lat: roamState.lat, lon: roamState.lon, yawDeg: roamState.faceDeg, mounted: false, craftId: null };
-}
-
-function myCharacterId() {
-  // Same preference as your own body: extension pick first,
-  // then the platform pick chain (surface override > profile).
-  const ext = readExtensionCharacterPick();
-  if (ext) return ext;
-  try {
-    const surface = localStorage.getItem(surfacePickKey('earth'));
-    if (surface) return surface;
-    return localStorage.getItem(PROFILE_CHARACTER_LS_KEY) || null;
-  } catch {
-    return null;
-  }
-}
-
-function buildNativeFigure() {
-  const g = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: '#9aa3b2', roughness: 0.9 });
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.25 * UPM, 1.0 * UPM, 4, 12), mat);
-  body.position.y = 1.05 * UPM;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.18 * UPM, 16, 12), mat);
-  head.position.y = 1.95 * UPM;
-  g.add(body, head);
-  return g;
+  // Vehicles only: the driver is always in a vehicle from spawn.
+  // Before the mount lands, roamState holds the spawn fix.
+  return {
+    lat: carState.mounted ? carState.lat : roamState.lat,
+    lon: carState.mounted ? carState.lon : roamState.lon,
+    yawDeg: carState.mounted ? carState.yawDeg : roamState.yawDeg,
+    mounted: true,
+    craftId: carState.craftId,
+  };
 }
 
 function buildNameSprite(label) {
@@ -169,13 +151,10 @@ function cloneModelInto(parent, model) {
 export default function EarthPeers() {
   const parentRef = useRef();
   const clientRef = useRef(null);
-  const embRef = useRef(null);
   const entriesRef = useRef(new Map()); // key -> entry
 
   useEffect(() => {
     let cancelled = false;
-    const emb = createPresenceEmbodiments({ keyPrefix: 'earth', maxLiveGlb: 4 });
-    embRef.current = emb;
 
     // Resolve the session FIRST (RLS law — see header), then
     // create the client with the signed-in id when there is one.
@@ -194,8 +173,8 @@ export default function EarthPeers() {
           const s = localEarthState();
           return {
             pos: encodeEarthPos(s.lat, s.lon, s.yawDeg),
-            vehicle: s.mounted ? s.craftId : 'on-foot',
-            characterId: myCharacterId(),
+            vehicle: s.craftId,
+            characterId: null, // vehicles only: no characters
           };
         },
         onPeers: (peers) => {
@@ -208,66 +187,60 @@ export default function EarthPeers() {
           for (const { peer, at } of near) {
             const key = peer.id || peer.key;
             if (!key) continue;
+            // Vehicles only: a peer with no vehicle renders
+            // nothing — there is no on-foot figure any more.
+            const craft = isVehicleId(peer.vehicle) ? peer.vehicle : null;
+            if (!craft) continue;
             seen.add(key);
+            const nowMs = performance.now();
             let e = entriesRef.current.get(key);
             if (!e) {
               const group = new THREE.Group();
-              const native = buildNativeFigure();
               const { sprite, texture } = buildNameSprite(peer.label || 'Traveler');
-              const host = emb.hostFor(key);
               const craftGroup = new THREE.Group();
-              const extGroup = new THREE.Group();
-              group.add(native, host, craftGroup, extGroup, sprite);
+              group.add(craftGroup, sprite);
               parent.add(group);
               e = {
-                key, group, native, host, craftGroup, extGroup,
+                key, group, craftGroup,
                 nameSprite: sprite, nameTexture: texture,
                 display: at, lastFix: at, moving: false,
-                characterId: null, craftId: null, flame: null,
+                craftId: null, flame: null,
+                speedMps: 0, fixAtMs: nowMs, prevFix: null, prevFixAtMs: 0,
+                label: peer.label || 'Traveler',
               };
               entriesRef.current.set(key, e);
             }
-            // Movement detection across fixes: the flame shows
-            // only while the peer's fixes are actually moving.
+            // Movement + speed across fixes: the flame shows
+            // only while the peer's fixes are actually moving,
+            // and the speed estimate feeds the torpedo / collision
+            // checks (EarthKart reads it via sharedPeerVehicles).
             const moved = earthDistanceM(e.lastFix.lat, e.lastFix.lon, at.lat, at.lon) > 2;
             e.moving = moved;
-            e.lastFix = at;
-            // Character sync: platform picks through the shared
-            // manager; extension picks through the direct loader
-            // (the manager validates against the platform roster
-            // only, so it would clear an extension pick to the
-            // native figure — never let it see one).
-            const cid = peer.characterId || null;
-            if (cid !== e.characterId) {
-              e.characterId = cid;
-              if (cid && isExtensionCharacterId(cid)) {
-                emb.sync(key, null);
-                if (!getExtensionCharacterModel(cid)) void ensureExtensionCharacterModel(cid);
-              } else if (cid && getEmbodiment(cid)) {
-                emb.sync(key, null);
-                emb.sync(key, cid, PROC_SIZE);
-              } else {
-                emb.sync(key, null);
-              }
+            if (e.prevFix && nowMs > e.prevFixAtMs) {
+              const distM = earthDistanceM(e.prevFix.lat, e.prevFix.lon, at.lat, at.lon);
+              e.speedMps = distM / ((nowMs - e.prevFixAtMs) / 1000);
             }
-            // Craft sync: a valid craft id means mounted; anything
-            // else ('on-foot', unknown) means walking.
-            const craft = isVehicleId(peer.vehicle) ? peer.vehicle : null;
+            e.prevFix = e.lastFix;
+            e.prevFixAtMs = e.fixAtMs;
+            e.lastFix = at;
+            e.fixAtMs = nowMs;
+            // Craft sync: a valid craft id means mounted; the
+            // vehicle never changes mid-drive in Earth 1, but a
+            // peer re-entering after a respawn re-sends it.
             if (craft !== e.craftId) {
               e.craftId = craft;
               if (e.flame && e.flame.group.parent) e.flame.group.parent.remove(e.flame.group);
               disposeFlame(e.flame);
               e.flame = null;
               while (e.craftGroup.children.length > 0) e.craftGroup.remove(e.craftGroup.children[0]);
-              if (craft && !getVehicleModel(craft)) void ensureVehicleModel(craft);
+              if (!getVehicleModel(craft)) void ensureVehicleModel(craft);
             }
           }
           // Peers who left the nearby set: drop their groups,
-          // embodiments, sprites, and flames (no ghosts).
+          // sprites, and flames (no ghosts).
           for (const [key, e] of Array.from(entriesRef.current.entries())) {
             if (seen.has(key)) continue;
             entriesRef.current.delete(key);
-            emb.remove(key);
             disposeFlame(e.flame);
             e.nameTexture.dispose();
             e.nameSprite.material.dispose();
@@ -290,15 +263,12 @@ export default function EarthPeers() {
         e.nameSprite.material.dispose();
       }
       entriesRef.current.clear();
-      emb.disposeAll();
-      embRef.current = null;
     };
   }, []);
 
   useFrame((state, rawDt) => {
     const parent = parentRef.current;
     const client = clientRef.current;
-    const emb = embRef.current;
     if (!parent) return;
     // The parent mounts only while roaming (NexusEarth), but
     // guard anyway: no street, no peers, no upserts.
@@ -310,6 +280,8 @@ export default function EarthPeers() {
     if (client) void client.update();
     const dt = Math.min(0.05, rawDt || 0.016);
     const time = state.clock.elapsedTime;
+    const nowMs = performance.now();
+    const shared = [];
     for (const [, e] of entriesRef.current.entries()) {
       // Lerp toward the latest fix (2.5 s cadence would jump).
       e.display = lerpEarthPos(e.display, e.lastFix, dt);
@@ -329,29 +301,26 @@ export default function EarthPeers() {
       const zAxis = new THREE.Vector3().crossVectors(xAxis, normal).normalize();
       e.group.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAxis, normal, zAxis));
 
-      // Bodies, one at a time: craft when mounted, else the live
-      // character (platform manager or extension clone), else
-      // the neutral figure. The manager's handle needs its
-      // per-frame update (pose + floor clamp); the extension
-      // clone rides the group directly (same bob as your own
-      // extension body, smaller: a passer-by, not the hero).
-      const handle = emb ? emb.handleFor(e.key) : null;
-      const platformReady = !!(handle && handle.isReady());
-      if (handle) {
-        try { handle.update({ x: 0, y: 0, z: 0, heading: 0, moving: e.moving }, dt, time, {}); } catch { /* a peer's pose must never break the frame */ }
-      }
-      let extReady = false;
-      if (e.characterId && isExtensionCharacterId(e.characterId) && !craft) {
-        const model = getExtensionCharacterModel(e.characterId);
-        if (model) {
-          if (e.extGroup.children.length === 0) cloneModelInto(e.extGroup, model);
-          extReady = true;
-          e.extGroup.position.y = (e.moving ? Math.abs(Math.sin(time * 9)) * 0.05 : Math.sin(time * 1.5) * 0.015) * UPM;
-          e.extGroup.rotation.z = e.moving ? Math.sin(time * 9) * 0.03 : 0;
+      // Hit sequence (peers THIS client shot): flip 3x around
+      // the forward axis while flipping, hidden while exploding.
+      const hit = peerHitStates.get(e.key);
+      if (hit) {
+        const adv = advancePeerHit(hit, nowMs);
+        if (adv.phase === 'flipping') {
+          const roll = flipRollAngle(hit, nowMs);
+          e.group.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll));
+        } else if (adv.phase === 'exploding') {
+          e.group.visible = false;
+        } else {
+          peerHitStates.delete(e.key);
+          e.group.visible = true;
         }
-      } else if (e.extGroup.children.length > 0) {
-        while (e.extGroup.children.length > 0) e.extGroup.remove(e.extGroup.children[0]);
+      } else {
+        e.group.visible = true;
       }
+
+      // Craft body: clone from the vehicle cache when the model
+      // has landed; nothing renders before that (no fake body).
       let craftReady = false;
       if (craft) {
         const model = getVehicleModel(e.craftId);
@@ -371,11 +340,23 @@ export default function EarthPeers() {
         disposeFlame(e.flame);
         e.flame = null;
       }
-      e.native.visible = !platformReady && !extReady && !craftReady;
-      e.host.visible = platformReady;
-      e.extGroup.visible = extReady;
       e.craftGroup.visible = craftReady;
+
+      // Publish the shared peer list for EarthKart (torpedo
+      // targeting + bumper-car collisions). Speed goes stale
+      // 5 s after the last fix — a peer who stopped sending
+      // reads as stopped, not as coasting forever.
+      shared.push({
+        id: e.key,
+        lat,
+        lon,
+        yawDeg,
+        craftId: e.craftId,
+        speedMps: nowMs - e.fixAtMs < 5000 ? e.speedMps : 0,
+        label: e.label,
+      });
     }
+    setSharedPeerVehicles(shared);
   });
 
   return <group ref={parentRef} visible={false} />;

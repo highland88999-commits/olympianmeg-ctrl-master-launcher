@@ -1109,6 +1109,8 @@ function HubScene({
   pendingDest,
   arriveEarth,
   beginEarthDive,
+  onEarthGlobeClick,
+  earthPickMode,
   beginMarsDive,
   marsProfile,
   marsTime,
@@ -1263,13 +1265,13 @@ function HubScene({
                 button. Components kept (OmegaHubGate, Earth2HubGate)
                 but no longer mounted in hub space. */}
           <NexusEarth
-            onSelect={appState === 'hub_freeroam' ? beginEarthDive : null}
+            onSelect={appState === 'hub_freeroam' && !earthPickMode ? beginEarthDive : null}
+            onGlobeClick={onEarthGlobeClick}
             quatRef={earthQuatRef}
             focus={earthFocus}
             phase={appState}
             spinEnabled={appState === 'hub_intro' || appState === 'hub_freeroam'}
             controls={controlsRef}
-            onTeleportNYC={() => router.push('/mega-city')}
           />
             {!['diving_to_street', 'earth_roam'].includes(appState) && <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />}
             {/* Hub vista hides at street level (2026-10-26, street

@@ -4,17 +4,16 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
-import EarthWalker from '@/components/EarthWalker';
 import RedwaterFarmstead from '@/components/earth/RedwaterFarmstead';
-import RedwaterMount from '@/components/earth/RedwaterMount';
-import EarthBike from '@/components/EarthBike';
 import EarthSupercar from '@/components/EarthSupercar';
+import EarthKart from '@/components/EarthKart';
+import EarthBoostPads from '@/components/EarthBoostPads';
 import EarthPeers from '@/components/EarthPeers';
-import EarthPitMarker from '@/components/EarthPitMarker';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
 import { EarthCracks, EarthOrbitCracks } from '@/components/earth/EarthCracks';
 import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir, CENTRE_FLUSH_TILES } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey, loadRenderedTileKeys } from '@/lib/earth/lens-cache';
+import { metalTileColorForCell, metalTileCropForTile, metalTileImageUrl, METAL_TILE_IMAGE_WIDTH, METAL_TILE_IMAGE_HEIGHT } from '@/lib/earth/metal-tiles';
 import {
   coarsePresetFor,
   planTrailCentres,
@@ -76,7 +75,8 @@ import { sunVector, getDayNightPlace, requestDayNightPlace } from '@/lib/day-nig
 //   if they fail. All textures are self-hosted under public/textures/earth.
 // - Street level (Day 2) runs on the terrain globe — the layer that
 //   carries the placed world — so roaming forces the terrain layer
-//   and mounts the embodied traveler (EarthWalker).
+//   and mounts the driver's vehicle (EarthSupercar, vehicles only
+//   since 2026-11-15 — the walker is gone).
 // - A small badge names the active layer in plain English.
 // Rendered lens sheets PERSIST (Merlin, 2026-10-20: "once a tile
 // has rendered, it stays rendered"). Recentering used to dispose
@@ -144,7 +144,7 @@ const EARTH_CENTER_WORLD = new THREE.Vector3(0, -30, -80);
 // inside it).
 const SHELL_CAMERA_MIN_DIST = 57.5;
 
-export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnabled, controls, onTeleportNYC }) {
+export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
   const farSheetsRef = useRef([]); // [{ key, mesh }] — 15× reveal sheets
@@ -1084,20 +1084,59 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         tex.needsUpdate = true;
       }
     };
-    sortedTiles.forEach((t, idx) => {
-      if (!t.url) { settledCount += 1; settleCentre(idx); if (settledCount === plan.tiles.length) finish(); return; }
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        // Settle FIRST, paint second (2026-10-27): the old order
-        // drew before counting, so a throwing drawImage (torn
-        // canvas, zero-size tile) stranded the settle count and
-        // finish() never ran — the pool wedged. A tile that
-        // fails to paint still counts as settled (just not ok).
+    // Metal tiling (Merlin, 2026-11-15): the sheet's skin is ONE
+    // of the 9 scratched-metal graphics, picked deterministically
+    // from the sheet's own tile cell key — the exact identity the
+    // rendered record uses, so a tile keeps its color across
+    // reloads and restore-on-load rebuilds it identically. The
+    // tile SYSTEM is untouched: the same plan, the same
+    // centre-first loop (each tile paints its own crop of the
+    // one photo), the same settle/finish/record path. Only the
+    // skin changed — no more ESRI photo fetches for this sheet.
+    // The orbital overlook sheet flows through this same build,
+    // so it wears metal too. No color is weighted; the pick is
+    // FNV-1a(cellKey) mod 9 (lib/earth/metal-tiles.js).
+    const metalColor = metalTileColorForCell(tileCellKey(job.presetName, plan));
+    const metalUrl = metalColor ? metalTileImageUrl(metalColor) : null;
+    if (!metalUrl) {
+      // No skin to paint (no color for this cell — should never
+      // happen, the pick is total over the 9 colors): drop the
+      // sheet honestly, record nothing, free the pool. Same as
+      // an all-tiles-failed build below.
+      bctx.remove(job.key);
+      if (mgr.job === job) { mgr.job = null; mgr.busy = false; }
+      bctx.pump();
+      return;
+    }
+    const metalImg = new Image();
+    // No crossOrigin here, deliberately: the skin is a
+    // same-origin repo file, so the canvas can never taint —
+    // the blank-guard's getImageData always reads true pixels.
+    // (The old ESRI tiles were cross-origin and needed it.)
+    metalImg.onload = () => {
+      if (gen !== bctx.genRef.current || !mgr.alive) { finish(); return; }
+      // The skin arrived: paint the sheet from the ONE photo.
+      // Each tile draws its own crop of the centered square
+      // (metalTileCropForTile), so the whole photo spans the
+      // sheet exactly once. A tile that fails to paint still
+      // counts as settled (just not ok) — the 2026-10-27 rule:
+      // a throwing drawImage must never strand the settle
+      // count and wedge the pool.
+      const imgW = metalImg.naturalWidth || METAL_TILE_IMAGE_WIDTH;
+      const imgH = metalImg.naturalHeight || METAL_TILE_IMAGE_HEIGHT;
+      sortedTiles.forEach((t, idx) => {
+        // t.url is now only the pole test: lensTilePlan still
+        // marks off-world (polar) tiles with url null, and those
+        // canvas regions stay transparent — the globe shows
+        // through exactly as it did under the photo tiles.
+        if (!t.url) { settledCount += 1; settleCentre(idx); if (settledCount === plan.tiles.length) finish(); return; }
         let painted = false;
         if (gen === bctx.genRef.current && mgr.alive) {
           try {
-            ctx.drawImage(img, t.px, t.py, S, S);
+            const col = Math.round(t.px / S);
+            const row = Math.round(t.py / S);
+            const crop = metalTileCropForTile(col, row, plan.grid, imgW, imgH);
+            ctx.drawImage(metalImg, crop.sx, crop.sy, crop.sw, crop.sh, t.px, t.py, S, S);
             painted = true;
             queueTexUpload();
           } catch {}
@@ -1106,17 +1145,19 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         settledCount += 1;
         settleCentre(idx);
         if (settledCount === plan.tiles.length) finish();
-      };
-      img.onerror = () => {
-        settledCount += 1;
-        settleCentre(idx);
-        if (settledCount === plan.tiles.length) finish();
-      };
-      img.src = t.url;
-    });
-    // Watchdog: a build whose tiles stall (throttled network, a
-    // hung fetch, a canvas that never settles) must not hold the
-    // pool past Merlin's ~1-minute lag tolerance. Force-finish:
+      });
+    };
+    metalImg.onerror = () => {
+      // The skin never arrived: the same honest failure as
+      // every photo tile failing — finish() with okCount 0
+      // drops the sheet and records nothing, so the 10 s
+      // reconciler retries instead of mounting a void.
+      finish();
+    };
+    metalImg.src = metalUrl;
+    // Watchdog: a build whose skin stalls (a hung load, a
+    // canvas that never settles) must not hold the pool past
+    // Merlin's ~1-minute lag tolerance. Force-finish:
     // whatever painted stays, the pool frees, the queue pumps,
     // and the next centre rebuilds. Never fires after a clean
     // finish (finished guard + timer cleared there).
@@ -1426,12 +1467,13 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
         <group visible={!roaming}>
           <GoogleEarthTiles
             onSelect={onSelect}
+            onGlobeClick={onGlobeClick}
             quatRef={quatRef}
             onActive={() => setLayer('photorealistic')}
             onInactive={() => setLayer('terrain')}
           />
         </group>
-        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} quatRef={quatRef} waterInOrbit={!roaming} flatTarget={roaming} />}
+        {effectiveLayer === 'terrain' && <ProceduralEarthGlobe onSelect={onSelect} onGlobeClick={onGlobeClick} quatRef={quatRef} waterInOrbit={!roaming} flatTarget={roaming} />}
         {/* Jagged world-locked cracks over the orbit globe
             (2026-10-26 late night): the same crack field as the
             street plane, wrapped on the sphere — not lat/lon
@@ -1447,31 +1489,33 @@ export default function NexusEarth({ onSelect, quatRef, focus, phase, spinEnable
             dressing. Terrain, lens imagery, sky, ground, character
             and vehicles are untouched. */}
         {effectiveLayer === 'terrain' && <RedwaterFarmstead />}
-        {effectiveLayer === 'terrain' && <EarthWalker />}
-        {/* Street-level journey + player systems only. Ladders,
-            monument elevators and traveler-following scatter were
-            staged with the rest of the placed objects. */}
-        {/* The Redwater quicksand journey: proximity-gated to the
-            pit near Redwater, Alberta — same street gate as the
-            ladders. The NYC portal drops into /mega-city via
-            onTeleportNYC (HomeScene). */}
-        {effectiveLayer === 'terrain' && roaming && <RedwaterMount onTeleportNYC={onTeleportNYC} />}
-        {/* Summonable TRON bike — street only */}
-        {effectiveLayer === 'terrain' && roaming && <EarthBike controls={controls} />}
-        {/* Summonable Lamborghini Aventador — street only, Earth's
-            fastest vehicle (Earth 1 expansion). Same gate as the
-            bike; the car itself stays grounded. */}
+        {/* VEHICLES ONLY (Merlin, 2026-11-15): the walker, the
+            TRON bike, the Redwater journey mount, and the
+            quicksand-pit marker are all gone — Earth 1 is
+            vehicles only. The driver spawns in their vehicle
+            (EarthSupercar) and stays in it. */}
+        {/* The driver's vehicle — street only, Earth's fastest
+            vehicle (Earth 1 expansion). The car itself stays
+            grounded. */}
         {effectiveLayer === 'terrain' && roaming && <EarthSupercar controls={controls} />}
+        {/* Mario Kart systems (Earth 1, 2026-11-15): torpedo
+            orbs, heat-seeker torpedoes, rival drivers, bumper-
+            car collisions, the explosion burst. Same street gate
+            as the vehicle; renders nothing until the driver is
+            mounted. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthKart />}
+        {/* Ground-level boost pads for racers (Earth 1, 2026-11-15):
+            light-up pads on a seeded grid across the planet —
+            drivers pass over them for an extra speed boost. Same
+            street gate as the vehicles; renders nothing while the
+            driver is far from every pad. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthBoostPads />}
         {/* Passers-by (2026-10-26, see-each-other): other travelers
-            on Earth 1 near you — their character + their craft.
-            Same street gate as the vehicles; renders nothing and
-            claims no count while presence is unavailable. */}
+            on Earth 1 near you — their VEHICLE only (vehicles
+            only since 2026-11-15, no on-foot figure). Same street
+            gate as the vehicles; renders nothing and claims no
+            count while presence is unavailable. */}
         {effectiveLayer === 'terrain' && roaming && <EarthPeers />}
-        {/* Visible quicksand-pit marker (video QA V2-5): gold beam +
-            ring + spinning diamond over the Redwater pit, so the
-            journey is findable from the spawn. Visual only — it
-            never blocks the pit, the sink, the tunnel or the core. */}
-        {effectiveLayer === 'terrain' && roaming && <EarthPitMarker />}
 
         {effectiveLayer === 'terrain' && lensSheets.map((s) => (
           <primitive key={s.key} object={s.mesh} />

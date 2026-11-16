@@ -4,8 +4,8 @@
 // camera rig's grounding on the real terrain sampler.
 // Run: node tests/earth-roam.test.mjs (from the repo root).
 import assert from 'node:assert';
+import * as roamNs from '../lib/earth/roam.js';
 import {
-  landmarkSpawns,
   createRoamState,
   beginRoam,
   endRoam,
@@ -36,17 +36,12 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
 const mag = (a) => Math.hypot(a.x, a.y, a.z);
 
-check('spawn list: the 25 exact singles, true coordinates, named', () => {
-  const spawns = landmarkSpawns();
-  assert.equal(spawns.length, 25);
-  for (const s of spawns) {
-    assert.ok(typeof s.name === 'string' && s.name.length > 0, s.id);
-    assert.ok(s.lat >= -90 && s.lat <= 90 && s.lon >= -180 && s.lon <= 180, s.id);
-  }
-  const eiffel = spawns.find((s) => s.id.startsWith('e049'));
-  assert.ok(eiffel && near(eiffel.lat, 48.8584, 1e-9) && near(eiffel.lon, 2.2945, 1e-9));
-  const fuji = spawns.find((s) => s.id.startsWith('e042'));
-  assert.ok(fuji && near(fuji.lat, 35.3606, 1e-9) && near(fuji.lon, 138.7274, 1e-9));
+check('landmarks removed: no landmarkSpawns export (Merlin 2026-11-15)', () => {
+  assert.ok(!('landmarkSpawns' in roamNs), 'landmarkSpawns must be gone from roam.js');
+  // The roam math itself is untouched — the walker stepping,
+  // destination math and camera rig stay for the car's use.
+  assert.equal(typeof stepRoam, 'function');
+  assert.equal(typeof destinationPoint, 'function');
 });
 
 check('destination point: one degree of arc, cardinal bearings', () => {

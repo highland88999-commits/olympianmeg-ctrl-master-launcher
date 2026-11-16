@@ -7,6 +7,8 @@ import {
   CATALOG, createBackpack, addItem, removeItem, listItems, itemCount,
   summarizeBackpack, serializeBackpack, deserializeBackpack,
 } from './backpack';
+import { addItem as addSharedItem } from '@/lib/backpack/backpack';
+import { updateBackpack as updateSharedBackpack } from '@/lib/backpack/store';
 import AphroIcon from '@/components/aphrodite/icons';
 import { AphroBg, aphroPanel } from '@/components/aphrodite/ambience';
 
@@ -330,7 +332,23 @@ export default function OmegaHubPage() {
                   </div>
                   <div style={{ fontSize: '0.8rem', color: 'rgba(224,255,255,0.65)', marginBottom: '10px' }}>{c.desc}</div>
                   <button
-                    onClick={() => setBp((b) => addItem(b, c.id))}
+                    onClick={() => {
+                      setBp((b) => addItem(b, c.id));
+                      // THE UNIVERSAL RULE (Merlin, 2026-11-15): every
+                      // pickup lands in the shared backpack too. The
+                      // hub's Neural Backpack is a page-local loadout,
+                      // so a stowed piece ALSO mirrors into the shared
+                      // pack as a collectible (its use stays the hub
+                      // loadout — the mirror is the record of it).
+                      try {
+                        updateSharedBackpack((rec) => addSharedItem(rec, {
+                          id: `omega-hub-${c.id}`,
+                          kind: 'collectible',
+                          name: c.name,
+                          meta: { source: 'omega-hub', hubKind: c.kind },
+                        }));
+                      } catch { /* the local stow already landed */ }
+                    }}
                     style={{ ...mono, width: '100%', minHeight: '44px', background: 'rgba(0,240,255,0.1)', border: '1px solid #00f0ff', color: '#00f0ff', borderRadius: '6px', cursor: 'pointer', letterSpacing: '2px' }}
                   >
                     + STOW

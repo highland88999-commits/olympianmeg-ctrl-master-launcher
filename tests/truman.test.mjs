@@ -19,7 +19,7 @@ import { AXIOM_COLORS } from '../app/truman/render.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(join(here, p), 'utf8');
-const pageSrc = read('../app/truman/page.jsx');
+const pageSrc = read('../app/truman/page-classic.jsx');
 const worldSrc = read('../app/truman/world.js');
 const renderSrc = read('../app/truman/render.js');
 
@@ -215,7 +215,7 @@ const FORBIDDEN = [
   'catbox.moe', 'jsdelivr', 'unpkg', 'youtube.com', 'googleapis', 'central_telemetry',
   'OMEGA', 'brain-uplink', 'vercel.app',
 ];
-for (const [name, raw] of [['page.jsx', pageSrc], ['world.js', worldSrc], ['render.js', renderSrc]]) {
+for (const [name, raw] of [['page-classic.jsx', pageSrc], ['world.js', worldSrc], ['render.js', renderSrc]]) {
   test(`static audit: ${name} has no external hosts, telemetry, or CDN deps`, () => {
     // Strip comments: the audit trail documents dropped hosts in comments;
     // only live code is scanned.
@@ -228,17 +228,18 @@ for (const [name, raw] of [['page.jsx', pageSrc], ['world.js', worldSrc], ['rend
   });
 }
 
-test('page is a client component with zero imports beyond react and local modules', () => {
+test('page is a client component with zero imports beyond react, local modules, and the Aphro art layer', () => {
   assert.ok(pageSrc.includes("'use client'"), 'missing use client directive');
   const imports = [...pageSrc.matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1]);
   for (const imp of imports) {
-    assert.ok(imp === 'react' || imp.startsWith('./'), `unexpected import: ${imp}`);
+    assert.ok(imp === 'react' || imp.startsWith('./') || imp.startsWith('@/components/aphrodite/'),
+      `unexpected import: ${imp}`);
   }
 });
 
 // ---------- JSX structural check (method: strip strings/comments, balance brackets) ----------
 
-test('page.jsx JSX is structurally balanced', () => {
+test('page-classic.jsx JSX is structurally balanced', () => {
   let s = pageSrc
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/[^\n]*/g, '')

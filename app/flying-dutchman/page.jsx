@@ -22,6 +22,10 @@ import {
   createKraken, createMegaSoulPool, createGulls, createSeaLife,
 } from './sea3d.js';
 import { createIslands, createChests, dutchmanNightFactor } from './world3d.js';
+// CGI makeover (lib/flying-dutchman/cgi.js): storm sea + sky and ship
+// dressing. Additive only — it never edits an existing surface or
+// material (the wraps worker owns the wrapped sea metal).
+import { createDutchmanStorm, dressShip } from '../../lib/flying-dutchman/cgi.js';
 import {
   levelFor, levelStats, SLOT_PRIZES, rollSlotPrize, rollSlotPrizeOwned, slotCanSpin,
   applySlotPrize, prizeToItem, equipStoredPrize, MERCHANT_CATALOGUE, buyUpgrade,
@@ -920,6 +924,9 @@ export default function DutchmanPage() {
     scene.add(ocean.mesh);
     const sky = createSky();
     scene.add(sky.group);
+    // Storm CGI layer: cloud dome, visible bolts, foam on the swell,
+    // wind-blown spray, fog that closes in with the squall.
+    const storm = createDutchmanStorm(scene);
 
     // The open world: cursed isles + beached treasure.
     const islands = createIslands(scene, world.islands);
@@ -927,12 +934,13 @@ export default function DutchmanPage() {
 
     const playerGroup = buildShip();
     playerGroup.userData.setCrew(Math.min(world.player.crew, 12));
+    dressShip(playerGroup);
     scene.add(playerGroup);
 
     const G = {
       mode: gameMode,
       world,
-      renderer, scene, camera, ocean, sky, islands, chests,
+      renderer, scene, camera, ocean, sky, storm, islands, chests,
       playerGroup,
       enemyGroups: new Map(),
       remote: extra.remote || null,
@@ -978,6 +986,7 @@ export default function DutchmanPage() {
     if (G.remote) {
       G.remoteGroup = buildGhostShip();
       G.remoteGroup.userData.setCrew(Math.min(G.remote.crew, 12));
+      dressShip(G.remoteGroup);
       scene.add(G.remoteGroup);
     }
     if (gameMode === 'duel') world.mode = 'duel';
@@ -1256,6 +1265,7 @@ export default function DutchmanPage() {
         else grp = buildShip({ skin: p.skin || 'dutchman', sizeScale: p.sizeScale || 1 });
         grp.userData.setCrew(Math.min(p.crew, 12));
         grp.userData.setSails(p.sails);
+        dressShip(grp);
         scene.add(grp);
         G.playerGroup = grp;
         G.commandedId = cmdDef;
@@ -1297,6 +1307,7 @@ export default function DutchmanPage() {
             grp = buildGhostShip();
             grp.userData.setCrew(Math.min(e.crew, 8));
             grp.userData.setSails(e.sails);
+            dressShip(grp);
             scene.add(grp);
             G.enemyGroups.set(e.id, grp);
           }
@@ -1325,6 +1336,7 @@ export default function DutchmanPage() {
               : buildShip({ skin: f.skin || 'dutchman', sizeScale: f.sizeScale || 1 });
             grp.userData.setCrew(Math.min(f.crew, 8));
             grp.userData.setSails(f.sails);
+            dressShip(grp);
             scene.add(grp);
             G.fleetGroups.set(f.id, grp);
           }
@@ -1452,6 +1464,9 @@ export default function DutchmanPage() {
       G.pools.splash.update(dt);
       G.ocean.update(t, p.x, p.z);
       G.sky.update(t, dt, p.x, p.z);
+      // Storm CGI: clouds, bolts, foam, spray, fog — driven by the
+      // real clock and the live night factor, never by game state.
+      G.storm.update(t, dt, p.x, p.z, p, G.nightF);
       // Night factor is real-clock driven — refresh ~once a second.
       const nowSec = Math.floor(now / 1000);
       if (nowSec !== G.lastNightSec) {

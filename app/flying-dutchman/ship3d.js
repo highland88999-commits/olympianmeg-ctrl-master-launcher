@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { SHIP } from './engine.js';
+import { applyScratchedToMaterial } from '@/lib/portal/scratched-textures.js';
 
 /** Canvas texture: weathered deck planks. */
 function plankTexture() {
@@ -114,6 +115,7 @@ function hullGeometry(L, B, ghost) {
   const N = 16; // sections along length
   const K = 9;  // points across (port rail -> keel -> stbd rail)
   const pos = [];
+  const uv = [];
   const idx = [];
   for (let i = 0; i <= N; i++) {
     const t = i / N;                 // 0 stern -> 1 bow
@@ -131,6 +133,12 @@ function hullGeometry(L, B, ghost) {
       const x = u * halfBeam;
       const y = keelY + (railY - keelY) * Math.pow(Math.abs(u), 1.7);
       pos.push(x, y, z);
+      // UVs across the loft, along the length: the hull carried NO uv
+      // attribute before, so a map on it sampled a single texel (one
+      // flat colour). The blue scratched-metal wrap needs real UVs to
+      // read as scratched metal at all. Unwrapped ships are unchanged
+      // — UVs with no map render exactly as before.
+      uv.push(k / K, i / N);
     }
   }
   for (let i = 0; i < N; i++) {
@@ -141,6 +149,7 @@ function hullGeometry(L, B, ghost) {
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return { geo, railAt: (t) => 2.3 + 1.6 * Math.pow(Math.max(0, t - 0.72) / 0.28, 1.6) + 2.6 * Math.pow(Math.max(0, 0.22 - t) / 0.22, 1.8) };
@@ -392,6 +401,9 @@ export function buildShip({ ghost = false, skin = null, sizeScale = 1 } = {}) {
     hull: [hullMat, hullMat2], trim: [trimMat],
     sail: sailMats, pennant: pennantMats, lamp: lampMats,
     crew: [crewMat], deckLight,
+    // Cannon barrels: the deck's metal hardware. Not read by
+    // applyTintToMats — only by the blue-wrap block in setSkin().
+    barrel: [barrelMat],
   };
   const skinId = skin || (ghost ? 'ghost' : 'dutchman');
   g.userData = { sails, flag, crewGroup, setCrew, setSails, muzzle, cannons, ghost, deckLight, _skinMats: skinMats, skin: skinId, emblem };
@@ -487,6 +499,35 @@ export function setSkin(group, skinId) {
     }
   }
   group.userData.skin = SKIN_TINTS[skinId] ? skinId : 'dutchman';
+  // BLUE SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the Flying
+  // Dutchman's own hull + cannon barrels wear blue scratched metal.
+  // Only a non-ghost ship on the dutchman skin: ghost ships,
+  // legendary ships and other skins keep their tints. The wrap lives
+  // in setSkin (not just at build) because the page re-tints live when
+  // the player buys or changes a skin — a bare tint would multiply
+  // the blue photo dark brown, so a change AWAY from dutchman clears
+  // the map and restores the metal's own metalness/roughness, and a
+  // change back re-applies it (synchronous once the photo is cached).
+  const resolvedSkin = SKIN_TINTS[skinId] ? skinId : 'dutchman';
+  const wrapMats = [...(mats.hull || []), ...(mats.barrel || [])];
+  if (resolvedSkin === 'dutchman' && !group.userData.ghost) {
+    for (const m of wrapMats) {
+      if (!m.userData._scratchOrig) {
+        m.userData._scratchOrig = { metalness: m.metalness, roughness: m.roughness };
+      }
+      applyScratchedToMaterial(m, 'blue');
+    }
+  } else {
+    for (const m of wrapMats) {
+      const orig = m.userData._scratchOrig;
+      if (orig && m.map) {
+        m.map = null;
+        m.metalness = orig.metalness;
+        m.roughness = orig.roughness;
+        m.needsUpdate = true;
+      }
+    }
+  }
   return true;
 }
 

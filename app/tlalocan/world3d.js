@@ -12,6 +12,13 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
+import {
+  SCRATCHED_METALNESS,
+  SCRATCHED_ROUGHNESS,
+  useScratchedMaterial,
+  useScratchedTexture,
+} from '@/lib/portal/scratched-textures';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import {
   ENTRY_PORTAL,
@@ -127,17 +134,23 @@ function Ground() {
 }
 
 function Pools({pools}) {
+  // BLUE SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the pools ARE
+  // water — the realm's bright green pools, same two-disc pattern as
+  // the river's frost pools — so they wear the blue wrap with the
+  // river. The fallback is the green pool disc each circle wore.
+  const outerMat = useScratchedMaterial('blue', { color: '#2fae7d', transparent: true, opacity: 0.25 });
+  const innerMat = useScratchedMaterial('blue', { color: '#2fae7d', transparent: true, opacity: 0.75 });
   return (
     <group>
       {pools.map((p) => (
         <group key={p.id} position={[p.x, 0, p.z]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.1, 0]}>
             <circleGeometry args={[p.r * 1.5, 24]} />
-            <meshBasicMaterial color="#2fae7d" transparent opacity={0.25} />
+            <meshStandardMaterial {...outerMat} />
           </mesh>
           <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.12, 0]}>
             <circleGeometry args={[p.r, 24]} />
-            <meshBasicMaterial color="#2fae7d" transparent opacity={0.75} />
+            <meshStandardMaterial {...innerMat} />
           </mesh>
         </group>
       ))}
@@ -147,21 +160,38 @@ function Pools({pools}) {
 
 function River({reduced}) {
   const tex = useMemo(() => riverTexture(), []);
+  const blueTex = useScratchedTexture('blue');
+  // BLUE SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the blue photo
+  // becomes the river's map. The shared blue texture is ALSO the
+  // Flying Dutchman's hull, so the river scrolls a CLONE — same photo,
+  // its own offset and repeat — and the shared texture never drifts
+  // under the ship. Before the photo lands, the green canvas texture
+  // scrolls exactly as it did.
+  const blueRiverTex = useMemo(() => {
+    if (!blueTex) return null;
+    const t = blueTex.clone();
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(4, 1);
+    t.needsUpdate = true;
+    return t;
+  }, [blueTex]);
+  const map = blueRiverTex || tex;
   useFrame((state, dt) => {
     if (reduced) return;
-    tex.offset.x += dt * 0.012;
+    map.offset.x += dt * 0.012;
   });
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.18, 0]}>
         <planeGeometry args={[820, 36]} />
         <meshStandardMaterial
-          map={tex}
-          color="#7fd8b0"
+          map={map}
+          color={blueRiverTex ? '#ffffff' : '#7fd8b0'}
           transparent
           opacity={0.92}
-          roughness={0.25}
-          metalness={0.1}
+          roughness={blueRiverTex ? SCRATCHED_ROUGHNESS : 0.25}
+          metalness={blueRiverTex ? SCRATCHED_METALNESS : 0.1}
         />
       </mesh>
       {/* The river is a named place (regionAt returns it), so it gets
@@ -213,25 +243,33 @@ function Gates() {
 }
 
 function Center() {
+  // GREEN SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the stepped
+  // pyramid's TIERS only — the fallback is each tier's own stone
+  // colour. The gold cap and the dark doorway stay exactly as they
+  // were: they are not tiers.
+  const tier1Mat = useScratchedMaterial('green', { color: '#5a4632', roughness: 0.9 });
+  const tier2Mat = useScratchedMaterial('green', { color: '#7a6248', roughness: 0.9 });
+  const tier3Mat = useScratchedMaterial('green', { color: '#8a7054', roughness: 0.9 });
+  const tier4Mat = useScratchedMaterial('green', { color: '#9c8262', roughness: 0.9 });
   // A stepped pyramid: three tiers, a gold cap, a bright heart.
   return (
     <group position={[TEMPLE.x, 0, TEMPLE.z]}>
       <pointLight position={[0, 24, 14]} color="#34d399" intensity={90} distance={130} />
       <mesh position={[0, 1, 0]}>
         <cylinderGeometry args={[19, 21, 2, 4]} />
-        <meshStandardMaterial color="#5a4632" roughness={0.9} />
+        <meshStandardMaterial {...tier1Mat} />
       </mesh>
       <mesh position={[0, 5, 0]} rotation={[0, Math.PI / 4, 0]}>
         <boxGeometry args={[24, 6, 24]} />
-        <meshStandardMaterial color="#7a6248" roughness={0.9} />
+        <meshStandardMaterial {...tier2Mat} />
       </mesh>
       <mesh position={[0, 10, 0]} rotation={[0, Math.PI / 4, 0]}>
         <boxGeometry args={[17, 5, 17]} />
-        <meshStandardMaterial color="#8a7054" roughness={0.9} />
+        <meshStandardMaterial {...tier3Mat} />
       </mesh>
       <mesh position={[0, 14.5, 0]} rotation={[0, Math.PI / 4, 0]}>
         <boxGeometry args={[10, 5, 10]} />
-        <meshStandardMaterial color="#9c8262" roughness={0.9} />
+        <meshStandardMaterial {...tier4Mat} />
       </mesh>
       <mesh position={[0, 19, 0]}>
         <coneGeometry args={[3.5, 5, 4]} />
@@ -367,6 +405,7 @@ function NorthRegion({pits, drifters, reduced}) {
 }
 
 function PortalArches() {
+  const archMat = useGoldArchMaterial({ color: STONE, roughness: 0.9 });
   return (
     <group>
       {PORTALS.map((p) => (
@@ -378,12 +417,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

@@ -14,6 +14,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import {
   ASCENT_PORTAL,
@@ -390,6 +391,7 @@ function NorthRegion({pits, drift, reduced}) {
 }
 
 function PortalArches() {
+  const archMat = useGoldArchMaterial({ color: STONE, roughness: 0.9 });
   return (
     <group>
       {PORTALS.map((p) => (
@@ -401,12 +403,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />

@@ -5,14 +5,18 @@
 // the page shell stays lean. Bright higher realm: sunlight and
 // glow-lanterns, not fire. Patterns follow app/nether-realm/world3d.js:
 // Canvas + useSceneContextGuard, Html labels from drei, touch UI
-// detected via maxTouchPoints, plain English everywhere. No game
-// mechanics in the base shell — the arches only navigate.
+// detected via maxTouchPoints, plain English everywhere. The arches
+// navigate; the Peach Gardens' peaches are pickable (Merlin,
+// 2026-11-15) — the garden's first mechanic, via lib/tiangong/
+// peaches.js and the page's Pick button.
 
 import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
 import { getParticleTexture } from '@/lib/particles/sprites';
+import { PEACH_PICK_RANGE_M } from '@/lib/tiangong/peaches';
 import {
   ENTRY_PORTAL,
   GATES,
@@ -256,9 +260,10 @@ function Center() {
 }
 
 
-function WestRegion({stones, drifters, reduced}) {
+function WestRegion({stones, drifters, reduced, peaches = []}) {
   const westDrifters = useMemo(() => drifters.filter((s) => s.id.startsWith('w')), [drifters]);
   const driftRefs = useRef([]);
+  const peachGroupRef = useRef(null);
   useFrame((state) => {
     if (reduced) return;
     const t = state.clock.elapsedTime;
@@ -266,6 +271,15 @@ function WestRegion({stones, drifters, reduced}) {
       if (!m) return;
       m.position.y = 1.4 + Math.sin(t * westDrifters[i].slow + i * 1.7) * 0.45;
     });
+    // Peaches bob gently, each on its own phase (from its spot,
+    // so a picked peach never steals another's rhythm).
+    const pg = peachGroupRef.current;
+    if (pg) {
+      pg.children.forEach((child) => {
+        const phase = child.userData ? Number(child.userData.phase) || 0 : 0;
+        child.position.y = 1.2 + Math.sin(t * 1.2 + phase) * 0.15;
+      });
+    }
   });
   return (
     <group>
@@ -289,6 +303,26 @@ function WestRegion({stones, drifters, reduced}) {
           <meshStandardMaterial color="#ffffff" transparent opacity={0.6} roughness={0.6} />
         </mesh>
       ))}
+      {/* PEACHES (Merlin, 2026-11-15): the garden's standing
+          peaches — warm round fruit with a leaf, bobbing gently
+          like the drifters so they read as alive, not furniture.
+          A picked peach leaves the garden until it regrows (a
+          day — lib/tiangong/peaches.js); the page owns the state
+          and passes only the standing ones down. */}
+      <group ref={peachGroupRef}>
+        {peaches.map((p) => (
+          <group key={p.id} position={[p.x, 1.2, p.z]} userData={{ phase: (p.x * 0.7 + p.z) % 6 }}>
+            <mesh>
+              <sphereGeometry args={[0.5, 20, 16]} />
+              <meshStandardMaterial color="#ff9e6b" emissive="#ff6b35" emissiveIntensity={0.35} roughness={0.55} />
+            </mesh>
+            <mesh position={[0.12, 0.5, 0]} rotation={[0, 0, -0.5]}>
+              <boxGeometry args={[0.34, 0.05, 0.2]} />
+              <meshStandardMaterial color={LEAF} roughness={0.8} />
+            </mesh>
+          </group>
+        ))}
+      </group>
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Peach Gardens
       </Html>
@@ -374,6 +408,7 @@ function NorthRegion({pits, drifters, reduced}) {
 }
 
 function PortalArches() {
+  const archMat = useGoldArchMaterial({ color: STONE, roughness: 0.9 });
   return (
     <group>
       {PORTALS.map((p) => (
@@ -385,12 +420,12 @@ function PortalArches() {
           {[-3.2, 3.2].map((x) => (
             <mesh key={x} position={[x, 4, 0]}>
               <boxGeometry args={[1.2, 8, 1.2]} />
-              <meshStandardMaterial color={STONE} roughness={0.9} />
+              <meshStandardMaterial {...archMat} />
             </mesh>
           ))}
           <mesh position={[0, 8.4, 0]}>
             <boxGeometry args={[8.4, 1.2, 1.2]} />
-            <meshStandardMaterial color={STONE} roughness={0.9} />
+            <meshStandardMaterial {...archMat} />
           </mesh>
           <mesh position={[0, 3.6, 0.1]}>
             <circleGeometry args={[2.6, 24]} />
@@ -582,11 +617,13 @@ function CloudMotes({reduced}) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, peaches = [], onPeachNearby}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
   const lastRegionRef = useRef('');
+  const lastPeachRef = useRef(null);
+  const lastPeachCheckRef = useRef(0);
 
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 0.05);
@@ -640,6 +677,26 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
     } else {
       travelingRef.current = false;
     }
+
+    // PEACHES (Merlin, 2026-11-15): the nearest standing peach
+    // within reach offers itself — checked twice a second, and
+    // the page is told only when the nearest peach changes, so
+    // the Pick button appears and vanishes without re-render
+    // churn. The page owns the pick (backpack landing + regrow).
+    if (onPeachNearby && now - lastPeachCheckRef.current > 500) {
+      lastPeachCheckRef.current = now;
+      let best = null;
+      let bestD = Infinity;
+      for (const p of peaches) {
+        const d = Math.hypot(p.x - player.x, p.z - player.z);
+        if (d <= PEACH_PICK_RANGE_M && d < bestD) { best = p; bestD = d; }
+      }
+      const bestId = best ? best.id : null;
+      if (bestId !== lastPeachRef.current) {
+        lastPeachRef.current = bestId;
+        onPeachNearby(best);
+      }
+    }
   });
 
   return null;
@@ -647,7 +704,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
 
 // --- the whole scene ---------------------------------------------------------
 
-export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced, peaches = [], onPeachNearby}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -658,7 +715,7 @@ export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced}
       <Bridge />
       <Gates />
       <Center />
-      <WestRegion stones={world.westStones} drifters={world.drifters} reduced={reduced} />
+      <WestRegion stones={world.westStones} drifters={world.drifters} reduced={reduced} peaches={peaches} />
       <EastRegion pillars={world.eastPillars}  drifters={world.drifters}/>
       <NorthRegion pits={world.northPits} drifters={world.drifters} reduced={reduced} />
       <PortalArches />
@@ -671,6 +728,8 @@ export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced}
         onPortal={onPortal}
         onRegion={onRegion}
         reduced={reduced}
+        peaches={peaches}
+        onPeachNearby={onPeachNearby}
       />
     </>
   );

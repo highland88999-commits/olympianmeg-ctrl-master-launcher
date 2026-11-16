@@ -12,6 +12,7 @@ import { TouchControls } from '@/components/mars/MarsScene';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { mars2DayFactor, outpostSite, WORLD_RADIUS, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
 import { materialForHardware } from '@/lib/mars2/textures';
+import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { thuleWindAt, makeSandField, updateSandField, windCompass } from '@/lib/mars2/weather';
 import {
   WALK_SPEED_MPS, ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
@@ -274,6 +275,28 @@ function Mars2Stars({ profile, opacity }) {
 // mast. Labelled, so the walker spawns looking at somewhere to
 // drive to. Layout and positions are exactly as built — texture
 // only, no geometry moves.
+// RED SCRATCHED-METAL WRAP (Merlin, 2026-11-15): the domes, the
+// connector tube and the mast wear red scratched metal (see the
+// useScratchedMaterial calls in Outpost below). The pad, its ring,
+// the beacon and the solar panels keep their own materials — a
+// deck, a marker, a light and PV cells are not metal hardware.
+
+// Fallback props for a scratched wrap: the structure's exact existing
+// procedural material (map + bump + roughness + metalness), so the
+// surface wears what it wore before until the red texture lands.
+// Every materialForHardware call site in this file tints white, so
+// the fallback colour is '#ffffff' — the exact tint in use.
+function scratchedFallback(mat) {
+  return {
+    map: mat.map,
+    bumpMap: mat.bumpMap,
+    bumpScale: mat.bumpScale,
+    roughness: mat.roughness,
+    metalness: mat.metalness,
+    color: '#ffffff',
+  };
+}
+
 function Outpost({ profile }) {
   const site = useMemo(() => outpostSite(profile), [profile]);
   const mats = useMemo(() => ({
@@ -284,17 +307,27 @@ function Outpost({ profile }) {
     mast: materialForHardware('brushedMetal', profile.seed),
     solar: materialForHardware('solarCells', profile.seed),
   }), [profile]);
+  // Red scratched metal on the domes, the connector tube and the
+  // mast; the fallback in each call is that part's exact existing
+  // procedural material, so a surface never goes blank.
+  const redDome = useScratchedMaterial('red', scratchedFallback(mats.dome));
+  const redHull = useScratchedMaterial('red', scratchedFallback(mats.hull));
+  const redTube = useScratchedMaterial('red', scratchedFallback(mats.tube));
+  const redMast = useScratchedMaterial('red', scratchedFallback(mats.mast));
   return (
     <group position={[site.x, site.y, site.z]} rotation={[0, site.angle, 0]}>
       {/* habitat domes */}
-      <mesh position={[-4, 0, 0]} material={mats.dome}>
+      <mesh position={[-4, 0, 0]}>
+        <meshStandardMaterial {...redDome} />
         <sphereGeometry args={[3.2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
       </mesh>
-      <mesh position={[4, 0, 0]} material={mats.hull}>
+      <mesh position={[4, 0, 0]}>
+        <meshStandardMaterial {...redHull} />
         <sphereGeometry args={[2.4, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
       </mesh>
       {/* connector tube between domes */}
-      <mesh position={[0, 0.9, 0]} rotation={[0, 0, Math.PI / 2]} material={mats.tube}>
+      <mesh position={[0, 0.9, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <meshStandardMaterial {...redTube} />
         <cylinderGeometry args={[0.9, 0.9, 5.4, 16]} />
       </mesh>
       {/* landing pad + ring */}
@@ -306,7 +339,8 @@ function Outpost({ profile }) {
         <meshBasicMaterial color="#ffb37a" side={THREE.DoubleSide} transparent opacity={0.8} />
       </mesh>
       {/* comms mast + beacon */}
-      <mesh position={[-7.5, 3.5, -3]} material={mats.mast}>
+      <mesh position={[-7.5, 3.5, -3]}>
+        <meshStandardMaterial {...redMast} />
         <cylinderGeometry args={[0.08, 0.12, 7, 8]} />
       </mesh>
       <mesh position={[-7.5, 7.2, -3]}>
@@ -359,6 +393,15 @@ function RoverModel({ roverRef }) {
     dish: materialForHardware('hullGrey', 'MARS-2', '#ffffff', { side: THREE.DoubleSide }),
     tread: materialForHardware('wheelTread', 'MARS-2'),
   }), []);
+  // RED SCRATCHED-METAL WRAP (Merlin, 2026-11-15): hull, deck,
+  // RTG, mast, camera head, dish, dish post, wheel hubs and
+  // rocker arms wear red scratched metal; the fallback in each
+  // call is that part's exact existing procedural material, so a
+  // surface never goes blank. Rubber treads, camera lenses and
+  // headlights keep their own materials.
+  const redHull = useScratchedMaterial('red', scratchedFallback(mats.hull));
+  const redMetal = useScratchedMaterial('red', scratchedFallback(mats.metal));
+  const redDish = useScratchedMaterial('red', scratchedFallback(mats.dish));
   useFrame(() => {
     const g = groupRef.current;
     const rover = roverRef.current;
@@ -377,21 +420,26 @@ function RoverModel({ roverRef }) {
   return (
     <group ref={groupRef} visible={false}>
       {/* chassis + deck */}
-      <mesh position={[0, 0.78, 0]} material={mats.hull}>
+      <mesh position={[0, 0.78, 0]}>
+        <meshStandardMaterial {...redHull} />
         <boxGeometry args={[1.7, 0.42, 2.9]} />
       </mesh>
-      <mesh position={[0, 1.08, 0.3]} material={mats.metal}>
+      <mesh position={[0, 1.08, 0.3]}>
+        <meshStandardMaterial {...redMetal} />
         <boxGeometry args={[1.3, 0.22, 1.9]} />
       </mesh>
       {/* RTG at the rear */}
-      <mesh position={[0, 1.05, 1.35]} rotation={[Math.PI / 2, 0, 0]} material={mats.metal}>
+      <mesh position={[0, 1.05, 1.35]} rotation={[Math.PI / 2, 0, 0]}>
+        <meshStandardMaterial {...redMetal} />
         <cylinderGeometry args={[0.22, 0.22, 0.7, 16]} />
       </mesh>
       {/* camera mast + head, up front */}
-      <mesh position={[-0.45, 1.65, -1.15]} material={mats.metal}>
+      <mesh position={[-0.45, 1.65, -1.15]}>
+        <meshStandardMaterial {...redMetal} />
         <cylinderGeometry args={[0.05, 0.07, 1.1, 8]} />
       </mesh>
-      <mesh position={[-0.45, 2.25, -1.15]} material={mats.hull}>
+      <mesh position={[-0.45, 2.25, -1.15]}>
+        <meshStandardMaterial {...redHull} />
         <boxGeometry args={[0.55, 0.2, 0.22]} />
       </mesh>
       <mesh position={[-0.62, 2.25, -1.28]} rotation={[Math.PI / 2, 0, 0]}>
@@ -403,10 +451,12 @@ function RoverModel({ roverRef }) {
         <meshBasicMaterial color="#111418" />
       </mesh>
       {/* high-gain antenna dish, rear deck */}
-      <mesh position={[0.45, 1.35, 1.0]} rotation={[0.5, 0, 0]} material={mats.dish}>
+      <mesh position={[0.45, 1.35, 1.0]} rotation={[0.5, 0, 0]}>
+        <meshStandardMaterial {...redDish} side={THREE.DoubleSide} />
         <coneGeometry args={[0.42, 0.22, 24, 1, true]} />
       </mesh>
-      <mesh position={[0.45, 1.2, 1.0]} material={mats.metal}>
+      <mesh position={[0.45, 1.2, 1.0]}>
+        <meshStandardMaterial {...redMetal} />
         <cylinderGeometry args={[0.03, 0.03, 0.35, 8]} />
       </mesh>
       {/* headlights */}
@@ -426,12 +476,14 @@ function RoverModel({ roverRef }) {
             <mesh rotation={[0, 0, Math.PI / 2]} material={mats.tread}>
               <cylinderGeometry args={[ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_RADIUS_M, 0.3, 20]} />
             </mesh>
-            <mesh rotation={[0, 0, Math.PI / 2]} material={mats.metal}>
+            <mesh rotation={[0, 0, Math.PI / 2]}>
+              <meshStandardMaterial {...redMetal} />
               <cylinderGeometry args={[0.2, 0.2, 0.32, 12]} />
             </mesh>
           </group>
           {/* rocker arm up to the chassis */}
-          <mesh position={[(spot.x < 0 ? 0.35 : -0.35), 0.32, 0]} rotation={[0, 0, spot.x < 0 ? -0.5 : 0.5]} material={mats.metal}>
+          <mesh position={[(spot.x < 0 ? 0.35 : -0.35), 0.32, 0]} rotation={[0, 0, spot.x < 0 ? -0.5 : 0.5]}>
+            <meshStandardMaterial {...redMetal} />
             <boxGeometry args={[0.7, 0.08, 0.12]} />
           </mesh>
         </group>
