@@ -44,6 +44,7 @@ function timeString(t) {
 
 export default function Mars2Page() {
   const inputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
+  const jumpRef = useRef(false);
   const [time, setTime] = useState(0.32);
   // Day/night (Merlin, 2026-11-14): the clock runs on REAL time
   // by default — the shared law's timeOfDay01 for the walker's
@@ -156,7 +157,25 @@ export default function Mars2Page() {
           inputRef={inputRef}
           roverCmd={roverCmd}
           onRoverChange={setRover}
+          jumpRef={jumpRef}
         />
+        {/* Jump (Merlin, Nov 15, 2026 — same gravity logic as the
+            Moon): walk mode only — the rover has no jump. Bottom-
+            right, the Moon's button, Mars colours. */}
+        {mode === 'walk' && (
+          <button
+            aria-label="Jump"
+            onPointerDown={() => { jumpRef.current = true; }}
+            style={{
+              position: 'absolute', right: 12, bottom: 12, zIndex: 6,
+              width: 76, height: 76, borderRadius: '50%',
+              border: '2px solid #e07840', background: 'rgba(224,120,64,0.25)',
+              color: '#ffa658', fontWeight: 800, fontSize: 15, cursor: 'pointer', touchAction: 'none',
+            }}
+          >
+            JUMP
+          </button>
+        )}
         <div className="roverbar" aria-live="polite">
           {rover.active ? (
             <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h — stick / WASD to drive</span>

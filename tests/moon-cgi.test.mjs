@@ -293,7 +293,7 @@ describe('flag photos (Omega cloth, gold pole)', () => {
   });
 });
 
-describe('clicking Earth opens the Earth menu', () => {
+describe('clicking Earth lands on Earth on foot (Merlin, Nov 15, 2026 — planet-hopping)', () => {
   it('the Moon-sky Earth mesh is clickable with a pointer cursor', () => {
     assert.ok(moonSceneSrc.includes('onEarthClick'), 'EarthInSky takes an onEarthClick prop');
     assert.ok(moonSceneSrc.includes('onClick: (e) => { e.stopPropagation(); onEarthClick(); }'), 'clicking Earth fires the callback');
@@ -301,9 +301,10 @@ describe('clicking Earth opens the Earth menu', () => {
     assert.ok(moonSceneSrc.includes('<EarthInSky onEarthClick={onEarthClick} />'), 'the scene passes the callback into the sky Earth');
   });
 
-  it('the Moon page rides the vortex home with the chooser deep link', () => {
-    assert.ok(moonPageSrc.includes("travel('/?enter=earth', 'Earth')"), 'the Earth click travels to /?enter=earth via the vortex');
-    assert.ok(moonPageSrc.includes('onEarthClick={goEarthMenu}'), 'the page passes the Earth-menu trip into the scene');
+  it('the Moon page hops straight to the Earth walk — no menu, no hub detour', () => {
+    assert.ok(moonPageSrc.includes("travel('/earth-walk', 'Earth')"), 'the Earth click travels to /earth-walk via the vortex');
+    assert.ok(moonPageSrc.includes('onEarthClick={goEarthWalk}'), 'the page passes the Earth-walk trip into the scene');
+    assert.ok(!moonPageSrc.includes("travel('/?enter=earth'"), 'the Moon page no longer detours through the Earth menu');
   });
 
   it('the hub opens its Earth chooser on ?enter=earth — no new param, no hub change', () => {

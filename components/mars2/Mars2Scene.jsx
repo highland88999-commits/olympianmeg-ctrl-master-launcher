@@ -15,9 +15,17 @@ import { materialForHardware } from '@/lib/mars2/textures';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { thuleWindAt, makeSandField, updateSandField, windCompass } from '@/lib/mars2/weather';
 import {
-  WALK_SPEED_MPS, ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
+  ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
   summonRover, updateRover, dismountRover, roverSpeedKmh,
 } from '@/lib/mars2/rovers';
+// The shared planet walker (Merlin, Nov 15, 2026 — the same
+// gravity logic on every planet): Mars 2's walk runs on it now —
+// real Mars gravity (3.71 m/s²) with the shared 3.0 m/s take-off,
+// so the jump here arcs 1.21 m and hangs 1.62 s. Walk speed stays
+// the world's own 3 m/s (WALK_SPEED_MPS, via the planet bundle).
+import { stepFlatWalker, planetParams } from '@/lib/planet-walker';
+
+const MARS_PLANET = planetParams('mars');
 
 // MARS 2 — the successor world (Merlin, Nov 15, 2026). One-word
 // spec: ROVERS. Same seeded Mars engine as Mars 1 (fixed seed
@@ -500,11 +508,14 @@ function RoverModel({ roverRef }) {
 
 // --- walk + drive rig ----------------------------------------------------------
 // Walk: first-person, drag to look, stick/WASD, eye 1.7 m over the
-// terrain, 3 m/s. Drive: the same keys drive the rover (fwd/back
+// terrain, 3 m/s — now on the shared flat walker (lib/planet-walker.js)
+// under real Mars gravity (3.71 m/s²): the eye rides the terrain on
+// foot and arcs under Mars gravity in the air (Space or the page's
+// JUMP button). Drive: the same keys drive the rover (fwd/back
 // throttle, left/right steer) and the camera chases 7.5 m behind
 // it; drag swings the chase angle. Dismount puts the walker back
 // on foot beside the rover, facing the same way.
-function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, roverRef, onRoverChange }) {
+function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, roverRef, onRoverChange, jumpRef }) {
   const { camera, gl } = useThree();
   const dragging = useRef(false);
   const last = useRef([0, 0]);
@@ -512,6 +523,21 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const lastTelemetry = useRef(0);
+  const jumpQueued = useRef(false);
+  const vyRef = useRef(0);
+  const groundedRef = useRef(true);
+
+  // Space jumps — walk mode only (the rover has no jump).
+  useEffect(() => {
+    const down = (e) => {
+      if (e.code === 'Space' && !e.repeat && modeRef.current === 'walk') {
+        jumpQueued.current = true;
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, []);
 
   useEffect(() => {
     camera.rotation.order = 'YXZ';
@@ -578,7 +604,10 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
       camera.position.set(bx, rover.y + 3.4, bz);
       camera.lookAt(rover.x, rover.y + 1.1, rover.z);
       // The walker rides with the rover, so dismount starts here.
+      // A dismount never resumes a stale mid-air state.
       walkerRef.current.set(rover.x, rover.y + EYE_HEIGHT, rover.z);
+      vyRef.current = 0;
+      groundedRef.current = true;
       yawRef.current = rover.heading;
       const now = state.clock.elapsedTime;
       if (now - lastTelemetry.current > 0.25) {
@@ -590,14 +619,28 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     // Walk (also the fallback if drive was asked for with no rover).
     const fwd = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
     const strafe = (k.right ? 1 : 0) - (k.left ? 1 : 0);
-    const sin = Math.sin(yawRef.current);
-    const cos = Math.cos(yawRef.current);
+    // The JUMP button (page HUD) arms the same edge as the Space key.
+    if (jumpRef && jumpRef.current) {
+      jumpQueued.current = true;
+      jumpRef.current = false;
+    }
     const p = walkerRef.current;
-    p.x += (-sin * fwd + cos * strafe) * WALK_SPEED_MPS * dt;
-    p.z += (-cos * fwd - sin * strafe) * WALK_SPEED_MPS * dt;
+    // Mars gravity (3.71 m/s²) on the shared flat walker: the eye
+    // rides the terrain on foot and arcs under real Mars gravity
+    // in the air (1.21 m apex, 1.62 s hang at the shared take-off).
+    const next = stepFlatWalker(
+      { pos: { x: p.x, y: p.y, z: p.z }, vy: vyRef.current, grounded: groundedRef.current },
+      { fwd, strafe, jump: jumpQueued.current, yaw: yawRef.current },
+      dt,
+      MARS_PLANET,
+      groundHeight
+    );
+    jumpQueued.current = false;
+    vyRef.current = next.vy;
+    groundedRef.current = next.grounded;
+    p.set(next.pos.x, next.pos.y, next.pos.z);
     const r = Math.hypot(p.x, p.z);
     if (r > WORLD_RADIUS) { p.x *= WORLD_RADIUS / r; p.z *= WORLD_RADIUS / r; }
-    p.y = groundHeight(p.x, p.z) + EYE_HEIGHT;
     camera.position.copy(p);
     camera.rotation.set(pitchRef.current, yawRef.current, 0);
   });
@@ -605,7 +648,7 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
 }
 
 // --- scene composition ---------------------------------------------------------
-function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange }) {
+function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef }) {
   const orbitRef = useRef();
   const walkerRef = useRef(new THREE.Vector3(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z));
   const yawRef = useRef(0.6);
@@ -662,7 +705,7 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
         <WalkerRig
           inputRef={inputRef} mode={mode} groundHeight={groundHeight}
           walkerRef={walkerRef} yawRef={yawRef} pitchRef={pitchRef}
-          roverRef={roverRef} onRoverChange={onRoverChange}
+          roverRef={roverRef} onRoverChange={onRoverChange} jumpRef={jumpRef}
         />
       )}
     </>
@@ -693,7 +736,7 @@ function ThuleWindPill() {
 
 export default function Mars2Scene({
   profile, worldKey, timeOfDay = 0.32, mode = 'orbit',
-  inputRef, roverCmd, onRoverChange,
+  inputRef, roverCmd, onRoverChange, jumpRef,
 }) {
   useKeys(inputRef);
   const [ready, setReady] = useState(false);
@@ -709,7 +752,7 @@ export default function Mars2Scene({
         <SceneContent
           key={worldKey || profile.seed}
           profile={profile} timeOfDay={timeOfDay} mode={mode}
-          inputRef={inputRef} roverCmd={roverCmd} onRoverChange={onRoverChange}
+          inputRef={inputRef} roverCmd={roverCmd} onRoverChange={onRoverChange} jumpRef={jumpRef}
         />
       </Canvas>
       {!ready && (
@@ -725,7 +768,7 @@ export default function Mars2Scene({
           background: 'rgba(0,0,0,0.35)', padding: '6px 14px', borderRadius: 8,
           pointerEvents: 'none', whiteSpace: 'nowrap',
         }}>
-          {mode === 'walk' ? 'STICK / WASD MOVE · DRAG LOOK' : 'STICK / WASD DRIVE · DRAG TO SWING CAMERA'}
+          {mode === 'walk' ? 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP' : 'STICK / WASD DRIVE · DRAG TO SWING CAMERA'}
         </div>
       )}
       <ThuleWindPill />

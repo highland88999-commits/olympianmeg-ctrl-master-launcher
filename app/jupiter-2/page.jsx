@@ -37,6 +37,7 @@ function timeString(t) {
 
 export default function Jupiter2Page() {
   const inputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false, boost: false } });
+  const jumpRef = useRef(false);
   const [time, setTime] = useState(0.32);
   // Day/night (the shared law, same as Mars): the clock runs on REAL
   // time by default — timeOfDay01 for the walker's place (real
@@ -144,7 +145,27 @@ export default function Jupiter2Page() {
           inputRef={inputRef}
           onSelect={select}
           selectedId={selected ? selected.id : null}
+          jumpRef={jumpRef}
         />
+        {/* Jump (Merlin, Nov 15, 2026 — same gravity logic as the
+            Moon): walk mode only, hidden while a creature panel is
+            open (the panel owns the bottom of the stage). A press
+            while riding is swallowed by the scene. Bottom-right,
+            the Moon's button, Jupiter colours. */}
+        {mode === 'walk' && !selected && (
+          <button
+            aria-label="Jump"
+            onPointerDown={() => { jumpRef.current = true; }}
+            style={{
+              position: 'absolute', right: 12, bottom: 12, zIndex: 6,
+              width: 76, height: 76, borderRadius: '50%',
+              border: '2px solid #e8a35c', background: 'rgba(232,163,92,0.25)',
+              color: '#e8a35c', fontWeight: 800, fontSize: 15, cursor: 'pointer', touchAction: 'none',
+            }}
+          >
+            JUMP
+          </button>
+        )}
         {selected && (
           <div className="panel" role="dialog" aria-label={selected.name}>
             <h2>{selected.name}</h2>

@@ -211,12 +211,12 @@ function EarthInSky({ onEarthClick }) {
     if (earthRef.current) earthRef.current.rotation.y = spinAngle(MOON_EARTH_SPIN_RATE, now);
     if (cloudRef.current) cloudRef.current.rotation.y = cloudDriftAngle(MOON_EARTH_SPIN_RATE, now);
   });
-  // Clicking Earth brings the user to the Earth menu (Merlin, Nov 15,
-  // 2026): the hub's Earth chooser (Earth 1/2/3/4), via the existing
-  // ?enter=earth deep link — no new hub param, no hub change. The
-  // handlers ride the group so the whole visible disc (surface +
-  // clouds + rim) is clickable; the cursor follows the hub's
-  // PlanetBody pattern (HomeScene: pointer = 'pointer' on hover).
+  // Clicking Earth lands on it on foot (Merlin, Nov 15,
+  // 2026): the hop is a plain route change to the Earth walk —
+  // no hub detour, no menu. The handlers ride the group so the
+  // whole visible disc (surface + clouds + rim) is clickable;
+  // the cursor follows the hub's PlanetBody pattern (HomeScene:
+  // pointer = 'pointer' on hover).
   const earthClick = onEarthClick
     ? {
         onClick: (e) => { e.stopPropagation(); onEarthClick(); },
@@ -478,7 +478,7 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
 
       {/* Earth hanging in the sky, hub scene scale (r55 at 180) —
           CGI now: turning surface, drifting clouds, faint rim.
-          Click it and the Earth menu opens (see EarthInSky). */}
+          Click it and you land on Earth on foot (see EarthInSky). */}
       <EarthInSky onEarthClick={onEarthClick} />
       <Billboard position={[EARTH_POS.x, EARTH_POS.y + EARTH_RADIUS + 22, EARTH_POS.z]}>
         <VanGoghText fontSize={9} color="#cfe8ff" anchorX="center" anchorY="middle" outlineWidth={0.4} outlineColor="#000000">

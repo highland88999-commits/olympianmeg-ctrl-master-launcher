@@ -7,7 +7,7 @@ import { planetMaps, spotSwirlTexture, cloudLayerTexture } from '@/lib/planet-cg
 import { makeDustField, updateDustField, bandFlowOffset, spinAngle, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import {
-  JUPITER2_SEED, WALK_SPEED, MOVE_R, EYE_HEIGHT,
+  JUPITER2_SEED, MOVE_R, EYE_HEIGHT,
   LEVER_POSITION, DEMOBAT_COUNT, groundHeight, jupiter2Sky,
 } from '@/lib/jupiter2/profile';
 import {
@@ -16,6 +16,15 @@ import {
 import { instantiateHawkins } from '@/lib/hawkins/loader';
 import { hawkinsModel } from '@/lib/hawkins/models';
 import { kickOffGlb } from '@/app/hollow-earth/model-loader';
+// The shared planet walker (Merlin, Nov 15, 2026 — the same
+// gravity logic on every planet): Jupiter 2's walk runs on it now —
+// real Jupiter gravity (24.79 m/s²) with the shared 3.0 m/s
+// take-off, so the jump here is barely a hop (0.18 m apex,
+// 0.24 s hang). Honest real gravity, NOT buffed. Walk speed stays
+// the world's own 6 m/s (via the planet bundle).
+import { stepFlatWalker, planetParams } from '@/lib/planet-walker';
+
+const JUPITER_PLANET = planetParams('jupiter');
 import {
   createSpeederState, summonSpeeder, dismissSpeeder, dismountSpeeder, stepSpeeder, SPEEDER_SPEED,
   SPEEDER_MOUNTED_EYE_M,
@@ -79,7 +88,10 @@ function useKeys(inputRef) {
 // When the speeder is mounted the rig rides it — yaw follows the
 // craft, eye sits SPEEDER_MOUNTED_EYE_M up; dismount drops the walker
 // back on foot exactly where the craft was (the speeder vanishes, Earth 1 law).
-function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange }) {
+// On foot the walk runs on the shared flat walker (lib/planet-walker.js)
+// under real Jupiter gravity (24.79 m/s²): Space or the page's JUMP
+// button hops (0.18 m — barely a hop, honest real gravity).
+function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange, jumpRef }) {
   const { camera, gl } = useThree();
   const yaw = useRef(0.6);
   const pitch = useRef(-0.05);
@@ -87,6 +99,9 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange }) {
   const dragging = useRef(false);
   const last = useRef([0, 0]);
   const wasMounted = useRef(false);
+  const jumpQueued = useRef(false);
+  const vyRef = useRef(0);
+  const groundedRef = useRef(true);
 
   useEffect(() => {
     camera.rotation.order = 'YXZ';
@@ -132,6 +147,19 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange }) {
     };
   }, [camera, gl]);
 
+  // Space jumps — on foot only. A press while riding is swallowed
+  // by the mounted branch below, so it never fires on dismount.
+  useEffect(() => {
+    const down = (e) => {
+      if (e.code === 'Space' && !e.repeat) {
+        jumpQueued.current = true;
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', down);
+    return () => window.removeEventListener('keydown', down);
+  }, []);
+
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
     const k = inputRef.current.keys;
@@ -140,10 +168,18 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange }) {
     if (mounted !== wasMounted.current) {
       wasMounted.current = mounted;
       if (mounted) yaw.current = sp.yaw;
-      else { pos.current.set(sp.x, groundHeight(sp.x, sp.z) + EYE_HEIGHT, sp.z); yaw.current = sp.yaw; }
+      else {
+        pos.current.set(sp.x, groundHeight(sp.x, sp.z) + EYE_HEIGHT, sp.z);
+        yaw.current = sp.yaw;
+        // A dismount never resumes a stale mid-air state.
+        vyRef.current = 0;
+        groundedRef.current = true;
+      }
       if (onRideChange) onRideChange(mounted);
     }
     if (mounted) {
+      // A Space press while riding is swallowed, never queued.
+      jumpQueued.current = false;
       stepSpeeder(sp, {
         fwd: k.fwd ? 1 : 0, back: k.back ? 1 : 0,
         left: k.left ? 1 : 0, right: k.right ? 1 : 0,
@@ -156,11 +192,26 @@ function FirstPerson({ inputRef, speederRef, walkerRef, onRideChange }) {
     } else {
       const fwd = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
       const strafe = (k.right ? 1 : 0) - (k.left ? 1 : 0);
-      const sin = Math.sin(yaw.current), cos = Math.cos(yaw.current);
+      // The JUMP button (page HUD) arms the same edge as the Space key.
+      if (jumpRef && jumpRef.current) {
+        jumpQueued.current = true;
+        jumpRef.current = false;
+      }
       const p = pos.current;
-      p.x += (-sin * fwd + cos * strafe) * WALK_SPEED * dt;
-      p.z += (-cos * fwd - sin * strafe) * WALK_SPEED * dt;
-      p.y = groundHeight(p.x, p.z) + EYE_HEIGHT;
+      // Jupiter gravity (24.79 m/s²) on the shared flat walker:
+      // the eye rides the deck on foot and hops under real Jupiter
+      // gravity in the air (0.18 m apex — barely a hop, honest).
+      const next = stepFlatWalker(
+        { pos: { x: p.x, y: p.y, z: p.z }, vy: vyRef.current, grounded: groundedRef.current },
+        { fwd, strafe, jump: jumpQueued.current, yaw: yaw.current },
+        dt,
+        JUPITER_PLANET,
+        groundHeight
+      );
+      jumpQueued.current = false;
+      vyRef.current = next.vy;
+      groundedRef.current = next.grounded;
+      p.set(next.pos.x, next.pos.y, next.pos.z);
       const r = Math.hypot(p.x, p.z);
       if (r > MOVE_R) { p.x *= MOVE_R / r; p.z *= MOVE_R / r; }
       // The walker pose lives here — summon reads it, so the
@@ -491,7 +542,7 @@ function Creatures({ onSelect }) {
 }
 
 // --- scene content -----------------------------------------------------------
-function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverStateRef, onSelect, selectedId, onRideChange, onLever }) {
+function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverStateRef, onSelect, selectedId, onRideChange, onLever, jumpRef }) {
   const sky = useMemo(() => jupiter2Sky(timeOfDay), [timeOfDay]);
   const groundGeo = useMemo(() => {
     const g = new THREE.PlaneGeometry(220, 220, 96, 96);
@@ -602,7 +653,7 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, leverS
           maxPolarAngle={Math.PI * 0.52} minDistance={5} maxDistance={170} target={[0, 6, 0]} />
       )}
       {mode !== 'orbit' && (
-        <FirstPerson inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} onRideChange={onRideChange} />
+        <FirstPerson inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} onRideChange={onRideChange} jumpRef={jumpRef} />
       )}
     </>
   );
@@ -614,7 +665,7 @@ export function Jupiter2RealmContent(props) {
 }
 
 export default function Jupiter2Scene({
-  timeOfDay = 0.32, mode = 'walk', inputRef, onSelect, selectedId,
+  timeOfDay = 0.32, mode = 'walk', inputRef, onSelect, selectedId, jumpRef,
 }) {
   const [ready, setReady] = useState(false);
   const speederRef = useRef(createSpeederState());
@@ -692,7 +743,7 @@ export default function Jupiter2Scene({
           timeOfDay={timeOfDay} mode={mode}
           inputRef={inputRef} speederRef={speederRef} walkerRef={walkerRef} leverStateRef={leverRef}
           onSelect={onSelect} selectedId={selectedId}
-          onRideChange={onRideChange} onLever={onLever}
+          onRideChange={onRideChange} onLever={onLever} jumpRef={jumpRef}
         />
       </Canvas>
       {!ready && (
@@ -708,7 +759,7 @@ export default function Jupiter2Scene({
           background: 'rgba(0,0,0,0.35)', padding: '6px 14px', borderRadius: 8,
           pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 5,
         }}>
-          {riding ? 'SPEEDER · STICK / WASD STEER · SHIFT / BOOST' : 'STICK / WASD MOVE · DRAG LOOK · B SUMMON SPEEDER'}
+          {riding ? 'SPEEDER · STICK / WASD STEER · SHIFT / BOOST' : 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP · B SUMMON SPEEDER'}
         </div>
       )}
       {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} />}

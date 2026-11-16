@@ -62,11 +62,10 @@ export default function MoonPage() {
 
   const goBack = useCallback(() => travel('/', 'Hub'), [travel]);
 
-  // Clicking Earth in the sky opens the Earth menu (Merlin, Nov 15,
-  // 2026): vortex ride home, landing with the hub's ?enter=earth
-  // deep link — the hub opens its Earth chooser (Earth 1/2/3/4) on
-  // arrival, exactly as if the Earth planet had been tapped there.
-  const goEarthMenu = useCallback(() => travel('/?enter=earth', 'Earth'), [travel]);
+  // Clicking Earth in the sky lands on it on foot (Merlin, Nov 15,
+  // 2026 — "you literally jump to the earth"): the hop is a plain
+  // route change to the Earth walk, no hub detour, no menu.
+  const goEarthWalk = useCallback(() => travel('/earth-walk', 'Earth'), [travel]);
 
   if (auth === 'checking') {
     return (
@@ -113,7 +112,7 @@ export default function MoonPage() {
         gl={{ antialias: true }}
         camera={{ position: spawnCam, fov: 60, near: 0.1, far: 1000 }}
       >
-        <MoonScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} onEarthClick={goEarthMenu} />
+        <MoonScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} onEarthClick={goEarthWalk} />
       </Canvas>
 
       <div
@@ -150,7 +149,7 @@ export default function MoonPage() {
           color: 'rgba(255,255,255,0.75)', fontSize: 12, textAlign: 'center', pointerEvents: 'none',
         }}
       >
-        Drag to look · WASD / arrows / stick to walk · Space or JUMP to bounce · Earth hangs ahead of you
+        Drag to look · WASD / arrows / stick to walk · Space or JUMP to bounce · Tap Earth to land on it
       </div>
 
       {/* The move stick, parked bottom-left in thumb reach, level
