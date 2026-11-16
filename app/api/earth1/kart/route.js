@@ -14,10 +14,11 @@
 //               the caller, returns { events }.
 //
 // Signed-in only (guests 401 -> the client count carries the
-// session). Until supabase/earth1-kart.sql runs (Merlin's SQL
-// green light still owed), both verbs answer 503 setupRequired —
-// nothing is fake-credited, and the scene falls back to the local
-// session count.
+// session). supabase/earth1-kart.sql RAN Nov 15 ~19:46 (Merlin's
+// green light, ~19:38), so grant/spend hit the real RPCs; if the
+// tables/functions are ever missing, both verbs answer 503
+// setupRequired — nothing is fake-credited, and the scene falls
+// back to the local session count.
 import { NextResponse } from 'next/server';
 import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';

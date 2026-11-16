@@ -3,9 +3,11 @@
 // flip-3x-explode, respawn-in-vehicle, bumper-car collisions
 // (hidden integrity meter), AI rivals, click-to-spawn math.
 //
-// Pins: 6,480,000 orbs (one per 0.1° cell, virtual + deterministic);
+// Pins: 259,200 orbs (one per 0.5° cell, virtual + deterministic);
 // one orb = exactly one missile; the missile wears its orb's colour
-// (scratched-metal wrap, deep-gold included); the HEAT-SEEKER lock
+// (its colour's VIDEO wrap — 6 colours, a rocket in the centre of
+// each video); the orb body is 1.4 m across, clearly smaller than
+// the smallest roster vehicle (a 2.2 m bike); the HEAT-SEEKER lock
 // rule — the missile ALWAYS tracks the CLOSEST vehicle TO THE
 // MISSILE ITSELF, re-evaluated continuously, retargeting on a
 // closer pass; torpedo hit = 3 flips then explosion; respawn is at
@@ -16,8 +18,15 @@
 //
 // Run: node tests/earth1-kart.test.mjs (from the repo root).
 import assert from 'node:assert';
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ORB_COUNT,
+  ORB_CELL_DEG,
+  ORB_RADIUS_M,
+  ORB_FLOAT_M,
+  ORB_BOB_M,
   ORB_TRIGGER_RADIUS_M,
   ORB_REARM_MS,
   ORB_COLORS,
@@ -61,7 +70,8 @@ import {
   stepRivals,
 } from '../lib/earth/kart.js';
 import { haversineM } from '../lib/earth/boost-pads.js';
-import { getVehicle } from '../lib/earth/vehicles.js';
+import { getVehicle, VEHICLES } from '../lib/earth/vehicles.js';
+import { ORB_VIDEO_URLS } from '../lib/earth/ground-video.js';
 import { latLonToVec3 } from '../lib/geo.js';
 import {
   GLOBE_CENTER,
@@ -70,7 +80,8 @@ import {
   globeWorldPointToLatLon,
 } from '../lib/earth/globe-click.js';
 import { SCRATCHED_TEXTURES } from '../lib/portal/scratched-textures.js';
-import { GOLD_TEXTURE_URL } from '../lib/portal/gold-texture.js';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 let passed = 0;
 let failed = 0;
@@ -87,28 +98,47 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 
 // --- Orbs: count, virtual + deterministic, one per cell ---
 {
-  eq('orb count is 6,480,000 (1800 × 3600 cells)', ORB_COUNT, 6480000);
-  const a = orbForCell(537, 665);
-  const b = orbForCell(537, 665);
+  eq('orb count is 259,200 (360 × 720 cells)', ORB_COUNT, 259200);
+  eq('orb cells are 0.5° (~55 km at the equator)', ORB_CELL_DEG, 0.5);
+  const a = orbForCell(107, 133);
+  const b = orbForCell(107, 133);
   t('same cell → identical orb', JSON.stringify(a) === JSON.stringify(b));
-  const c = orbForCell(537, 666);
+  const c = orbForCell(107, 134);
   t('neighbour cell → a different orb', c.lat !== a.lat || c.lon !== a.lon || c.color !== a.color);
-  t('orb lat sits inside its cell', a.lat >= -90 + 537 * 0.1 && a.lat < -90 + 538 * 0.1);
-  t('orb lon sits inside its cell', a.lon >= -180 + 665 * 0.1 && a.lon < -180 + 666 * 0.1);
-  t('orb colour is one of the 9 scratched-metal colours', ORB_COLORS.includes(a.color));
-  eq('9 orb colours (8 scratched + deep gold)', ORB_COLORS.length, 9);
+  t('orb lat sits inside its cell', a.lat >= -90 + 107 * 0.5 && a.lat < -90 + 108 * 0.5);
+  t('orb lon sits inside its cell', a.lon >= -180 + 133 * 0.5 && a.lon < -180 + 134 * 0.5);
+  t('orb colour is one of the 6 video colours', ORB_COLORS.includes(a.color));
+  eq('6 orb colours (the six most distinct scratched metals)',
+    ORB_COLORS.length, 6);
+  t('orb colours are exactly magenta/cyan/blue/red/green/purple',
+    JSON.stringify(ORB_COLORS) === JSON.stringify(['magenta', 'cyan', 'blue', 'red', 'green', 'purple']));
+  t('bright-gold, silver and deep-gold stay in the floor loop only',
+    !ORB_COLORS.includes('bright-gold') && !ORB_COLORS.includes('silver') && !ORB_COLORS.includes('deep-gold'));
   eq('orb cell lookup round-trips', orbCellFor(a.lat, a.lon).key, a.cellKey);
-  const nearList = orbsNear(53.5462, -113.4912, 12000);
-  t('orbsNear finds orbs within 12 km', nearList.length >= 1 && nearList.length <= 12);
+  const nearList = orbsNear(53.5462, -113.4912, 60000);
+  t('orbsNear finds orbs within 60 km', nearList.length >= 1 && nearList.length <= 12);
   for (const o of nearList) {
-    t('every returned orb is within range', haversineM(53.5462, -113.4912, o.lat, o.lon) <= 12000);
+    t('every returned orb is within range', haversineM(53.5462, -113.4912, o.lat, o.lon) <= 60000);
   }
+  // The trigger and the beam are unchanged by the resize.
+  eq('orb trigger radius stays 6 m', ORB_TRIGGER_RADIUS_M, 6);
+}
+
+// --- Orb size: clearly smaller than the smallest vehicle ---
+{
+  const smallest = Math.min(...VEHICLES.map((v) => v.lengthM));
+  eq('smallest roster vehicle is a 2.2 m bike', smallest, 2.2);
+  eq('orb radius is 0.7 m', ORB_RADIUS_M, 0.7);
+  t('orb diameter (1.4 m) is clearly smaller than the smallest vehicle (2.2 m)',
+    ORB_RADIUS_M * 2 < smallest);
+  eq('orb floats 1.2 m up, in the car\'s path', ORB_FLOAT_M, 1.2);
+  eq('orb bobs ±0.4 m around the float height', ORB_BOB_M, 0.4);
 }
 
 // --- One orb = exactly one missile; re-arm after 60 s ---
 {
   const state = createKartState();
-  const orb = orbForCell(537, 665);
+  const orb = orbForCell(107, 133);
   // Drive a short segment straight through the orb.
   const dLat = 0.00005; // ~5.5 m
   const drive = (nowMs) => collectOrbs(state, {
@@ -146,30 +176,32 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   eq('a pass 20 m off the orb misses', miss.collected.length, 0);
 }
 
-// --- Missile wears its orb's colour — including deep gold ---
+// --- Missile wears its orb's colour — the orb's VIDEO wrap ---
 {
-  // Find a deep-gold cell (colour index 8 in METAL_TILE_COLORS order).
-  let goldOrb = null;
-  for (let i = 0; i < 200 && !goldOrb; i++) {
-    const o = orbForCell(900 + i, 1800 + i);
-    if (o.color === 'deep-gold') goldOrb = o;
+  // Find a purple cell (one of the 6 video colours).
+  let purpleOrb = null;
+  for (let i = 0; i < 200 && !purpleOrb; i++) {
+    const o = orbForCell(100 + i, 200 + i);
+    if (o.color === 'purple') purpleOrb = o;
   }
-  t('a deep-gold orb exists in the virtual set', !!goldOrb);
+  t('a purple orb exists in the virtual set', !!purpleOrb);
   const state = createKartState();
   setKartClientId('test-driver');
-  collectPlayerMissile(state, goldOrb);
+  collectPlayerMissile(state, purpleOrb);
   const torp = fireTorpedo(state, {
-    lat: goldOrb.lat, lon: goldOrb.lon, yawDeg: 0, nowMs: 1000, vehicles: [],
+    lat: purpleOrb.lat, lon: purpleOrb.lon, yawDeg: 0, nowMs: 1000, vehicles: [],
   });
-  eq('the fired missile wears the deep-gold orb colour', torp.color, 'deep-gold');
-  // Every orb colour has a wrap: the 8 scratched textures, and
-  // deep gold is the archway gold texture.
+  eq('the fired missile wears the purple orb colour', torp.color, 'purple');
+  // Every orb colour has a VIDEO wrap on disk (6 videos, a
+  // rocket in the centre of each) — not a flat image.
   for (const color of ORB_COLORS) {
-    t(`orb colour ${color} has a wrap texture`,
-      color === 'deep-gold' ? typeof GOLD_TEXTURE_URL === 'string' && GOLD_TEXTURE_URL.length > 0
-        : !!SCRATCHED_TEXTURES[color]);
+    const url = ORB_VIDEO_URLS[color];
+    t(`orb colour ${color} has a video wrap (${url})`,
+      typeof url === 'string' && url === `/videos/earth1/orb-${color}.mp4`
+      && existsSync(join(ROOT, 'public', ...url.replace(/^\//, '').split('/'))));
   }
-  t('scratched textures cover 8 colours', Object.keys(SCRATCHED_TEXTURES).length, 8);
+  t('scratched textures cover 8 colours (the stills behind the videos)',
+    Object.keys(SCRATCHED_TEXTURES).length, 8);
   resetKartStateForTests();
   setKartClientId(null);
 }

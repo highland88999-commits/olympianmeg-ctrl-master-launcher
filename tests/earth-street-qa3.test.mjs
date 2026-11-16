@@ -116,7 +116,7 @@ clearStreetPatch();
 
 // --- Source contracts ---
 const nexus = read('../components/NexusEarth.jsx');
-check('lens: serialized progressive manager present', nexus.includes('pumpLensQueue') && nexus.includes('queueTexUpload') && nexus.includes('startLensBuild'));
+check('lens: serialized progressive manager present', nexus.includes('pumpLensQueue') && nexus.includes('onGroundVideoReady') && nexus.includes('startLensBuild'));
 check('lens: abandonment guard gone (old onload kill-switch)', !nexus.includes('if (!alive) return'));
 check('lens: pending queue on recenter', nexus.includes('mgr.pending = job'));
 check('globe: orbit water passed from NexusEarth', nexus.includes('waterInOrbit={!roaming}'));
@@ -158,7 +158,8 @@ check('console: aether-in-buildings line gone', !consoleSrc.includes('hidden ins
 check('console: aether poll gone', !consoleSrc.includes('aetherState'));
 
 const prompt = read('../components/EarthOblivionPrompt.jsx');
-check('prompt: exact wording', prompt.includes('Map this world to trigger Oblivion and unlock Earth 2') && prompt.includes('ancient giants still walk here'));
+check('prompt: exact wording', prompt.includes('Map this world — the ancient giants still walk here, waiting to be found'));
+check('prompt: no Oblivion trigger claim', !prompt.includes('Map this world to trigger Oblivion') && !prompt.includes('unlock Earth 2'));
 check('prompt: no franchise name', !prompt.includes('Jurassic'));
 check('prompt: street-level gate', prompt.includes("phase !== 'earth_roam'"));
 check('prompt: wrapper non-blocking, pill itself tappable', prompt.includes('pointer-events-none') && prompt.includes('pointer-events-auto') && prompt.includes('onClick'));

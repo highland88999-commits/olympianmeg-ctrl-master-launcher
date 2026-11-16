@@ -14,9 +14,14 @@
 //      draw, a setup fault, or a hung tile fetch used to hold a
 //      pool's busy flag forever — no later build in the session
 //      ever started ("new ground never paints"). The build now
-//      guards the canvas context, catches setup faults, settles
-//      tiles before painting, and force-finishes past Merlin's
-//      ~1-minute lag tolerance via a watchdog.
+//      guards its inputs, catches setup faults, finishes only
+//      once the video has data, and force-finishes past Merlin's
+//      ~1-minute lag tolerance via a watchdog. (Video era,
+//      2026-11-15: there is no canvas and no tile painting any
+//      more — the ground is one looping video, so the old
+//      canvas-context guard and the settle-before-paint rule
+//      became the missing-height-data guard, the missing-video
+//      guard, and the video-ready gate.)
 //   3. The crack glow pins live in tests/earth-cracks.test.mjs.
 //
 // Run: node tests/earth-street-polish.test.mjs (from the repo root).
@@ -99,21 +104,27 @@ check('local-ahead probe semantics (headless, via mapping-progress)', () => {
   assert.equal(unionInto(grown, localMore), true, 'union still grows the device record');
 });
 
-check('lens build guards the null canvas context', () => {
-  // The old guard checked the build context and height data but
-  // never the canvas context — a null ctx threw in the first
-  // tile onload before the settle count moved, wedging the pool.
-  assert.ok(nexus.includes('if (!hd || !ctx)'), 'null canvas context skips the build honestly');
+check('lens build guards its inputs (no height data, no video)', () => {
+  // Video era: there is no canvas context to be null any more.
+  // The build drops honestly — frees the pool, pumps the queue,
+  // records nothing — when the height data is missing, and when
+  // the shared floor video texture cannot be created.
+  assert.ok(nexus.includes('if (!hd) {'), 'missing height data skips the build honestly');
+  assert.ok(nexus.includes('if (!videoTex) {'), 'missing video texture drops the build honestly');
+  assert.doesNotMatch(nexus, /if \(!hd \|\| !ctx\)/, 'the old canvas-context guard is gone with the canvas');
 });
 
 check('lens setup faults free the pool instead of wedging it', () => {
   assert.ok(nexus.includes('try { bctx.remove(job.key); } catch {}'), 'partial sheet dropped on setup fault');
 });
 
-check('tile loads settle before they paint', () => {
-  assert.ok(nexus.includes('let painted = false'), 'paint tracked separately from settle');
-  assert.ok(/try \{[^}]*ctx\.drawImage/.test(nexus), 'drawImage runs inside try');
-  assert.ok(nexus.includes('if (painted) okCount += 1'), 'ok counts only painted tiles');
+check('the build finishes only once the video has data (or failed)', () => {
+  // The settle-before-paint rule, video era: finish() runs on
+  // the video-ready gate, never before the texture is real.
+  assert.ok(nexus.includes('onGroundVideoReady(() => finish())'), 'finish waits for video data');
+  assert.ok(nexus.includes('else if (groundVideoHasError())'), 'a failed video fails the build');
+  assert.doesNotMatch(nexus, /ctx\.drawImage/, 'no tile painting remains');
+  assert.doesNotMatch(nexus, /okCount/, 'no tile settle counting remains');
 });
 
 check('lens watchdog force-finishes stalled builds at ~1 minute', () => {

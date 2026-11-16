@@ -4,18 +4,31 @@
 // client reads and spends, so hits on other players are real shared
 // state.
 //
-// Pins (static — the SQL is DRAFT and NOT run without Merlin's
-// green light, so nothing here touches a database): the migration
+// Pins (static — nothing here touches a database): the migration
 // declares both tables with the right columns, checks, indexes and
 // RLS; the atomic grant/spend functions exist; the route serves
 // count/grant/spend/report/poll with the client's exact action
 // names and event shape, 503s when the migration hasn't run, and
-// requires a signed-in caller.
+// requires a signed-in caller. LIVE STATE (Nov 15 ~19:46): the
+// SQL RAN in the Supabase SQL Editor on Merlin's green light —
+// the file still carries its DRAFT banner because it was
+// deliberately not rewritten in the rework job (stale, not live).
+// And (mocked fetch, no network): the client wiring — orb
+// collect → grant → count +1, FIRE → spend → count −1, load-time
+// sync lets the server win, and the missile never locks its owner
+// (the heat-seeker pins live in earth1-kart.test.mjs).
 //
 // Run: node tests/earth1-missiles-server.test.mjs (from the repo root).
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  createKartState,
+  kartServer,
+  kartServerGrant,
+  kartServerSpend,
+  kartServerSync,
+} from '../lib/earth/kart.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -30,7 +43,8 @@ function t(name, cond) {
 // --- The migration: tables, columns, checks, indexes, RLS ---
 {
   const sql = read('supabase/earth1-kart.sql');
-  t('migration is marked DRAFT — do not run', sql.includes('DRAFT — DO NOT RUN YET'));
+  t('migration still carries its stale DRAFT banner (file not rewritten — the SQL RAN Nov 15 ~19:46)',
+    sql.includes('DRAFT — DO NOT RUN YET'));
   t('migration names the green-light gate', sql.includes("green light"));
   t('migration declares earth1_missiles', sql.includes('create table if not exists public.earth1_missiles'));
   t('missiles table keys on user_id', sql.includes('user_id text primary key'));
@@ -59,6 +73,8 @@ function t(name, cond) {
   t('route uses the service client', route.includes('getServiceClient'));
   t('route 503s when the migration has not run', route.includes('setupRequired') && route.includes('503'));
   t('route maps a missing table to 503', route.includes("42P01"));
+  t('route comment records the SQL as run (no longer "green light still owed")',
+    route.includes('RAN Nov 15') && !route.includes('green light still owed'));
   t('route serves the count', route.includes("action === 'grant'") && route.includes("GET"));
   t('route serves grant', route.includes("action === 'grant'"));
   t('route serves spend', route.includes("action === 'spend'"));
@@ -85,6 +101,95 @@ function t(name, cond) {
   t('client never overwrites the local count from a grant response',
     kart.includes('a grant response never overwrites it'));
   t('client polls on a 5 s cadence', kart.includes('KART_SERVER_POLL_MS = 5000'));
+}
+
+// --- The live wiring (mocked fetch, no network): collect → grant,
+ // FIRE → spend, load-time sync lets the server win ---
+{
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  const stub = (responder) => {
+    globalThis.fetch = async (url, opts) => {
+      const body = opts && opts.body ? JSON.parse(opts.body) : null;
+      calls.push({ url, method: opts ? opts.method : 'GET', body });
+      return responder(body);
+    };
+  };
+  const okJson = (data) => ({ ok: true, status: 200, json: async () => data });
+  const reset = () => { calls.length = 0; kartServer.available = null; kartServer.missiles = null; };
+
+  try {
+    // Orb collect → grant: +1 server-side, local count untouched
+    // (record-only: a grant response never overwrites the session
+    // count — two grants in flight could otherwise land out of
+    // order and knock the count backward).
+    reset();
+    stub(() => okJson({ missiles: 7 }));
+    const grantState = createKartState();
+    grantState.missiles = 2;
+    grantState.missileColors = ['red', 'cyan'];
+    const granted = await kartServerGrant(grantState);
+    t('grant POSTs action grant to the kart API',
+      calls.length === 1 && calls[0].url === '/api/earth1/kart'
+      && calls[0].method === 'POST' && calls[0].body.action === 'grant');
+    t('grant returns the server count', granted === 7);
+    t('grant never overwrites the local count', grantState.missiles === 2);
+    t('grant records the server count on kartServer', kartServer.missiles === 7 && kartServer.available === true);
+
+    // FIRE → spend: −1 server-side, local count untouched.
+    reset();
+    stub(() => okJson({ ok: true, missiles: 6 }));
+    const spendState = createKartState();
+    spendState.missiles = 2;
+    const spent = await kartServerSpend(spendState);
+    t('spend POSTs action spend to the kart API',
+      calls.length === 1 && calls[0].body.action === 'spend');
+    t('spend returns { ok, missiles }', spent && spent.ok === true && spent.missiles === 6);
+    t('spend never overwrites the local count', spendState.missiles === 2);
+
+    // Load-time sync: the server count WINS (the one overwrite).
+    reset();
+    stub(() => okJson({ missiles: 3 }));
+    const syncState = createKartState();
+    syncState.missiles = 9;
+    syncState.missileColors = ['red'];
+    const synced = await kartServerSync(syncState);
+    t('sync GETs ?action=count',
+      calls.length === 1 && calls[0].url === '/api/earth1/kart?action=count'
+      && calls[0].method === 'GET');
+    t('sync returns true and lets the server count win',
+      synced === true && syncState.missiles === 3);
+    // A 503 marks the server unavailable and changes nothing.
+    reset();
+    stub(() => ({ ok: false, status: 503, json: async () => ({}) }));
+    const downState = createKartState();
+    downState.missiles = 4;
+    const down = await kartServerGrant(downState);
+    t('a 503 grant returns null and marks the server unavailable',
+      down === null && kartServer.available === false);
+    t('a 503 grant leaves the local count alone', downState.missiles === 4);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+// --- The scene wiring: collect calls grant, FIRE calls spend,
+ // the pill IS the backpack ---
+{
+  const kart = read('components/EarthKart.jsx');
+  t('orb collect grants server-side (collectPlayerMissile + kartServerGrant)',
+    kart.includes('collectPlayerMissile(kartState, orb)')
+    && kart.includes('void kartServerGrant(kartState)'));
+  t('FIRE spends server-side (fireTorpedo then kartServerSpend)',
+    kart.includes('if (torp) void kartServerSpend(kartState)'));
+  t('mount syncs the server count', kart.includes('void kartServerSync(kartState)'));
+  t('mount polls combat events on the 5 s cadence',
+    kart.includes('void kartServerPoll()'));
+  t('peer hits are reported server-side', kart.includes('void kartServerReport('));
+  const consoleSrc = read('components/EarthConsole.jsx');
+  t('the missile pill shows the backpack count (🚀 ×N)',
+    consoleSrc.includes('🚀 ×{hud.missiles}'));
+  t('FIRE greys out at 0 missiles', consoleSrc.includes('disabled={hud.missiles <= 0}'));
 }
 
 console.log(`earth1-missiles-server: ${passed} passed, ${failed} failed`);

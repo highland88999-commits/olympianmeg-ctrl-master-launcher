@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
 import ProceduralEarthGlobe from '@/components/ProceduralEarthGlobe';
@@ -11,9 +11,14 @@ import EarthBoostPads from '@/components/EarthBoostPads';
 import EarthPeers from '@/components/EarthPeers';
 import StreetGroundPatch, { StreetFillLight } from '@/components/StreetGroundPatch';
 import { EarthCracks, EarthOrbitCracks } from '@/components/earth/EarthCracks';
-import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, sortTilesCenterFirst, latLonFromDir, CENTRE_FLUSH_TILES } from '@/lib/earth/lens';
+import { LENS_PRESETS, LENS_LIFT, lensTilePlan, buildLensGeometryData, latLonFromDir } from '@/lib/earth/lens';
 import { tileCellKey, recordRenderedTileKey, loadRenderedTileKeys } from '@/lib/earth/lens-cache';
-import { metalTileColorForCell, metalTileCropForTile, metalTileImageUrl, METAL_TILE_IMAGE_WIDTH, METAL_TILE_IMAGE_HEIGHT } from '@/lib/earth/metal-tiles';
+import {
+  getGroundVideoTexture, getGroundEnvMap, getGroundFeatherAlphaMap, onGroundVideoReady,
+  groundVideoHasError, startGroundVideo, stopGroundVideo,
+  GROUND_MIRROR_METALNESS, GROUND_MIRROR_ROUGHNESS,
+  GROUND_MIRROR_EMISSIVE_INTENSITY, GROUND_MIRROR_ENV_INTENSITY,
+} from '@/lib/earth/ground-video';
 import {
   coarsePresetFor,
   planTrailCentres,
@@ -61,13 +66,17 @@ import { sunVector, getDayNightPlace, requestDayNightPlace } from '@/lib/day-nig
 // - Orientation is driven through the shared quatRef so the flight
 //   controller can rotate the world (the treadmill: the traveler stands
 //   still, the environment comes to them).
-// - A detail "lens" drapes real ESRI World Imagery over the terrain
-//   at the current focus (overlook) or under the traveler's feet
-//   (street level): the sheet is built from lib/earth/lens.js —
-//   every vertex grounded on the heightmap, the texture registered
-//   by true lat/lon, the rim feathered into the globe. (Day 2 fix
-//   for demo flaw E2: the old flat, unregistered disc let terrain
-//   poke through in wedges and never matched the coast beneath it.)
+// - A detail "lens" drapes the looping floor video over the
+//   terrain at the current focus (overlook) or under the
+//   traveler's feet (street level): the sheet is built from
+//   lib/earth/lens.js — every vertex grounded on the heightmap,
+//   the video registered by true lat/lon, the rim feathered
+//   into the globe. (Day 2 fix for demo flaw E2: the old flat,
+//   unregistered disc let terrain poke through in wedges and
+//   never matched the coast beneath it.) The video fades
+//   through Merlin's 9 scratched-metal colours in his order on
+//   a polished mirror finish (lib/earth/ground-video.js); the
+//   old per-tile photo/metal mapping is deleted.
 // - When Google's photorealistic 3D tiles are available (session minted
 //   server-side from GOOGLE_MAP_TILES_API_KEY), the terrain globe swaps
 //   for the real photorealistic globe. The procedural terrain globe is the
@@ -80,26 +89,23 @@ import { sunVector, getDayNightPlace, requestDayNightPlace } from '@/lib/day-nig
 // - A small badge names the active layer in plain English.
 // Rendered lens sheets PERSIST (Merlin, 2026-10-20: "once a tile
 // has rendered, it stays rendered"). Recentering used to dispose
-// the previous sheet, so the photographic ground behind the
+// the previous sheet, so the video ground behind the
 // traveler vanished back to bare globe. Now the last few sheets
 // stay mounted; beyond the cap the sheet FARTHEST from the current
 // centre is disposed (distance eviction — the ground under and
 // behind the traveler outlives a far-away sheet from an earlier
-// focus). The cap is a GPU-memory call: each street sheet is a
-// 2160² canvas texture (~19 MB; it was 2048² ≈ 17 MB before the
-// 2026-10-22 range tripling), so 4 sheets ≈ 75 MB worst case —
-// the cap deliberately did NOT grow with the ×3 radius: per-sheet
-// memory is ≈ unchanged, and 4 sheets at the tripled radius
-// already cover ×9 the ground the old 4 did.
+// focus). The cap is a GPU-geometry call now, not a texture call:
+// the sheets share ONE video texture (lib/earth/ground-video.js),
+// so a sheet costs geometry + a material, not a 2160² canvas
+// (~19 MB) each — 4 sheets no longer cost ≈ 75 MB of texture.
 const MAX_LENS_SHEETS = 4;
-// Far (15× reveal) sheets are coarser canvases (1440² ≈ 8 MB), so
-// two live far sheets cost less than one near sheet — the cap
-// stays small because the far sheet's job is coverage, and the
-// newest two already span ~2.7 km of travel.
+// Far (15× reveal) sheets are coarser geometry, so two live far
+// sheets cost less than one near sheet — the cap stays small
+// because the far sheet's job is coverage, and the newest two
+// already span ~2.7 km of travel.
 const MAX_FAR_LENS_SHEETS = 2;
-// Coarse fallback sheets are small canvases (640² ≈ 1.6 MB), so
-// three live coarse sheets are cheap — and three is what the
-// render queue needs: the sheet ahead of the traveler, the one
+// Coarse fallback sheets are small geometry, so three live coarse
+// sheets are cheap — and three is what the render queue needs: the sheet ahead of the traveler, the one
 // under them, and the one just left behind.
 const MAX_COARSE_LENS_SHEETS = 3;
 
@@ -145,6 +151,7 @@ const EARTH_CENTER_WORLD = new THREE.Vector3(0, -30, -80);
 const SHELL_CAMERA_MIN_DIST = 57.5;
 
 export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, phase, spinEnabled, controls }) {
+  const gl = useThree((s) => s.gl); // the renderer — the ground video's mirror env map is baked from it
   const spinRef = useRef();
   const sheetsRef = useRef([]); // [{ key, mesh }] — mirror of lensSheets for frame-loop access
   const farSheetsRef = useRef([]); // [{ key, mesh }] — 15× reveal sheets
@@ -658,7 +665,9 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   const clearLensSheets = () => {
     for (const s of sheetsRef.current) {
       s.mesh.geometry.dispose();
-      s.mesh.material.map?.dispose();
+      // The map is the SHARED floor video texture — never
+      // disposed here (disposing it would kill the video for
+      // every other sheet). Geometry + material only.
       s.mesh.material.dispose();
     }
     sheetsRef.current = [];
@@ -693,7 +702,8 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
 
   const disposeLensSheet = (s) => {
     s.mesh.geometry.dispose();
-    s.mesh.material.map?.dispose();
+    // The map is the SHARED floor video texture — never
+    // disposed here (see clearLensSheets).
     s.mesh.material.dispose();
   };
 
@@ -768,7 +778,7 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   const clearFarSheets = () => {
     for (const s of farSheetsRef.current) {
       s.mesh.geometry.dispose();
-      s.mesh.material.map?.dispose();
+      // Shared floor video texture — never disposed (see clearLensSheets).
       s.mesh.material.dispose();
     }
     farSheetsRef.current = [];
@@ -811,7 +821,7 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   const clearCoarseSheets = () => {
     for (const s of coarseSheetsRef.current) {
       s.mesh.geometry.dispose();
-      s.mesh.material.map?.dispose();
+      // Shared floor video texture — never disposed (see clearLensSheets).
       s.mesh.material.dispose();
     }
     coarseSheetsRef.current = [];
@@ -894,26 +904,17 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
     mgr.busy = true;
     mgr.job = job;
     const preset = LENS_PRESETS[job.presetName];
-    const S = preset.canvasPx / preset.grid;
-    const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = preset.canvasPx;
-    const ctx = canvas.getContext('2d');
     const hd = getHeightData();
-    // iPhone hardening (2026-10-01, extended 2026-10-27): iOS
-    // Safari returns null for 2D contexts under canvas memory
-    // pressure. The old guard checked the build context and the
-    // height data but NEVER the canvas context itself — a null
-    // ctx threw inside the first tile onload BEFORE the settle
-    // count moved, so finish() never ran and the pool's busy
-    // flag wedged forever: no later build in the session ever
-    // started, which is exactly "new ground never paints."
-    // Skip honestly; the next recenter retries.
-    if (!hd || !ctx) { if (mgr.job === job) { mgr.job = null; mgr.busy = false; } bctx.pump(); return; }
+    // No height data (there is no canvas any more — the video
+    // ground paints nothing by hand): skip honestly; the next
+    // recenter retries.
+    if (!hd) { if (mgr.job === job) { mgr.job = null; mgr.busy = false; } bctx.pump(); return; }
     // Progressive mount: the sheet is on screen at once (the
-    // frame loop animates its opacity 0 → 0.96) and tiles paint
-    // into it as they arrive — no more waiting on all 1,296
-    // tiles before ANY photographic ground shows.
-    let tex;
+    // frame loop animates its opacity 0 → 0.96) wearing the
+    // floor video from the first frame — no more waiting on
+    // 1,296 tiles before ANY ground shows.
+    let videoTex = null;
+    let mat = null;
     let plan;
     try {
       plan = lensTilePlan(job.lat, job.lon, preset.zoom, preset.grid, preset.canvasPx);
@@ -935,11 +936,46 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
       geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
       geo.setAttribute('uv', new THREE.BufferAttribute(data.uvs, 2));
       geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
-      tex = new THREE.CanvasTexture(canvas);
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      const mat = new THREE.MeshBasicMaterial({
-        map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide,
+      // VIDEO GROUND (Merlin, 2026-11-15 ~19:36 + 19:42): the
+      // sheet wears the one looping floor video — the whole
+      // ground, one colour at a time, fading through his 9 in
+      // order. No per-tile painting any more (the mapping
+      // function is deleted, lib/earth/metal-tiles.js): the
+      // video IS the loop. The texture is a shared singleton
+      // (lib/earth/ground-video.js) — never disposed here.
+      videoTex = getGroundVideoTexture();
+      if (!videoTex) {
+        // Headless / no document (never on a phone): drop
+        // honestly, record nothing, free the pool.
+        bctx.remove(job.key);
+        if (mgr.job === job) { mgr.job = null; mgr.busy = false; }
+        bctx.pump();
+        return;
+      }
+      const env = getGroundEnvMap(gl);
+      const feather = getGroundFeatherAlphaMap();
+      // Mirror finish (Merlin, 2026-11-15 ~19:37): polished
+      // mirror metal — the video as map AND emissive (so the
+      // colour reads under the day/night rig), full metalness,
+      // near-zero roughness, the RoomEnvironment map to reflect.
+      // No Reflector pass: a planar reflection is a second
+      // render of the whole Earth scene every frame, far too
+      // heavy for a phone. The rim feather is the same shared
+      // radial alpha map the old canvas feather used to paint.
+      mat = new THREE.MeshStandardMaterial({
+        map: videoTex,
+        emissiveMap: videoTex,
+        emissive: 0xffffff,
+        emissiveIntensity: GROUND_MIRROR_EMISSIVE_INTENSITY,
+        metalness: GROUND_MIRROR_METALNESS,
+        roughness: GROUND_MIRROR_ROUGHNESS,
+        envMap: env || undefined,
+        envMapIntensity: GROUND_MIRROR_ENV_INTENSITY,
+        alphaMap: feather || undefined,
+        transparent: true,
+        opacity: 0,
+        depthWrite: true,
+        side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.renderOrder = bctx.renderOrder;
@@ -954,79 +990,32 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
       bctx.pump();
       return;
     }
-    let settledCount = 0;
-    let okCount = 0;
-    let texTimer = null;
     let finished = false;
     let watchTimer = null;
-    const queueTexUpload = () => {
-      if (texTimer) return;
-      texTimer = setTimeout(() => {
-        texTimer = null;
-        tex.needsUpdate = true;
-      }, 750);
-    };
-    // Blank-canvas guard (2026-10-29, black ground): iOS Safari
-    // can reclaim a 2D canvas backing store under memory pressure
-    // (Low Power Mode makes it eager) WITHOUT drawImage throwing
-    // — the calls become silent no-ops. The build then "succeeds"
-    // with a blank canvas: okCount is up, the sheet mounts black,
-    // the rendered-record marks it painted, and BOTH safety nets
-    // are defeated at once — the mounted black sheet answers the
-    // coverage check (so the 10 s reconciler never fires) and the
-    // record answers the trail dedup (so the queue never rebuilds
-    // it). Permanent black ground until reload, exactly Merlin's
-    // video. Sample the canvas: if nothing painted, the build
-    // failed no matter what the counters say.
-    // Mostly-blank guard (Merlin, 2026-10-31, critical): the old
-    // check only caught FULLY blank canvases. A sheet with 3 tiles
-    // painted out of 1,296 passes the old check but renders as
-    // near-black void on screen. Count painted samples — fewer
-    // than 4 of 16 means the sheet is effectively void.
-    const canvasIsBlank = () => {
-      try {
-        const w = canvas.width, h = canvas.height;
-        // 4x4 grid of 1x1 samples — cheap, and centre-first
-        // painting means a real build always touches the middle.
-        let painted = 0;
-        for (let gx = 1; gx <= 4; gx++) {
-          for (let gy = 1; gy <= 4; gy++) {
-            const d = ctx.getImageData(
-              Math.floor((w * gx) / 5), Math.floor((h * gy) / 5), 1, 1).data;
-            if (d[3] !== 0) painted += 1;
-          }
-        }
-        return painted < 4;
-      } catch {
-        // getImageData threw: the canvas is tainted, which only
-        // happens when cross-origin pixels WERE drawn — something
-        // painted, so it is not blank. Never block on this.
-        return false;
-      }
-    };
+    // No blank-canvas guard any more: there is no canvas. The
+    // equivalent guard is groundVideoHasError() in finish() —
+    // a failed video drops the sheet and records nothing.
     const finish = () => {
       if (finished) return;
       finished = true;
       if (watchTimer) { clearTimeout(watchTimer); watchTimer = null; }
-      if (texTimer) { clearTimeout(texTimer); texTimer = null; }
-      tex.needsUpdate = true;
       if (gen !== bctx.genRef.current || !mgr.alive) {
         // Superseded (centre cleared) or unmounted: drop the sheet.
         bctx.remove(job.key);
-      } else if (okCount > 0 && !canvasIsBlank()) {
-        // Feather the rim into the globe: opaque through the
-        // middle, gone at the edge — no hard matte ring.
-        ctx.globalCompositeOperation = 'destination-in';
-        const c = preset.canvasPx / 2;
-        const grad = ctx.createRadialGradient(c, c, c * 0.68, c, c, c);
-        grad.addColorStop(0, 'rgba(0,0,0,1)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, preset.canvasPx, preset.canvasPx);
-        ctx.globalCompositeOperation = 'source-over';
-        tex.needsUpdate = true;
-        // The device record of rendered ground — this cell has
-        // been mapped on this device, permanently (lens-cache.js).
+      } else if (groundVideoHasError()) {
+        // The floor video failed to load (a missing file on the
+        // deploy): leave no black sheet behind and record
+        // nothing — the coverage check then honestly reports bare
+        // ground, so the 10 s reconciler retries. Same shape as
+        // the old all-tiles-failed path.
+        bctx.remove(job.key);
+      } else {
+        // The sheet is already mounted (bctx.mount ran in
+        // setup); the frame loop fades it 0 → 0.96, and the
+        // video texture fills in live when the video decodes
+        // (or is already showing). Record it exactly as the old
+        // build did: this cell has been mapped on this device,
+        // permanently (lens-cache.js).
         // The same build stages the same key for the server
         // record (rendered-tiles table), so a reload on any
         // device can rebuild it: the orbital overlook sheet is
@@ -1044,14 +1033,6 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
             tile_key: cellKey, preset: job.presetName, center_lat: job.lat, center_lon: job.lon,
           });
         }
-      } else {
-        // Every tile failed, or the canvas went blank mid-build
-        // (iOS memory pressure: drawImage no-ops without throwing).
-        // Leave no black sheet behind and record nothing — the
-        // coverage check then honestly reports bare ground, so the
-        // 10 s reconciler retries, and the trail queue is free to
-        // rebuild it when memory pressure eases.
-        bctx.remove(job.key);
       }
       // Only the build that still owns the pool clears it: a
       // build invalidated mid-flight (stale-drop below) must
@@ -1060,101 +1041,19 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
       if (mgr.job === job) { mgr.job = null; mgr.busy = false; }
       bctx.pump();
     };
-    // Centre-first painting (2026-10-26, effective reveal): the
-    // plan lists tiles row-major, which painted the north edge
-    // first and the traveler's own ground halfway through the
-    // build. Centre-first paints the ground under and around
-    // the traveler in the first fetches — at any speed, the
-    // nearest ground is the first ground.
-    //
-    // Centre-flush (2026-10-26, sharp-on-stop): the ground under
-    // the traveler's feet sharpens the moment its tiles resolve,
-    // instead of waiting out the 750 ms upload throttle. When
-    // all CENTRE_FLUSH_TILES centre tiles have settled (loaded
-    // or failed), the texture uploads at once, exactly once per
-    // build. Later tiles still ride the throttle.
-    const sortedTiles = sortTilesCenterFirst(plan.tiles, preset.canvasPx, S);
-    let centreRemaining = Math.min(CENTRE_FLUSH_TILES, sortedTiles.length);
-    let centreFlushed = false;
-    const settleCentre = (idx) => {
-      if (idx >= CENTRE_FLUSH_TILES || centreFlushed) return;
-      centreRemaining -= 1;
-      if (centreRemaining <= 0) {
-        centreFlushed = true;
-        tex.needsUpdate = true;
-      }
-    };
-    // Metal tiling (Merlin, 2026-11-15): the sheet's skin is ONE
-    // of the 9 scratched-metal graphics, picked deterministically
-    // from the sheet's own tile cell key — the exact identity the
-    // rendered record uses, so a tile keeps its color across
-    // reloads and restore-on-load rebuilds it identically. The
-    // tile SYSTEM is untouched: the same plan, the same
-    // centre-first loop (each tile paints its own crop of the
-    // one photo), the same settle/finish/record path. Only the
-    // skin changed — no more ESRI photo fetches for this sheet.
-    // The orbital overlook sheet flows through this same build,
-    // so it wears metal too. No color is weighted; the pick is
-    // FNV-1a(cellKey) mod 9 (lib/earth/metal-tiles.js).
-    const metalColor = metalTileColorForCell(tileCellKey(job.presetName, plan));
-    const metalUrl = metalColor ? metalTileImageUrl(metalColor) : null;
-    if (!metalUrl) {
-      // No skin to paint (no color for this cell — should never
-      // happen, the pick is total over the 9 colors): drop the
-      // sheet honestly, record nothing, free the pool. Same as
-      // an all-tiles-failed build below.
-      bctx.remove(job.key);
-      if (mgr.job === job) { mgr.job = null; mgr.busy = false; }
-      bctx.pump();
-      return;
-    }
-    const metalImg = new Image();
-    // No crossOrigin here, deliberately: the skin is a
-    // same-origin repo file, so the canvas can never taint —
-    // the blank-guard's getImageData always reads true pixels.
-    // (The old ESRI tiles were cross-origin and needed it.)
-    metalImg.onload = () => {
-      if (gen !== bctx.genRef.current || !mgr.alive) { finish(); return; }
-      // The skin arrived: paint the sheet from the ONE photo.
-      // Each tile draws its own crop of the centered square
-      // (metalTileCropForTile), so the whole photo spans the
-      // sheet exactly once. A tile that fails to paint still
-      // counts as settled (just not ok) — the 2026-10-27 rule:
-      // a throwing drawImage must never strand the settle
-      // count and wedge the pool.
-      const imgW = metalImg.naturalWidth || METAL_TILE_IMAGE_WIDTH;
-      const imgH = metalImg.naturalHeight || METAL_TILE_IMAGE_HEIGHT;
-      sortedTiles.forEach((t, idx) => {
-        // t.url is now only the pole test: lensTilePlan still
-        // marks off-world (polar) tiles with url null, and those
-        // canvas regions stay transparent — the globe shows
-        // through exactly as it did under the photo tiles.
-        if (!t.url) { settledCount += 1; settleCentre(idx); if (settledCount === plan.tiles.length) finish(); return; }
-        let painted = false;
-        if (gen === bctx.genRef.current && mgr.alive) {
-          try {
-            const col = Math.round(t.px / S);
-            const row = Math.round(t.py / S);
-            const crop = metalTileCropForTile(col, row, plan.grid, imgW, imgH);
-            ctx.drawImage(metalImg, crop.sx, crop.sy, crop.sw, crop.sh, t.px, t.py, S, S);
-            painted = true;
-            queueTexUpload();
-          } catch {}
-        }
-        if (painted) okCount += 1;
-        settledCount += 1;
-        settleCentre(idx);
-        if (settledCount === plan.tiles.length) finish();
-      });
-    };
-    metalImg.onerror = () => {
-      // The skin never arrived: the same honest failure as
-      // every photo tile failing — finish() with okCount 0
-      // drops the sheet and records nothing, so the 10 s
-      // reconciler retries instead of mounting a void.
-      finish();
-    };
-    metalImg.src = metalUrl;
+    // No centre-first painting any more: there are no tiles.
+    // The whole sheet wears the video from the first frame.
+    // VIDEO GROUND, ready gate (Merlin, 2026-11-15 ~19:36 +
+    // 19:42): the sheet's skin is the one looping floor video,
+    // already mounted above. The build only FINISHES (records
+    // the cell, frees the pool) once the video has data — or
+    // has failed — so a sheet is never recorded while its
+    // texture is still black. The watchdog below is the
+    // fallback for a video that stalls mid-load: finish mounts
+    // the sheet anyway and the texture fills in live when the
+    // video decodes. The orbital overlook sheet flows through
+    // this same build, so it wears the same video loop.
+    onGroundVideoReady(() => finish());
     // Watchdog: a build whose skin stalls (a hung load, a
     // canvas that never settles) must not hold the pool past
     // Merlin's ~1-minute lag tolerance. Force-finish:
@@ -1433,6 +1332,15 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   }, [roaming]);
 
   // Dispose all lens sheets on unmount.
+  // Floor video lifecycle: the video starts with the scene
+  // (muted + loop, so autoplay is allowed) and pauses on
+  // unmount — the ground texture decodes only while Earth 1
+  // is on screen.
+  useEffect(() => {
+    startGroundVideo();
+    return () => stopGroundVideo();
+  }, []);
+
   useEffect(() => () => {
     lensBuildRef.current.alive = false;
     lensBuildRef.current.pending = null;
@@ -1443,19 +1351,19 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
     coarseLensBuildRef.current.queue = [];
     for (const s of sheetsRef.current) {
       s.mesh.geometry.dispose();
-      s.mesh.material.map?.dispose();
+      // Shared floor video texture — never disposed (see clearLensSheets).
       s.mesh.material.dispose();
     }
     sheetsRef.current = [];
     for (const s of farSheetsRef.current) {
       s.mesh.geometry.dispose();
-      s.mesh.material.map?.dispose();
+      // Shared floor video texture — never disposed (see clearLensSheets).
       s.mesh.material.dispose();
     }
     farSheetsRef.current = [];
     for (const s of coarseSheetsRef.current) {
       s.mesh.geometry.dispose();
-      s.mesh.material.map?.dispose();
+      // Shared floor video texture — never disposed (see clearLensSheets).
       s.mesh.material.dispose();
     }
     coarseSheetsRef.current = [];

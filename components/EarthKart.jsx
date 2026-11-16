@@ -15,10 +15,14 @@ import { haversineM } from '@/lib/earth/boost-pads';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import { useScratchedTexture } from '@/lib/portal/scratched-textures';
 import { useGoldTexture } from '@/lib/portal/gold-texture';
+import { useOrbVideoTexture, getOrbRocketTexture } from '@/lib/earth/ground-video';
 import { makeSessionId } from '@/lib/presence';
 import { supabase } from '@/lib/supabase';
 import {
   ORB_BEAM_RENDER_M,
+  ORB_RADIUS_M,
+  ORB_FLOAT_M,
+  ORB_BOB_M,
   EXPLODE_MS,
   INTEGRITY_MAX,
   KART_SERVER_POLL_MS,
@@ -55,10 +59,10 @@ import {
 // damage, and the flip-3x-explode-respawn sequence.
 //
 // One orb = exactly one missile (Merlin). Orbs are a virtual
-// seeded grid (lib/earth/kart.js — 6,480,000, ~11 km apart);
+// seeded grid (lib/earth/kart.js — 259,200, ~55 km apart);
 // only the orbs near the driver get meshes. The missile a
 // torpedo wears is the scratched-metal wrap of the orb it came
-// from (deep gold = the archway gold). The explosion is a real
+// from (the orb's own colour video). The explosion is a real
 // 3D particle burst + expanding shell + flash (emissive only,
 // no new real lights) — no video was needed.
 //
@@ -71,18 +75,17 @@ import {
 
 const UPM = DISPLAY_UNITS_PER_METRE;
 
-/** Orb colour name -> hex (the sphere + beam tint; the missile
- *  wrap itself is the scratched-metal photo, not this flat colour). */
+/** Orb colour name -> hex (the sphere fallback + beam tint; the
+ *  video wrap itself is the scratched-metal video, not this flat
+ *  colour). Six colours only — the video wraps (see
+ *  lib/earth/ground-video.js ORB_VIDEO_COLORS). */
 const ORB_COLOR_HEX = {
   magenta: '#ff00ff',
   cyan: '#00e5ff',
   blue: '#2f6bff',
-  'bright-gold': '#ffd700',
   red: '#ff2a2a',
   green: '#22ff66',
   purple: '#a020f0',
-  silver: '#d7dde3',
-  'deep-gold': '#d4af37',
 };
 
 /** Ground-hugging world position for a lat/lon + altitude. */
@@ -116,13 +119,21 @@ function cloneModelInto(parent, model) {
   parent.add(holder);
 }
 
-/** One torpedo orb: a glowing sphere floating over the street
- *  plus a tall light beam, so the driver can spot the next
- *  pickup from driving distance. Distinct from the boost pads
- *  (flat discs on the ground) — spheres in the air, not discs. */
+/** One torpedo orb: a 1.4 m sphere (clearly smaller than the
+ *  smallest vehicle, a 2.2 m bike) floating over the street,
+ *  wrapped in its colour's video, plus a tall light beam, so the
+ *  driver can spot the next pickup from driving distance. The
+ *  rocket rides the orb's equator on the driver's side — a
+ *  billboard sprite that always faces the camera — so the symbol
+ *  is never edge-on and never on top. Distinct from the boost
+ *  pads (flat discs on the ground) — spheres in the air, not
+ *  discs. */
+const _orbToCam = new THREE.Vector3();
+
 function OrbMesh({ orb }) {
   const groupRef = useRef();
   const sphereRef = useRef();
+  const spriteRef = useRef();
   const { position, quaternion } = useMemo(() => {
     const p = groundPos(orb.lat, orb.lon, 0);
     const frame = tangentFrame(orb.lat, orb.lon);
@@ -135,12 +146,29 @@ function OrbMesh({ orb }) {
   }, [orb]);
   const color = ORB_COLOR_HEX[orb.color] || '#ff00ff';
   const phase = useMemo(() => (fnv1a(orb.id) % 1000) / 1000 * Math.PI * 2, [orb.id]);
+  const videoTex = useOrbVideoTexture(orb.color);
+  const rocketTex = useMemo(() => getOrbRocketTexture(), []);
 
-  useFrame(({ clock }) => {
+  useFrame(({ clock, camera }) => {
     const s = sphereRef.current;
-    if (!s) return;
-    // Bobbing: the orb floats 2.5 m up, breathing +/-0.5 m.
-    s.position.y = (2.5 + Math.sin(clock.elapsedTime * 2 + phase) * 0.5) * UPM;
+    if (s) {
+      // Bobbing: the orb floats 1.2 m up, breathing +/-0.4 m.
+      s.position.y = (ORB_FLOAT_M + Math.sin(clock.elapsedTime * 2 + phase) * ORB_BOB_M) * UPM;
+    }
+    // The rocket sits on the orb's equator on the driver's side:
+    // horizontal in the tangent frame, toward the camera, just
+    // off the sphere — never on top, never edge-on.
+    const sp = spriteRef.current;
+    const g = groupRef.current;
+    if (sp && g) {
+      _orbToCam.copy(camera.position);
+      g.worldToLocal(_orbToCam);
+      _orbToCam.y = 0;
+      if (_orbToCam.lengthSq() > 1e-6) {
+        _orbToCam.normalize().multiplyScalar((ORB_RADIUS_M + 0.35) * UPM);
+        sp.position.set(_orbToCam.x, s ? s.position.y : ORB_FLOAT_M * UPM, _orbToCam.z);
+      }
+    }
   });
 
   return (
@@ -150,10 +178,35 @@ function OrbMesh({ orb }) {
         <cylinderGeometry args={[0.4 * UPM, 1.2 * UPM, 60 * UPM, 12, 1, true]} />
         <meshBasicMaterial color={color} transparent opacity={0.22} side={THREE.DoubleSide} depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
-      <mesh ref={sphereRef} position={[0, 2.5 * UPM, 0]} renderOrder={3}>
-        <sphereGeometry args={[2 * UPM, 20, 16]} />
-        <meshBasicMaterial color={color} transparent opacity={0.9} depthWrite={false} />
+      <mesh ref={sphereRef} position={[0, ORB_FLOAT_M * UPM, 0]} renderOrder={3}>
+        <sphereGeometry args={[ORB_RADIUS_M * UPM, 24, 18]} />
+        {/* Key-remount (Moon flag, Nov 15): the material is created
+            WITH the video once it lands, so a late video is never
+            silently ignored the way a late .map assignment is. */}
+        <meshStandardMaterial
+          key={videoTex ? 'orb-video' : 'orb-plain'}
+          map={videoTex || undefined}
+          color={videoTex ? '#ffffff' : color}
+          metalness={0.9}
+          roughness={0.3}
+          transparent
+          opacity={0.95}
+        />
       </mesh>
+      {/* Billboard rocket: the missile symbol on the side facing
+          the approaching driver (a THREE.Sprite always faces the
+          camera). The video wrap carries a rocket too, but only on
+          one side of the sphere — the sprite is the guarantee. */}
+      {rocketTex && (
+        <sprite
+          ref={spriteRef}
+          position={[(ORB_RADIUS_M + 0.35) * UPM, ORB_FLOAT_M * UPM, 0]}
+          renderOrder={4}
+          scale={[1.8 * UPM, 1.8 * UPM, 1]}
+        >
+          <spriteMaterial map={rocketTex} transparent depthWrite={false} />
+        </sprite>
+      )}
     </group>
   );
 }
@@ -178,14 +231,16 @@ function TorpedoMesh({ torpedo }) {
 
   return (
     <group ref={groupRef}>
-      {/* Nose cone (points +Z after the X-rotation) + body. */}
+      {/* Nose cone (points +Z after the X-rotation) + body.
+          Key-remount (same late-texture trap as the orb): the
+          material is created WITH the wrap once it lands. */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.9 * UPM]}>
         <coneGeometry args={[0.45 * UPM, 1.2 * UPM, 12]} />
-        <meshStandardMaterial map={tex || undefined} metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial key={tex ? 'torp-video' : 'torp-plain'} map={tex || undefined} metalness={0.9} roughness={0.3} />
       </mesh>
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.3 * UPM]}>
         <cylinderGeometry args={[0.45 * UPM, 0.45 * UPM, 1.6 * UPM, 12]} />
-        <meshStandardMaterial map={tex || undefined} metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial key={tex ? 'torp-video' : 'torp-plain'} map={tex || undefined} metalness={0.9} roughness={0.3} />
       </mesh>
       {/* Exhaust glow: a short additive tail behind the missile. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -1.6 * UPM]}>

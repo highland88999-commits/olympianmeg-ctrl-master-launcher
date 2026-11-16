@@ -201,8 +201,11 @@ const approx = (a, b, eps) => Math.abs(a - b) <= eps;
   const prompt = readFileSync('components/EarthOblivionPrompt.jsx', 'utf8');
   t('pill moved below the camera column (9.5rem top in its style)',
     /top: 'calc\(env\(safe-area-inset-top, 0px\) \+ 9\.5rem\)'/.test(prompt));
-  t('pill text and dismissal unchanged',
-    prompt.includes('Map this world to trigger Oblivion') && prompt.includes('setDismissed(true)'));
+  t('pill text is the corrected line (no Oblivion claim) and dismissal unchanged',
+    prompt.includes('Map this world — the ancient giants still walk here, waiting to be found')
+    && prompt.includes('setDismissed(true)'));
+  t('pill text never claims mapping triggers Oblivion',
+    !prompt.includes('Map this world to trigger Oblivion'));
 }
 
 console.log(`earth-render-queue: ${passed} passed, ${failed} failed`);

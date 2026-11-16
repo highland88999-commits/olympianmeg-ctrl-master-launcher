@@ -131,5 +131,63 @@ function t(name, cond) {
   t('page never calls a spawn picker', !page.includes('pickSpawn('));
 }
 
+// --- The mission notice: giants lore, NO Oblivion claim ---
+{
+  const prompt = read('components/EarthOblivionPrompt.jsx');
+  // The pin is on the user-facing TEXT (the exported constant),
+  // not the file — the header comment documents the correction
+  // and names the old claim.
+  const noticeText = prompt.match(/OBLIVION_PROMPT_TEXT =\s*'([^']+)'/)[1];
+  t('notice keeps the giants lore', noticeText.includes('the ancient giants still walk here, waiting to be found'));
+  t('notice never claims mapping triggers Oblivion',
+    !noticeText.includes('trigger Oblivion') && !noticeText.includes('Map this world to trigger'));
+  t('notice never claims mapping unlocks Earth 2', !noticeText.includes('unlock Earth 2'));
+  t('notice text is the corrected line',
+    noticeText === '🦕 Map this world — the ancient giants still walk here, waiting to be found.');
+  t('notice names the Jupiter lever as the only trigger',
+    prompt.includes('The only trigger for oblivion is the lever found in Jupiter'));
+  t('notice still shows at street level only', prompt.includes("phase !== 'earth_roam'"));
+  t('notice still dismisses on one tap', prompt.includes('setDismissed(true)'));
+}
+
+// --- Oblivion: ONLY the Jupiter 2 lever (Merlin, 2026-11-15 ~19:38) ---
+{
+  // No arming function exists anywhere in the app: the lever
+  // arms a LOCAL state machine, and the server release is armed
+  // only by Merlin setting OBLIVION_ENDS_AT by hand.
+  const files = [
+    'lib/jupiter2/lever.js', 'lib/earth2/release.js', 'lib/earth/oblivion.js',
+    'lib/earth/mapping-progress.js', 'lib/earth/global-registry.js',
+    'lib/earth/lens.js', 'app/api/earth2/release/route.js',
+    'app/api/earth/teams/settle/route.js', 'components/EarthOblivionPrompt.jsx',
+  ];
+  for (const f of files) {
+    const src = read(f);
+    for (const gone of ['armOblivion', 'triggerOblivion', 'startOblivion', 'setOblivionEndsAt']) {
+      t(`${f} has no ${gone}`, !src.includes(gone));
+    }
+  }
+  const release = read('lib/earth2/release.js');
+  t('the server release reads ONLY the OBLIVION_ENDS_AT env var',
+    release.includes('process.env.OBLIVION_ENDS_AT'));
+  const releaseRoute = read('app/api/earth2/release/route.js');
+  t('the release route is GET-only (no arming endpoint)',
+    releaseRoute.includes('export const GET') && !releaseRoute.includes('export const POST'));
+  const lever = read('lib/jupiter2/lever.js');
+  t('the lever arms a local state machine only (confirmOblivion)',
+    lever.includes('export function confirmOblivion'));
+  t('the lever never collapses, deletes or hides the world',
+    lever.includes('collapses, deletes, or') && lever.includes('needs Merlin'));
+  t('pulling without confirming leaves the lever unarmed',
+    lever.includes('armed === false') || lever.includes('armed: false'));
+  const mapping = read('lib/earth/mapping-progress.js');
+  t('mapping progress is percentage math only (no trigger at 100%)',
+    !mapping.includes('trigger') && !mapping.includes('arm'));
+  const lens = read('lib/earth/lens.js');
+  t('the lens carries no Oblivion trigger language', !lens.toLowerCase().includes('oblivion fast-track'));
+  const settle = read('app/api/earth/teams/settle/route.js');
+  t('prize settlement never arms Oblivion', !settle.includes('OBLIVION_ENDS_AT'));
+}
+
 console.log(`earth1-entry: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -4,10 +4,16 @@ import { useState } from 'react';
 
 // EarthOblivionPrompt — the mission panel (Merlin, 2026-10-26):
 // subtle yet obvious, at the top of the screen, gold-accented. It
-// advises travelers to MAP THE WORLD to trigger Oblivion and unlock
-// Earth 2, with a dinosaur hint (ancient giants still walking) —
-// and nothing more: NO franchise name, NO Earth 2 details, NO
-// link, NO portal, NO preview. Earth 2 stays sealed.
+// advises travelers to MAP THE WORLD, with a dinosaur hint
+// (ancient giants still walking) — and nothing more: NO franchise
+// name, NO Earth 2 details, NO link, NO portal, NO preview.
+// Earth 2 stays sealed. CORRECTED (Merlin, 2026-11-15 ~19:38):
+// "The only trigger for oblivion is the lever found in Jupiter."
+// Mapping Earth 1 does NOT trigger Oblivion and does NOT unlock
+// Earth 2 — the old text claimed it did, and that claim is gone.
+// The only Oblivion arming path in the whole repo is the Jupiter 2
+// lever (lib/jupiter2/lever.js) plus Merlin's manual
+// OBLIVION_ENDS_AT env-var step (lib/earth2/release.js).
 // Behavior (Merlin, 2026-10-26): it appears EVERY time a user
 // enters Earth 1 street level, and ONE tap on the pill dismisses
 // it for the rest of that page load — dismissal is in-memory
@@ -26,7 +32,7 @@ import { useState } from 'react';
 // views. The pill is a plain tappable div, not a button or link,
 // so it can never navigate anywhere.
 export const OBLIVION_PROMPT_TEXT =
-  '🦕 Map this world to trigger Oblivion and unlock Earth 2 — the ancient giants still walk here, waiting to be found.';
+  '🦕 Map this world — the ancient giants still walk here, waiting to be found.';
 
 export default function EarthOblivionPrompt({ phase }) {
   const [dismissed, setDismissed] = useState(false);
