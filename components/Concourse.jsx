@@ -127,7 +127,7 @@ const TILES = [
   { id: 'settings', label: 'Settings', icon: '⚙️' },
   { id: 'bug', label: 'Bug', icon: '🐛', art: '/concourse-icons/bug.webp' },
   { id: 'fintrac', label: 'FINTRAC', title: 'FINTRAC explanation', icon: '⚠️', important: true },
-  { id: 'molly', label: 'Molly', icon: '🛡️' },
+  { id: 'molly', label: 'ARES', icon: '🛡️' },
 ];
 
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -500,7 +500,7 @@ export default function Concourse() {
       }
       setNote('');
       if (tile.id === 'hub') travel('/', 'Hub');
-      else if (tile.id === 'molly') travel('/molly', 'Molly');
+      else if (tile.id === 'molly') travel('/ares', 'ARES');
       else if (tile.id === 'store') travel('/store', 'Store');
       else if (tile.id === 'renewal') travel('/renewal-plan', 'Renew');
       else if (tile.id === 'calls') travel('/order-67', 'Calls'); // Holographic Calls
