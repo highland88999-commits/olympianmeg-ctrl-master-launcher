@@ -46,10 +46,13 @@ describe('the fullscreen mechanism is Earth 2’s, on all three pages', () => {
     assert.ok(e4.includes('min(64dvh, 600px)'), 'earth-4 keeps its boxed height by default');
   });
   it('every page offers an enter button and an in-stage exit button', () => {
+    // Orb law (Merlin, Nov 16): the FULLSCREEN / EXIT FULLSCREEN pills
+    // are plain circle orbs now — the visible text is FULL / EXIT and
+    // the full wording lives in the aria-label.
     for (const [name, src] of [['jupiter-2', j2], ['earth-3', e3], ['earth-4', e4]]) {
-      assert.ok(src.includes('FULLSCREEN'), `${name}: an enter button`);
-      assert.ok(src.includes('EXIT FULLSCREEN'), `${name}: an exit button inside the stage`);
-      assert.ok(src.includes('aria-label="Exit fullscreen"'), `${name}: the exit button is labelled`);
+      assert.ok(src.includes('Enter fullscreen'), `${name}: an enter control`);
+      assert.ok(src.includes('Exit fullscreen'), `${name}: an exit control inside the stage`);
+      assert.ok(src.includes('OrbButton'), `${name}: the fullscreen control is an orb`);
     }
   });
   it('Escape exits fullscreen on every page', () => {

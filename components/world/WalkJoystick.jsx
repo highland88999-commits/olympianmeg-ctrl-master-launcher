@@ -4,12 +4,27 @@
 // Pointer-events based (mouse + touch), follows the new-earth pattern.
 // Props: onMove(x, y) with x (strafe) and y (fwd) each -1..1; size in px.
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 export default function WalkJoystick({ onMove, size = 120 }) {
   const baseRef = useRef(null);
   const knobRef = useRef(null);
   const activeRef = useRef(null);
+  // Latest onMove, for the unmount cleanup below (the effect itself
+  // runs once, so it must not close over a stale first-render prop).
+  const onMoveRef = useRef(onMove);
+  onMoveRef.current = onMove;
+
+  // A lost capture must centre the knob exactly like a release:
+  // without this, a capture lost mid-drag (no pointerup fires)
+  // would leave the knob deflected and the last move latched.
+  // Unmounting mid-drag centres it too, so a move value can never
+  // outlive the stick.
+  useEffect(() => () => {
+    activeRef.current = null;
+    if (knobRef.current) knobRef.current.style.transform = 'translate(0px, 0px)';
+    onMoveRef.current(0, 0);
+  }, []);
 
   const setKnob = (dx, dy) => {
     if (knobRef.current) knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
@@ -48,6 +63,7 @@ export default function WalkJoystick({ onMove, size = 120 }) {
         }
       }}
       onPointerCancel={() => { activeRef.current = null; setKnob(0, 0); onMove(0, 0); }}
+      onLostPointerCapture={() => { activeRef.current = null; setKnob(0, 0); onMove(0, 0); }}
       style={{
         width: size, height: size, borderRadius: '50%',
         border: '1px solid rgba(255,255,255,0.25)',

@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { timeOfDay01, getDayNightPlace, requestDayNightPlace } from "@/lib/day-night";
-import { IcSunrise, IcSun, IcSunset, IcMoon, IcClose, IcRoute, IcBolt, IcCloudRain } from "@/app/artemis-ui/icons";
+import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute, IcBolt, IcCloudRain } from "@/app/artemis-ui/icons";
 import { JUPITER2_SEED, LIGHTNING_MONSTER_COUNT, DEMOBAT_COUNT } from "@/lib/jupiter2/profile";
 import { LIGHTNING_MONSTER_MODELS, DEMOBAT_MODEL_ID, modelUrlFor } from "@/lib/jupiter2/models";
 import { prefetchHawkins } from "@/lib/hawkins/loader";
 import { preloadGlb } from "@/app/hollow-earth/model-loader";
+import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
 
 // R3F scene loads client-side only (WebGL).
 const Jupiter2Scene = dynamic(() => import("@/components/jupiter2/Jupiter2Scene"), {
@@ -162,38 +163,38 @@ export default function Jupiter2Page() {
           selectedId={selected ? selected.id : null}
           jumpRef={jumpRef}
         />
+        {/* FULLSCREEN orb — the maximize button sits at the very top
+            right OF the game screen (Merlin, Nov 16 — standing law),
+            never under it. In fullscreen the same corner carries the
+            EXIT orb instead; the speeder column lives top-left, so
+            nothing can sit on this corner. */}
+        {!fullscreen && (
+          <OrbButton ariaLabel="Enter fullscreen" onClick={() => setFullscreen(true)}
+            style={{ position: 'absolute', right: 12, top: 12, zIndex: 9 }}>
+            <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>⛶</span>
+            <OrbLabel>FULL</OrbLabel>
+          </OrbButton>
+        )}
         {fullscreen && (
-          <button
-            aria-label="Exit fullscreen"
-            onClick={() => setFullscreen(false)}
-            style={{
-              position: 'absolute', left: 12, top: 12, zIndex: 9,
-              minHeight: 44, padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
-              border: '1px solid #5a3220', background: 'rgba(28,13,6,0.85)',
-              color: '#f6e8da', fontSize: 12, letterSpacing: 2,
-            }}
-          >
-            ✕ EXIT FULLSCREEN
-          </button>
+          <OrbButton ariaLabel="Exit fullscreen" onClick={() => setFullscreen(false)}
+            style={{ position: 'absolute', right: 12, top: 12, zIndex: 9 }}>
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>✕</span>
+            <OrbLabel>EXIT</OrbLabel>
+          </OrbButton>
         )}
         {/* Jump (Merlin, Nov 15, 2026 — same gravity logic as the
             Moon): walk mode only, hidden while a creature panel is
             open (the panel owns the bottom of the stage). A press
-            while riding is swallowed by the scene. Bottom-right,
+            while riding is swallowed by the scene — and the scene's
+            BOOST orb parks above this one, never on it, so the two
+            can never double-label the same corner again. Bottom-right,
             the Moon's button, Jupiter colours. */}
         {mode === 'walk' && !selected && (
-          <button
-            aria-label="Jump"
+          <OrbButton ariaLabel="Jump" size={76}
             onPointerDown={() => { jumpRef.current = true; }}
-            style={{
-              position: 'absolute', right: 12, bottom: 12, zIndex: 6,
-              width: 76, height: 76, borderRadius: '50%',
-              border: '2px solid #e8a35c', background: 'rgba(232,163,92,0.25)',
-              color: '#e8a35c', fontWeight: 800, fontSize: 15, cursor: 'pointer', touchAction: 'none',
-            }}
-          >
-            JUMP
-          </button>
+            style={{ position: 'absolute', right: 12, bottom: 12, zIndex: 6 }}>
+            <span style={{ fontSize: 15 }}>JUMP</span>
+          </OrbButton>
         )}
         {selected && (
           <div className="panel" role="dialog" aria-label={selected.name}>
@@ -201,11 +202,19 @@ export default function Jupiter2Page() {
             <div className="meta">{selected.niche} · {selected.stage} · {selected.activity}</div>
             <p>Diet: {selected.diet}</p>
             <p>{selected.habit}</p>
-            <button onClick={() => select(null)} aria-label="Close creature panel"><IcClose /><span>Close</span></button>
+            <OrbButton ariaLabel="Close creature panel" onClick={() => select(null)}>
+              <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>✕</span>
+              <OrbLabel>CLOSE</OrbLabel>
+            </OrbButton>
           </div>
         )}
       </div>
 
+      {/* Under-screen controls — circle orbs only (Merlin, Nov 16 —
+          standing law). The TIME slider stays a slider: a continuous
+          range input has no orb form, and its thumb is already a
+          circle. The FULLSCREEN orb lives on the stage's top-right
+          corner, not down here. */}
       <div className="controls">
         <div className="ctl">
           <span>TIME</span>
@@ -216,23 +225,20 @@ export default function Jupiter2Page() {
         {presets.map(([label, t], i) => {
           const Icon = PRESET_ICONS[i % PRESET_ICONS.length];
           return (
-            <button key={label} onClick={() => setManualTime(t)} aria-label={`Set time to ${label}`}>
-              <Icon /><span>{label}</span>
-            </button>
+            <OrbButton key={label} onClick={() => setManualTime(t)} ariaLabel={`Set time to ${label}`}>
+              <Icon /><OrbLabel>{label.toUpperCase()}</OrbLabel>
+            </OrbButton>
           );
         })}
-        <button className={liveTime ? "on" : ""} onClick={resumeLiveTime} aria-pressed={liveTime} aria-label="Follow real time">
-          <IcSun /><span>REAL TIME</span>
-        </button>
-        <button className={mode === "walk" ? "on" : ""} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"}>
-          <IcRoute /><span>{mode === "walk" ? "WALKING" : "WALK"}</span>
-        </button>
-        <button className={mode === "orbit" ? "on" : ""} onClick={() => toggleMode("orbit")} aria-pressed={mode === "orbit"}>
-          <IcCloudRain /><span>{mode === "orbit" ? "ORBITING" : "ORBIT"}</span>
-        </button>
-        <button onClick={() => setFullscreen(true)} aria-label="Enter fullscreen">
-          <span>⛶ FULLSCREEN</span>
-        </button>
+        <OrbButton active={liveTime} onClick={resumeLiveTime} aria-pressed={liveTime} ariaLabel="Follow real time">
+          <IcSun /><OrbLabel>LIVE</OrbLabel>
+        </OrbButton>
+        <OrbButton active={mode === "walk"} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"} ariaLabel={mode === "walk" ? "Walking" : "Walk"}>
+          <IcRoute /><OrbLabel>WALK</OrbLabel>
+        </OrbButton>
+        <OrbButton active={mode === "orbit"} onClick={() => toggleMode("orbit")} aria-pressed={mode === "orbit"} ariaLabel={mode === "orbit" ? "Orbiting" : "Orbit"}>
+          <IcCloudRain /><OrbLabel>ORBIT</OrbLabel>
+        </OrbButton>
       </div>
 
       <section className="world" aria-label="World profile">

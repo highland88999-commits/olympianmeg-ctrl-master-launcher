@@ -22,6 +22,8 @@ import {
  * Honest framing throughout: speculative tech is labeled vision/concept.
  */
 
+import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
+
 const ACCENT = "#7ddf9a";
 
 function Glyph({ size = 16, children }) {
@@ -397,9 +399,9 @@ export default function NewEarthPage() {
         .ne-card .crow { display: flex; gap: 8px; }
         .ne-card .cx { margin-left: auto; min-width: 44px; }
         /* tour bar */
-        .ne-tourbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; background: rgba(4,16,10,0.9); border: 1px solid ${ACCENT}; border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 0.74rem; letter-spacing: 1.5px; white-space: nowrap; }
+        .ne-tourbar { position: absolute; top: 12px; left: 12px; display: flex; align-items: center; gap: 8px; background: rgba(4,16,10,0.9); border: 1px solid ${ACCENT}; border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 0.74rem; letter-spacing: 1.5px; white-space: nowrap; }
         /* edge of the world */
-        .ne-edge { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: rgba(4,16,10,0.92); border: 1px solid #c9a86a; color: #ffd97a; border-radius: 999px; padding: 8px 16px; font-size: 0.78rem; letter-spacing: 1.5px; font-weight: 700; white-space: nowrap; }
+        .ne-edge { position: absolute; top: 76px; left: 50%; transform: translateX(-50%); background: rgba(4,16,10,0.92); border: 1px solid #c9a86a; color: #ffd97a; border-radius: 999px; padding: 8px 16px; font-size: 0.78rem; letter-spacing: 1.5px; font-weight: 700; white-space: nowrap; }
         .ne-tourbar button { min-height: 40px; min-width: 40px; padding: 6px 10px; font-size: 0.7rem; }
         /* landmark chips */
         .ne-chips { display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
@@ -426,12 +428,16 @@ export default function NewEarthPage() {
 
       <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <canvas ref={canvasRef} aria-label="New Earth 3D world" />
-        {fullscreen && (
-          <button type="button" aria-label="Exit fullscreen" onClick={() => setFullscreen(false)}
-            style={{ position: "absolute", left: 14, top: 14, zIndex: 9, minHeight: 48, padding: "10px 18px", borderRadius: 12, border: "1px solid rgba(125,223,154,0.5)", background: "rgba(8,26,17,0.9)", color: "#eef7ee", fontWeight: 700, letterSpacing: 2, cursor: "pointer" }}>
-            ✕ EXIT FULLSCREEN
-          </button>
-        )}
+        {/* FULLSCREEN orb — the maximize button sits at the very top
+            right OF the game screen (Merlin, Nov 16 — standing law),
+            in both states: FULL to enter, EXIT to leave. */}
+        <OrbButton ariaLabel={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          accent={ACCENT}
+          onClick={() => setFullscreen(!fullscreen)}
+          style={{ position: "absolute", right: 14, top: 14, zIndex: 9 }}>
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>⛶</span>
+          <OrbLabel>{fullscreen ? "EXIT" : "FULL"}</OrbLabel>
+        </OrbButton>
         {!booted && !failed && <div className="ne-boot">Growing New Earth…</div>}
         {failed && (
           <div className="ne-fail" style={{ flexDirection: "column", gap: 14 }}>
@@ -450,9 +456,9 @@ export default function NewEarthPage() {
             <div className="ne-tourbar" role="status">
               <Glyph size={14}>{IC.tour}</Glyph>
               <span>TOUR {tour.index + 1}/{TOUR.length}</span>
-              <button onClick={() => worldRef.current && worldRef.current.tourPrev()} aria-label="Previous stop">‹</button>
-              <button onClick={() => worldRef.current && worldRef.current.tourNext()} aria-label="Next stop">›</button>
-              <button onClick={toggleTour} aria-label="Exit tour"><Glyph size={13}>{IC.x}</Glyph></button>
+              <OrbButton size={40} accent={ACCENT} onClick={() => worldRef.current && worldRef.current.tourPrev()} ariaLabel="Previous stop">‹</OrbButton>
+              <OrbButton size={40} accent={ACCENT} onClick={() => worldRef.current && worldRef.current.tourNext()} ariaLabel="Next stop">›</OrbButton>
+              <OrbButton size={40} accent={ACCENT} onClick={toggleTour} ariaLabel="Exit tour"><Glyph size={13}>{IC.x}</Glyph></OrbButton>
             </div>
           )}
 
@@ -465,31 +471,28 @@ export default function NewEarthPage() {
           <div className="ne-btns">
             {mode === "fly" && (
               <div className="ne-btnrow">
-                <button aria-label="Ascend"
+                <OrbButton accent={ACCENT} ariaLabel="Ascend"
                   onPointerDown={() => setLift(1)} onPointerUp={() => setLift(0)} onPointerLeave={() => setLift(0)}>
                   <Glyph>{IC.up}</Glyph>
-                </button>
-                <button aria-label="Descend"
+                </OrbButton>
+                <OrbButton accent={ACCENT} ariaLabel="Descend"
                   onPointerDown={() => setLift(-1)} onPointerUp={() => setLift(0)} onPointerLeave={() => setLift(0)}>
                   <Glyph>{IC.down}</Glyph>
-                </button>
+                </OrbButton>
               </div>
             )}
             <div className="ne-btnrow">
               {mode === "walk" && (
-                <button aria-label="Jump" onPointerDown={() => worldRef.current && worldRef.current.jump()}>
-                  <Glyph>{IC.jump}</Glyph>JUMP
-                </button>
+                <OrbButton accent={ACCENT} ariaLabel="Jump" onPointerDown={() => worldRef.current && worldRef.current.jump()}>
+                  <Glyph>{IC.jump}</Glyph><OrbLabel>JUMP</OrbLabel>
+                </OrbButton>
               )}
-              <button className={mode === "fly" ? "on" : ""} onClick={toggleFly} aria-label="Toggle fly">
-                <Glyph>{mode === "fly" ? IC.walk : IC.fly}</Glyph>{mode === "fly" ? "WALK" : "FLY"}
-              </button>
-              <button className={tour.active ? "on" : ""} onClick={toggleTour} aria-label="Guided tour">
-                <Glyph>{IC.tour}</Glyph>TOUR
-              </button>
-              <button onClick={() => setFullscreen(true)} aria-label="Enter fullscreen">
-                ⛶ FULLSCREEN
-              </button>
+              <OrbButton accent={ACCENT} active={mode === "fly"} onClick={toggleFly} ariaLabel="Toggle fly">
+                <Glyph>{mode === "fly" ? IC.walk : IC.fly}</Glyph><OrbLabel>{mode === "fly" ? "WALK" : "FLY"}</OrbLabel>
+              </OrbButton>
+              <OrbButton accent={ACCENT} active={tour.active} onClick={toggleTour} ariaLabel="Guided tour">
+                <Glyph>{IC.tour}</Glyph><OrbLabel>TOUR</OrbLabel>
+              </OrbButton>
             </div>
           </div>
 
@@ -500,8 +503,8 @@ export default function NewEarthPage() {
               <span className="vbadge">Vision concept</span>
               <p>{caption.caption}</p>
               <div className="crow">
-                <button onClick={() => visit(caption.id)}><Glyph size={13}>{IC.eye}</Glyph>VISIT</button>
-                <button className="cx" onClick={() => setCaption(null)} aria-label="Close"><Glyph size={13}>{IC.x}</Glyph></button>
+                <OrbButton accent={ACCENT} onClick={() => visit(caption.id)} ariaLabel={`Visit ${caption.name}`}><Glyph size={13}>{IC.eye}</Glyph><OrbLabel>VISIT</OrbLabel></OrbButton>
+                <OrbButton accent={ACCENT} onClick={() => setCaption(null)} ariaLabel="Close"><Glyph size={13}>{IC.x}</Glyph></OrbButton>
               </div>
             </div>
           )}
@@ -532,7 +535,10 @@ export default function NewEarthPage() {
         ) : !tile.ownable ? (
           <span className="ne-claimed">OPEN LAND</span>
         ) : (
-          <button onClick={claimCurrentTile}>{user ? 'CLAIM THIS TILE — FREE' : 'SIGN IN TO CLAIM'}</button>
+          <OrbButton accent={ACCENT} onClick={claimCurrentTile} ariaLabel={user ? 'Claim this tile — free' : 'Sign in to claim'}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>⚑</span>
+            <OrbLabel>CLAIM</OrbLabel>
+          </OrbButton>
         ))}
       </div>
       {claimMsg && <div className="ne-claimmsg" role="status">{claimMsg}</div>}

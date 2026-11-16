@@ -6,6 +6,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 
 import {
@@ -151,6 +152,74 @@ describe('jupiter lightning', () => {
     assert.equal(
       lightningFlash(PLANET_CGI_EPOCH_MS + 450, 'jupiter-storms'),
       lightningFlash(PLANET_CGI_EPOCH_MS + 450, 'jupiter-storms'),
+    );
+  });
+});
+
+describe('gas-giant soft jets (Jupiter 2, Merlin Nov 16)', () => {
+  // The J2 video's pale flat rectangles are the jet cells: the old
+  // binary step (1.0 -> 1.12 across one texel) paints hard quads on
+  // the sky dome. The soft map keeps the same jets, peak and hues
+  // with a linear jet, so the flecks dissolve into soft cloud.
+  const hardJumpsOver = (data, over) => {
+    let count = 0;
+    for (let y = 0; y < PLANET_TEXTURE_SIZE; y++) {
+      for (let x = 0; x < PLANET_TEXTURE_SIZE - 1; x++) {
+        const v = Math.abs(
+          data[(y * PLANET_TEXTURE_SIZE + x + 1) * 4] - data[(y * PLANET_TEXTURE_SIZE + x) * 4],
+        );
+        if (v > over) count++;
+      }
+    }
+    return count;
+  };
+
+  it('soft jets keep the same hues and brightness as the hard map', () => {
+    const s = planetMaps('gasGiant', 'JUPITER-2-PRIME', { softJets: true }).map.image.data;
+    const h = planetMaps('gasGiant', 'JUPITER-2-PRIME').map.image.data;
+    assert.equal(s.length, h.length);
+    let sMean = 0;
+    let hMean = 0;
+    let sMax = 0;
+    let hMax = 0;
+    for (let i = 0; i < s.length; i += 4) {
+      sMean += s[i];
+      hMean += h[i];
+      if (s[i] > sMax) sMax = s[i];
+      if (h[i] > hMax) hMax = h[i];
+    }
+    const n = s.length / 4;
+    assert.ok(Math.abs(sMean / n - hMean / n) < 3, 'mean brightness stays (same colours)');
+    assert.equal(sMax, hMax, 'peak brightness stays');
+  });
+
+  it('soft jets have (nearly) no hard texel step; the hard map does', () => {
+    const soft = planetMaps('gasGiant', 'JUPITER-2-PRIME', { softJets: true }).map.image.data;
+    const hard = planetMaps('gasGiant', 'JUPITER-2-PRIME').map.image.data;
+    const softJumps = hardJumpsOver(soft, 20);
+    const hardJumps = hardJumpsOver(hard, 20);
+    assert.ok(hardJumps > 100, `hard map should carry the step, got ${hardJumps}`);
+    assert.ok(softJumps * 10 < hardJumps, `soft map keeps ${softJumps} hard jumps vs ${hardJumps}`);
+  });
+
+  it('the default map is untouched (other gas giants byte-identical)', () => {
+    const a = planetMaps('gasGiant', 'jupiter');
+    const b = planetMaps('gasGiant', 'jupiter');
+    assert.equal(a, b, 'default map is cached, one object');
+    const soft = planetMaps('gasGiant', 'jupiter', { softJets: true });
+    assert.notEqual(soft, a, 'soft map is a separate cache entry');
+    assert.ok(hardJumpsOver(a.map.image.data, 20) > 100, 'hub Jupiter keeps its hard jets');
+  });
+
+  it('Jupiter 2 sky and ground wear the soft map', () => {
+    const scene = readFileSync(
+      new URL('../components/jupiter2/Jupiter2Scene.jsx', import.meta.url),
+      'utf8',
+    );
+    assert.equal(
+      scene.split("planetMaps('gasGiant', JUPITER2_SEED, { softJets: true })").length - 1,
+      2,
+      'ground + sky should both opt into soft jets',
     );
   });
 });

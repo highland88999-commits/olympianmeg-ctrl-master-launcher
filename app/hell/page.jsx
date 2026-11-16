@@ -12,7 +12,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
@@ -35,6 +34,7 @@ import {
 import { FORGE_AETHER_DAILY_CAP, forgeRateText } from '@/lib/afterlife/forge';
 import { LAKE_RESPAWN, consumeLakeLanding } from '@/lib/ghost-rider/chain';
 import { FERRY_FARE_GOLD, ferryLanding } from '@/lib/afterlife/ferry';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
 const STICK_RADIUS = 60;
 
@@ -480,35 +480,27 @@ export default function HellPage() {
             lives. Forge at the Lake of Fire, Charon at the river, the
             guide where a fading soul stands near. */}
         {(region === 'The Lake of Fire' || ferryZone || guidable || guiding) && (
-          <div className="pointer-events-auto mt-3 flex flex-col items-center gap-2">
+          <div className="pointer-events-auto mt-3 flex flex-row items-center justify-center gap-3">
             {region === 'The Lake of Fire' && (
-              <button
-                type="button"
-                onClick={castSoul}
-                disabled={busy === 'forge'}
-                className="rounded-full border border-orange-400/60 bg-black/60 px-4 py-2 text-sm font-semibold text-orange-200 disabled:opacity-50"
-              >
-                🔥 Cast a soul into the fire — {forgeRateText()}
-              </button>
+              <OrbButton accent="#fb923c" onClick={castSoul} disabled={busy === 'forge'}
+                ariaLabel={`Cast a soul into the fire — ${forgeRateText()}`} title={`Cast a soul into the fire — ${forgeRateText()}`}>
+                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🔥</span>
+                <OrbLabel>FORGE</OrbLabel>
+              </OrbButton>
             )}
             {ferryZone && !guiding && (
-              <button
-                type="button"
-                onClick={ferryCross}
-                disabled={busy === 'ferry'}
-                className="rounded-full border border-amber-300/60 bg-black/60 px-4 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50"
-              >
-                ⛴ Call Charon — cross for {FERRY_FARE_GOLD} gold
-              </button>
+              <OrbButton accent="#fcd34d" onClick={ferryCross} disabled={busy === 'ferry'}
+                ariaLabel={`Call Charon — cross for ${FERRY_FARE_GOLD} gold`} title={`Call Charon — cross for ${FERRY_FARE_GOLD} gold`}>
+                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⛴</span>
+                <OrbLabel>FERRY</OrbLabel>
+              </OrbButton>
             )}
             {guidable && !guiding && (
-              <button
-                type="button"
-                onClick={startGuide}
-                className="rounded-full border border-violet-300/60 bg-black/60 px-4 py-2 text-sm font-semibold text-violet-200"
-              >
-                🕯 Guide this soul to rest
-              </button>
+              <OrbButton accent="#c4b5fd" onClick={startGuide}
+                ariaLabel="Guide this soul to rest" title="Guide this soul to rest">
+                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🕯</span>
+                <OrbLabel>GUIDE</OrbLabel>
+              </OrbButton>
             )}
             {guiding && (
               <p className="rounded-full bg-black/55 px-4 py-2 text-xs text-violet-200">
@@ -526,25 +518,19 @@ export default function HellPage() {
       </div>
 
       <div className="absolute left-4 top-4 z-30">
-        <Link
-          href="/"
-          className="pointer-events-auto inline-block rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-        >
-          ← Leave Hell
-        </Link>
+        <OrbButton href="/" ariaLabel="Leave Hell" accent="#ffffff">
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+        </OrbButton>
       </div>
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (
-        <button
-          type="button"
-          aria-label="Show realm information"
+        <OrbButton accent="#ffffff" ariaLabel="Show realm information"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={restoreInfo}
-          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs font-semibold text-white"
-        >
-          ⓘ Info
-        </button>
+          style={{ position: 'absolute', left: '50%', top: 64, transform: 'translateX(-50%)', zIndex: 30 }}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>ⓘ</span>
+        </OrbButton>
       )}
 
       {vortexOverlay}

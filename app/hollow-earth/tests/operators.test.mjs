@@ -76,3 +76,45 @@ test('operators aura: Ghorrum the watcher — aura null', () => {
   assert.equal(life.aura, null);
   assert.match(life.auraNote, /watcher/);
 });
+
+/* ---------------- MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02) ----------------
+ * A live lightning source with another monster inside its 59 m
+ * aura is hunting prey; Korus and Ghorrum are EXEMPT — never
+ * an aura, never prey. */
+
+test('operators mvm: a lightning monster with prey in aura is hunting prey', () => {
+  const hunter = mon('slot-17', 0, 0);
+  const prey = mon('slot-20', 0, 30);
+  const life = monsterLifeFor(hunter, Date.now(), { others: [prey] });
+  assert.equal(life.preyTarget, prey.id);
+  assert.equal(life.feeding, 'hunt-prey');
+  assert.match(life.feedingNote, /another monster/);
+  assert.match(life.line, /Hunting prey/);
+  // Prey past 59 m is not prey; no others means unknown, never invented.
+  const far = monsterLifeFor(hunter, Date.now(), { others: [mon('slot-20', 0, 60)] });
+  assert.equal(far.preyTarget, null);
+  assert.equal(far.feeding, 'ambush-wait', 'slot-17 is an ambusher — back to lying in wait, not hunting prey');
+  const unknown = monsterLifeFor(hunter, Date.now());
+  assert.equal(unknown.preyTarget, null);
+  // A non-lightning monster never hunts prey — no aura, no prey.
+  const plain = mon('slot-01', 0, 0);
+  const plainLife = monsterLifeFor(plain, Date.now(), { others: [prey] });
+  assert.equal(plainLife.preyTarget, null);
+  assert.notEqual(plainLife.feeding, 'hunt-prey');
+});
+
+test('operators mvm: Korus and Ghorrum are EXEMPT — never prey, stated in the note', () => {
+  const korus = korusLifeFor(createKorus(true));
+  assert.equal(korus.aura, null);
+  assert.match(korus.auraNote, /EXEMPT/);
+  assert.match(korus.auraNote, /never prey/);
+  const watcher = watcherLifeFor();
+  assert.equal(watcher.aura, null);
+  assert.match(watcher.auraNote, /EXEMPT/);
+  assert.match(watcher.auraNote, /never prey/);
+  // And a lightning monster's prey list refuses them outright.
+  const hunter = mon('slot-17', 0, 0);
+  const korusShaped = { id: 'korus', type: 'korus', x: 0, z: 10, dead: false, active: true };
+  const life = monsterLifeFor(hunter, Date.now(), { others: [korusShaped] });
+  assert.equal(life.preyTarget, null);
+});

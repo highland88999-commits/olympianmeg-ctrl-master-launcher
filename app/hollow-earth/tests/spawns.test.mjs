@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   MONSTER_TYPES, DRAGON_TYPES, ARCHETYPES, MONSTER_MODELS, TYPES_BY_ELEMENT,
   spawnField, createMonster, stepMonster, damageMonster, strike,
+  isMonsterPreyTarget, nearestMonsterPrey, applyMonsterAuraHit, tickMonsterBurn,
   createHunterState, onMonsterKilled, applyDamage,
   SHIELD_KILLS, SHIELD_ABSORB, HEAL_ON_KILL, PLAYER_MAX_HP,
   KORUS_MAX_HP, KORUS_GATE_KILLS, createKorus, stepKorus, damageKorus,
@@ -441,4 +442,151 @@ test('aura: an inactive monster never strikes', () => {
   const m = mon('slot-17', 0, 0, 0);
   m.active = false;
   assert.equal(auraStrikes(m, { x: 0, z: -10 }).length, 0);
+});
+
+/* ---------------- MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02) ----------------
+ * "Make monsters attack each other, not just the user." The
+ * attack is the aura: a live lightning carrier strikes monster
+ * prey inside 59 m with the same law (8 + 6/s burn for 3 s,
+ * one streak per 1.5 s per source, player first). Korus and
+ * Ghorrum are EXEMPT — never an aura, never prey. */
+
+test('mvm: a lightning monster strikes monster prey when the player is out of range', () => {
+  const hunter = mon('slot-17', 0, 0, 0);
+  const prey = mon('slot-20', 0, 30, 0);
+  const evs = stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, { losClear: alwaysLos, others: [prey] })
+    .filter((e) => e.kind === 'aura-strike');
+  assert.equal(evs.length, 1, 'one streak at the prey');
+  assert.equal(evs[0].target, prey.id, 'the streak names its monster target');
+  assert.equal(evs[0].from, hunter.id);
+  assert.equal(evs[0].dmg, 8);
+  assert.equal(evs[0].burnDps, 6);
+  assert.equal(evs[0].burnSeconds, 3);
+});
+
+test('mvm: the player is struck first — monster prey only when the player is outside the aura', () => {
+  const hunter = mon('slot-17', 0, 0, 0);
+  const prey = mon('slot-20', 0, 30, 0);
+  const evs = stepMonster(hunter, 0.1, { x: 0, z: -30 }, rng, { losClear: alwaysLos, others: [prey] })
+    .filter((e) => e.kind === 'aura-strike');
+  assert.equal(evs.length, 1);
+  assert.equal(evs[0].target, 'player', 'player first — the lightning is never softened against the user');
+});
+
+test('mvm: no strike at prey past 59 m; one streak per 1.5 s per source, whatever the target', () => {
+  const hunter = mon('slot-17', 0, 0, 0);
+  const farPrey = mon('slot-20', 0, 60, 0);
+  assert.equal(
+    stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, { losClear: alwaysLos, others: [farPrey] })
+      .filter((e) => e.kind === 'aura-strike').length,
+    0, 'prey at 60 m is outside the aura',
+  );
+  const nearPrey = mon('slot-20', 0, 30, 0);
+  const opts = { losClear: alwaysLos, others: [nearPrey] };
+  assert.equal(
+    stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, opts).filter((e) => e.kind === 'aura-strike').length,
+    1, 'first strike at the prey',
+  );
+  assert.equal(
+    stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, opts).filter((e) => e.kind === 'aura-strike').length,
+    0, 'no second streak inside the 1.5 s window — not even at the player',
+  );
+  assert.equal(
+    stepMonster(hunter, 1.4, { x: 0, z: -30 }, rng, opts).filter((e) => e.kind === 'aura-strike').length,
+    1, 'fires again once 1.5 s have passed, at the player now that one is in range',
+  );
+});
+
+test('mvm: Korus and Ghorrum are never prey — refused outright', () => {
+  assert.equal(isMonsterPreyTarget(null), false);
+  assert.equal(isMonsterPreyTarget({ id: 'korus', type: 'korus', x: 0, z: 10, dead: false }), false, 'Korus by type');
+  assert.equal(isMonsterPreyTarget({ id: 'korus', kind: 'boss', x: 0, z: 10, dead: false }), false, 'Korus by kind');
+  assert.equal(isMonsterPreyTarget({ id: 'ghorrum', kind: 'watcher', x: 0, z: 10, dead: false }), false, 'Ghorrum by kind');
+  assert.equal(isMonsterPreyTarget({ id: 'ghorrum', watcher: true, x: 0, z: 10, dead: false }), false, 'Ghorrum by flag');
+  // Even passed in `others` at point-blank, neither draws a streak.
+  const hunter = mon('slot-17', 0, 0, 0);
+  const korusShaped = { id: 'korus', type: 'korus', x: 0, z: 10, dead: false, active: true };
+  const ghorrumShaped = { id: 'ghorrum', kind: 'watcher', x: 0, z: -10, dead: false, active: true };
+  assert.equal(nearestMonsterPrey(hunter, [korusShaped, ghorrumShaped]), null);
+  assert.equal(
+    stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, { losClear: alwaysLos, others: [korusShaped, ghorrumShaped] })
+      .filter((e) => e.kind === 'aura-strike').length,
+    0, 'no streak at Korus or Ghorrum',
+  );
+});
+
+test('mvm: dead, mounted and inactive monsters are never prey; nearest prey wins', () => {
+  const hunter = mon('slot-17', 0, 0, 0);
+  const dead = mon('slot-20', 0, 10, 0);
+  damageMonster(dead, 1000);
+  const mounted = mon('slot-19', 0, 20, 0);
+  mounted.mounted = true;
+  const inactive = mon('slot-19', 0, 25, 0);
+  inactive.active = false;
+  const near = mon('slot-20', 0, 40, 0);
+  const far = mon('slot-19', 0, 50, 0);
+  assert.equal(isMonsterPreyTarget(dead), false);
+  assert.equal(isMonsterPreyTarget(mounted), false);
+  // `active` is a nearestMonsterPrey-level filter (an inactive
+  // monster is off the field), not an isMonsterPreyTarget one —
+  // the pick below proves the inactive record is skipped.
+  const pick = nearestMonsterPrey(hunter, [far, dead, mounted, inactive, near]);
+  assert.equal(pick.target.id, near.id, 'nearest living, active, unmounted prey wins');
+  assert.equal(pick.distanceM, 40);
+  assert.equal(nearestMonsterPrey(hunter, [dead, mounted, inactive]), null);
+  assert.equal(nearestMonsterPrey(hunter, []), null);
+  assert.equal(nearestMonsterPrey(hunter, null), null);
+});
+
+test('mvm: non-lightning families never strike monster prey', () => {
+  const nonLightning = Object.entries(MONSTER_TYPES).find(([, t]) => t.element !== 'lightning' && !t.dragon)[0];
+  const hunter = mon(nonLightning, 0, 0, 0);
+  const prey = mon('slot-20', 0, 10, 0);
+  assert.equal(
+    stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, { losClear: alwaysLos, others: [prey] })
+      .filter((e) => e.kind === 'aura-strike').length,
+    0, `${nonLightning} carries no aura, so it never hunts — it can only be prey`,
+  );
+});
+
+test('mvm: the hit lands 8 + a 6/s burn for 3 s, and the burn can kill — without waking the victim onto the hunter', () => {
+  const prey = mon('slot-20', 0, 0, 0);
+  const startHp = prey.hp;
+  assert.equal(prey.burnDps, 0, 'fresh monsters carry no burn');
+  assert.equal(applyMonsterAuraHit(prey, { dmg: 8 }), false, 'one hit does not kill');
+  assert.equal(prey.hp, startHp - 8);
+  assert.equal(prey.burnDps, 6);
+  assert.equal(prey.burnRemainingS, 3);
+  assert.equal(prey.spotted, false, 'a monster-struck victim does NOT turn on the hunter');
+  // The burn eats 6/s: 3 s of burn is 18 damage.
+  assert.equal(tickMonsterBurn(prey, 3), false);
+  assert.equal(prey.hp, startHp - 8 - 18);
+  assert.equal(prey.burnRemainingS, 0);
+  assert.equal(prey.burnDps, 0);
+  // Repeated streaks + burns kill: each 1.5 s cycle is 8 + 9.
+  let guard = 0;
+  while (!prey.dead && guard++ < 40) {
+    applyMonsterAuraHit(prey, { dmg: 8 });
+    tickMonsterBurn(prey, 1.5);
+  }
+  assert.equal(prey.dead, true, 'sustained aura fire kills the prey');
+  assert.equal(prey.hp, 0);
+  assert.equal(prey.state, 'dead');
+  // A dead victim stays dead — further hits are no-ops.
+  assert.equal(applyMonsterAuraHit(prey, { dmg: 8 }), false);
+  assert.equal(tickMonsterBurn(prey, 1.5), false);
+});
+
+test('mvm: a burning monster keeps burning through its own stepMonster ticks', () => {
+  const hunter = mon('slot-17', 0, 0, 0);
+  const prey = mon('slot-20', 0, 30, 0);
+  const startHp = prey.hp;
+  // Strike the prey once via the hunter's aura, then let the
+  // prey's own ticks eat the burn.
+  stepMonster(hunter, 0.1, { x: 0, z: -500 }, rng, { losClear: alwaysLos, others: [prey] });
+  applyMonsterAuraHit(prey, { dmg: 8 });
+  assert.equal(prey.hp, startHp - 8);
+  stepMonster(prey, 1.5, { x: 0, z: -500 }, rng, { losClear: alwaysLos, others: [] });
+  assert.equal(prey.hp, startHp - 8 - 9, '1.5 s of burn at 6/s');
+  assert.equal(prey.burnRemainingS, 1.5);
 });

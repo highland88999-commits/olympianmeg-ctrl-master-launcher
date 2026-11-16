@@ -19,7 +19,7 @@ import {
 } from '../lib/jupiter2/planet.js';
 import {
   createSpeederState, summonSpeeder, dismissSpeeder, dismountSpeeder,
-  stepSpeeder, speedFor,
+  stepSpeeder, speedFor, SPEEDER_MOUNTED_EYE_M,
 } from '../lib/jupiter2/speeder.js';
 import {
   createLeverState, pullLever, confirmOblivion, cancelLever, leverStatus,
@@ -27,7 +27,12 @@ import {
 } from '../lib/jupiter2/lever.js';
 import { lifeFor, growthStage, activityFor, homeFor, CREATURE_KINDS } from '../lib/jupiter2/operators.js';
 import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, J2_FLASH_CHANCE } from '../lib/jupiter2/storm.js';
-import { buildSpeeder, buildOblivionLever } from '../lib/jupiter2/meshes.js';
+import {
+  buildSpeeder, buildOblivionLever, buildLandspeederFlame,
+  LANDSPEEDER_GLB_URL, LANDSPEEDER_NATIVE_SIZE_M, LANDSPEEDER_FIT_LENGTH_M,
+  LANDSPEEDER_BASE_Y_M, LANDSPEEDER_YAW_FIX, landspeederFitScale,
+  landspeederFittedSize,
+} from '../lib/jupiter2/meshes.js';
 import { LIGHTNING_MONSTER_MODELS, DEMOBAT_MODEL_ID, DEMOBAT_HEIGHT_M, modelUrlFor, lightningModelFor } from '../lib/jupiter2/models.js';
 import { hawkinsModel } from '../lib/hawkins/models.js';
 
@@ -100,6 +105,38 @@ describe('speeder (Earth 1 summon contract)', () => {
     dismissSpeeder(sp);
     assert.equal(sp.summoned, false);
     assert.equal(sp.mounted, false);
+  });
+  it('analog steer turns in proportion — a slight hold turns gently, a hard hold at full rate', () => {
+    const yawAfter = (steer, seconds = 1) => {
+      const sp = createSpeederState();
+      summonSpeeder(sp, { x: 0, z: 0, yaw: 0 });
+      for (let i = 0; i < Math.round(seconds * 60); i++) {
+        stepSpeeder(sp, { fwd: 0, back: 0, left: 0, right: 0, boost: false, steer }, 1 / 60);
+      }
+      return sp.yaw;
+    };
+    // Half deflection turns at half the 2.2 rad/s rate.
+    assert.ok(Math.abs(yawAfter(0.5) - 1.1) < 0.05, `half steer turns ~1.1 rad/s, got ${yawAfter(0.5)}`);
+    // Full deflection turns at the full rate, either way.
+    assert.ok(Math.abs(yawAfter(1) - 2.2) < 0.05, `full left steer turns ~2.2 rad/s, got ${yawAfter(1)}`);
+    assert.ok(Math.abs(yawAfter(-1) + 2.2) < 0.05, `full right steer turns ~-2.2 rad/s, got ${yawAfter(-1)}`);
+    // A centred stick (steer 0) turns nothing, even with a left key held — the stick is the active device.
+    const sp = createSpeederState();
+    summonSpeeder(sp, { x: 0, z: 0, yaw: 0 });
+    stepSpeeder(sp, { fwd: 0, back: 0, left: 1, right: 0, boost: false, steer: 0 }, 1);
+    assert.equal(sp.yaw, 0);
+    // Steer clamps to -1..1 instead of spinning faster than full rate.
+    assert.ok(Math.abs(yawAfter(2) - 2.2) < 0.05, `steer 2 clamps to full rate, got ${yawAfter(2)}`);
+  });
+  it('no steer given keeps the binary WASD steering exactly as before', () => {
+    const sp = createSpeederState();
+    summonSpeeder(sp, { x: 0, z: 0, yaw: 0 });
+    for (let i = 0; i < 60; i++) stepSpeeder(sp, { fwd: 0, back: 0, left: 1, right: 0, boost: false }, 1 / 60);
+    assert.ok(Math.abs(sp.yaw - 2.2) < 0.05, `left key still turns at 2.2 rad/s, got ${sp.yaw}`);
+    const sp2 = createSpeederState();
+    summonSpeeder(sp2, { x: 0, z: 0, yaw: 0 });
+    stepSpeeder(sp2, { fwd: 0, back: 0, left: 0, right: 0, boost: false, steer: null }, 1);
+    assert.equal(sp2.yaw, 0, 'a null steer (stick untouched) turns nothing and leaves the keys live');
   });
 });
 
@@ -396,5 +433,87 @@ describe('creatures', () => {
     // and the orbit target is the spawn pole, not the disc centre.
     assert.match(sceneSrc, /sphereSurfaceUp/);
     assert.match(sceneSrc, /target=\{\[0, JUPITER2_SPHERE_R, 0\]\}/);
+  });
+});
+
+describe('speeder GLB (landspeeder swap, Merlin Nov 16 ~01:11)', () => {
+  const approx = (a, b, eps = 0.01) => Math.abs(a - b) < eps;
+
+  it('the speeder is the real Star Wars landspeeder GLB, on disk and intact', () => {
+    assert.equal(LANDSPEEDER_GLB_URL, '/models/star-wars/landspeeder.glb');
+    const p = path.join(__dirname, '..', 'public/models/star-wars/landspeeder.glb');
+    assert.ok(fs.existsSync(p), 'landspeeder.glb exists');
+    const buf = fs.readFileSync(p);
+    assert.equal(buf.length, 697624, '697,624 bytes, not truncated');
+    assert.equal(buf.toString('ascii', 0, 4), 'glTF');
+    assert.equal(buf.readUInt32LE(4), 2, 'glTF v2');
+    assert.equal(buf.readUInt32LE(8), buf.length, 'declared length matches actual bytes');
+    // The same file Tatooine rides: the Star Wars registry seats it.
+    const lm = read('app/star-wars/landmarks.js');
+    assert.match(lm, /url: '\/models\/star-wars\/landspeeder\.glb'/);
+    assert.match(lm, /yawFix: Math\.PI/);
+  });
+  it('buildSpeeder returns a GLB slot + flame, never the procedural wedge', () => {
+    const g = buildSpeeder();
+    assert.equal(g.userData.kind, 'speeder');
+    assert.equal(g.userData.glbUrl, LANDSPEEDER_GLB_URL);
+    const slot = g.children.find((c) => c.name === 'glb:landspeeder');
+    assert.ok(slot, 'the GLB slot is there');
+    assert.equal(slot.rotation.y, Math.PI, 'slot turned half a turn: the +Z nose faces -Z forward');
+    // No hull meshes at all: the only geometry in the group is the
+    // flame's cones (the GLB itself loads async in the browser).
+    const geos = [];
+    g.traverse((o) => { if (o.isMesh) geos.push(o.geometry.type); });
+    assert.deepEqual(geos.sort(), ['ConeGeometry', 'ConeGeometry']);
+    // The old wedge is gone from the source, not just unbuilt.
+    const src = read('lib/jupiter2/meshes.js');
+    assert.doesNotMatch(src, /BoxGeometry\(1\.1, 0\.32, 3\.2\)/);
+    assert.doesNotMatch(src, /glow = new THREE\.Mesh\(new THREE\.PlaneGeometry/);
+    assert.match(src, /MeshoptDecoder/, 'meshopt-compressed GLB needs the decoder');
+  });
+  it('the fit keeps the placeholder footprint, hover height and heading', () => {
+    const fit = landspeederFittedSize();
+    assert.ok(approx(landspeederFitScale(), LANDSPEEDER_FIT_LENGTH_M / LANDSPEEDER_NATIVE_SIZE_M.z, 0.001));
+    assert.ok(approx(fit.length, 4.4), `fitted length ${fit.length} — the old wedge's 4.4 m`);
+    assert.ok(approx(fit.width, 3.01), `fitted width ${fit.width} — the model's own wide flat hull`);
+    assert.ok(approx(fit.height, 1.06), `fitted height ${fit.height}`);
+    assert.equal(fit.baseY, LANDSPEEDER_BASE_Y_M);
+    assert.equal(LANDSPEEDER_BASE_Y_M, 0.27, 'base at the old runners\' bottom: same hover clearance');
+    assert.ok(approx(fit.topY, 1.33), `top ${fit.topY}`);
+    assert.equal(LANDSPEEDER_YAW_FIX, Math.PI, 'nose (+Z in the GLB) turned to the -Z forward');
+    // The camera cannot clip the model: the fitted top (1.33 m
+    // above the group origin) stays well under the mounted eye.
+    assert.equal(SPEEDER_MOUNTED_EYE_M, 2.2);
+    assert.ok(fit.topY < SPEEDER_MOUNTED_EYE_M, 'top 1.33 m < mounted eye 2.2 m');
+  });
+  it('the blue engine flame is the Star Wars one: dark parked, lit while driving', () => {
+    const flame = buildLandspeederFlame();
+    assert.equal(flame.group.name, 'exhaust-flame');
+    assert.equal(flame.group.visible, false, 'dark parked');
+    assert.equal(flame.outer.material.color.getHex(), 0x2a7bff, 'outer cone: Star Wars blue');
+    assert.equal(flame.inner.material.color.getHex(), 0xbfe6ff, 'inner cone: pale blue-white');
+    assert.equal(flame.outer.material.blending, 2, 'additive (THREE.AdditiveBlending)');
+    assert.equal(flame.outer.rotation.x, Math.PI / 2, 'cone tip points +Z, out the rear');
+    // The plume base sits just inside the tail (half-length 2.2)
+    // and the tip trails behind the craft.
+    const k = LANDSPEEDER_FIT_LENGTH_M / 5.6;
+    assert.ok(approx(flame.outer.position.z, 2.4 * k), `outer z ${flame.outer.position.z}`);
+    assert.ok(flame.outer.position.z < 2.2, 'flame base inside the tail');
+    assert.ok(flame.outer.position.z + 1.7 * k > 2.2, 'flame tip trails past the tail');
+    // The scene group carries the flame and the glow material the
+    // frame loop brightens at speed is the outer flame material.
+    const g = buildSpeeder();
+    assert.ok(g.userData.flame, 'flame rides the speeder group');
+    assert.equal(g.userData.flame.group.name, 'exhaust-flame');
+    assert.equal(g.userData.glowMat, g.userData.flame.outer.material);
+  });
+  it('the scene drives the flame (visible + flicker) and keeps the speed glow', () => {
+    const sceneSrc = read('components/jupiter2/Jupiter2Scene.jsx');
+    assert.match(sceneSrc, /speederGroup\.userData\.flame/, 'scene reads the flame from userData');
+    assert.match(sceneSrc, /flame\.group\.visible = driving/, 'lit only while driving');
+    assert.match(sceneSrc, /Math\.abs\(sp\.speed\) > 1/, 'driving threshold');
+    assert.match(sceneSrc, /flame\.outer\.scale\.set\(w, \(0\.7 \+ 0\.6 \* ratio\) \* flick, w\)/);
+    assert.match(sceneSrc, /speederGroup\.userData\.glowMat\.opacity = 0\.6 \+/);
+    assert.match(sceneSrc, /import \{ buildSpeeder, buildOblivionLever, buildMountain \} from '@\/lib\/jupiter2\/meshes'/);
   });
 });

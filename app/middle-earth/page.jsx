@@ -43,6 +43,7 @@ import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpa
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
 import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import { createWalker, stepWalker, applyLook, resolveColliders, clampBounds } from '@/lib/world/walk-controls';
 import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { followCameraPose } from '@/lib/world/follow-camera';
@@ -1427,7 +1428,9 @@ export default function MiddleEarthPage() {
               pointer-events-none; the tappable rows opt back in. */}
           <div style={styles.hudTop}>
             <div style={styles.topBar}>
-              <button style={styles.ghostBtn} onClick={() => { setMode('map'); setEntry(null); }}>🗺 Map</button>
+              <OrbButton accent={GOLD} size={48} onClick={() => { setMode('map'); setEntry(null); }} ariaLabel="Map">
+                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🗺</span>
+              </OrbButton>
               <div style={styles.zoneTitle}>{pod.name} · {hero.name}</div>
               <div style={styles.hpWrap}>
                 <div style={styles.hpLabel}>♥ {Math.max(0, Math.round(hp))}</div>
@@ -1437,9 +1440,11 @@ export default function MiddleEarthPage() {
 
             {activeMission && !intro && !beatOverlay && (
               missionHudCollapsed ? (
-                <button style={styles.missionChip} onClick={expandMissionHud} title="Tap to open the mission card">
-                  🎯 {activeMission.title} · {missionStateLine}
-                </button>
+                <OrbButton accent={GOLD} onClick={expandMissionHud} title="Tap to open the mission card"
+                  ariaLabel={`${activeMission.title} · ${missionStateLine} — tap to open the mission card`}
+                  style={{ pointerEvents: 'auto' }}>
+                  <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🎯</span>
+                </OrbButton>
               ) : (
                 <div style={{ ...styles.missionHud, cursor: 'pointer' }} onClick={() => setMissionHudCollapsed(true)} title="Tap to tuck away">
                   <div style={styles.missionHudTitle}>🎯 {activeMission.title} <span style={{ fontSize: '0.8rem' }}>▾</span></div>
@@ -1472,22 +1477,28 @@ export default function MiddleEarthPage() {
 
             {/* HORSES RIDEABLE (Merlin, Nov 15 ~00:57): the mount
                 prompt lives here, in the top band's own flow — a
-                visible top-centre button in reach, like the
+                visible plain circle orb in reach, like the
                 egg-steal button, never hidden inside a collapsed
                 panel and never overlapping the HUD rows above it
                 or the action column. While mounted it becomes the
-                Dismount control; walking away is NOT dismount. */}
+                Dismount orb; walking away is NOT dismount. */}
             {mountPrompt && !mounted && (
-              <button style={styles.mountBtn}
-                onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}>
-                🐎 Mount {mountPrompt.name}
-              </button>
+              <OrbButton accent={GOLD}
+                onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}
+                ariaLabel={`Mount ${mountPrompt.name}`}
+                style={{ pointerEvents: 'auto' }}>
+                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🐎</span>
+                <OrbLabel>MOUNT</OrbLabel>
+              </OrbButton>
             )}
             {mounted && (
-              <button style={styles.mountBtn}
-                onClick={() => { if (rideApiRef.current) rideApiRef.current.dismount(); }}>
-                ⬇ Dismount
-              </button>
+              <OrbButton accent={GOLD}
+                onClick={() => { if (rideApiRef.current) rideApiRef.current.dismount(); }}
+                ariaLabel="Dismount"
+                style={{ pointerEvents: 'auto' }}>
+                <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
+                <OrbLabel>OFF</OrbLabel>
+              </OrbButton>
             )}
           </div>
 
@@ -1509,15 +1520,22 @@ export default function MiddleEarthPage() {
             </div>
           )}
 
+          {/* weapon bar — plain circle orbs now, never pills: each
+              orb shows the weapon's glyph + damage, the full name
+              stays in its aria-label. */}
           <div style={{ ...styles.weaponBar, bottom: BOTTOM_CLEAR }}>
-            <button style={{ ...styles.weaponBtn, ...(weapon === 'melee' ? styles.weaponBtnOn : null) }}
-              onClick={() => setWeapon('melee')}>
-              {hero.meleeLabel}
-            </button>
-            <button style={{ ...styles.weaponBtn, ...(weapon === 'ranged' ? styles.weaponBtnOn : null) }}
-              onClick={() => setWeapon('ranged')}>
-              {hero.rangedLabel}
-            </button>
+            <OrbButton accent={GOLD} active={weapon === 'melee'}
+              onClick={() => setWeapon('melee')}
+              ariaLabel={`${hero.meleeLabel} ${hero.meleeDmg} — tap to switch to melee`}>
+              <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.meleeLabel.split(' ')[0]}</span>
+              <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.meleeDmg}</span>
+            </OrbButton>
+            <OrbButton accent={GOLD} active={weapon === 'ranged'}
+              onClick={() => setWeapon('ranged')}
+              ariaLabel={`${hero.rangedLabel} ${hero.ranged.dmg} — tap to switch to ranged`}>
+              <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.rangedLabel.split(' ')[0]}</span>
+              <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.ranged.dmg}</span>
+            </OrbButton>
             <span style={styles.killsChip}>⚔ {campaign.totalKills}</span>
             <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies docked
               onDinoSummon={(it) => { if (dinoApiRef.current) dinoApiRef.current.summon(it); }}

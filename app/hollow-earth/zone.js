@@ -48,7 +48,8 @@ import { createHeightFunction, spanSeatY } from '../star-wars/zone.js';
 import { biomeWeights, biomeAt, BIOMES } from './biomes.js';
 import { buildLandmark, buildAmbient } from './landmarks.js';
 import {
-  spawnField, createMonster, stepMonster, damageMonster, strike,
+  spawnField, createMonster, stepMonster, strike,
+  applyMonsterAuraHit,
   createKorus, stepKorus, damageKorus as damageKorusPure,
   MONSTER_MODELS, KORUS_MODEL,
   WORLD_SPAWN, ACTIVATE_R, DEACTIVATE_R, mulberry32,
@@ -490,6 +491,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
         inBase: observer.inBase,
         noise: observer.noise,
         quiet: observer.quiet,
+        others: monsters, // monster-vs-monster: the aura's prey list
       });
       for (const ev of evs) {
         if (ev.kind === 'hit') m.attackT = elapsed; // throw motion at launch
@@ -503,7 +505,18 @@ export function buildWorld(THREE, def, T, opts = {}) {
           });
         } else if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype);
         if (ev.kind === 'hazard' && opts.onHazard) opts.onHazard(ev);
-        if (ev.kind === 'aura-strike' && opts.onAuraStrike) opts.onAuraStrike(ev);
+        if (ev.kind === 'aura-strike') {
+          // A streak at another monster lands on the monster, not
+          // the hunter: 8 on the hit + the burn, through the
+          // monster's own law — no hunter reward, no Korus-gate
+          // progress (the campaign counts the hunter's kills
+          // only). A streak at the player flows to the page
+          // unchanged, through the same damage path as before.
+          if (ev.target && ev.target !== 'player') {
+            const prey = monsters.find((o) => o.id === ev.target);
+            if (prey) applyMonsterAuraHit(prey, ev);
+          } else if (opts.onAuraStrike) opts.onAuraStrike(ev);
+        }
         if (ev.kind === 'spotted' && opts.onSpotted) opts.onSpotted(m, ev.via);
       }
       // Solid characters: a ground monster may never stand inside

@@ -14,12 +14,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { useRealmInfoFade } from '@/components/useRealmInfoFade';
 import { RealmLifeLine } from '@/components/RealmLifeLine';
+import OrbButton from '@/components/world/OrbButton';
 import { SvargaScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/svarga/world';
 
@@ -267,25 +267,19 @@ export default function SvargaPage() {
       </div>
 
       <div className="absolute left-4 top-4 z-30">
-        <Link
-          href="/"
-          className="pointer-events-auto inline-block rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-        >
-          ← Leave Svarga
-        </Link>
+        <OrbButton href="/" ariaLabel="Leave Svarga" accent="#ffffff">
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+        </OrbButton>
       </div>
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (
-        <button
-          type="button"
-          aria-label="Show realm information"
+        <OrbButton accent="#ffffff" ariaLabel="Show realm information"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={restoreInfo}
-          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs font-semibold text-white"
-        >
-          ⓘ Info
-        </button>
+          style={{ position: 'absolute', left: '50%', top: 64, transform: 'translateX(-50%)', zIndex: 30 }}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>ⓘ</span>
+        </OrbButton>
       )}
 
       {vortexOverlay}

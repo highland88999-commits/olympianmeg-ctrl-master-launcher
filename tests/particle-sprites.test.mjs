@@ -78,6 +78,26 @@ test('getParticleTexture is SSR-safe: null without a document, never throws', ()
   assert.equal(getParticleTexture('not-a-kind'), null);
 });
 
+test('drop sprite is a centred vertical streak (not the old off-centre blob)', () => {
+  // The old drop built its radial gradient at (C, C) AFTER
+  // translate(C, C) + scale(0.36, 1), which lands the glow's centre
+  // on the canvas's bottom edge and clips most of it away — the rain
+  // wore a centre dot + a clipped bottom blob instead of a streak
+  // (rendered and measured: only 12% of the canvas painted, all
+  // below/right of centre). The gradient is now built at local
+  // (0, 0) = canvas centre, with a fill that covers the whole canvas
+  // in scaled space (fixed render: rows 7-121, cols 44-84).
+  const text = src('lib/particles/sprites.js');
+  assert.ok(
+    text.includes('createRadialGradient(0, 0, 0, 0, 0, 58)'),
+    'drop gradient not centred at local origin',
+  );
+  assert.ok(
+    text.includes('g.fillRect(-178, -64, 356, 128)'),
+    'drop fill does not cover the canvas in scaled space',
+  );
+});
+
 // ── Afterlife wiring (25 files, one points system each) ──────────────
 
 const AFTERLIFE_FILES = {

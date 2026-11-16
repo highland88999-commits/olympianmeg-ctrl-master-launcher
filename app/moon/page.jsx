@@ -19,6 +19,7 @@ import { Canvas } from '@react-three/fiber';
 import { createClient } from '@supabase/supabase-js';
 import MoonScene from '@/components/MoonScene';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import OrbButton from '@/components/world/OrbButton';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { MOON_GRAVITY, MOON_SPAWN_FEET, MOON_EYE_HEIGHT } from '@/lib/moon';
 
@@ -131,16 +132,13 @@ export default function MoonPage() {
             HEIGHT {hud.height.toFixed(1)} m · {hud.grounded ? 'GROUNDED' : 'AIRBORNE'}
           </div>
         </div>
-        <button
-          onClick={goBack}
-          style={{
-            pointerEvents: 'auto', padding: '10px 16px', borderRadius: 999,
-            border: '1px solid rgba(255,255,255,0.35)', background: 'rgba(0,0,0,0.45)',
-            color: '#fff', fontWeight: 700, cursor: 'pointer', backdropFilter: 'blur(6px)',
-          }}
-        >
-          ← Back to hub
-        </button>
+        {/* Back to hub — a plain circle orb, never a pill: the one
+            control in the top bar. The JUMP button below is already
+            a plain circle. */}
+        <OrbButton accent="#ffd700" onClick={goBack} ariaLabel="Back to hub"
+          style={{ pointerEvents: 'auto' }}>
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+        </OrbButton>
       </div>
 
       <div

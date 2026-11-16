@@ -38,7 +38,7 @@ import { kickOffGlb } from '@/app/hollow-earth/model-loader';
 // itself is stepJupiter2Walker (lib/jupiter2/planet.js) — the
 // shared stepSphereWalker takes a fixed radius, and this planet
 // has two (88 deck, 74 shelf) plus a mountain.
-import { planetParams, sphereTangentBasis, sphereSurfaceUp } from '@/lib/planet-walker';
+import { planetParams, sphereTangentBasis, sphereSurfaceUp, lookTurnForDrag, dampLookAngle, LOOK_PITCH_MAX } from '@/lib/planet-walker';
 
 const JUPITER_PLANET = planetParams('jupiter');
 import {
@@ -49,8 +49,21 @@ import {
   createLeverState, pullLever, confirmOblivion, cancelLever, leverStatus, LEVER_GREEN,
 } from '@/lib/jupiter2/lever';
 import { lifeFor, homeFor, CHASE_SPEED_MPS, DEMOBAT_DIVE_SPEED_MPS } from '@/lib/jupiter2/operators';
+// Elemental orbs + speeder blaster + shields (Merlin, Nov 16 ~01:16,
+// round 2 workstream 7): the drop/collect/trade/shoot/shield law
+// lives in lib/jupiter2/elemental-orbs.js — this file only wires it
+// into the brain tick, the speeder and the HUD.
+import {
+  ORB_ELEMENTS, createOrbDrop, pruneOrbs, collectOrbs,
+  totalOrbs, addOrb, spendOrbs,
+  SHIELD_TIERS, SHIELD_RECHARGE_COST, shieldTierFor, buyShieldTier,
+  BLASTER_TIERS, BLASTER_CONE_DEG, blasterTierFor, blasterReady, buyBlasterTier,
+  applyBlasterHit, strikeWalkerWithShield, burnTickWithShield,
+  loadProgress, saveProgress,
+} from '@/lib/jupiter2/elemental-orbs';
 import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND } from '@/lib/jupiter2/storm';
 import { buildSpeeder, buildOblivionLever, buildMountain } from '@/lib/jupiter2/meshes';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
 // JUPITER 2 — walkable storm surface (Merlin, Nov 15 ~01:11, spec Nov 10).
 // The user stands ON the cloud deck INSIDE the storm at street level:
@@ -61,7 +74,8 @@ import { buildSpeeder, buildOblivionLever, buildMountain } from '@/lib/jupiter2/
 // The creatures are REAL GLBs now (Merlin, Nov 15 ~14:44): the
 // lightning monsters are the Monsterverse lightning seats and the
 // demobats the Hawkins GLB — no WebGL placeholders. The speeder
-// and the lever stay procedural. Day/night runs the shared law
+// is the real Star Wars landspeeder GLB now (Merlin, Nov 16
+// ~01:11); the lever stays procedural. Day/night runs the shared law
 // (timeOfDay01, real clock by default, page-driven like Mars).
 
 const ACCENT = '#e8a35c';
@@ -109,7 +123,10 @@ function useKeys(inputRef) {
 // unchanged (Earth 1 law: dismount drops the walker back on foot
 // exactly where the craft was, and the speeder vanishes). Walk off
 // the drop edge and you fall 14 m to the shelf under real Jupiter
-// gravity; the ramp due north is the way back up. On foot the walk
+// gravity; the way back up is the ramp due north (the easy way)
+// or straight up the cliff scarp itself — a steep climbable
+// slope, not a wall — and the speeder rides the whole planet
+// with no clamp at the far side. On foot the walk
 // runs on stepJupiter2Walker (variable ground radius, Jupiter
 // gravity 24.79, shared 3.0 m/s take-off): Space or the page's
 // JUMP button hops (0.18 m — barely a hop, honest real gravity).
@@ -117,9 +134,21 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
   const { camera, gl } = useThree();
   const yaw = useRef(0.6);
   const pitch = useRef(-0.05);
+  // Gentle look (Merlin, Nov 16, 2026 — the Moon's round-3 law, which
+  // Jupiter 2 never got): the drag sets a TARGET and the frame loop
+  // eases the camera toward it. The targets start at the arrival
+  // angles, and every place that re-aims the camera (respawn, mount,
+  // dismount, the mounted heading follow) re-aims the targets too,
+  // so the ease never drags the view back to a stale angle.
+  const yawTarget = useRef(0.6);
+  const pitchTarget = useRef(-0.05);
+  // Mounted heading follow: the speeder's yaw from the previous
+  // frame, so only its CHANGE is folded into the look target —
+  // steering turns the view smoothly instead of snapping it, and
+  // a drag-look offset while riding survives (it is relative to
+  // the heading, not overwritten by it).
+  const prevSpYaw = useRef(0);
   const feet = useRef(new THREE.Vector3());
-  const dragging = useRef(false);
-  const last = useRef([0, 0]);
   const wasMounted = useRef(false);
   const jumpQueued = useRef(false);
   const vrRef = useRef(0);
@@ -136,46 +165,53 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
     if (walkerStateRef) walkerStateRef.current.feet = feet.current;
   }, [walkerStateRef]);
 
+  // Gentle look (Merlin, Nov 16, 2026 — the Moon's round-3 law):
+  // the old code wrote the angle STRAIGHT from the drag at a fixed
+  // 0.0042 rad/px (mouse) / 0.005 rad/px (touch), with separate
+  // mouse + touch handlers sharing one flag — so a thumb drag
+  // snapped the camera, a coalesced touchmove delta could jump it
+  // ~30° in one frame, and on touch devices the emulated mouse
+  // events could drive both handlers at once (0.0092 rad/px).
+  // One pointer handler now serves touch drag and desktop mouse
+  // drag alike, the turn is a fraction of the screen
+  // (lookTurnForDrag: one full-width swipe turns half a circle),
+  // and the drag moves only the TARGET — the frame loop eases the
+  // camera toward it (dampLookAngle, 20/s), so the view follows
+  // the finger instead of whipping after it. The Moon's scene
+  // carries this same law (components/MoonScene.jsx).
   useEffect(() => {
     camera.rotation.order = 'YXZ';
     const el = gl.domElement;
-    const s = (e) => { dragging.current = true; last.current = [e.clientX, e.clientY]; };
-    const m = (e) => {
-      if (!dragging.current) return;
-      const dx = e.clientX - last.current[0];
-      const dy = e.clientY - last.current[1];
-      last.current = [e.clientX, e.clientY];
-      yaw.current -= dx * 0.0042;
-      pitch.current = Math.max(-1.35, Math.min(1.35, pitch.current - dy * 0.0042));
+    const anchor = { x: 0, y: 0 };
+    let dragging = false;
+    const onDown = (e) => {
+      dragging = true;
+      anchor.x = e.clientX;
+      anchor.y = e.clientY;
     };
-    const e = () => { dragging.current = false; };
-    const ts = (e2) => {
-      const t = e2.touches[0];
-      dragging.current = true;
-      last.current = [t.clientX, t.clientY];
+    const onMove = (e) => {
+      if (!dragging) return;
+      // Each event applies only its own delta (the anchor is
+      // re-set below), so the turn never compounds.
+      const w = el.clientWidth || window.innerWidth || 1;
+      yawTarget.current -= lookTurnForDrag(e.clientX - anchor.x, w);
+      pitchTarget.current = Math.max(
+        -LOOK_PITCH_MAX,
+        Math.min(LOOK_PITCH_MAX, pitchTarget.current - lookTurnForDrag(e.clientY - anchor.y, w))
+      );
+      anchor.x = e.clientX;
+      anchor.y = e.clientY;
     };
-    const tm = (e2) => {
-      const t = e2.touches[0];
-      if (!dragging.current) return;
-      const dx = t.clientX - last.current[0];
-      const dy = t.clientY - last.current[1];
-      last.current = [t.clientX, t.clientY];
-      yaw.current -= dx * 0.005;
-      pitch.current = Math.max(-1.35, Math.min(1.35, pitch.current - dy * 0.005));
-    };
-    el.addEventListener('mousedown', s);
-    window.addEventListener('mousemove', m);
-    window.addEventListener('mouseup', e);
-    el.addEventListener('touchstart', ts, { passive: true });
-    el.addEventListener('touchmove', tm, { passive: true });
-    el.addEventListener('touchend', e);
+    const onUp = () => { dragging = false; };
+    el.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
     return () => {
-      el.removeEventListener('mousedown', s);
-      window.removeEventListener('mousemove', m);
-      window.removeEventListener('mouseup', e);
-      el.removeEventListener('touchstart', ts);
-      el.removeEventListener('touchmove', tm);
-      el.removeEventListener('touchend', e);
+      el.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
       camera.rotation.order = 'XYZ';
     };
   }, [camera, gl]);
@@ -208,16 +244,21 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
       groundedRef.current = true;
       yaw.current = 0.6;
       pitch.current = -0.05;
+      yawTarget.current = 0.6;
+      pitchTarget.current = -0.05;
     }
     if (mounted !== wasMounted.current) {
       wasMounted.current = mounted;
       if (mounted) {
         yaw.current = sp.yaw;
+        yawTarget.current = sp.yaw;
+        prevSpYaw.current = sp.yaw;
         speederInit.current = false;
       } else {
         const p = spherePointFromDeck(sp.x, sp.z);
         feet.current.set(p.x, p.y, p.z);
         yaw.current = sp.yaw;
+        yawTarget.current = sp.yaw;
         // A dismount never resumes a stale mid-air state.
         vrRef.current = 0;
         groundedRef.current = true;
@@ -231,13 +272,26 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
         fwd: k.fwd ? 1 : 0, back: k.back ? 1 : 0,
         left: k.left ? 1 : 0, right: k.right ? 1 : 0,
         boost: !!k.boost,
+        // Analog steer from the touch stick (null/undefined while
+        // the stick is untouched, so WASD keeps its binary keys).
+        steer: inputRef.current.steer,
       }, dt);
       // The flat (x, z) maps onto the sphere by surface distance;
-      // clamp it just short of the antipode (276 m) so the map
-      // stays sane — the far side of the planet is the wall.
-      const sr = Math.hypot(sp.x, sp.z);
-      if (sr > 270) { sp.x *= 270 / sr; sp.z *= 270 / sr; }
-      yaw.current = sp.yaw;
+      // there is NO wall at the far side: the planet wraps, so a
+      // speeder driven past the antipode comes back around through
+      // deckToDir instead of being clamped and turned back.
+      //
+      // The heading steers the look TARGET by its own change, and
+      // the frame eases the camera toward it below — the old code
+      // hard-set yaw.current = sp.yaw every frame, which ate any
+      // drag-look while riding and snapped the whole world around
+      // at the full 2.2 rad/s steering rate. Steering now turns
+      // the view smoothly, and a drag-look offset while riding
+      // survives as an offset from the heading.
+      yawTarget.current += sp.yaw - prevSpYaw.current;
+      prevSpYaw.current = sp.yaw;
+      yaw.current = dampLookAngle(yaw.current, yawTarget.current, dt);
+      pitch.current = dampLookAngle(pitch.current, pitchTarget.current, dt);
       const p = spherePointFromDeck(sp.x, sp.z);
       if (!speederInit.current) {
         speederPointRef.current.set(p.x, p.y, p.z);
@@ -273,6 +327,11 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
         walkerStateRef.current.feet = point;
       }
     } else {
+      // Gentle look on foot: ease the camera toward the drag
+      // target (the Moon's law) before stepping the walker, so
+      // the walker turns where the eased camera looks.
+      yaw.current = dampLookAngle(yaw.current, yawTarget.current, dt);
+      pitch.current = dampLookAngle(pitch.current, pitchTarget.current, dt);
       const fwd = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
       const strafe = (k.right ? 1 : 0) - (k.left ? 1 : 0);
       // The JUMP button (page HUD) arms the same edge as the Space key.
@@ -325,13 +384,17 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
 
 // Touch stick — the Mars pattern: writes into the same inputRef.keys
 // the keyboard fills, every key cleared on release/cancel/unmount.
-export function Jupiter2TouchControls({ inputRef, riding }) {
+export function Jupiter2TouchControls({ inputRef, riding, onShoot }) {
   const stickRef = useRef(null);
   const knobRef = useRef(null);
   const activeId = useRef(null);
   const setKey = (name, v) => { if (inputRef.current) inputRef.current.keys[name] = v; };
   const clearStick = () => {
     setKey('fwd', false); setKey('back', false); setKey('left', false); setKey('right', false);
+    // The stick is untouched again: the analog steer goes back to
+    // null (not 0), so WASD steering works again — a 0 would keep
+    // overriding the keys in stepSpeeder.
+    if (inputRef.current) inputRef.current.steer = null;
     if (knobRef.current) knobRef.current.style.transform = 'translate(0px, 0px)';
   };
   useEffect(() => () => { clearStick(); setKey('boost', false); }, []);
@@ -348,6 +411,20 @@ export function Jupiter2TouchControls({ inputRef, riding }) {
     const T = 12;
     setKey('fwd', dy < -T); setKey('back', dy > T);
     setKey('left', dx < -T); setKey('right', dx > T);
+    // Analog steer for the speeder (Merlin, Nov 16, 2026): the old
+    // stick was digital — any left hold, however slight, turned
+    // the speeder at the full 2.2 rad/s, which is the spin in his
+    // video (the knob sat up-left in every frame). The steer is
+    // the stick's sideways deflection, +1 full left to −1 full
+    // right, with a small dead zone, so a slight hold turns
+    // gently and only a hard hold turns at full rate. Null while
+    // the stick is untouched (see clearStick), so WASD keeps its
+    // binary steering. On foot this is unused — walking takes the
+    // digital keys, as before.
+    const raw = dx / max; // −1 (full left) .. +1 (full right)
+    const mag = Math.abs(raw);
+    const scaled = mag < 0.12 ? 0 : Math.min(1, (mag - 0.12) / 0.88);
+    if (inputRef.current) inputRef.current.steer = -scaled * Math.sign(raw);
   };
   const onDown = (e) => { activeId.current = e.pointerId; e.currentTarget.setPointerCapture(e.pointerId); moveStick(e); };
   const onMove = (e) => { if (activeId.current === e.pointerId) moveStick(e); };
@@ -363,6 +440,7 @@ export function Jupiter2TouchControls({ inputRef, riding }) {
       <div
         ref={stickRef} role="application" aria-label="Move"
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+        onLostPointerCapture={onUp}
         style={{
           position: 'absolute', bottom: 16, left: 16, width: 104, height: 104, borderRadius: '50%',
           border: '1px solid rgba(232,163,92,0.55)', background: 'rgba(18,8,4,0.38)',
@@ -376,12 +454,32 @@ export function Jupiter2TouchControls({ inputRef, riding }) {
           pointerEvents: 'none',
         }} />
       </div>
+      {/* BOOST parks ABOVE the page's JUMP orb (bottom 104, the
+          JUMP orb ends at bottom 88) — the two shared one corner in
+          speeder mode and their labels printed on top of each other
+          (Merlin, Nov 16: "the shoot and jump buttons overlap" —
+          the pair in the video is JUMP over BOOST). Each gets its
+          own circle orb now, one label per orb, never overlapping. */}
       {riding && (
         <button type="button" aria-label="Boost" {...holdBtn('boost')} style={{
-          position: 'absolute', right: 16, bottom: 16, width: 64, height: 64, borderRadius: '50%',
+          position: 'absolute', right: 16, bottom: 104, width: 64, height: 64, borderRadius: '50%',
           touchAction: 'none', zIndex: 6, border: '1px solid rgba(57,200,255,0.7)',
           background: 'rgba(10,20,30,0.5)', color: '#bfe9ff', fontSize: 12, letterSpacing: 1,
         }}>BOOST</button>
+      )}
+      {/* SHOOT — the speeder blaster (Merlin, Nov 16 ~01:16). Its own
+          plain circle orb, LEFT of the page's JUMP orb: JUMP spans
+          right 12–88, SHOOT spans right 104–168 (16 px clear), and
+          below BOOST (bottom 104) — so it never overlaps either.
+          Riding only; on foot the blaster is inactive, so no orb.
+          Tap to fire; the blaster's own cooldown paces repeat shots. */}
+      {riding && onShoot && (
+        <OrbButton size={64} onClick={onShoot} ariaLabel="Shoot the speeder blaster"
+          accent="#39c8ff"
+          style={{ position: 'absolute', right: 104, bottom: 12, zIndex: 6 }}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🎯</span>
+          <OrbLabel>SHOOT</OrbLabel>
+        </OrbButton>
       )}
     </>
   );
@@ -866,13 +964,78 @@ function Creatures({ onSelect, brainRef, creaturesRef }) {
   );
 }
 
+// --- elemental orbs in the world -------------------------------------------
+// Dropped orbs float above the deck where the monster died, bobbing in
+// their element colour, until the walker collects them or they fade
+// (120 s). Pure presentation: the brain tick owns spawn/collect.
+function ElementalOrbField({ orbs }) {
+  const groupRef = useRef();
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const t = Date.now() / 1000;
+    g.children.forEach((mesh, i) => {
+      const orb = (orbs || [])[i];
+      if (!orb) return;
+      const r = Math.hypot(orb.x, orb.y, orb.z) || 1;
+      const bob = 0.9 + Math.sin(t * 2 + i * 1.7) * 0.25;
+      mesh.position.set(orb.x + (orb.x / r) * bob, orb.y + (orb.y / r) * bob, orb.z + (orb.z / r) * bob);
+    });
+  });
+  return (
+    <group ref={groupRef}>
+      {(orbs || []).map((orb) => {
+        const def = ORB_ELEMENTS[orb.element] || ORB_ELEMENTS.storm;
+        return (
+          <mesh key={orb.id} position={[orb.x, orb.y, orb.z]}>
+            <sphereGeometry args={[0.35, 16, 12]} />
+            <meshBasicMaterial color={def.core} transparent opacity={0.95} />
+          </mesh>
+        );
+      })}
+    </group>
+  );
+}
+
+// The blaster bolt: a short-lived cyan line from the speeder's nose
+// to the shot's endpoint, drawn for 150 ms after fireBlaster records
+// the shot in blasterRef. Presentation only — the hit is already
+// applied when the shot is recorded.
+function BlasterBolt({ blasterRef }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    return g;
+  }, []);
+  const lineRef = useRef();
+  useEffect(() => () => geo.dispose(), [geo]);
+  useFrame(() => {
+    const line = lineRef.current;
+    if (!line) return;
+    const shot = blasterRef && blasterRef.current && blasterRef.current.lastShot;
+    const fresh = shot && Date.now() - shot.atMs < 150;
+    line.visible = !!fresh;
+    if (!fresh) return;
+    const attr = geo.getAttribute('position');
+    attr.array[0] = shot.from.x; attr.array[1] = shot.from.y; attr.array[2] = shot.from.z;
+    attr.array[3] = shot.to.x; attr.array[4] = shot.to.y; attr.array[5] = shot.to.z;
+    attr.needsUpdate = true;
+  });
+  return (
+    <line ref={lineRef} geometry={geo} visible={false} frustumCulled={false}>
+      <lineBasicMaterial color="#7df9ff" transparent opacity={0.95} />
+    </line>
+  );
+}
+
 // --- scene content -----------------------------------------------------------
-function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walkerStateRef, brainRef, creaturesRef, leverStateRef, onSelect, selectedId, onRideChange, onLever, jumpRef }) {
+function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walkerStateRef, brainRef, creaturesRef, leverStateRef, onSelect, selectedId, onRideChange, onLever, jumpRef, orbs, blasterRef }) {
   const sky = useMemo(() => jupiter2Sky(timeOfDay), [timeOfDay]);
   const groundGeo = useMemo(() => {
     // The planet itself: a sphere, displaced by the ground law —
-    // the deck cap at 88, the shelf at 74, the mountain bump on
-    // the shelf. Every vertex sits on its ground radius, so the
+    // the deck cap at 88, the shelf at 74, the cliff a steep
+    // climbable scarp between them, the mountain bump on the
+    // shelf. Every vertex sits on its ground radius, so the
     // mesh and the walker agree exactly about where the ground is.
     const g = new THREE.SphereGeometry(JUPITER2_SPHERE_R, 96, 64);
     const pos = g.attributes.position;
@@ -887,7 +1050,11 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
     return g;
   }, []);
   const groundMat = useMemo(() => {
-    const maps = planetMaps('gasGiant', JUPITER2_SEED);
+    // Soft jets: the gas-giant map's hard jet steps read on the
+    // sky as pale flat rectangles (Merlin, Nov 16 — the "ash/dust"
+    // flecks); the ground shares the same cached map, so it gets
+    // the same soft jets.
+    const maps = planetMaps('gasGiant', JUPITER2_SEED, { softJets: true });
     const map = maps.map.clone();
     map.needsUpdate = true;
     map.repeat.set(9, 9);
@@ -899,7 +1066,10 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
     });
   }, []);
   const skyMat = useMemo(() => {
-    const maps = planetMaps('gasGiant', JUPITER2_SEED);
+    // Soft jets (see groundMat): the sky dome is where the hard
+    // jet steps showed as pale rectangles, so it wears the
+    // feathered map.
+    const maps = planetMaps('gasGiant', JUPITER2_SEED, { softJets: true });
     const map = maps.map.clone();
     map.needsUpdate = true;
     map.repeat.set(2, 1);
@@ -985,7 +1155,25 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
         new THREE.Vector3(-basis.forward.x, -basis.forward.y, -basis.forward.z),
       );
       speederGroup.quaternion.setFromRotationMatrix(m);
+      // The outer flame brightens at speed (as the old underglow
+      // did); the plume itself is dark parked and lit only while
+      // driving — the Star Wars landspeeder law (zone.js): length
+      // grows with speed, width flickers.
       speederGroup.userData.glowMat.opacity = 0.6 + Math.min(1, Math.abs(sp.speed) / SPEEDER_SPEED) * 0.4;
+      const flame = speederGroup.userData.flame;
+      if (flame) {
+        const driving = Math.abs(sp.speed) > 1;
+        flame.group.visible = driving;
+        if (driving) {
+          const tt = Date.now() / 1000;
+          const ratio = Math.min(1, Math.abs(sp.speed) / SPEEDER_SPEED);
+          const flick = 0.85 + 0.25 * Math.sin(tt * 29 + flame.phase)
+            + 0.12 * Math.sin(tt * 47 + flame.phase * 1.3);
+          const w = Math.max(0.4, flick);
+          flame.outer.scale.set(w, (0.7 + 0.6 * ratio) * flick, w);
+          flame.inner.scale.set(w, (0.6 + 0.5 * ratio) * flick, w);
+        }
+      }
     }
     const arm = leverGroup.userData.arm;
     if (arm) {
@@ -1020,6 +1208,8 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
 
       <StormRig dayF={sky.dayF} />
       <Creatures onSelect={onSelect} brainRef={brainRef} creaturesRef={creaturesRef} />
+      <ElementalOrbField orbs={orbs} />
+      <BlasterBolt blasterRef={blasterRef} />
       <primitive object={speederGroup} />
 
       {/* the mountain past the drop, cave mouth facing the drop */}
@@ -1032,7 +1222,7 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
         onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { document.body.style.cursor = ''; }}
       />
-      <Html position={[mouthPoint.x + mouthUp.x * 5, mouthPoint.y + mouthUp.y * 5, mouthPoint.z + mouthUp.z * 5]} center distanceFactor={50} style={{ pointerEvents: 'none' }}>
+      <Html position={[mouthPoint.x + mouthUp.x * 8, mouthPoint.y + mouthUp.y * 8, mouthPoint.z + mouthUp.z * 8]} center distanceFactor={50} zIndexRange={[2, 0]} style={{ pointerEvents: 'none' }}>
         <div style={{ fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap', color: LEVER_GREEN, textShadow: '0 1px 6px #000', fontWeight: 700 }}>⚡ OBLIVION LEVER</div>
       </Html>
 
@@ -1053,7 +1243,7 @@ export function Jupiter2RealmContent(props) {
 }
 
 export default function Jupiter2Scene({
-  timeOfDay = 0.32, mode = 'walk', inputRef, onSelect, selectedId, jumpRef,
+  timeOfDay = 0.32, mode = 'walk', inputRef, onSelect, selectedId, jumpRef, shootRef = null,
 }) {
   const [ready, setReady] = useState(false);
   const speederRef = useRef(createSpeederState());
@@ -1075,10 +1265,169 @@ export default function Jupiter2Scene({
   // (steering, rings, streaks, remains) every frame.
   const brainRef = useRef({ walker: createVictimState(WALKER_MAX_HP), monsters: {}, bats: {} });
   const creaturesRef = useRef(null);
-  const [hpUi, setHpUi] = useState({ hp: WALKER_MAX_HP, burning: false });
-  const hpUiRef = useRef({ hp: WALKER_MAX_HP, burning: false });
+  const [hpUi, setHpUi] = useState({ hp: WALKER_MAX_HP, burning: false, shield: 0, shieldMax: 0 });
+  const hpUiRef = useRef({ hp: WALKER_MAX_HP, burning: false, shield: 0, shieldMax: 0 });
   const [lastDeathAt, setLastDeathAt] = useState(0);
   const lastDeathAtRef = useRef(0);
+
+  // ── elemental orbs + blaster + shields (Merlin, Nov 16 ~01:16) ──
+  // Progress loads once from device-local storage (no server table,
+  // no SQL) and every change saves straight back. Refs are the
+  // truth inside the 500 ms tick (its closure never re-runs); the
+  // *Ui states are only mirrors for rendering.
+  const [initialProgress] = useState(() => loadProgress());
+  const walletRef = useRef(initialProgress.orbs);
+  const [walletUi, setWalletUi] = useState(initialProgress.orbs);
+  const shieldRef = useRef({
+    tier: initialProgress.shieldTier,
+    max: shieldTierFor(initialProgress.shieldTier).max,
+    current: initialProgress.shield,
+  });
+  const [shieldUi, setShieldUi] = useState({
+    tier: initialProgress.shieldTier,
+    max: shieldTierFor(initialProgress.shieldTier).max,
+    current: initialProgress.shield,
+  });
+  const blasterRef = useRef({ tier: initialProgress.blasterTier, lastShotMs: null, lastShot: null });
+  const [blasterUi, setBlasterUi] = useState({ tier: initialProgress.blasterTier });
+  // Live orbs on the deck: the ref is the truth in the tick, the
+  // state is what SceneContent renders.
+  const orbsRef = useRef([]);
+  const [orbsUi, setOrbsUi] = useState([]);
+  const prevFeetRef = useRef(null);
+  const [notice, setNotice] = useState(null);
+  const noticeRef = useRef(null);
+  const [tradeOpen, setTradeOpen] = useState(false);
+
+  // Show a short centred notice for 3 s (the tick clears it).
+  const showNotice = (text) => {
+    const atMs = Date.now();
+    noticeRef.current = { text, atMs };
+    setNotice({ text, atMs });
+  };
+  // Write the refs out to UI state + localStorage after any
+  // wallet / shield / blaster change.
+  const syncProgressUi = () => {
+    setWalletUi({ ...walletRef.current });
+    setShieldUi({ ...shieldRef.current });
+    setBlasterUi({ tier: blasterRef.current.tier });
+    setHpUi((prev) => ({ ...prev, shield: shieldRef.current.current, shieldMax: shieldRef.current.max }));
+    hpUiRef.current = { ...hpUiRef.current, shield: shieldRef.current.current, shieldMax: shieldRef.current.max };
+    saveProgress({
+      orbs: walletRef.current,
+      shieldTier: shieldRef.current.tier,
+      blasterTier: blasterRef.current.tier,
+      shield: shieldRef.current.current,
+    });
+  };
+
+  // ── the speeder blaster (Merlin, Nov 16 ~01:16) ──
+  // SHOOT orb press handler — the orb lives in Jupiter2TouchControls
+  // (its own plain circle, left of JUMP, below BOOST) and calls this
+  // through onShoot; F fires it too, and the optional shootRef prop
+  // exposes it to the page. On foot it is inactive;
+  // riding, it auto-aims at the nearest live monster inside the
+  // tier's range and a 35° cone off the speeder's nose, and applies
+  // the tier's damage. The kill itself is recorded by the brain tick
+  // (cause 'user-kill', killerId 'user') — the tick is the one place
+  // a drop spawns.
+  const fireBlaster = () => {
+    const sp = speederRef.current;
+    const now = Date.now();
+    if (!sp.summoned || !sp.mounted) return { ok: false, reason: 'on-foot' };
+    const tier = blasterTierFor(blasterRef.current.tier);
+    if (!blasterReady(blasterRef.current.lastShotMs, now, blasterRef.current.tier)) {
+      return { ok: false, reason: 'cooldown' };
+    }
+    blasterRef.current.lastShotMs = now;
+    const creatures = creaturesRef.current;
+    const ground = walkerStateRef.current.feet
+      ? { x: walkerStateRef.current.feet.x, y: walkerStateRef.current.feet.y, z: walkerStateRef.current.feet.z }
+      : spherePointFromDeck(sp.x, sp.z);
+    // The bolt leaves from the nose, ~1 m above the deck.
+    const gr = Math.hypot(ground.x, ground.y, ground.z) || 1;
+    const from = {
+      x: ground.x + (ground.x / gr) * 1.0,
+      y: ground.y + (ground.y / gr) * 1.0,
+      z: ground.z + (ground.z / gr) * 1.0,
+    };
+    const basis = sphereTangentBasis(from, sp.yaw, PLANET_R);
+    const fwd = basis.forward;
+    const fwdLen = Math.hypot(fwd.x, fwd.y, fwd.z) || 1;
+    const fx = fwd.x / fwdLen;
+    const fy = fwd.y / fwdLen;
+    const fz = fwd.z / fwdLen;
+    const cosCone = Math.cos((BLASTER_CONE_DEG * Math.PI) / 180);
+    let best = null;
+    if (creatures) {
+      const all = [
+        ...creatures.monsters.map((c) => ({ ...c, map: 'monsters' })),
+        ...creatures.bats.map((c) => ({ ...c, map: 'bats' })),
+      ];
+      for (const c of all) {
+        const entry = (brainRef.current[c.map] || {})[c.id];
+        if (!entry || entry.dead || entry.hp <= 0) continue;
+        const p = c.group.position;
+        const dx = p.x - from.x;
+        const dy = p.y - from.y;
+        const dz = p.z - from.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > tier.rangeM || d <= 0) continue;
+        const cos = (dx * fx + dy * fy + dz * fz) / d;
+        if (cos < cosCone) continue;
+        if (!best || d < best.d) best = { c, entry, d, p: { x: p.x, y: p.y, z: p.z } };
+      }
+    }
+    // The bolt flies to the target, or to max range along the nose on a miss.
+    const to = best
+      ? best.p
+      : { x: from.x + fx * tier.rangeM, y: from.y + fy * tier.rangeM, z: from.z + fz * tier.rangeM };
+    blasterRef.current.lastShot = { from: { ...from }, to, atMs: now };
+    if (!best) return { ok: true, hit: false };
+    const res = applyBlasterHit(best.entry, tier.dmg);
+    best.entry.hp = res.hp;
+    best.entry.lastStriker = 'user';
+    return { ok: true, hit: true, killed: res.killed, target: best.c.id };
+  };
+
+  // ── the deck trade (Merlin, Nov 16 ~01:16) ──
+  // Buys spend orbs from the wallet (any mix, storm → dragon →
+  // demobat) and persist immediately. Buying a shield tier refills
+  // it to the new max; buying a blaster tier takes effect on the
+  // next shot.
+  const buyShield = (tier) => {
+    const res = buyShieldTier(walletRef.current, shieldRef.current.tier, tier);
+    if (!res.ok) {
+      showNotice(res.reason === 'need-orbs' ? `⬡ NEED ${shieldTierFor(tier).cost} ORBS FOR THAT SHIELD` : '⬡ SHIELD ALREADY OWNED');
+      return;
+    }
+    walletRef.current = res.wallet;
+    const max = shieldTierFor(res.tier).max;
+    shieldRef.current = { tier: res.tier, max, current: max };
+    syncProgressUi();
+    showNotice(`🛡️ ${shieldTierFor(res.tier).label.toUpperCase()} — SHIELD ${max}`);
+  };
+  const buyBlaster = (tier) => {
+    const res = buyBlasterTier(walletRef.current, blasterRef.current.tier, tier);
+    if (!res.ok) {
+      showNotice(res.reason === 'need-orbs' ? `⬡ NEED ${blasterTierFor(tier).cost} ORBS FOR THAT BLASTER` : '⬡ BLASTER ALREADY OWNED');
+      return;
+    }
+    walletRef.current = res.wallet;
+    blasterRef.current.tier = res.tier;
+    syncProgressUi();
+    showNotice(`🔫 ${blasterTierFor(res.tier).label.toUpperCase()} — ${blasterTierFor(res.tier).dmg} DMG`);
+  };
+  const rechargeShield = () => {
+    if (shieldRef.current.tier === 0) { showNotice('⬡ NO SHIELD TO RECHARGE — BUY ONE FIRST'); return; }
+    if (shieldRef.current.current >= shieldRef.current.max) { showNotice('🛡️ SHIELD ALREADY FULL'); return; }
+    const next = spendOrbs(walletRef.current, SHIELD_RECHARGE_COST);
+    if (!next) { showNotice(`⬡ NEED ${SHIELD_RECHARGE_COST} ORBS TO RECHARGE`); return; }
+    walletRef.current = next;
+    shieldRef.current.current = shieldRef.current.max;
+    syncProgressUi();
+    showNotice(`🛡️ SHIELD RECHARGED TO ${shieldRef.current.max}`);
+  };
 
   // ── the brain tick (500 ms): life lines, hunts, auras, burns ──
   // Every creature's life is recomputed from the operator conductor
@@ -1133,7 +1482,12 @@ export default function Jupiter2Scene({
         const pos = { x: c.group.position.x, y: c.group.position.y, z: c.group.position.z };
         let life;
         try {
-          life = lifeFor(c.kind, c.index, now, { ...pos, walker, others, kill: entry.kill });
+          // A demobat hunts ground monsters only while diving low
+          // itself — its clock activity rides in ctx.diving.
+          life = lifeFor(c.kind, c.index, now, {
+            ...pos, walker, others, kill: entry.kill,
+            diving: c.kind === 'demobat' && activities[c.id] === 'diving low through the rain',
+          });
         } catch {
           continue;
         }
@@ -1178,7 +1532,12 @@ export default function Jupiter2Scene({
           entry.lastStrikeMs = now;
           entry.strike = { target: { ...entry.target }, atMs: now };
           if (hunt.targetKind === 'walker') {
-            brain.walker = applyStrike(brain.walker, now);
+            // Shield first (elemental orbs): the bought shield
+            // absorbs the strike hit before HP does.
+            const shielded = strikeWalkerWithShield(brain.walker, shieldRef.current.current, now);
+            brain.walker = shielded.walker;
+            shieldRef.current.current = shielded.shield;
+            if (shielded.shieldBroken) showNotice('🛡️ SHIELD BROKEN');
           } else {
             const preyMap = hunt.targetKind === 'demobat' ? brain.bats : brain.monsters;
             const prey = preyMap && preyMap[hunt.target];
@@ -1205,18 +1564,36 @@ export default function Jupiter2Scene({
           entry.burnDps = ns.burnDps;
           entry.burnRemainingS = ns.burnRemainingS;
         }
-        // Killed by the burn: predation, once, for this generation.
+        // Killed: predation, once, for this generation — or a USER
+        // kill when the blaster struck last (fireBlaster only deals
+        // damage; this tick records the kill, and ONLY a user kill
+        // drops an elemental orb, at the death point).
         if (entry.hp <= 0 && !entry.kill) {
-          entry.kill = { generation: life.generation, cause: 'predation', diedAtMs: now, killerId: entry.lastStriker || null };
+          const userKill = entry.lastStriker === 'user';
+          entry.kill = { generation: life.generation, cause: userKill ? 'user-kill' : 'predation', diedAtMs: now, killerId: entry.lastStriker || null };
+          if (userKill) {
+            const orb = createOrbDrop({ kind: c.kind, index: c.index, position: pos, nowMs: now });
+            if (orb) {
+              orbsRef.current = pruneOrbs([...orbsRef.current, orb], now);
+              setOrbsUi(orbsRef.current);
+            }
+          }
         }
       }
       // The walker's own burn + death: the storm takes them, and
-      // they wake back at the deck, whole.
+      // they wake back at the deck, whole. Burn ticks route through
+      // the shield first, like strikes.
       if (brain.walker.burnRemainingS > 0) {
-        brain.walker = burnTick(brain.walker, 0.5);
+        const shielded = burnTickWithShield(brain.walker, shieldRef.current.current, 0.5);
+        brain.walker = shielded.walker;
+        shieldRef.current.current = shielded.shield;
+        if (shielded.shieldBroken) showNotice('🛡️ SHIELD BROKEN');
       }
       if (brain.walker.hp <= 0) {
         brain.walker = createVictimState(WALKER_MAX_HP);
+        // Death refills the bought shield to its tier max (the
+        // capacity is owned; the charge is what breaks).
+        shieldRef.current.current = shieldRef.current.max;
         walkerStateRef.current.respawn = true;
         lastDeathAtRef.current = now;
         setLastDeathAt(now);
@@ -1225,8 +1602,38 @@ export default function Jupiter2Scene({
         lastDeathAtRef.current = 0;
         setLastDeathAt(0);
       }
-      const nextHp = { hp: Math.round(brain.walker.hp), burning: brain.walker.burnRemainingS > 0 };
-      if (nextHp.hp !== hpUiRef.current.hp || nextHp.burning !== hpUiRef.current.burning) {
+      // Elemental orbs: collect what the walker crossed this tick
+      // (segment-checked, so the speeder cannot step over one) and
+      // fade the expired. The path runs from the last tick's feet
+      // to this tick's.
+      const feetPos = feet ? { x: feet.x, y: feet.y, z: feet.z } : null;
+      if (feetPos && orbsRef.current.length > 0) {
+        const { collected, remaining } = collectOrbs(orbsRef.current, prevFeetRef.current, feetPos);
+        if (collected.length > 0) {
+          let wallet = walletRef.current;
+          for (const orb of collected) wallet = addOrb(wallet, orb.element);
+          walletRef.current = wallet;
+          orbsRef.current = pruneOrbs(remaining, now);
+          setOrbsUi(orbsRef.current);
+          const names = collected.map((o) => (ORB_ELEMENTS[o.element] || {}).label || o.element);
+          showNotice(`⬡ +${collected.length} ${names.join(', ')} ORB${collected.length > 1 ? 'S' : ''}`);
+          syncProgressUi();
+        } else {
+          const pruned = pruneOrbs(orbsRef.current, now);
+          if (pruned.length !== orbsRef.current.length) {
+            orbsRef.current = pruned;
+            setOrbsUi(pruned);
+          }
+        }
+      }
+      if (feetPos) prevFeetRef.current = feetPos;
+      // A notice fades after 3 s.
+      if (noticeRef.current && now - noticeRef.current.atMs > 3000) {
+        noticeRef.current = null;
+        setNotice(null);
+      }
+      const nextHp = { hp: Math.round(brain.walker.hp), burning: brain.walker.burnRemainingS > 0, shield: shieldRef.current.current, shieldMax: shieldRef.current.max };
+      if (nextHp.hp !== hpUiRef.current.hp || nextHp.burning !== hpUiRef.current.burning || nextHp.shield !== hpUiRef.current.shield) {
         hpUiRef.current = nextHp;
         setHpUi(nextHp);
       }
@@ -1269,17 +1676,29 @@ export default function Jupiter2Scene({
   };
 
   // B = summon/dismiss the speeder, E = dismount — Earth 1's keys.
+  // F = fire the speeder blaster (the SHOOT orb calls the same
+  // action through shootRef, below).
   useEffect(() => {
     const down = (e) => {
       if (e.repeat) return;
       const k = e.key.toLowerCase();
       if (k === 'b') summon();
       else if (k === 'e' && speederRef.current.summoned) dismount();
+      else if (k === 'f') fireBlaster();
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // The SHOOT orb's press handler (workstream 1 owns the orb's
+  // shape + placement): the page passes a shootRef, the orb calls
+  // shootRef.current(). Assigned every render so the orb always
+  // calls the current action. On foot it is inactive — the action
+  // itself no-ops there.
+  useEffect(() => {
+    if (shootRef) shootRef.current = fireBlaster;
+  });
 
   // Armed countdown ticks once a second while armed.
   useEffect(() => {
@@ -1303,6 +1722,7 @@ export default function Jupiter2Scene({
           brainRef={brainRef} creaturesRef={creaturesRef} leverStateRef={leverRef}
           onSelect={onSelect} selectedId={selectedId}
           onRideChange={onRideChange} onLever={onLever} jumpRef={jumpRef}
+          orbs={orbsUi} blasterRef={blasterRef}
         />
       </Canvas>
       {!ready && (
@@ -1311,67 +1731,106 @@ export default function Jupiter2Scene({
           justifyContent: 'center', color: ACCENT, letterSpacing: 3, fontSize: 12,
         }}>ENTERING THE STORM…</div>
       )}
+      {/* Hint — below the top row of orbs (top 76), wrapping inside
+          a centred band that clears the left orb column and the
+          top-right EXIT/FULLSCREEN orb, so it can never be cut off
+          behind a button again. */}
       {mode !== 'orbit' && (
         <div style={{
-          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
-          color: '#ffe3cc', fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
-          background: 'rgba(0,0,0,0.35)', padding: '6px 14px', borderRadius: 8,
-          pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 5,
+          position: 'absolute', top: 76, left: '50%', transform: 'translateX(-50%)',
+          maxWidth: 'calc(100% - 184px)',
+          color: '#ffe3cc', fontSize: 11, letterSpacing: 1, lineHeight: 1.5, textAlign: 'center',
+          textShadow: '0 1px 4px #000',
+          background: 'rgba(0,0,0,0.35)', padding: '6px 10px', borderRadius: 8,
+          pointerEvents: 'none', zIndex: 5,
         }}>
-          {riding ? 'SPEEDER · STICK / WASD STEER · SHIFT / BOOST' : 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP · B SUMMON SPEEDER'}
+          {riding ? 'SPEEDER · STICK / WASD STEER · SHIFT / BOOST · F FIRE' : 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP · B SUMMON SPEEDER'}
         </div>
       )}
-      {/* walker health — quiet while whole; the lightning burn shows here */}
-      {mode !== 'orbit' && (hpUi.hp < WALKER_MAX_HP || hpUi.burning) && (
+      {/* walker health — an orb, not a pill: quiet while whole; the
+          lightning burn shows here. It sits top-left, second in the
+          row after the speeder orb. A readout, not a control, so it
+          is a plain circle div, not a button. */}
+      {mode !== 'orbit' && (hpUi.hp < WALKER_MAX_HP || hpUi.burning || hpUi.shield > 0) && (
         <div style={{
-          position: 'absolute', top: 52, left: 12, zIndex: 6,
-          color: hpUi.burning ? '#ffb14d' : '#ffe3cc', fontSize: 12, letterSpacing: 2, fontWeight: 700,
-          background: 'rgba(0,0,0,0.5)', padding: '6px 12px', borderRadius: 8,
-          border: `1px solid ${hpUi.burning ? '#ff8c1a' : '#5a3220'}`,
-          pointerEvents: 'none', whiteSpace: 'nowrap',
+          position: 'absolute', top: 12, left: 76, zIndex: 6,
+          width: 56, height: 56, borderRadius: '50%',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          color: hpUi.burning ? '#ffb14d' : '#ffe3cc', fontSize: 12, fontWeight: 700, lineHeight: 1.2,
+          background: 'rgba(0,0,0,0.5)',
+          border: `2px solid ${hpUi.burning ? '#ff8c1a' : '#5a3220'}`,
+          pointerEvents: 'none',
         }}>
-          ❤ {hpUi.hp}{hpUi.burning ? ' · 🔥 BURNING' : ''}
+          <span>❤ {hpUi.hp}</span>
+          {hpUi.burning && <span style={{ fontSize: 8, letterSpacing: 1 }}>🔥 BURNING</span>}
+          {hpUi.shield > 0 && <span style={{ fontSize: 8, letterSpacing: 1 }}>🛡 {hpUi.shield}</span>}
         </div>
       )}
       {lastDeathAt > 0 && (
         <div style={{
-          position: 'absolute', top: 96, left: '50%', transform: 'translateX(-50%)', zIndex: 7,
-          color: '#ffb14d', fontSize: 13, letterSpacing: 2, fontWeight: 700,
+          position: 'absolute', top: 132, left: '50%', transform: 'translateX(-50%)', zIndex: 7,
+          maxWidth: 'calc(100% - 24px)', textAlign: 'center',
+          color: '#ffb14d', fontSize: 13, letterSpacing: 2, fontWeight: 700, lineHeight: 1.4,
           background: 'rgba(20,5,0,0.8)', padding: '10px 18px', borderRadius: 8,
-          border: '1px solid #ff8c1a', pointerEvents: 'none', whiteSpace: 'nowrap',
+          border: '1px solid #ff8c1a', pointerEvents: 'none',
         }}>
           THE STORM TOOK YOU — BACK AT THE DECK
         </div>
       )}
-      {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} />}
-      {/* speeder summon — the Earth 1 button, per user */}
+      {notice && (
+        <div style={{
+          position: 'absolute', top: 180, left: '50%', transform: 'translateX(-50%)', zIndex: 7,
+          maxWidth: 'calc(100% - 24px)', textAlign: 'center',
+          color: '#ffe3cc', fontSize: 12, letterSpacing: 2, fontWeight: 700, lineHeight: 1.4,
+          background: 'rgba(20,5,0,0.8)', padding: '8px 14px', borderRadius: 8,
+          border: '1px solid #e8a35c', pointerEvents: 'none',
+        }}>
+          {notice.text}
+        </div>
+      )}
+      {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} onShoot={fireBlaster} />}
+      {/* speeder summon — the Earth 1 button, per user. Top-LEFT
+          column of orbs now: the top-right corner belongs to the
+          EXIT / FULLSCREEN orb alone, so the two can never pile up
+          on one row again. One label per orb. */}
       {mode !== 'orbit' && (
-        <div style={{ position: 'absolute', right: 12, top: 12, zIndex: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <button type="button" onClick={summon} aria-label={riding ? 'Dismiss speeder' : 'Summon speeder'}
-            style={{
-              minHeight: 44, padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
-              border: `1px solid ${riding ? '#39c8ff' : ACCENT}`, background: riding ? '#0a2a3a' : '#1c0d06',
-              color: riding ? '#bfe9ff' : '#f6e8da', fontSize: 12, letterSpacing: 2, fontWeight: 700,
-            }}>
-            {riding ? '🛸 DISMISS SPEEDER' : '🛸 SUMMON SPEEDER'}
-          </button>
+        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <OrbButton onClick={summon} ariaLabel={riding ? 'Dismiss speeder' : 'Summon speeder'}
+            accent={riding ? '#39c8ff' : ACCENT}>
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🛸</span>
+            <OrbLabel>{riding ? 'DISMISS' : 'SUMMON'}</OrbLabel>
+          </OrbButton>
           {riding && (
-            <button type="button" onClick={dismount} aria-label="Dismount speeder"
-              style={{
-                minHeight: 44, padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
-                border: '1px solid #5a3220', background: '#1c0d06',
-                color: '#f6e8da', fontSize: 12, letterSpacing: 2,
-              }}>
-              ⏏ DISMOUNT
-            </button>
+            <OrbButton size={64} onClick={dismount} ariaLabel="Dismount speeder">
+              <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>⏏</span>
+              <span style={{ fontSize: 8, letterSpacing: 1, lineHeight: 1 }}>DISMOUNT</span>
+            </OrbButton>
           )}
+          {/* deck trade — elemental orbs buy shields + blaster
+              upgrades. The panel opens here; the fiction is the
+              deck trader at spawn. The tally below it is a readout
+              (plain circle div, like the HP orb), not a control. */}
+          <OrbButton onClick={() => setTradeOpen(true)} ariaLabel="Open the deck trade — spend elemental orbs on shields and blaster upgrades">
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬡</span>
+            <OrbLabel>TRADE</OrbLabel>
+          </OrbButton>
+          <div title={`Elemental orbs — storm ${walletUi.storm} · dragon ${walletUi.dragon} · demobat ${walletUi.demobat}`} style={{
+            width: 56, height: 56, borderRadius: '50%',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            color: '#ffe3cc', fontSize: 12, fontWeight: 700, lineHeight: 1.2,
+            background: 'rgba(0,0,0,0.5)', border: '2px solid #e8a35c',
+            pointerEvents: 'none',
+          }}>
+            <span>⬡ {totalOrbs(walletUi)}</span>
+            <span style={{ fontSize: 8, letterSpacing: 1 }}>ORBS</span>
+          </div>
           {leverUi.phase === 'armed' && (
-            <div style={{
-              padding: '8px 12px', borderRadius: 8, border: '1px solid #22ff66',
-              background: 'rgba(4,26,12,0.9)', color: '#22ff66', fontSize: 11, letterSpacing: 1,
-            }}>
-              OBLIVION ARMED<br />{leverUi.countdown}
-            </div>
+            <OrbButton ariaLabel={`Oblivion armed${leverUi.countdown ? `, ${leverUi.countdown}` : ''}`} accent="#22ff66">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⚡</span>
+              <span style={{ fontSize: 8, letterSpacing: 0.5, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%' }}>
+                {leverUi.countdown || 'ARMED'}
+              </span>
+            </OrbButton>
           )}
         </div>
       )}
@@ -1412,6 +1871,96 @@ export default function Jupiter2Scene({
                 STAND DOWN
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* deck trade — elemental orbs buy shields + blaster upgrades.
+          Kill a monster with the speeder blaster and it drops one
+          orb of its element; walk over the orb to collect it. Costs
+          are the worker's call (5 / 10 / 15 orbs a track, mirroring
+          Medusa's flat-per-tier pattern); any mix of orbs pays. */}
+      {tradeOpen && (
+        <div role="dialog" aria-label="Deck trade — elemental orbs"
+          style={{
+            position: 'absolute', inset: 0, zIndex: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(0,0,0,0.6)', padding: 16,
+          }}>
+          <div style={{
+            maxWidth: 440, width: '100%', maxHeight: 'calc(100% - 32px)', overflowY: 'auto',
+            background: '#160a04', border: '2px solid #e8a35c', borderRadius: 12, padding: 20,
+          }}>
+            <h2 style={{ margin: '0 0 4px', color: '#e8a35c', letterSpacing: 2, fontSize: 18 }}>⬡ DECK TRADE</h2>
+            <p style={{ margin: '0 0 16px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
+              Storm {walletUi.storm} · Dragon {walletUi.dragon} · Demobat {walletUi.demobat} — total {totalOrbs(walletUi)} orbs.
+              Kill with the speeder blaster, walk over the orb to collect it.
+            </p>
+            <h3 style={{ margin: '0 0 8px', color: '#ffe3cc', letterSpacing: 2, fontSize: 13 }}>🛡️ SHIELDS — ABSORB DAMAGE BEFORE YOUR 100 HP</h3>
+            {SHIELD_TIERS.slice(1).map((t) => {
+              const owned = shieldUi.tier >= t.tier;
+              const afford = totalOrbs(walletUi) >= t.cost;
+              return (
+                <div key={t.tier} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: '#f6e8da' }}>
+                    <b>{t.label}</b> — absorbs {t.max} damage · {t.cost} ⬡
+                  </div>
+                  <button type="button" disabled={owned || !afford} onClick={() => buyShield(t.tier)}
+                    style={{
+                      minHeight: 44, padding: '10px 14px', borderRadius: 8, cursor: owned || !afford ? 'default' : 'pointer',
+                      border: '1px solid #e8a35c', background: owned ? '#1c0d06' : '#e8a35c', color: owned ? '#c99a78' : '#160a04',
+                      fontWeight: 700, fontSize: 12, letterSpacing: 1, opacity: owned || !afford ? 0.55 : 1, whiteSpace: 'nowrap',
+                    }}>
+                    {owned ? 'OWNED' : `BUY ${t.cost} ⬡`}
+                  </button>
+                </div>
+              );
+            })}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+              <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: '#f6e8da' }}>
+                <b>Recharge shield</b> — back to full ({shieldUi.max}) · {SHIELD_RECHARGE_COST} ⬡
+              </div>
+              <button type="button"
+                disabled={shieldUi.tier === 0 || shieldUi.current >= shieldUi.max || totalOrbs(walletUi) < SHIELD_RECHARGE_COST}
+                onClick={rechargeShield}
+                style={{
+                  minHeight: 44, padding: '10px 14px', borderRadius: 8, cursor: 'pointer',
+                  border: '1px solid #5a3220', background: '#1c0d06', color: '#f6e8da',
+                  fontWeight: 700, fontSize: 12, letterSpacing: 1, whiteSpace: 'nowrap',
+                }}>
+                RECHARGE {SHIELD_RECHARGE_COST} ⬡
+              </button>
+            </div>
+            <h3 style={{ margin: '0 0 8px', color: '#ffe3cc', letterSpacing: 2, fontSize: 13 }}>🔫 SPEEDER BLASTER — STOCK 34 DMG · 500 MS · 60 M</h3>
+            {BLASTER_TIERS.slice(1).map((t) => {
+              const owned = blasterUi.tier >= t.tier;
+              const afford = totalOrbs(walletUi) >= t.cost;
+              return (
+                <div key={t.tier} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: '#f6e8da' }}>
+                    <b>{t.label}</b> — {t.dmg} dmg · {t.cooldownMs} ms · {t.rangeM} m · {t.cost} ⬡
+                  </div>
+                  <button type="button" disabled={owned || !afford} onClick={() => buyBlaster(t.tier)}
+                    style={{
+                      minHeight: 44, padding: '10px 14px', borderRadius: 8, cursor: owned || !afford ? 'default' : 'pointer',
+                      border: '1px solid #e8a35c', background: owned ? '#1c0d06' : '#e8a35c', color: owned ? '#c99a78' : '#160a04',
+                      fontWeight: 700, fontSize: 12, letterSpacing: 1, opacity: owned || !afford ? 0.55 : 1, whiteSpace: 'nowrap',
+                    }}>
+                    {owned ? 'OWNED' : `BUY ${t.cost} ⬡`}
+                  </button>
+                </div>
+              );
+            })}
+            <p style={{ margin: '8px 0 16px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
+              The blaster fires from the speeder only (F key, or the SHOOT orb) — on foot it is inactive.
+              Your shield refills to full whenever you buy a tier and whenever the storm takes you.
+            </p>
+            <button type="button" onClick={() => setTradeOpen(false)}
+              style={{
+                minHeight: 44, padding: '10px 18px', borderRadius: 8, cursor: 'pointer',
+                border: '1px solid #5a3220', background: '#1c0d06', color: '#f6e8da',
+                fontSize: 13, letterSpacing: 1,
+              }}>
+              CLOSE
+            </button>
           </div>
         </div>
       )}

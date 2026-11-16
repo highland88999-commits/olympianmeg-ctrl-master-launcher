@@ -27,11 +27,8 @@ import TronRider from '@/components/nova/TronRider';
 import { fx, unlockFx } from '@/lib/fx';
 import { HermesBackdrop, HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
 import { RadarIcon, GridIcon, EyeIcon, PortalIcon, PinIcon } from '@/lib/hermes-icons';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
-// HERMES treatment: inline-flex icon+label wrapper for HUD buttons.
-const HIcon = ({ children }) => (
-  <span className="inline-flex items-center gap-2">{children}</span>
-);
 import {
   tuningFor,
   dist3,
@@ -1228,7 +1225,10 @@ export default function ErebusPage() {
           <div className="bg-black/60 backdrop-blur-sm px-4 py-2.5 rounded-lg border border-amber-400/40 text-amber-200 text-sm font-bold tracking-widest">
             ◆ {bars}/{BARS_PER_UNIVERSE}
           </div>
-          <button
+          {/* in-world controls — plain circle orbs now, never
+              rectangles (Merlin, Nov 16 — standing law). The bars
+              tally above them is a readout, not a control. */}
+          <OrbButton accent="#67e8f9" active={autopilotOn}
             onClick={() => {
               if (autopilotRef.current.active) stopAutopilot();
               else {
@@ -1239,32 +1239,24 @@ export default function ErebusPage() {
               }
             }}
             aria-pressed={autopilotOn}
-            aria-label="Toggle autopilot tour"
-            className={`min-h-[44px] px-4 rounded-lg border text-xs font-bold tracking-widest uppercase transition-colors ${
-              autopilotOn
-                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
-                : 'border-zinc-700 bg-black/60 text-zinc-300 hover:bg-white/10'
-            }`}
-          >
-            <HIcon><RadarIcon size={13} />Autopilot</HIcon>
-          </button>
-          <button
-            onClick={returnToAtlas}
-            className="min-h-[44px] px-4 rounded-lg border border-zinc-700 bg-black/60 text-zinc-300 text-xs font-bold tracking-widest uppercase hover:bg-white/10"
-          >
-            <HIcon><GridIcon size={13} />Atlas</HIcon>
-          </button>
+            ariaLabel="Toggle autopilot tour">
+            <RadarIcon size={16} />
+            <OrbLabel>AUTO</OrbLabel>
+          </OrbButton>
+          <OrbButton accent="#67e8f9" onClick={returnToAtlas} ariaLabel="Atlas">
+            <GridIcon size={16} />
+            <OrbLabel>ATLAS</OrbLabel>
+          </OrbButton>
         </div>
       </div>
 
-      {/* the ONE portal button — centered */}
+      {/* the ONE portal button — centered, a plain circle orb now */}
       <div className={`absolute left-0 right-0 flex justify-center pointer-events-none ${touchUI ? 'bottom-[47%]' : 'bottom-[calc(2rem+env(safe-area-inset-bottom))]'}`}>
-        <button
-          onClick={openJump}
-          className="pointer-events-auto min-h-[56px] px-8 rounded-full border-2 border-cyan-300/70 bg-cyan-400/10 backdrop-blur-sm text-cyan-100 text-sm font-black tracking-[0.3em] uppercase hover:bg-cyan-400/25 transition-colors shadow-[0_0_30px_rgba(103,232,249,0.25)]"
-        >
-          <HIcon><PortalIcon size={16} />Portal</HIcon>
-        </button>
+        <OrbButton accent="#67e8f9" size={72} onClick={openJump} ariaLabel="Portal — jump to another universe"
+          style={{ pointerEvents: 'auto' }}>
+          <PortalIcon size={18} />
+          <span style={{ fontSize: 9, letterSpacing: 1, lineHeight: 1 }}>PORTAL</span>
+        </OrbButton>
       </div>
 
       {/* collect toast */}

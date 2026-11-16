@@ -3,6 +3,7 @@
 import { useReducer, useRef, useEffect } from 'react';
 import { SCENES, journeyReducer, initialJourney, isFinalScene } from '../../lib/afterlife/journey.mjs';
 import PassageLink from '@/components/styx/PassageLink';
+import OrbButton from '@/components/world/OrbButton';
 
 // ---------- deterministic rng ----------
 function hashStr(s) {
@@ -250,13 +251,11 @@ function Journey({ state, dispatch }) {
       <img src="/images/the-afterlife/bg-soft.webp" alt="" aria-hidden="true"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.16, zIndex: 0 }} />
       <SceneCanvas scene={scene} />
-      <button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'PREV' }); }}
-        aria-label="Go back"
-        style={{ position: 'absolute', top: 16, left: 16, zIndex: 10,
-          background: 'rgba(0,0,0,0.5)', color: '#c5a059', border: '1px solid #c5a059',
-          borderRadius: 8, padding: '8px 14px', cursor: 'pointer', fontSize: '1rem' }}>
-        ←
-      </button>
+      <OrbButton accent="#c5a059" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'PREV' }); }}
+        ariaLabel="Go back"
+        style={{ position: 'absolute', top: 16, left: 16, zIndex: 10 }}>
+        <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+      </OrbButton>
       <div style={{ position: 'absolute', top: 22, right: 20, zIndex: 10, display: 'flex', gap: 8 }}>
         {SCENES.map((s, i) => (
           <span key={s.id} aria-hidden="true"
@@ -285,12 +284,11 @@ function Journey({ state, dispatch }) {
             </p>
           ))}
           {final ? (
-            <button onClick={(e) => { e.stopPropagation(); dispatch({ type: 'RESTART' }); }}
-              style={{ marginTop: 22, background: 'transparent', color: '#c5a059',
-                border: '1px solid #c5a059', borderRadius: 8, padding: '10px 22px',
-                cursor: 'pointer', letterSpacing: 2, fontSize: '0.85rem' }}>
-              WALK IT AGAIN
-            </button>
+            <OrbButton accent="#c5a059" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'RESTART' }); }}
+              ariaLabel="Walk it again"
+              style={{ marginTop: 22 }}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>↻</span>
+            </OrbButton>
           ) : (
             <div style={{ position: 'absolute', bottom: 10, right: 14,
               fontSize: '0.6rem', color: '#c5a059', letterSpacing: 2 }}>

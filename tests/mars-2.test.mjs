@@ -57,7 +57,11 @@ describe('mars-2 route identity', () => {
     const page = read('app/mars-2/page.jsx');
     assert.ok(page.includes('export default function Mars2Page'));
     assert.ok(page.includes('components/mars2/Mars2Scene'));
-    assert.ok(page.includes('SUMMON ROVER') && page.includes('DISMOUNT'));
+    // Circle-orb law (Merlin, Nov 16, 2026): the summon/dismount
+    // controls are plain circle orbs now, so the old rectangular
+    // button labels 'SUMMON ROVER' / 'DISMOUNT' live in the orbs'
+    // aria-labels instead of as visible pill text.
+    assert.ok(page.includes('Summon rover') && page.includes('Dismount rover'));
     // Route modules may only export handlers/config: no extra
     // exported consts in the page (the key lives in lib/mars2/world.js).
     assert.ok(!/^export const /m.test(page), 'page must not export extra consts');

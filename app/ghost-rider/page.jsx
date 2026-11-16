@@ -24,12 +24,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { useRealmInfoFade } from '@/components/useRealmInfoFade';
 import { RealmLifeLine } from '@/components/RealmLifeLine';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import { GhostRiderScene } from './world3d';
 import {
   DAMNED_FIELD,
@@ -833,35 +833,31 @@ export default function GhostRiderPage() {
             ? 'Left stick to walk · drag the right side to look around · walk through the glowing arch to return to Hell · step onto the dark Anti-Life disc to fall through'
             : 'WASD or arrows to walk · drag to look around · Shift to run · walk through the glowing arch to return to Hell · step onto the dark Anti-Life disc to fall through'}
         </p>
-        {/* Talk / battle / chain — one plain button per deed, only
-            where the deed lives. */}
-        <div className="pointer-events-auto mt-3 flex flex-col items-center gap-2">
+        {/* Talk / battle / chain — one plain circle orb per deed, in
+            a row, only where the deed lives. */}
+        <div className="pointer-events-auto mt-3 flex flex-row items-center justify-center gap-3">
           {near && !dialogue && !battle && (
-            <button
-              type="button"
-              onClick={startTalk}
-              className="rounded-full border border-orange-400/60 bg-black/60 px-4 py-2 text-sm font-semibold text-orange-200"
-            >
-              💬 Talk to the Ghost Rider
-            </button>
+            <OrbButton accent="#fb923c" onClick={startTalk}
+              ariaLabel="Talk to the Ghost Rider" title="Talk to the Ghost Rider">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>💬</span>
+              <OrbLabel>TALK</OrbLabel>
+            </OrbButton>
           )}
           {chainItem && !battle && !dialogue && (
-            <button
-              type="button"
-              onClick={onUseChain}
-              className="rounded-full border border-red-400/60 bg-black/60 px-4 py-2 text-sm font-semibold text-red-200"
-            >
-              🔥 Use the Chain{chain.level > 0 ? ` — ${chainsPerThrow(chain.level)} chains` : ''}
-            </button>
+            <OrbButton accent="#f87171" onClick={onUseChain}
+              ariaLabel={`Use the Chain${chain.level > 0 ? ` — ${chainsPerThrow(chain.level)} chains` : ''}`}
+              title={`Use the Chain${chain.level > 0 ? ` — ${chainsPerThrow(chain.level)} chains` : ''}`}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🔥</span>
+              <OrbLabel>USE</OrbLabel>
+            </OrbButton>
           )}
           {chainItem && !battle && !dialogue && (
-            <button
-              type="button"
-              onClick={onUpgradeChain}
-              className="rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-            >
-              ⬆ Chain level {chain.level} → {Math.min(5, chainsPerThrow(chain.level) + 1)} chains per throw · 20 orc shards ({countItem(pack, ORC_SHARD_ITEM_ID)} held)
-            </button>
+            <OrbButton accent="#ffffff" onClick={onUpgradeChain}
+              ariaLabel={`Chain level ${chain.level} → ${Math.min(5, chainsPerThrow(chain.level) + 1)} chains per throw · 20 orc shards (${countItem(pack, ORC_SHARD_ITEM_ID)} held)`}
+              title={`Chain level ${chain.level} → ${Math.min(5, chainsPerThrow(chain.level) + 1)} chains per throw · 20 orc shards (${countItem(pack, ORC_SHARD_ITEM_ID)} held)`}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬆</span>
+              <OrbLabel>UP</OrbLabel>
+            </OrbButton>
           )}
         </div>
         {/* The conversation: his line, two answers, either advances. */}
@@ -939,25 +935,19 @@ export default function GhostRiderPage() {
       </div>
 
       <div className="absolute left-4 top-4 z-30">
-        <Link
-          href="/"
-          className="pointer-events-auto inline-block rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-        >
-          ← Leave
-        </Link>
+        <OrbButton href="/" ariaLabel="Leave" accent="#ffffff">
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+        </OrbButton>
       </div>
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (
-        <button
-          type="button"
-          aria-label="Show realm information"
+        <OrbButton accent="#ffffff" ariaLabel="Show realm information"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={restoreInfo}
-          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs font-semibold text-white"
-        >
-          ⓘ Info
-        </button>
+          style={{ position: 'absolute', left: '50%', top: 64, transform: 'translateX(-50%)', zIndex: 30 }}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>ⓘ</span>
+        </OrbButton>
       )}
 
       {vortexOverlay}

@@ -9,7 +9,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  PLANET_R, SHELF_R, DROP_DEPTH_M, DROP_EDGE_RAD, RAMP_AZIMUTH,
+  PLANET_R, SHELF_R, DROP_DEPTH_M, DROP_EDGE_RAD, CLIFF_HALF_RAD,
+  STEEP_FALL_GRADIENT, RAMP_AZIMUTH,
   RAMP_HALF_WIDTH_RAD, MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH,
   CAVE_MOUTH_THETA_RAD, CAVE_BACK_THETA_RAD, LEVER_CAVE_THETA_RAD,
   deckToDir, dirToDeck, thetaFromPole, azimuthOf, baseRadiusAt,
@@ -162,22 +163,102 @@ describe('the sphere walker', () => {
     const r = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
     assert.ok(Math.abs(r - 74) < 1.3, `landed on the shelf, r=${r}`);
   });
-  it('walking into the cliff face from below is BLOCKED — a wall, not a staircase', () => {
-    const base = spherePointFromDeck(95, 0); // on the shelf, east of the edge
-    const before = { ...base };
-    // Walk west, into the cliff: yaw such that forward points back
-    // toward the pole. The tangent basis at the shelf point with
-    // yaw π faces south (+Z deck) — try the yaws and require that
-    // no single step ever teleports the walker UP the cliff.
-    for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
-      const s = stepJupiter2Walker(
-        { feet: { ...before }, vr: 0, grounded: true },
-        { fwd: 1, strafe: 0, jump: false, yaw }, 0.05, JUPITER,
-      );
-      const r0 = Math.hypot(before.x, before.y, before.z);
-      const r1 = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
-      assert.ok(r1 - r0 < 2.01, `no step teleports up the cliff (yaw ${yaw}: ${r0.toFixed(2)} → ${r1.toFixed(2)})`);
+  it('the cliff is a slope in the ground law, not a step — no wall in the numbers', () => {
+    // Sample the base radius across the east scarp at ~0.26 m
+    // spacing: the biggest single-sample change is a fraction of
+    // a metre, so no step in the ground can ever block or
+    // teleport the walker. Mid-scarp the ground is between deck
+    // and shelf — a slope, not a ledge.
+    let maxStep = 0;
+    let prev = baseRadiusAt(dirAt(0.90, Math.PI / 2));
+    for (let t = 0.90 + 0.003; t <= 1.20; t += 0.003) {
+      const r = baseRadiusAt(dirAt(t, Math.PI / 2));
+      maxStep = Math.max(maxStep, Math.abs(r - prev));
+      prev = r;
     }
+    assert.ok(maxStep < 1.0, `scarp max step ${maxStep.toFixed(2)} m per 0.26 m`);
+    const mid = baseRadiusAt(dirAt(DROP_EDGE_RAD, Math.PI / 2));
+    assert.ok(mid > 74 && mid < 88, `mid-scarp ${mid.toFixed(2)} is between shelf and deck`);
+    assert.ok(CLIFF_HALF_RAD > 0.01 && CLIFF_HALF_RAD < 0.05, `scarp half-width ${CLIFF_HALF_RAD} rad`);
+    assert.ok(STEEP_FALL_GRADIENT > 2 && STEEP_FALL_GRADIENT < 3.2, 'fall gradient sits between flank and scarp');
+  });
+  it('walking into the cliff face from below CLIMBS it — a slope, not a wall', () => {
+    // Start on the shelf east of the edge and walk toward the
+    // pole (yaw −π/2 at the east point): the walker climbs the
+    // ~72° scarp step by step, stays grounded the whole way, and
+    // reaches the deck — never blocked, never teleported up.
+    let s = { feet: spherePointFromDeck(95, 0), vr: 0, grounded: true };
+    let maxRise = 0;
+    let prevR = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+    let everAirborne = false;
+    for (let i = 0; i < 300; i++) {
+      s = stepJupiter2Walker(s, { fwd: 1, strafe: 0, jump: false, yaw: -Math.PI / 2 }, 0.05, JUPITER);
+      const r = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+      maxRise = Math.max(maxRise, r - prevR);
+      prevR = r;
+      if (!s.grounded) everAirborne = true;
+      if (thetaFromPole(s.feet) < 0.95) break;
+    }
+    assert.ok(thetaFromPole(s.feet) < 0.95, `climbed onto the deck, theta=${thetaFromPole(s.feet).toFixed(3)}`);
+    assert.equal(s.grounded, true, 'grounded on arrival');
+    assert.equal(everAirborne, false, 'the climb never goes airborne');
+    assert.ok(maxRise < 2, `no step rises more than a wall-step (max ${maxRise.toFixed(2)} m)`);
+    const r = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+    assert.ok(Math.abs(r - 88) < 1.3, `standing on the deck, r=${r.toFixed(2)}`);
+  });
+  it('the cave has no walls: stepping sideways out of the passage climbs the shoulder', () => {
+    // Inside the passage at (0, −128), walk east (yaw 0 past the
+    // basis flip up here): the walker crosses the corridor edge
+    // and climbs onto the mountain flank — no block, no teleport.
+    let s = { feet: spherePointFromDeck(0, -128), vr: 0, grounded: true };
+    let maxJump = 0;
+    let prevR = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+    for (let i = 0; i < 120; i++) {
+      s = stepJupiter2Walker(s, { fwd: 1, strafe: 0, jump: false, yaw: 0 }, 0.05, JUPITER);
+      const r = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+      maxJump = Math.max(maxJump, Math.abs(r - prevR));
+      prevR = r;
+      if (azimuthOf(s.feet) > 0.2) break;
+    }
+    assert.ok(azimuthOf(s.feet) > 0.15, `out of the corridor, azimuth=${azimuthOf(s.feet).toFixed(3)}`);
+    assert.equal(s.grounded, true);
+    assert.ok(maxJump < 2, `no step jumps the ground (max ${maxJump.toFixed(2)} m)`);
+  });
+  it('the cave has no wall at its back: walking past the lever climbs out over the far side', () => {
+    // From the lever, walk on north (yaw −π/2 past the basis
+    // flip): through the back of the passage and up the far
+    // shoulder of the mountain, grounded throughout.
+    let s = { feet: spherePointFromDeck(0, -123), vr: 0, grounded: true };
+    let maxJump = 0;
+    let prevR = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+    for (let i = 0; i < 200; i++) {
+      s = stepJupiter2Walker(s, { fwd: 1, strafe: 0, jump: false, yaw: -Math.PI / 2 }, 0.05, JUPITER);
+      const r = Math.hypot(s.feet.x, s.feet.y, s.feet.z);
+      maxJump = Math.max(maxJump, Math.abs(r - prevR));
+      prevR = r;
+      if (thetaFromPole(s.feet) > 1.65) break;
+    }
+    assert.ok(thetaFromPole(s.feet) > 1.6, `past the mountain, theta=${thetaFromPole(s.feet).toFixed(3)}`);
+    assert.equal(s.grounded, true);
+    assert.ok(maxJump < 2, `no step jumps the ground (max ${maxJump.toFixed(2)} m)`);
+  });
+  it('walking down the mountain flank stays grounded — only the scarp is a fall', () => {
+    let s = { feet: spherePointFromDeck(30, -128), vr: 0, grounded: true };
+    let fell = false;
+    for (let i = 0; i < 120; i++) {
+      s = stepJupiter2Walker(s, { fwd: 1, strafe: 0, jump: false, yaw: Math.PI / 2 }, 0.05, JUPITER);
+      if (!s.grounded) fell = true;
+      if (thetaFromPole(s.feet) > 1.7) break;
+    }
+    assert.equal(fell, false, 'the flank is walked down, not fallen down');
+    assert.ok(thetaFromPole(s.feet) > 1.65, 'the walker reaches the shelf past the mountain');
+  });
+  it('the planet has no far-side wall: the ground law runs to the antipode', () => {
+    assert.ok(Math.abs(baseRadiusAt(deckToDir(0, 270)) - 74) < 0.01, 'the far side is shelf, not a void');
+    const g = groundRadiusAt(deckToDir(0, 270));
+    assert.ok(Number.isFinite(g) && Math.abs(g - 74) <= 1.3, 'ground is defined at the antipode');
+    const back = dirToDeck(deckToDir(0, -270));
+    assert.ok(Math.abs(back.x) < 1e-9 && Math.abs(back.z + 270) < 1e-9, 'deck maps round-trip past the edge');
   });
   it('the ramp is walkable both ways — up and down without a fall', () => {
     // Down the ramp: start at the ramp top (θ 0.9, due north).

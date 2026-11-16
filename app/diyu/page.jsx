@@ -12,7 +12,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
@@ -29,6 +28,7 @@ import {
   writeRebirthPoint,
 } from '@/lib/afterlife/souls';
 import { REBIRTH_DESTINATION } from '@/lib/afterlife/rebirth';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
 const STICK_RADIUS = 60;
 
@@ -337,14 +337,12 @@ export default function DiyuPage() {
         </p>
         {region === 'The Wheel of Rebirth' && (
           <div className="pointer-events-auto mt-3 flex flex-col items-center gap-2">
-            <button
-              type="button"
-              onClick={rideWheel}
-              disabled={wheelBusy}
-              className="rounded-full border border-violet-300/60 bg-black/60 px-4 py-2 text-sm font-semibold text-violet-200 disabled:opacity-50"
-            >
-              ☸ Ride the Wheel of Rebirth — return to the world above
-            </button>
+            <OrbButton accent="#c4b5fd" onClick={rideWheel} disabled={wheelBusy}
+              ariaLabel="Ride the Wheel of Rebirth — return to the world above"
+              title="Ride the Wheel of Rebirth — return to the world above">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>☸</span>
+              <OrbLabel>WHEEL</OrbLabel>
+            </OrbButton>
           </div>
         )}
         {wheelNotice && (
@@ -356,25 +354,19 @@ export default function DiyuPage() {
       </div>
 
       <div className="absolute left-4 top-4 z-30">
-        <Link
-          href="/"
-          className="pointer-events-auto inline-block rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-        >
-          ← Leave Diyu
-        </Link>
+        <OrbButton href="/" ariaLabel="Leave Diyu" accent="#ffffff">
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+        </OrbButton>
       </div>
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (
-        <button
-          type="button"
-          aria-label="Show realm information"
+        <OrbButton accent="#ffffff" ariaLabel="Show realm information"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={restoreInfo}
-          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs font-semibold text-white"
-        >
-          ⓘ Info
-        </button>
+          style={{ position: 'absolute', left: '50%', top: 64, transform: 'translateX(-50%)', zIndex: 30 }}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>ⓘ</span>
+        </OrbButton>
       )}
 
       {vortexOverlay}

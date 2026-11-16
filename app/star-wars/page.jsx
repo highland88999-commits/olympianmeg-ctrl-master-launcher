@@ -21,6 +21,7 @@ import {
 import { createWalker, stepWalker, applyLook, walkerCamera } from '@/lib/world/walk-controls';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import OrbButton from '@/components/world/OrbButton';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import {
   mountVehicle, dismountPoint, parkVehicle, stepVehicle,
@@ -817,7 +818,9 @@ export default function StarWarsPage() {
         <div style={styles.hud}>
           <div style={styles.zoneTop}>
             <div style={styles.zoneName}>{def.name}</div>
-            <button style={styles.smallBtn} onClick={() => { setIntro(false); setMode('map'); }}>Map</button>
+            <OrbButton accent="#ffe81f" size={48} onClick={() => { setIntro(false); setMode('map'); }} ariaLabel="Map">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🗺</span>
+            </OrbButton>
             <BackpackHud realm="star-wars" realmLabel="Star Wars" docked
               displayNote="The saber stays — lightsaber encounters keep their own blades. The pack rides along." />
           </div>
@@ -850,22 +853,23 @@ export default function StarWarsPage() {
             <WalkJoystick onMove={onJoy} size={120} />
           </div>
 
-          {/* rideable vehicles: walk-up prompt + exit control */}
+          {/* rideable vehicles: walk-up prompt + exit control — plain
+              circle orbs now, each in its own spot, never overlapping. */}
           {ridePrompt && !mountedId && !intro && (
-            <button
-              style={styles.rideBtn}
+            <OrbButton accent="#ffe81f"
               onClick={() => { if (vehicleApiRef.current) vehicleApiRef.current.mount(ridePrompt); }}
-            >
-              🛸 Tap to ride
-            </button>
+              ariaLabel="Tap to ride"
+              style={{ position: 'absolute', left: '50%', bottom: 'calc(' + BOTTOM_CLEAR + ' + 132px)', transform: 'translateX(-50%)' }}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🛸</span>
+            </OrbButton>
           )}
           {mountedId && (
-            <button
-              style={styles.exitVehicleBtn}
+            <OrbButton accent="#ffe81f"
               onClick={() => { if (vehicleApiRef.current) vehicleApiRef.current.dismount(); }}
-            >
-              ⬇ Exit vehicle
-            </button>
+              ariaLabel="Exit vehicle"
+              style={{ position: 'absolute', right: 20, bottom: BOTTOM_CLEAR }}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
+            </OrbButton>
           )}
 
           {/* life card: tap a creature or named figure for its life line */}
@@ -874,7 +878,9 @@ export default function StarWarsPage() {
               <div style={styles.lifeName}>{lifeCard.name}</div>
               <div style={styles.lifeMeta}>{lifeCard.kind}{lifeCard.planet ? ` · ${lifeCard.planet}` : ''}</div>
               {lifeCard.line && <div style={styles.lifeLine}>{lifeCard.line}</div>}
-              <button style={styles.smallBtn} onClick={() => setLifeCard(null)}>Close</button>
+              <OrbButton accent="#ffe81f" size={48} onClick={() => setLifeCard(null)} ariaLabel="Close">
+                <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>✕</span>
+              </OrbButton>
             </div>
           )}
 

@@ -45,6 +45,7 @@ import { Canvas } from '@react-three/fiber';
 import { supabase } from '@/lib/supabase';
 import SunBaseScene from '@/components/SunBaseScene';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import PortalDestinationPicker, { isPortalPiece } from '@/components/earth2/PortalDestinationPicker';
 import {
   BUILDING_PIECES,
@@ -387,35 +388,31 @@ export default function SunBasePage() {
         </div>
         <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {spec && (
-            <button
-              type="button"
+            <OrbButton accent={GOLD} size={48} active={buildMode}
               onClick={() => {
                 setBuildMode((v) => !v);
                 setSelectedIndex(null);
                 setCarriedIndex(null);
               }}
               aria-pressed={buildMode}
-              style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', background: buildMode ? GOLD : 'rgba(255,217,138,0.16)', color: buildMode ? '#140c02' : '#ffe9c4', fontSize: 13, fontWeight: 800, border: `1px solid ${GOLD}66`, fontFamily: 'inherit' }}
-            >
-              {buildMode ? '✓ Building…' : '🔨 Build'}
-            </button>
+              ariaLabel={buildMode ? 'Building — tap to stop building' : 'Build'}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🔨</span>
+              <OrbLabel>BUILD</OrbLabel>
+            </OrbButton>
           )}
           {spec && (
-            <button
-              type="button"
+            <OrbButton accent={GOLD} size={48}
               onClick={() => setShowPicker(true)}
-              style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.16)', color: '#ffe9c4', fontSize: 13, fontWeight: 700, border: `1px solid ${GOLD}66`, fontFamily: 'inherit' }}
-            >
-              Change interior
-            </button>
+              ariaLabel="Change interior">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🎨</span>
+              <OrbLabel>STYLE</OrbLabel>
+            </OrbButton>
           )}
-          <button
-            type="button"
+          <OrbButton accent={GOLD} size={48}
             onClick={() => router.push('/')}
-            style={{ padding: '9px 16px', borderRadius: 999, cursor: 'pointer', background: GOLD, color: '#140c02', fontSize: 13, fontWeight: 800, border: 'none', fontFamily: 'inherit' }}
-          >
-            ← Back to hub
-          </button>
+            ariaLabel="Back to hub">
+            <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+          </OrbButton>
         </div>
       </div>
 
@@ -443,25 +440,51 @@ export default function SunBasePage() {
       {/* Build menu — the Earth 2 build functions, in the sun base. */}
       {spec && buildMode && !pickerOpen && portalPickIndex == null && (
         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, maxHeight: 236, overflowY: 'auto', background: 'rgba(20,12,2,0.96)', borderTop: `1px solid ${GOLD}55`, padding: '10px 12px 12px' }}>
+          {/* Build tools — plain circle orbs now, never pills. The
+              picker rows below (categories, pieces, finishes) stay
+              as labelled lists: the name IS the choice there. */}
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => setBuildTool('place')} aria-pressed={buildTool === 'place'} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: buildTool === 'place' ? GOLD : 'rgba(255,217,138,0.12)', color: buildTool === 'place' ? '#140c02' : '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>Place</button>
-            <button type="button" onClick={() => setBuildTool('edit')} aria-pressed={buildTool === 'edit'} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: buildTool === 'edit' ? GOLD : 'rgba(255,217,138,0.12)', color: buildTool === 'edit' ? '#140c02' : '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>Edit</button>
-            <button type="button" onClick={() => setRotY((r) => snapRotation((r ?? sunBaseAutoRotY(walkerRef.current?.yaw ?? Math.PI, pieceId)) + 15, pieceId))} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.12)', color: '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>⟳ Turn</button>
-            <button type="button" onClick={cycleOrientation} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.12)', color: '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>
-              {orientation === 'upright' ? 'Stand' : orientation === 'flat' ? 'Lay flat' : 'Lay flat (flipped)'}
-            </button>
+            <OrbButton accent={GOLD} size={48} active={buildTool === 'place'} onClick={() => setBuildTool('place')} aria-pressed={buildTool === 'place'} ariaLabel="Place tool">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>📍</span>
+              <OrbLabel>PLACE</OrbLabel>
+            </OrbButton>
+            <OrbButton accent={GOLD} size={48} active={buildTool === 'edit'} onClick={() => setBuildTool('edit')} aria-pressed={buildTool === 'edit'} ariaLabel="Edit tool">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>✏️</span>
+              <OrbLabel>EDIT</OrbLabel>
+            </OrbButton>
+            <OrbButton accent={GOLD} size={48} onClick={() => setRotY((r) => snapRotation((r ?? sunBaseAutoRotY(walkerRef.current?.yaw ?? Math.PI, pieceId)) + 15, pieceId))} ariaLabel="Turn piece 15 degrees">
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⟳</span>
+              <OrbLabel>TURN</OrbLabel>
+            </OrbButton>
+            <OrbButton accent={GOLD} size={48} onClick={cycleOrientation}
+              ariaLabel={`Orientation: ${orientation === 'upright' ? 'standing' : orientation === 'flat' ? 'lay flat' : 'lay flat, flipped'} — tap to cycle`}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⇅</span>
+              <OrbLabel>{orientation === 'upright' ? 'STAND' : orientation === 'flat' ? 'FLAT' : 'FLIP'}</OrbLabel>
+            </OrbButton>
             {buildTool === 'edit' && selectedPlaced && (
               <>
-                <button type="button" onClick={rotateSelected} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,217,138,0.12)', color: '#ffe9c4', fontSize: 12, fontWeight: 800, border: `1px solid ${GOLD}55`, fontFamily: 'inherit' }}>⟳ Turn piece</button>
-                <button type="button" onClick={deleteSelected} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: 'rgba(255,68,85,0.2)', color: '#ffb3ba', fontSize: 12, fontWeight: 800, border: '1px solid rgba(255,68,85,0.5)', fontFamily: 'inherit' }}>Remove</button>
+                <OrbButton accent={GOLD} size={48} onClick={rotateSelected} ariaLabel="Turn selected piece">
+                  <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⟳</span>
+                  <OrbLabel>PIECE</OrbLabel>
+                </OrbButton>
+                <OrbButton accent="#ff8a94" size={48} onClick={deleteSelected} ariaLabel="Remove selected piece">
+                  <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🗑</span>
+                  <OrbLabel>DEL</OrbLabel>
+                </OrbButton>
                 {isPortalPiece(selectedPlaced.pieceId) && (
-                  <button type="button" onClick={() => setPortalPickIndex(selectedIndex)} style={{ padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: GOLD, color: '#140c02', fontSize: 12, fontWeight: 800, border: 'none', fontFamily: 'inherit' }}>
-                    {selectedPlaced.portalTo ? `Portal → ${selectedPlaced.portalTo.label}` : 'Set portal destination'}
-                  </button>
+                  <OrbButton accent={GOLD} size={48} onClick={() => setPortalPickIndex(selectedIndex)}
+                    ariaLabel={selectedPlaced.portalTo ? `Portal to ${selectedPlaced.portalTo.label}` : 'Set portal destination'}>
+                    <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🌀</span>
+                    <OrbLabel>PORTAL</OrbLabel>
+                  </OrbButton>
                 )}
               </>
             )}
-            <button type="button" onClick={() => setBuildMode(false)} style={{ marginLeft: 'auto', padding: '7px 12px', borderRadius: 999, cursor: 'pointer', background: GOLD, color: '#140c02', fontSize: 12, fontWeight: 800, border: 'none', fontFamily: 'inherit' }}>Done</button>
+            <OrbButton accent={GOLD} size={48} onClick={() => setBuildMode(false)} ariaLabel="Done building"
+              style={{ marginLeft: 'auto' }}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>✓</span>
+              <OrbLabel>DONE</OrbLabel>
+            </OrbButton>
           </div>
           <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginTop: 8, paddingBottom: 2 }}>
             {categories.map((c) => (

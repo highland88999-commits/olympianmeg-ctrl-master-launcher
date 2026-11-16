@@ -52,6 +52,7 @@ import { nearestMountInRange, riderSeatOffsetY, mountYawForWalker, dismountSpot,
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, triggerRisingEdge, triggerValue, GAMEPAD_BUTTONS } from '@/lib/gamepad';
 import WalkJoystick from '@/components/world/WalkJoystick';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
 const GOLD = '#d8b25c';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
@@ -936,6 +937,18 @@ export default function HollowEarthPage() {
   const equippedEntry = equippedWeaponEntry(pack);
   const weaponReticle = equippedReticleForSlot(equippedEntry, hud.weapon)
     || (hud.weapon === 'melee' ? reticleFor(hero.meleeClass) : reticleFor(hero.ranged.kind));
+  // The weapon orb's face: the weapon's glyph + its damage, so the
+  // orb carries what the old pill showed (the full name + damage
+  // stays in the orb's aria-label). A backpack weapon shows 🎒.
+  const weaponLabel = hud.weapon === 'melee'
+    ? (equippedDamageForSlot(equippedEntry, 'melee') != null && equippedEntry
+      ? `🎒 ${equippedEntry.name} ${equippedDamageForSlot(equippedEntry, 'melee')}`
+      : `${hero.meleeLabel} ${hero.meleeDmg}`)
+    : (equippedDamageForSlot(equippedEntry, 'ranged') != null && equippedEntry
+      ? `🎒 ${equippedEntry.name} ${equippedDamageForSlot(equippedEntry, 'ranged')}`
+      : `${hero.rangedLabel} ${hero.ranged.dmg}`);
+  const weaponGlyph = weaponLabel.split(' ')[0];
+  const weaponDmg = weaponLabel.split(' ').pop();
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden' }}>
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }} />
@@ -979,23 +992,26 @@ export default function HollowEarthPage() {
           <div style={{ alignSelf: 'center', background: 'rgba(0,0,0,0.7)', borderRadius: 999, padding: '0.4rem 1rem', color: '#fff', fontSize: 14, textAlign: 'center', maxWidth: '90vw' }}>{toast}</div>
         )}
         {/* MOUNTS (Merlin, 2026-11-15): the mount prompt lives
-            here, in the HUD column's own flow — a visible
-            top-centre button in reach, like the egg-steal
-            button, never hidden inside a collapsed panel and
-            never overlapping the HUD rows above it. While
-            mounted it becomes the Dismount control; walking
-            away is NOT dismount. */}
+            here, in the HUD column's own flow — a visible plain
+            circle orb in reach, like the egg-steal button, never
+            hidden inside a collapsed panel and never overlapping
+            the HUD rows above it. While mounted it becomes the
+            Dismount orb; walking away is NOT dismount. */}
         {mountPrompt && !mounted && (
-          <button type="button" onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}
-            style={{ alignSelf: 'center', background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.5rem 1.2rem', fontWeight: 800, fontSize: 14, cursor: 'pointer', pointerEvents: 'auto' }}>
-            🐎 Mount {mountPrompt.name}
-          </button>
+          <OrbButton accent={GOLD} onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}
+            ariaLabel={`Mount ${mountPrompt.name}`}
+            style={{ alignSelf: 'center', pointerEvents: 'auto' }}>
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🐎</span>
+            <OrbLabel>MOUNT</OrbLabel>
+          </OrbButton>
         )}
         {mounted && (
-          <button type="button" onClick={() => { if (rideApiRef.current) rideApiRef.current.dismount(); }}
-            style={{ alignSelf: 'center', background: '#d8b25c', color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.5rem 1.2rem', fontWeight: 800, fontSize: 14, cursor: 'pointer', pointerEvents: 'auto' }}>
-            ⬇ Dismount
-          </button>
+          <OrbButton accent={GOLD} onClick={() => { if (rideApiRef.current) rideApiRef.current.dismount(); }}
+            ariaLabel="Dismount"
+            style={{ alignSelf: 'center', pointerEvents: 'auto' }}>
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
+            <OrbLabel>OFF</OrbLabel>
+          </OrbButton>
         )}
       </div>
       {korusDead && (
@@ -1008,35 +1024,31 @@ export default function HollowEarthPage() {
           </div>
         </div>
       )}
-      {/* Concourse-style control bar */}
+      {/* Concourse-style control bar — plain circle orbs now, never
+          pills (Merlin, Nov 16 — standing law). Base, weapon toggle
+          and Map are orbs in a row; Strike was already a circle.
+          The weapon orb shows the weapon's glyph + damage; the full
+          name stays in its aria-label. */}
       <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', bottom: BOTTOM_CLEAR, display: 'flex', alignItems: 'center', gap: 6, zIndex: 10 }}>
         <div className="ui-element pointer-events-auto flex min-w-0 items-center gap-1 rounded-full border border-white/15 bg-zinc-950/55 py-1 pl-1 pr-1.5 backdrop-blur-md">
-          <button type="button" onClick={spawnToBase} title="Spawn to base — return to The Haven"
-            className="ui-element pointer-events-auto flex h-9 shrink-0 items-center gap-1 rounded-full bg-amber-300 px-3 text-black transition-all hover:opacity-90 active:scale-95"
-            style={{ fontWeight: 800, fontSize: 13 }}>
-            🏠 Base
-          </button>
+          <OrbButton size={44} accent="#d8b25c" onClick={spawnToBase} title="Spawn to base — return to The Haven" ariaLabel="Spawn to base — return to The Haven">
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>🏠</span>
+          </OrbButton>
           <span style={{ color: '#fff', fontSize: 13, padding: '0 0.3rem' }}>
             {hud.inBase ? '🛡️ Sanctuary' : '⚔️ Wilds'}
           </span>
           <span style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)' }} />
-          <button type="button" onClick={() => setHud((p) => { const w = p.weapon === 'melee' ? 'ranged' : 'melee'; weaponRef.current = w; return { ...p, weapon: w }; })}
-            className="ui-element pointer-events-auto flex h-9 shrink-0 items-center rounded-full bg-white/10 px-3 text-white transition-all hover:bg-white/20 active:scale-95"
-            style={{ fontSize: 13 }}>
-            {hud.weapon === 'melee'
-              ? (equippedDamageForSlot(equippedEntry, 'melee') != null && equippedEntry
-                ? `🎒 ${equippedEntry.name} ${equippedDamageForSlot(equippedEntry, 'melee')}`
-                : `${hero.meleeLabel} ${hero.meleeDmg}`)
-              : (equippedDamageForSlot(equippedEntry, 'ranged') != null && equippedEntry
-                ? `🎒 ${equippedEntry.name} ${equippedDamageForSlot(equippedEntry, 'ranged')}`
-                : `${hero.rangedLabel} ${hero.ranged.dmg}`)}
-          </button>
+          <OrbButton size={44} accent="#d8b25c" onClick={() => setHud((p) => { const w = p.weapon === 'melee' ? 'ranged' : 'melee'; weaponRef.current = w; return { ...p, weapon: w }; })}
+            ariaLabel={`Weapon: ${weaponLabel} — tap to switch weapon`}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{weaponGlyph}</span>
+            <span style={{ fontSize: 9, lineHeight: 1 }}>{weaponDmg}</span>
+          </OrbButton>
           <button type="button" onClick={() => worldRef.current && worldRef.current.attack && worldRef.current.attack()}
             className="ui-element pointer-events-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-400 text-black transition-all hover:opacity-90 active:scale-95"
             title="Strike" style={{ fontSize: 16 }}>⚔️</button>
-          <button type="button" onClick={() => setMode('map')}
-            className="ui-element pointer-events-auto flex h-9 shrink-0 items-center rounded-full bg-white/10 px-3 text-white transition-all hover:bg-white/20 active:scale-95"
-            style={{ fontSize: 13 }}>🗺️ Map</button>
+          <OrbButton size={44} accent="#d8b25c" onClick={() => setMode('map')} ariaLabel="Map">
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>🗺️</span>
+          </OrbButton>
         </div>
         {/* The backpack's home: docked NEXT TO the main bar (a
             sibling of the pill, not inside it, so the 56px circle

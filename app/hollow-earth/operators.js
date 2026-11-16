@@ -27,14 +27,18 @@
 //     + lib/dino-companion.js; the page summons/recalls them).
 //
 // DEATH LAW (from code — never invented):
-//   * monsters die by COMBAT ONLY: player blade (36) / bolt
-//     (28) via damageMonster. A kill pays +12 HP and counts
-//     toward the 30-kill shield. A dead monster does NOT
-//     respawn in code: zone.js hides it (fig.visible = false)
-//     and no refill loop exists — the field empties as the
-//     player hunts, until re-entry rebuilds it. (RESPAWN_S =
-//     45 exists in spawns.js but no code reads it — flagged.)
-//     No age death.
+//   * monsters die by COMBAT (player blade (36) / bolt (28)
+//     via damageMonster) OR BY PREDATION (Merlin, Nov 16
+//     ~01:02): another monster's aura-strike (applyMonsterAuraHit
+//     + burn) kills the same way. A kill pays +12 HP and counts
+//     toward the 30-kill shield — a monster-vs-monster kill pays
+//     NOTHING to the hunter (no heal, no shield, no Korus-gate
+//     progress: the campaign counts the hunter's kills only).
+//     A dead monster does NOT respawn in code: zone.js hides it
+//     (fig.visible = false) and no refill loop exists — the
+//     field empties as the player hunts, until re-entry rebuilds
+//     it. (RESPAWN_S = 45 exists in spawns.js but no code reads
+//     it — flagged.) No age death.
 //   * Korus dies by COMBAT ONLY (1,000 HP via damageKorus);
 //     death is PERMANENT — no respawn in code.
 //   * Ghorrum NEVER dies (excluded from combat by code).
@@ -52,10 +56,15 @@
 //     corpse entity and monsters do not fight each other. The
 //     operators record the trail going cold at The Haven,
 //     never a corpse fight.
-//   * territorial carnivore fights: DO NOT APPLY. Monsters
-//     carry NO diet in code (element / attitude / archetype
-//     instead) and no monster-vs-monster combat exists —
-//     inventing it would contradict the hunt code.
+//   * territorial carnivore fights: APPLY NOW, aura-only
+//     (Merlin, Nov 16 ~01:02 — "make monsters attack each
+//     other, not just the user"). A live lightning-element
+//     monster or dragon strikes monster prey inside its 59 m
+//     aura with the shared law (8 + 6/s burn for 3 s, player
+//     first). Non-lightning monsters carry no aura, so they
+//     never hunt — they can only be prey. Archetype attacks
+//     stay player-only. Korus and Ghorrum are EXEMPT (never
+//     an aura, never prey).
 //   * diet-driven feeding: no diet data — a monster's feeding
 //     IS its hunt of the user (attitude + archetype).
 //   * water-seeking: DOES NOT APPLY. No water habitat exists
@@ -85,6 +94,7 @@ import {
   KORUS_MAX_HP,
   KORUS_GATE_KILLS,
   GIVE_UP_S,
+  nearestMonsterPrey,
 } from './spawns.js';
 import {
   MONSTER_FAMILIES,
@@ -122,6 +132,11 @@ export function isPlacedFamily(key) {
  * false only when a player position is known (opts.playerPos
  * or m.playerPos); with no target known it reports null, never
  * an invented position. A dead monster's aura is off (null).
+ * MONSTER PREY (Merlin, Nov 16 ~01:02): a live lightning
+ * source with another monster inside its 59 m aura is hunting
+ * prey — `preyTarget` is that monster's id (opts.others carries
+ * the field's monster records; without it prey is unknown,
+ * null, never invented). Korus and Ghorrum are never prey.
  */
 export function monsterLifeFor(m, now = Date.now(), opts = {}) {
   const t = now instanceof Date ? now.getTime() : Number(now);
@@ -149,6 +164,15 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
   } else {
     auraNote = 'No lightning aura — this family carries no lightning';
   }
+  // Monster prey (Merlin, Nov 16 ~01:02): a live lightning
+  // source with another monster inside its 59 m aura is hunting
+  // prey, not just the user. opts.others carries the field's
+  // monster records; without it prey is unknown (null).
+  let preyTarget = null;
+  if (auraKind && !dead && opts && Array.isArray(opts.others)) {
+    const prey = nearestMonsterPrey(m, opts.others);
+    if (prey) preyTarget = prey.target.id;
+  }
   const life = {
     realm: 'hollow-earth',
     kind: 'monster',
@@ -165,16 +189,19 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
     hp: m.hp != null ? m.hp : (type ? type.hp : 0),
     maxHp: type ? type.hp : 0,
     spotted,
-    feeding: dead ? 'none' : spotted ? 'hunt-user' : type && type.attitude === 'ambush' ? 'ambush-wait' : 'roam',
+    preyTarget,
+    feeding: dead ? 'none' : spotted ? 'hunt-user' : preyTarget ? 'hunt-prey' : type && type.attitude === 'ambush' ? 'ambush-wait' : 'roam',
     feedingNote: dead
       ? 'Dead — does not hunt (and does not return this session)'
       : spotted
         ? 'Hunting the user — spotted by sight, hearing or proximity'
-        : type && type.attitude === 'ambush'
-          ? 'Lying in wait — ambushers strike inside 10 m'
-          : 'Roaming its habitat band',
+        : preyTarget
+          ? 'Hunting another monster — a lightning carrier strikes prey inside its 59 m aura'
+          : type && type.attitude === 'ambush'
+            ? 'Lying in wait — ambushers strike inside 10 m'
+            : 'Roaming its habitat band',
     territory: 'none',
-    territoryNote: 'No diet, no monster-vs-monster combat in code',
+    territoryNote: 'Monster-vs-monster is real — lightning carriers strike other monsters in their 59 m aura (Nov 16 ~01:02)',
     duel: null,
     water: 'none',
     waterNote: 'No water habitat in code — habitats are element bands',
@@ -230,7 +257,7 @@ export function korusLifeFor(korus, now = Date.now(), opts = {}) {
     groupSize: 1,
     deathCause: state === 'dead' ? 'combat' : null,
     aura: null,
-    auraNote: 'No aura — Korus keeps his own shadow + sky-bolt boss mechanics',
+    auraNote: 'No aura — Korus keeps his own shadow + sky-bolt boss mechanics; EXEMPT from monster-vs-monster, never prey',
     hour: Math.round(localHour(new Date(t)) * 10) / 10,
     night: isNightAt(new Date(t)),
   };
@@ -263,7 +290,7 @@ export function watcherLifeFor(now = Date.now()) {
     groupSize: 1,
     deathCause: null,
     aura: null,
-    auraNote: 'No aura — Ghorrum is a non-hostile watcher, never a lightning source',
+    auraNote: 'No aura — Ghorrum is a non-hostile watcher, never a lightning source; EXEMPT from monster-vs-monster, never prey',
     hour: Math.round(localHour(new Date(t)) * 10) / 10,
     night: isNightAt(new Date(t)),
   };
@@ -306,7 +333,8 @@ export function lifeLine(life) {
   if (life.isAlly) return `${life.stageName || 'Adult'} · Following you · Ally`;
   const parts = [life.name || 'Monster'];
   if (life.dragon) parts.push('Dragon');
-  if (life.activity === 'ambush-wait') parts.push('Lying in wait');
+  if (life.feeding === 'hunt-prey') parts.push('Hunting prey');
+  else if (life.activity === 'ambush-wait') parts.push('Lying in wait');
   else if (life.spotted) parts.push('Hunting you');
   else parts.push('Roaming');
   if (life.element) parts.push(life.element);

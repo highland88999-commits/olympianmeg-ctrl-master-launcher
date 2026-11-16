@@ -303,6 +303,8 @@ export function createMonster(record, rng) {
     attackCd: 0,
     hazardCd: 0,
     auraCd: 0, // lightning-aura streak cooldown (1.5 s, STRIKE_INTERVAL_S)
+    burnDps: 0, // aura-burn from another monster's streak (monster-vs-monster)
+    burnRemainingS: 0,
     chargeT: 0,
     dead: false,
     active: false,
@@ -333,10 +335,16 @@ export const GIVE_UP_S = 12; // JUDGMENT CALL: 12 s unseen and the
  * safe-base boundary (opts.inBase): the hunter inside The Haven
  * is untouchable — hunting monsters drop the chase outright.
  * opts.quiet (the hunter's quiet factor, 1 = normal) scales the
- * sight and hearing radii down for quiet hunters. */
+ * sight and hearing radii down for quiet hunters.
+ * opts.others — the field's monster records: the aura's
+ * monster-prey list (Korus/Ghorrum are never in it, and are
+ * refused as prey outright — see isMonsterPreyTarget). */
 export function stepMonster(m, dt, player, rng, opts = {}) {
   if (m.dead) return [];
   const events = [];
+  // A burn lit by another monster's aura-strike keeps eating
+  // until it runs out — ticked here, wherever the AI runs.
+  if (tickMonsterBurn(m, dt)) return events; // the burn finished it — no further AI this tick
   m.attackCd = Math.max(0, m.attackCd - dt);
   m.hazardCd = Math.max(0, (m.hazardCd || 0) - dt);
   m.auraCd = Math.max(0, (m.auraCd || 0) - dt);
@@ -360,8 +368,16 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   // is the shared law: 59 m aura, 8 hit + 6/s burn for 3 s, one
   // streak per 1.5 s). The aura is the monster's element, NOT a
   // hunt decision: it fires whenever the monster is alive +
-  // active and the player stands inside 59 m, spotted or not —
+  // active and a target stands inside 59 m, spotted or not —
   // so this branch sits BEFORE the spotting/roam returns below.
+  // MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02): the player is
+  // struck first, always — the lightning is never softened
+  // against the user. Only when the player stands OUTSIDE the
+  // aura does the streak fall on the nearest monster prey
+  // inside it (opts.others — the field's monster records;
+  // Korus and Ghorrum are never prey, refused outright). The
+  // event carries `target`: 'player' or the prey's monster id,
+  // so the zone can route the damage to the right victim.
   // It does NOT replace the archetype attack (separate cooldown,
   // separate event kind): a lightning monster in range may both
   // hit and aura-strike on one tick. Dragons get RED streaks
@@ -378,15 +394,27 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
     const auraKind = m.stats && m.stats.dragon
       ? 'dragon'
       : (m.stats && m.stats.element === 'lightning' ? 'lightning-monster' : null);
-    if (auraKind) {
+    if (auraKind && m.auraCd <= 0) {
       const color = lightningColorFor(auraKind);
-      if (color && dist <= AURA_R_M && m.auraCd <= 0) {
-        m.auraCd = STRIKE_INTERVAL_S;
-        events.push({
-          kind: 'aura-strike', element: m.element, from: m.id,
-          dmg: BURN_HIT_DMG, burnDps: BURN_DPS, burnSeconds: BURN_SECONDS,
-          color,
-        });
+      if (color) {
+        if (dist <= AURA_R_M) {
+          m.auraCd = STRIKE_INTERVAL_S;
+          events.push({
+            kind: 'aura-strike', element: m.element, from: m.id, target: 'player',
+            dmg: BURN_HIT_DMG, burnDps: BURN_DPS, burnSeconds: BURN_SECONDS,
+            color,
+          });
+        } else {
+          const prey = nearestMonsterPrey(m, opts.others);
+          if (prey) {
+            m.auraCd = STRIKE_INTERVAL_S;
+            events.push({
+              kind: 'aura-strike', element: m.element, from: m.id, target: prey.target.id,
+              dmg: BURN_HIT_DMG, burnDps: BURN_DPS, burnSeconds: BURN_SECONDS,
+              color,
+            });
+          }
+        }
       }
     }
   }
@@ -502,6 +530,74 @@ export function damageMonster(m, dmg) {
   m.spotted = true;
   m.unseenT = 0;
   if (m.state === 'ambush') { m.state = 'charge'; m.chargeT = 0.8; }
+  return false;
+}
+
+/* ---------------- MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02) ----------------
+ * "Make monsters attack each other, not just the user." The
+ * attack is the aura: a live lightning-element monster or
+ * dragon strikes monster prey inside its 59 m aura with the
+ * same law as the player strike (8 on the hit, 6/s burn for
+ * 3 s, one streak per 1.5 s per source, player first). Non-
+ * lightning monsters carry no aura, so they never hunt — they
+ * can only BE prey. Archetype attacks (hit / hazard) stay
+ * player-only; the aura is the monster's attack, and the field
+ * is dense enough (~150 monsters over r280) that lightning
+ * carriers meet prey without a chase.
+ * KORUS and GHORRUM are EXEMPT by design and by code: Korus
+ * is never a monster record (stepKorus, never stepMonster) and
+ * Ghorrum is not a monster record either — and isMonsterPrey-
+ * Target() refuses both shapes outright, so even a caller
+ * passing them in `others` can never make them prey.
+ * A monster kill by another monster pays NO hunter reward: no
+ * +12 heal, no shield progress, no Korus-gate progress — the
+ * campaign counts the hunter's kills only (worker's call). The
+ * field still empties the same way: a dead monster stays dead
+ * this session, like a combat kill. */
+export function isMonsterPreyTarget(t) {
+  if (!t || t.dead) return false;
+  if (t.mounted) return false; // a mount is the rider's own — never prey
+  if (t.type === 'korus' || t.kind === 'boss') return false; // Korus: exempt
+  if (t.kind === 'watcher' || t.watcher === true) return false; // Ghorrum: exempt
+  return true;
+}
+
+/** Nearest eligible monster prey inside the 59 m aura, or null. Pure. */
+export function nearestMonsterPrey(m, others) {
+  let best = null;
+  let bestD = Infinity;
+  for (const o of Array.isArray(others) ? others : []) {
+    if (!o || o.id === m.id || !isMonsterPreyTarget(o)) continue;
+    if (o.active === false) continue;
+    const d = Math.hypot((o.x || 0) - (m.x || 0), (o.z || 0) - (m.z || 0));
+    if (d <= AURA_R_M && d < bestD) { best = o; bestD = d; }
+  }
+  return best ? { target: best, distanceM: Math.round(bestD * 100) / 100 } : null;
+}
+
+/**
+ * A monster-prey aura hit lands: 8 damage on the hit, burn
+ * (re)lit at 6/s for 3 s. Unlike damageMonster it does NOT wake
+ * the victim onto the hunter — the streak came from another
+ * monster, not the player. Returns true when the hit killed.
+ */
+export function applyMonsterAuraHit(m, ev) {
+  if (!m || m.dead) return false;
+  m.hp = Math.max(0, (m.hp || 0) - (ev && ev.dmg != null ? ev.dmg : BURN_HIT_DMG));
+  m.burnDps = BURN_DPS;
+  m.burnRemainingS = BURN_SECONDS;
+  if (m.hp <= 0) { m.hp = 0; m.dead = true; m.state = 'dead'; m.spotted = false; m.target = null; return true; }
+  return false;
+}
+
+/** One burn tick on a monster record: the burn eats HP at burnDps. Returns true when it killed. */
+export function tickMonsterBurn(m, dt) {
+  if (!m || m.dead || !(m.burnRemainingS > 0)) return false;
+  const s = Math.min(Math.max(dt || 0, 0), m.burnRemainingS);
+  m.hp = Math.max(0, (m.hp || 0) - (m.burnDps || 0) * s);
+  m.burnRemainingS = Math.max(0, m.burnRemainingS - s);
+  if (m.burnRemainingS <= 0) m.burnDps = 0;
+  if (m.hp <= 0) { m.hp = 0; m.dead = true; m.state = 'dead'; m.spotted = false; m.target = null; return true; }
   return false;
 }
 

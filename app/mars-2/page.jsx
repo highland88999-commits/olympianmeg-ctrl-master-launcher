@@ -7,6 +7,7 @@ import { timeOfDay01, getDayNightPlace, requestDayNightPlace, dayNightFor } from
 import { MARS2_SEED, MARS2_WORLD_NAME } from "@/lib/mars2/world";
 import { ROVER_NAME, ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS, roverSpeedKmh } from "@/lib/mars2/rovers";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute } from "@/app/artemis-ui/icons";
+import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
 
 // MARS 2 — the successor world (Merlin, Nov 15, 2026). One-word
 // spec: ROVERS. Fixed seed, no seed picker, no exobiology — walk
@@ -161,20 +162,14 @@ export default function Mars2Page() {
         />
         {/* Jump (Merlin, Nov 15, 2026 — same gravity logic as the
             Moon): walk mode only — the rover has no jump. Bottom-
-            right, the Moon's button, Mars colours. */}
+            right, the Moon's button, Mars colours. A circle orb,
+            like every other game control. */}
         {mode === 'walk' && (
-          <button
-            aria-label="Jump"
+          <OrbButton ariaLabel="Jump" size={76} accent="#e07840"
             onPointerDown={() => { jumpRef.current = true; }}
-            style={{
-              position: 'absolute', right: 12, bottom: 12, zIndex: 6,
-              width: 76, height: 76, borderRadius: '50%',
-              border: '2px solid #e07840', background: 'rgba(224,120,64,0.25)',
-              color: '#ffa658', fontWeight: 800, fontSize: 15, cursor: 'pointer', touchAction: 'none',
-            }}
-          >
-            JUMP
-          </button>
+            style={{ position: 'absolute', right: 12, bottom: 12, zIndex: 6 }}>
+            <span style={{ fontSize: 15 }}>JUMP</span>
+          </OrbButton>
         )}
         <div className="roverbar" aria-live="polite">
           {rover.active ? (
@@ -185,6 +180,12 @@ export default function Mars2Page() {
         </div>
       </div>
 
+      {/* Under-screen controls — circle orbs only (Merlin, Nov 16 —
+          standing law). The TIME slider stays a slider: a continuous
+          range input has no orb form, and its thumb is already a
+          circle. Mars 2 has no fullscreen mode, so there is no
+          maximize orb to place top-right — adding fullscreen would
+          be new function, not a shape change. */}
       <div className="controls">
         <div className="ctl">
           <span>TIME</span>
@@ -195,32 +196,35 @@ export default function Mars2Page() {
         {presets.map(([label, t], i) => {
           const Icon = PRESET_ICONS[i % PRESET_ICONS.length];
           return (
-            <button key={label} onClick={() => setManualTime(t)} aria-label={`Set time to ${label}`}>
-              <Icon /><span>{label}</span>
-            </button>
+            <OrbButton key={label} accent="#e07840" onClick={() => setManualTime(t)} ariaLabel={`Set time to ${label}`}>
+              <Icon /><OrbLabel>{label.toUpperCase()}</OrbLabel>
+            </OrbButton>
           );
         })}
-        <button className={liveTime ? "on" : ""} onClick={resumeLiveTime} aria-pressed={liveTime} aria-label="Follow real time">
-          <IcSun /><span>REAL TIME</span>
-        </button>
+        <OrbButton accent="#e07840" active={liveTime} onClick={resumeLiveTime} aria-pressed={liveTime} ariaLabel="Follow real time">
+          <IcSun /><OrbLabel>LIVE</OrbLabel>
+        </OrbButton>
       </div>
 
       <div className="controls" style={{ paddingTop: 0 }}>
-        <button className={mode === "walk" ? "on" : ""} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"}>
-          <IcRoute /><span>{mode === "walk" ? "WALKING" : "WALK"}</span>
-        </button>
+        <OrbButton accent="#e07840" active={mode === "walk"} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"} ariaLabel={mode === "walk" ? "Walking" : "Walk"}>
+          <IcRoute /><OrbLabel>WALK</OrbLabel>
+        </OrbButton>
         {rover.active ? (
-          <button className="rover" onClick={dismountRover} aria-label="Dismount rover">
-            <span>⬇ DISMOUNT</span>
-          </button>
+          <OrbButton accent="#e07840" onClick={dismountRover} ariaLabel="Dismount rover">
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
+            <OrbLabel>OUT</OrbLabel>
+          </OrbButton>
         ) : (
-          <button className="rover" onClick={summonRover} aria-label="Summon rover">
-            <span>⬆ SUMMON ROVER</span>
-          </button>
+          <OrbButton accent="#e07840" onClick={summonRover} ariaLabel="Summon rover">
+            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬆</span>
+            <OrbLabel>RIDE</OrbLabel>
+          </OrbButton>
         )}
-        <button className={mode === "orbit" ? "on" : ""} onClick={() => setMode("orbit")} aria-pressed={mode === "orbit"}>
-          <span>ORBIT</span>
-        </button>
+        <OrbButton accent="#e07840" active={mode === "orbit"} onClick={() => setMode("orbit")} aria-pressed={mode === "orbit"} ariaLabel={mode === "orbit" ? "Orbiting" : "Orbit"}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>◍</span>
+          <OrbLabel>ORBIT</OrbLabel>
+        </OrbButton>
       </div>
 
       <section className="world" aria-label="World profile">

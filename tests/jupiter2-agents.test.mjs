@@ -18,6 +18,7 @@ import {
   growthStage, growthFor, activityFor, isDragonModel, modelFor,
   lightningKindFor, birthFor, deathFor, decompFor, dietFor,
   habitsFor, huntFor, duelOutcome, lifeFor, lifeLineFor,
+  isMonsterPreyFor, nearestMonsterPrey,
   enrichCreatures, homeFor,
 } from '../lib/jupiter2/operators.js';
 import { LIGHTNING_MONSTER_MODELS } from '../lib/jupiter2/models.js';
@@ -78,7 +79,10 @@ describe('birth + growth (agents 1–2)', () => {
 
 describe('death + decomposition (agents 3–4) — the old no-death law is superseded', () => {
   it('death is REAL now: age ends every life (Merlin, Nov 16 ~00:08)', () => {
-    assert.deepEqual([...DEATH_CAUSES], ['age', 'predation', 'territorial-duel']);
+    // 'user-kill' joined Nov 16 ~01:16 (elemental orbs, round 2
+    // workstream 7): a monster the user kills with the speeder
+    // blaster — the only kill that drops an elemental orb.
+    assert.deepEqual([...DEATH_CAUSES], ['age', 'predation', 'territorial-duel', 'user-kill']);
     for (const kind of ['lightning-monster', 'dragon', 'demobat']) {
       const life = lifeFor(kind, 0, NOW);
       assert.equal(life.dies, true, `${kind} dies`);
@@ -229,7 +233,7 @@ describe('the hunt (Merlin, Nov 16 ~00:09)', () => {
     const huntCircle = huntFor('lightning-monster', 0, hungryAt, { ...self, walker: farWalker, others: [circling] });
     assert.equal(huntCircle.mode, 'idle');
   });
-  it('demobats hunt the walker, never other monsters', () => {
+  it('demobats hunt other monsters now (Merlin, Nov 16 ~01:02) — other demobats, and ground monsters while diving', () => {
     let hungryAt = null;
     for (let t = NOW; t < NOW + HUNGER_RISE_S * 1000; t += 1000) {
       if (huntFor('demobat', 0, t, { ...self, walker: nearWalker, others: [] }).hungry) { hungryAt = t; break; }
@@ -237,9 +241,76 @@ describe('the hunt (Merlin, Nov 16 ~00:09)', () => {
     assert.ok(hungryAt, 'a hungry instant exists for the demobat');
     const hunt = huntFor('demobat', 0, hungryAt, { ...self, walker: midWalker, others: [] });
     assert.equal(hunt.mode, 'hunt-user');
-    const monsterPrey = { id: 'lightning-monster_1', kind: 'lightning-monster', index: 1, x: 40, y: 88, z: 0, alive: true, heightM: 2, diving: false };
-    const huntMonster = huntFor('demobat', 0, hungryAt, { ...self, walker: farWalker, others: [monsterPrey] });
-    assert.equal(huntMonster.mode, 'idle', 'demobats never hunt lightning monsters');
+    // Another demobat is air-to-air prey, diving or not.
+    const batPrey = { id: 'demobat_1', kind: 'demobat', index: 1, x: 100, y: 100, z: 0, alive: true, heightM: 2, diving: false };
+    const huntBat = huntFor('demobat', 0, hungryAt, { ...self, walker: farWalker, others: [batPrey] });
+    assert.equal(huntBat.mode, 'hunt-prey');
+    assert.equal(huntBat.target, 'demobat_1');
+    assert.equal(huntBat.targetKind, 'demobat');
+    // A ground monster is prey only while THIS demobat is diving low.
+    const monsterPrey = { id: 'lightning-monster_1', kind: 'lightning-monster', index: 1, x: 100, y: 88, z: 0, alive: true, heightM: 2, diving: false };
+    const huntGround = huntFor('demobat', 0, hungryAt, { ...self, walker: farWalker, others: [monsterPrey] });
+    assert.equal(huntGround.mode, 'idle', 'a circling demobat cannot reach ground prey');
+    const huntDiving = huntFor('demobat', 0, hungryAt, { ...self, walker: farWalker, others: [monsterPrey], diving: true });
+    assert.equal(huntDiving.mode, 'hunt-prey', 'a diving demobat hunts ground monsters');
+    assert.equal(huntDiving.target, 'lightning-monster_1');
+    assert.equal(huntDiving.targetKind, 'lightning-monster');
+  });
+  it('a lightning monster hunts a rival beyond duel range — inside 50 m the duel still decides', () => {
+    let hungryAt = null;
+    for (let t = NOW; t < NOW + HUNGER_RISE_S * 1000; t += 1000) {
+      if (huntFor('lightning-monster', 0, t, { ...self, walker: farWalker, others: [] }).hungry) { hungryAt = t; break; }
+    }
+    assert.ok(hungryAt, 'a hungry instant exists');
+    // Rival at 100 m: beyond the 50 m duel, inside the 140 m stalk — hunted.
+    const rivalFar = { id: 'lightning-monster_1', kind: 'lightning-monster', index: 1, x: 100, y: 88, z: 0, alive: true, heightM: 2.0, diving: false };
+    const hunt = huntFor('lightning-monster', 0, hungryAt, { ...self, walker: farWalker, others: [rivalFar] });
+    assert.equal(hunt.mode, 'hunt-prey');
+    assert.equal(hunt.target, 'lightning-monster_1');
+    assert.equal(hunt.targetKind, 'lightning-monster');
+    // Same rival at 40 m: inside the aura — the attack, and the
+    // duel (checked first) actually decides at this range.
+    const rivalNear = { ...rivalFar, x: 40 };
+    const duel = huntFor('lightning-monster', 0, hungryAt, { ...self, walker: farWalker, others: [rivalNear] });
+    assert.equal(duel.mode, 'duel', 'inside 50 m the duel wins over the hunt');
+    // Rival at 55 m: inside the aura, outside the duel — the streaks strike.
+    const rivalAura = { ...rivalFar, x: 55 };
+    const attack = huntFor('lightning-monster', 0, hungryAt, { ...self, walker: farWalker, others: [rivalAura] });
+    assert.equal(attack.mode, 'attack');
+    assert.equal(attack.target, 'lightning-monster_1');
+  });
+  it('a dragon hunts a diving demobat; the walker still comes first', () => {
+    let hungryAt = null;
+    for (let t = NOW; t < NOW + HUNGER_RISE_S * 1000; t += 1000) {
+      if (huntFor('dragon', 0, t, { ...self, walker: farWalker, others: [] }).hungry) { hungryAt = t; break; }
+    }
+    assert.ok(hungryAt, 'a hungry instant exists for the dragon');
+    const diving = { id: 'demobat_2', kind: 'demobat', index: 2, x: 100, y: 90, z: 0, alive: true, heightM: 2, diving: true };
+    const hunt = huntFor('dragon', 0, hungryAt, { ...self, walker: farWalker, others: [diving] });
+    assert.equal(hunt.mode, 'hunt-prey');
+    assert.equal(hunt.targetKind, 'demobat');
+    // Walker in range beats monster prey, even a closer one.
+    const huntUserFirst = huntFor('dragon', 0, hungryAt, { ...self, walker: midWalker, others: [diving] });
+    assert.equal(huntUserFirst.mode, 'hunt-user');
+    assert.equal(huntUserFirst.target, 'walker');
+  });
+  it('prey selection: nearest wins, dead prey and self are never prey', () => {
+    const self0 = { x: 0, y: 88, z: 0 };
+    const near = { id: 'demobat_1', kind: 'demobat', index: 1, x: 60, y: 90, z: 0, alive: true, heightM: 2, diving: true };
+    const far = { id: 'demobat_2', kind: 'demobat', index: 2, x: 120, y: 90, z: 0, alive: true, heightM: 2, diving: true };
+    const dead = { id: 'demobat_3', kind: 'demobat', index: 3, x: 30, y: 90, z: 0, alive: false, heightM: 2, diving: true };
+    const me = { id: 'lightning-monster_0', kind: 'lightning-monster', index: 0, x: 0, y: 88, z: 0, alive: true, heightM: 2.2, diving: false };
+    const pick = nearestMonsterPrey('lightning-monster', 0, self0, [far, dead, me, near]);
+    assert.equal(pick.o.id, 'demobat_1', 'nearest living prey wins; dead and self are skipped');
+    assert.equal(nearestMonsterPrey('lightning-monster', 0, self0, [dead, me]), null);
+    // The matrix itself: ground hunters need a diving demobat.
+    assert.equal(isMonsterPreyFor('lightning-monster', false, { ...near, diving: false }), false);
+    assert.equal(isMonsterPreyFor('lightning-monster', false, near), true);
+    assert.equal(isMonsterPreyFor('demobat', false, near), true, 'demobat vs demobat needs no dive');
+    assert.equal(isMonsterPreyFor('demobat', false, me), false, 'a circling demobat cannot take ground prey');
+    assert.equal(isMonsterPreyFor('demobat', true, me), true, 'a diving demobat can');
+    assert.equal(isMonsterPreyFor('lightning-monster', false, null), false);
+    assert.equal(isMonsterPreyFor('lightning-monster', false, { kind: 'walker' }), false);
   });
   it('two lightning monsters within 50 m duel — the bigger wins', () => {
     assert.equal(TERRITORY_R_M, 50);

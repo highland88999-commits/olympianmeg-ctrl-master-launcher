@@ -20,7 +20,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { useVortexTravel } from '@/components/VortexTravel';
@@ -70,6 +69,7 @@ import {
 } from '@/lib/ghost-rider/chain';
 import { getBackpackRecord, updateBackpack, useBackpack } from '@/lib/backpack/store';
 import BackpackHud from '@/components/backpack/BackpackHud';
+import OrbButton from '@/components/world/OrbButton';
 import { createPresenceClient } from '@/lib/presence';
 import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { supabase } from '@/lib/supabase';
@@ -1181,28 +1181,23 @@ export default function NetherRealmPage() {
       </div>
 
       <div className="absolute left-4 top-4 z-30">
-        <Link
-          href="/"
-          className="pointer-events-auto inline-block rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-        >
-          ← Leave the Nether-Realm
-        </Link>
+        <OrbButton href="/" ariaLabel="Leave the Nether-Realm" accent="#ffffff">
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
+        </OrbButton>
       </div>
 
       <div className="absolute right-4 top-4 z-30 flex items-center gap-2">
         <BackpackHud realm="nether-realm" realmLabel="Hades" combatApplies docked />
-        <button
-          type="button"
+        <OrbButton accent="#ffffff" size={48}
           onClick={() => {
             const engine = soundRef.current;
             const next = !soundOn;
             setSoundOn(next);
             if (engine) engine.setMuted(!next);
           }}
-          className="pointer-events-auto rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"
-        >
-          {soundOn ? 'Sound: on' : 'Sound: off'}
-        </button>
+          ariaLabel={soundOn ? 'Sound on — tap to mute' : 'Sound off — tap to unmute'}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>{soundOn ? '🔊' : '🔇'}</span>
+        </OrbButton>
       </div>
 
       {/* Medusa notice — top-centre, above the action row */}
@@ -1261,15 +1256,12 @@ export default function NetherRealmPage() {
 
       {/* Realm info restore — the faded HUD comes back with one tap. */}
       {infoHidden && (
-        <button
-          type="button"
-          aria-label="Show realm information"
+        <OrbButton accent="#ffffff" ariaLabel="Show realm information"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={restoreInfo}
-          className="absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full border border-white/30 bg-black/60 px-3 py-1 text-xs font-semibold text-white"
-        >
-          ⓘ Info
-        </button>
+          style={{ position: 'absolute', left: '50%', top: 64, transform: 'translateX(-50%)', zIndex: 30 }}>
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>ⓘ</span>
+        </OrbButton>
       )}
 
       {vortexOverlay}

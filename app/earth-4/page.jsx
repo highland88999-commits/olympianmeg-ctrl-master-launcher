@@ -20,6 +20,8 @@ import { START_PLACE, formatLatLon } from "../../lib/earth4/geography.js";
  * is a fit to the topology map (see the about section).
  */
 
+import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
+
 const ACCENT = "#7ddf9a";
 
 const ENV_LABEL = {
@@ -290,12 +292,16 @@ export default function Earth4Page() {
 
       <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <canvas ref={canvasRef} aria-label="Earth 4 3D world" />
-        {fullscreen && (
-          <button type="button" aria-label="Exit fullscreen" onClick={() => setFullscreen(false)}
-            style={{ position: "absolute", left: 14, top: 14, zIndex: 9, minHeight: 48, padding: "10px 18px", borderRadius: 12, border: "1px solid rgba(125,223,154,0.5)", background: "rgba(8,26,17,0.9)", color: "#eef7ee", fontWeight: 700, letterSpacing: 2, cursor: "pointer" }}>
-            ✕ EXIT FULLSCREEN
-          </button>
-        )}
+        {/* FULLSCREEN orb — the maximize button sits at the very top
+            right OF the game screen (Merlin, Nov 16 — standing law),
+            in both states: FULL to enter, EXIT to leave. */}
+        <OrbButton ariaLabel={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+          accent={ACCENT}
+          onClick={() => setFullscreen(!fullscreen)}
+          style={{ position: "absolute", right: 14, top: 14, zIndex: 9 }}>
+          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>⛶</span>
+          <OrbLabel>{fullscreen ? "EXIT" : "FULL"}</OrbLabel>
+        </OrbButton>
         {!booted && !failed && <div className="e4-boot">Reading the real Earth…</div>}
         {failed && <div className="e4-fail">3D could not start on this device. Earth 4 needs WebGL.</div>}
 
@@ -305,28 +311,25 @@ export default function Earth4Page() {
           <div className="e4-btns">
             {mode === "fly" && (
               <div className="e4-btnrow">
-                <button aria-label="Ascend"
+                <OrbButton accent={ACCENT} ariaLabel="Ascend"
                   onPointerDown={() => setLift(1)} onPointerUp={() => setLift(0)} onPointerLeave={() => setLift(0)}>
                   <Glyph>{IC.up}</Glyph>
-                </button>
-                <button aria-label="Descend"
+                </OrbButton>
+                <OrbButton accent={ACCENT} ariaLabel="Descend"
                   onPointerDown={() => setLift(-1)} onPointerUp={() => setLift(0)} onPointerLeave={() => setLift(0)}>
                   <Glyph>{IC.down}</Glyph>
-                </button>
+                </OrbButton>
               </div>
             )}
             <div className="e4-btnrow">
               {mode === "walk" && (
-                <button aria-label="Jump" onPointerDown={() => worldRef.current && worldRef.current.jump()}>
-                  <Glyph>{IC.jump}</Glyph>JUMP
-                </button>
+                <OrbButton accent={ACCENT} ariaLabel="Jump" onPointerDown={() => worldRef.current && worldRef.current.jump()}>
+                  <Glyph>{IC.jump}</Glyph><OrbLabel>JUMP</OrbLabel>
+                </OrbButton>
               )}
-              <button className={mode === "fly" ? "on" : ""} onClick={toggleFly} aria-label="Toggle fly">
-                <Glyph>{mode === "fly" ? IC.walk : IC.fly}</Glyph>{mode === "fly" ? "WALK" : "FLY"}
-              </button>
-              <button onClick={() => setFullscreen(true)} aria-label="Enter fullscreen">
-                ⛶ FULLSCREEN
-              </button>
+              <OrbButton accent={ACCENT} active={mode === "fly"} onClick={toggleFly} ariaLabel="Toggle fly">
+                <Glyph>{mode === "fly" ? IC.walk : IC.fly}</Glyph><OrbLabel>{mode === "fly" ? "WALK" : "FLY"}</OrbLabel>
+              </OrbButton>
             </div>
           </div>
 
@@ -352,7 +355,7 @@ export default function Earth4Page() {
                 </p>
               )}
               <div className="crow">
-                <button className="cx" onClick={() => setSpecies(null)} aria-label="Close"><Glyph size={13}>{IC.x}</Glyph></button>
+                <OrbButton accent={ACCENT} onClick={() => setSpecies(null)} ariaLabel="Close"><Glyph size={13}>{IC.x}</Glyph></OrbButton>
               </div>
             </div>
           )}
@@ -382,8 +385,14 @@ export default function Earth4Page() {
             {terrain.esri ? "✓ Satellite detail" : "… Satellite detail loading"}
           </span>
         </span>
-        <button onClick={goToMyLocation}>📍 WHERE I AM</button>
-        <button onClick={goHome}>🏠 REDWATER</button>
+        <OrbButton accent={ACCENT} onClick={goToMyLocation} ariaLabel="Go to where I am">
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>📍</span>
+          <OrbLabel>HERE</OrbLabel>
+        </OrbButton>
+        <OrbButton accent={ACCENT} onClick={goHome} ariaLabel="Go to Redwater">
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🏠</span>
+          <OrbLabel>HOME</OrbLabel>
+        </OrbButton>
       </div>
       {gpsMsg && <div className="e4-gpsmsg" role="status">{gpsMsg}</div>}
 
