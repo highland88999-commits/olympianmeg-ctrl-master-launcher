@@ -14,7 +14,15 @@
 // under another button (the OMEGA LAYOUT law: no element may overlap
 // another, ever).
 //
-// Props: children (icon + optional short label, stacked), ariaLabel
+// ONE GRAPHIC PER BUTTON FUNCTION (Merlin, Nov 16 ~02:42 + the UNIFY
+// order): the same function wears the same face in every realm, so a
+// player recognises JUMP on Jupiter 2, Hollow Earth, or the Moon
+// without reading. Pass fn="jump" (see ORB_FUNCTIONS below) and the
+// orb wears that function's TRON face; the caller's children keep
+// their meaning (label, damage, state word).
+//
+// Props: children (icon + optional short label, stacked), fn (the
+// button's function key — see ORB_FUNCTIONS below), ariaLabel
 // (the full control name — required for icon-only orbs), title,
 // active (filled accent = the on state), disabled, size, accent
 // (border + text colour), bg, href (renders a link orb, e.g. Leave),
@@ -22,6 +30,7 @@
 // button props (onClick, onPointerDown, aria-pressed, …) passed through.
 export default function OrbButton({
   children,
+  fn,
   ariaLabel,
   title,
   active = false,
@@ -59,20 +68,27 @@ export default function OrbButton({
     flexShrink: 0,
     touchAction: 'none',
     textDecoration: 'none',
+    // A faced orb positions its art against itself; the caller's
+    // own position (absolute, when placed) still wins below.
+    ...(fn ? { position: 'relative' } : null),
     ...style,
   };
   const label = ariaLabel || title || '';
+  // fn: the button's function — its one shared graphic face (see
+  // ORB_FUNCTIONS below). The face wears the art; the caller's
+  // children keep their meaning (label, damage, state word).
+  const content = fn ? <OrbFace fn={fn} size={size}>{children}</OrbFace> : children;
   if (href) {
     return (
       <a href={href} aria-label={label} title={title || label} style={orbStyle} {...rest}>
-        {children}
+        {content}
       </a>
     );
   }
   return (
     <button type={type} aria-label={label} title={title || label} disabled={disabled}
       style={orbStyle} {...rest}>
-      {children}
+      {content}
     </button>
   );
 }
@@ -84,5 +100,136 @@ export function OrbLabel({ children }) {
     <span style={{ fontSize: 9, letterSpacing: 1, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%' }}>
       {children}
     </span>
+  );
+}
+
+// --- ONE GRAPHIC PER BUTTON FUNCTION (Merlin, Nov 16 ~02:42 + the
+// UNIFY order) -----------------------------------------------------------
+// The same function wears the same face in every realm: JUMP on
+// Jupiter 2, Hollow Earth, the Moon, or Earth 3 is one graphic, so a
+// player recognises it without reading. The art is the TRON house
+// style — a flat printed disc, never a video and never a glowing
+// missile orb: the plain circle stays, the art is only the FACE.
+// REUSED as-is, the 8 TRON motion graphics that already live in
+// public/images/shadow-realm/ui/ (worn today by the Shadow Realm
+// ride controls): boost, gas, brake, steer-left, steer-right,
+// recenter, pause, leave. The rest were drawn in the same style,
+// same 256x256 webp, by scripts/gen-tron-orb-art.py — re-run it to
+// regenerate; it never touches the 8 originals. `label` is the short
+// word that rides under the face; `art` is the face file.
+export const ORB_FUNCTIONS = {
+  // Movement — shared by every walking/driving world.
+  jump: { label: 'JUMP', art: '/images/shadow-realm/ui/tron-jump.webp' },
+  sprint: { label: 'SPRINT', art: '/images/shadow-realm/ui/tron-sprint.webp' },
+  walk: { label: 'WALK', art: '/images/shadow-realm/ui/tron-walk.webp' },
+  fly: { label: 'FLY', art: '/images/shadow-realm/ui/tron-fly.webp' },
+  orbit: { label: 'ORBIT', art: '/images/shadow-realm/ui/tron-orbit.webp' },
+  ascend: { label: 'UP', art: '/images/shadow-realm/ui/tron-ascend.webp' },
+  descend: { label: 'DOWN', art: '/images/shadow-realm/ui/tron-descend.webp' },
+  // Combat.
+  shoot: { label: 'SHOOT', art: '/images/shadow-realm/ui/tron-shoot.webp' },
+  strike: { label: 'STRIKE', art: '/images/shadow-realm/ui/tron-strike.webp' },
+  fire: { label: 'FIRE', art: '/images/shadow-realm/ui/tron-fire.webp' },
+  weapon: { label: 'WEAPON', art: '/images/shadow-realm/ui/tron-weapon.webp' },
+  'buy-weapon': { label: 'BOLT', art: '/images/shadow-realm/ui/tron-buy-weapon.webp' },
+  'buy-shield': { label: 'SHIELD', art: '/images/shadow-realm/ui/tron-buy-shield.webp' },
+  recharge: { label: 'RECHARGE', art: '/images/shadow-realm/ui/tron-recharge.webp' },
+  grapple: { label: 'HOOK', art: '/images/shadow-realm/ui/tron-grapple.webp' },
+  'steal-egg': { label: 'STEAL', art: '/images/shadow-realm/ui/tron-steal-egg.webp' },
+  oblivion: { label: 'ARMED', art: '/images/shadow-realm/ui/tron-oblivion.webp' },
+  // Mounts + vehicles.
+  mount: { label: 'MOUNT', art: '/images/shadow-realm/ui/tron-mount.webp' },
+  dismount: { label: 'OFF', art: '/images/shadow-realm/ui/tron-dismount.webp' },
+  summon: { label: 'SUMMON', art: '/images/shadow-realm/ui/tron-summon.webp' },
+  board: { label: 'RIDE', art: '/images/shadow-realm/ui/tron-board.webp' },
+  // Driving — the TRON motion graphics, reused as-is.
+  boost: { label: 'BOOST', art: '/images/shadow-realm/ui/tron-boost.webp' },
+  gas: { label: 'GAS', art: '/images/shadow-realm/ui/tron-gas.webp' },
+  brake: { label: 'BRAKE', art: '/images/shadow-realm/ui/tron-brake.webp' },
+  'steer-left': { label: 'STEER L', art: '/images/shadow-realm/ui/tron-steer-left.webp' },
+  'steer-right': { label: 'STEER R', art: '/images/shadow-realm/ui/tron-steer-right.webp' },
+  // Navigation + world.
+  map: { label: 'MAP', art: '/images/shadow-realm/ui/tron-map.webp' },
+  home: { label: 'HOME', art: '/images/shadow-realm/ui/tron-home.webp' },
+  'back-to-hub': { label: 'BACK', art: '/images/shadow-realm/ui/tron-back-to-hub.webp' },
+  leave: { label: 'LEAVE', art: '/images/shadow-realm/ui/tron-leave.webp' },
+  portal: { label: 'PORTAL', art: '/images/shadow-realm/ui/tron-portal.webp' },
+  here: { label: 'HERE', art: '/images/shadow-realm/ui/tron-here.webp' },
+  visit: { label: 'VISIT', art: '/images/shadow-realm/ui/tron-visit.webp' },
+  claim: { label: 'CLAIM', art: '/images/shadow-realm/ui/tron-claim.webp' },
+  mission: { label: 'MISSION', art: '/images/shadow-realm/ui/tron-mission.webp' },
+  tour: { label: 'TOUR', art: '/images/shadow-realm/ui/tron-tour.webp' },
+  'tour-prev': { label: 'PREV', art: '/images/shadow-realm/ui/tron-tour-prev.webp' },
+  'tour-next': { label: 'NEXT', art: '/images/shadow-realm/ui/tron-tour-next.webp' },
+  atlas: { label: 'ATLAS', art: '/images/shadow-realm/ui/tron-atlas.webp' },
+  autopilot: { label: 'AUTO', art: '/images/shadow-realm/ui/tron-autopilot.webp' },
+  // Trade + economy.
+  trade: { label: 'TRADE', art: '/images/shadow-realm/ui/tron-trade.webp' },
+  exchange: { label: 'EXCHANGE', art: '/images/shadow-realm/ui/tron-exchange.webp' },
+  'trade-fossils': { label: 'FOSSILS', art: '/images/shadow-realm/ui/tron-trade-fossils.webp' },
+  // Building.
+  build: { label: 'BUILD', art: '/images/shadow-realm/ui/tron-build.webp' },
+  style: { label: 'STYLE', art: '/images/shadow-realm/ui/tron-style.webp' },
+  place: { label: 'PLACE', art: '/images/shadow-realm/ui/tron-place.webp' },
+  edit: { label: 'EDIT', art: '/images/shadow-realm/ui/tron-edit.webp' },
+  turn: { label: 'TURN', art: '/images/shadow-realm/ui/tron-turn.webp' },
+  orient: { label: 'FLIP', art: '/images/shadow-realm/ui/tron-orient.webp' },
+  delete: { label: 'DEL', art: '/images/shadow-realm/ui/tron-delete.webp' },
+  done: { label: 'DONE', art: '/images/shadow-realm/ui/tron-done.webp' },
+  // Time + sky.
+  'live-time': { label: 'LIVE', art: '/images/shadow-realm/ui/tron-live-time.webp' },
+  'time-dawn': { label: 'DAWN', art: '/images/shadow-realm/ui/tron-time-dawn.webp' },
+  'time-day': { label: 'DAY', art: '/images/shadow-realm/ui/tron-time-day.webp' },
+  'time-dusk': { label: 'DUSK', art: '/images/shadow-realm/ui/tron-time-dusk.webp' },
+  'time-night': { label: 'NIGHT', art: '/images/shadow-realm/ui/tron-time-night.webp' },
+  // Camera + console.
+  recenter: { label: 'RECENTER', art: '/images/shadow-realm/ui/tron-recenter.webp' },
+  'drive-cam': { label: 'CAM', art: '/images/shadow-realm/ui/tron-drive-cam.webp' },
+  'flight-axis': { label: 'AXIS', art: '/images/shadow-realm/ui/tron-flight-axis.webp' },
+  console: { label: 'CONSOLE', art: '/images/shadow-realm/ui/tron-console.webp' },
+  minimize: { label: 'MIN', art: '/images/shadow-realm/ui/tron-minimize.webp' },
+  expand: { label: 'EXPAND', art: '/images/shadow-realm/ui/tron-expand.webp' },
+  // Hell deeds.
+  forge: { label: 'FORGE', art: '/images/shadow-realm/ui/tron-forge.webp' },
+  ferry: { label: 'FERRY', art: '/images/shadow-realm/ui/tron-ferry.webp' },
+  guide: { label: 'GUIDE', art: '/images/shadow-realm/ui/tron-guide.webp' },
+  // Chrome.
+  'fullscreen': { label: 'FULL', art: '/images/shadow-realm/ui/tron-fullscreen.webp' },
+  'fullscreen-exit': { label: 'EXIT', art: '/images/shadow-realm/ui/tron-fullscreen-exit.webp' },
+  close: { label: 'CLOSE', art: '/images/shadow-realm/ui/tron-close.webp' },
+  pause: { label: 'HOLD', art: '/images/shadow-realm/ui/tron-pause.webp' },
+  info: { label: 'INFO', art: '/images/shadow-realm/ui/tron-info.webp' },
+};
+
+// OrbFace — the per-function graphic worn by an orb. Icon-only orbs
+// wear it full-bleed, the Shadow Realm glyphFace pattern (the art
+// fills the circle; a missing file hides itself and the caller's
+// text shows through as the fallback). Labelled orbs wear it as a
+// medallion above the label, the way the emoji sat before it. Either
+// way the circle stays a plain circle — the art is the FACE, not a
+// new shape. An unknown fn renders no face, only the children.
+export function OrbFace({ fn, size = 56, children }) {
+  const entry = ORB_FUNCTIONS[fn];
+  if (!entry) return <>{children}</>;
+  const img = (
+    <img src={entry.art} alt="" aria-hidden="true" draggable={false}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+      onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+  );
+  if (!children) {
+    return (
+      <span aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: '50%', overflow: 'hidden', pointerEvents: 'none' }}>
+        {img}
+      </span>
+    );
+  }
+  const m = Math.max(24, Math.round(size * 0.52));
+  return (
+    <>
+      <span aria-hidden="true" style={{ position: 'relative', width: m, height: m, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
+        {img}
+      </span>
+      {children}
+    </>
   );
 }

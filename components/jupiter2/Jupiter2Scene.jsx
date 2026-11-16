@@ -38,7 +38,7 @@ import { kickOffGlb } from '@/app/hollow-earth/model-loader';
 // itself is stepJupiter2Walker (lib/jupiter2/planet.js) — the
 // shared stepSphereWalker takes a fixed radius, and this planet
 // has two (88 deck, 74 shelf) plus a mountain.
-import { planetParams, sphereTangentBasis, sphereSurfaceUp, lookTurnForDrag, dampLookAngle, LOOK_PITCH_MAX } from '@/lib/planet-walker';
+import { planetParams, sphereTangentBasis, sphereSurfaceUp, lookTurnForDrag, dampLookAngle, LOOK_PITCH_MAX, recenterLookOffset, lookOffsetFromHeading } from '@/lib/planet-walker';
 
 const JUPITER_PLANET = planetParams('jupiter');
 import {
@@ -64,6 +64,7 @@ import {
 import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND } from '@/lib/jupiter2/storm';
 import { buildSpeeder, buildOblivionLever, buildMountain } from '@/lib/jupiter2/meshes';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { useOrbDock } from '@/components/world/useOrbDock';
 
 // JUPITER 2 — walkable storm surface (Merlin, Nov 15 ~01:11, spec Nov 10).
 // The user stands ON the cloud deck INSIDE the storm at street level:
@@ -80,9 +81,18 @@ import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
 const ACCENT = '#e8a35c';
 
+// Orb dock sizes (lib/world/orb-dock.js — the one shared mechanism,
+// also used by Hollow Earth): px side per draggable orb in this
+// scene — stick 104, boost/shoot/dismount 64, summon/trade 56.
+const J2_SCENE_ORB_SIZES = { stick: 104, boost: 64, shoot: 64, summon: 56, dismount: 64, trade: 56 };
+
 // The Hawkins loader normalizes the demobat to its manifest height
 // (7 Hawkins units); Jupiter 2 stands it DEMOBAT_HEIGHT_M tall.
 const DEMOBAT_SCALE = DEMOBAT_HEIGHT_M / ((hawkinsModel(DEMOBAT_MODEL_ID) || {}).heightUnits || 7);
+
+// Level pitch for the mounted camera (the −0.05 the rig starts at):
+// the auto-center eases the pitch target back here, never to 0.
+const LOOK_LEVEL_PITCH = -0.05;
 
 function useKeys(inputRef) {
   useEffect(() => {
@@ -148,6 +158,12 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
   // a drag-look offset while riding survives (it is relative to
   // the heading, not overwritten by it).
   const prevSpYaw = useRef(0);
+  // Auto-center (Merlin, Nov 16 ~02:43 — UNIFY, shared helper in
+  // lib/planet-walker.js): true while the mounted view is easing
+  // back to forward after a look-drag. Set on release (see the
+  // look handler below), cleared by a new drag, by mounting /
+  // dismounting, and by respawn.
+  const recenterRef = useRef(false);
   const feet = useRef(new THREE.Vector3());
   const wasMounted = useRef(false);
   const jumpQueued = useRef(false);
@@ -184,13 +200,18 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
     const el = gl.domElement;
     const anchor = { x: 0, y: 0 };
     let dragging = false;
+    let moved = false; // this press actually dragged the look (a tap never starts a recenter)
     const onDown = (e) => {
       dragging = true;
+      moved = false;
+      // A new drag cancels the ease back to forward.
+      recenterRef.current = false;
       anchor.x = e.clientX;
       anchor.y = e.clientY;
     };
     const onMove = (e) => {
       if (!dragging) return;
+      moved = true;
       // Each event applies only its own delta (the anchor is
       // re-set below), so the turn never compounds.
       const w = el.clientWidth || window.innerWidth || 1;
@@ -202,7 +223,18 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
       anchor.x = e.clientX;
       anchor.y = e.clientY;
     };
-    const onUp = () => { dragging = false; };
+    const onUp = () => {
+      dragging = false;
+      // Release after a real look-drag while riding: ease back to
+      // forward (the shared auto-center in lib/planet-walker.js).
+      // A tap never starts it, and neither does a press on an orb
+      // (the canvas never saw its pointerdown, so moved is false).
+      if (moved) {
+        const sp = speederRef.current;
+        if (sp && sp.summoned && sp.mounted) recenterRef.current = true;
+      }
+      moved = false;
+    };
     el.addEventListener('pointerdown', onDown);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -246,9 +278,11 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
       pitch.current = -0.05;
       yawTarget.current = 0.6;
       pitchTarget.current = -0.05;
+      recenterRef.current = false;
     }
     if (mounted !== wasMounted.current) {
       wasMounted.current = mounted;
+      recenterRef.current = false;
       if (mounted) {
         yaw.current = sp.yaw;
         yawTarget.current = sp.yaw;
@@ -290,6 +324,29 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
       // survives as an offset from the heading.
       yawTarget.current += sp.yaw - prevSpYaw.current;
       prevSpYaw.current = sp.yaw;
+      // Auto-center (Merlin, Nov 16 ~02:43 — UNIFY): the shared
+      // recenterLookOffset (lib/planet-walker.js) decays the look
+      // offset — yaw from the speeder's heading, pitch from level —
+      // toward zero at LOOK_RECENTER_RATE (0.8/s: 95% back in
+      // ~3.75 s, most of a 90° look-aside gone in ~2 s). SLOW, never
+      // a snap; steering still folds the heading in above, so the
+      // ease composes with turning, and a new drag cancels it.
+      if (recenterRef.current) {
+        const eased = recenterLookOffset(
+          {
+            yaw: lookOffsetFromHeading(yawTarget.current, sp.yaw),
+            pitch: pitchTarget.current - LOOK_LEVEL_PITCH,
+          },
+          dt,
+        );
+        yawTarget.current = sp.yaw + eased.yaw;
+        pitchTarget.current = LOOK_LEVEL_PITCH + eased.pitch;
+        if (Math.abs(eased.yaw) < 0.005 && Math.abs(eased.pitch) < 0.005) {
+          yawTarget.current = sp.yaw;
+          pitchTarget.current = LOOK_LEVEL_PITCH;
+          recenterRef.current = false;
+        }
+      }
       yaw.current = dampLookAngle(yaw.current, yawTarget.current, dt);
       pitch.current = dampLookAngle(pitch.current, pitchTarget.current, dt);
       const p = spherePointFromDeck(sp.x, sp.z);
@@ -384,7 +441,7 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
 
 // Touch stick — the Mars pattern: writes into the same inputRef.keys
 // the keyboard fills, every key cleared on release/cancel/unmount.
-export function Jupiter2TouchControls({ inputRef, riding, onShoot }) {
+export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
   const stickRef = useRef(null);
   const knobRef = useRef(null);
   const activeId = useRef(null);
@@ -399,6 +456,10 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot }) {
   };
   useEffect(() => () => { clearStick(); setKey('boost', false); }, []);
   const moveStick = (e) => {
+    // While the stick itself is being dragged to a new spot, the
+    // pointer is a dock drag, not a move — ignore it (onDragStart
+    // already recentred the stick below).
+    if (orbDock && orbDock.draggingRef.current) return;
     const el = stickRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -435,16 +496,25 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot }) {
     onPointerCancel: () => setKey(name, false),
     onLostPointerCapture: () => setKey(name, false),
   });
+  const boostHold = holdBtn('boost');
   return (
     <>
       <div
         ref={stickRef} role="application" aria-label="Move"
-        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+        {...orbDock.bind('stick', {
+          onPointerDown: onDown,
+          // A drag is not a move: recentre the stick the moment the
+          // press becomes a drag (moveStick ignores the pointer
+          // while the dock is dragging, see the guard there).
+          onDragStart: () => clearStick(),
+        })}
+        onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onLostPointerCapture={onUp}
         style={{
-          position: 'absolute', bottom: 16, left: 16, width: 104, height: 104, borderRadius: '50%',
+          ...orbDock.styleFor('stick', { left: 16, bottom: 16 }),
+          width: 104, height: 104, borderRadius: '50%',
           border: '1px solid rgba(232,163,92,0.55)', background: 'rgba(18,8,4,0.38)',
-          touchAction: 'none', zIndex: 6,
+          touchAction: 'none',
         }}
       >
         <div ref={knobRef} style={{
@@ -461,11 +531,22 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot }) {
           the pair in the video is JUMP over BOOST). Each gets its
           own circle orb now, one label per orb, never overlapping. */}
       {riding && (
-        <button type="button" aria-label="Boost" {...holdBtn('boost')} style={{
-          position: 'absolute', right: 16, bottom: 104, width: 64, height: 64, borderRadius: '50%',
-          touchAction: 'none', zIndex: 6, border: '1px solid rgba(57,200,255,0.7)',
-          background: 'rgba(10,20,30,0.5)', color: '#bfe9ff', fontSize: 12, letterSpacing: 1,
-        }}>BOOST</button>
+        <button type="button" aria-label="Boost"
+          {...orbDock.bind('boost', {
+            onPointerDown: boostHold.onPointerDown,
+            // A drag is not a boost: release the key the moment the
+            // press becomes a drag.
+            onDragStart: () => setKey('boost', false),
+          })}
+          onPointerUp={boostHold.onPointerUp}
+          onPointerCancel={boostHold.onPointerCancel}
+          onLostPointerCapture={boostHold.onLostPointerCapture}
+          style={{
+            ...orbDock.styleFor('boost', { right: 16, bottom: 104 }),
+            width: 64, height: 64, borderRadius: '50%',
+            touchAction: 'none', border: '1px solid rgba(57,200,255,0.7)',
+            background: 'rgba(10,20,30,0.5)', color: '#bfe9ff', fontSize: 12, letterSpacing: 1,
+          }}>BOOST</button>
       )}
       {/* SHOOT — the speeder blaster (Merlin, Nov 16 ~01:16). Its own
           plain circle orb, LEFT of the page's JUMP orb: JUMP spans
@@ -474,9 +555,10 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot }) {
           Riding only; on foot the blaster is inactive, so no orb.
           Tap to fire; the blaster's own cooldown paces repeat shots. */}
       {riding && onShoot && (
-        <OrbButton size={64} onClick={onShoot} ariaLabel="Shoot the speeder blaster"
+        <OrbButton size={64} onClick={() => { if (orbDock.tapGuard()) return; onShoot(); }} ariaLabel="Shoot the speeder blaster"
           accent="#39c8ff"
-          style={{ position: 'absolute', right: 104, bottom: 12, zIndex: 6 }}>
+          {...orbDock.bind('shoot', {})}
+          style={orbDock.styleFor('shoot', { right: 104, bottom: 12 })}>
           <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🎯</span>
           <OrbLabel>SHOOT</OrbLabel>
         </OrbButton>
@@ -1298,6 +1380,14 @@ export default function Jupiter2Scene({
   const [notice, setNotice] = useState(null);
   const noticeRef = useRef(null);
   const [tradeOpen, setTradeOpen] = useState(false);
+  // Orb dock (Merlin, Nov 16 ~02:35 — the Hollow Earth mirror): the
+  // scene's orbs drag individually and persist per user under
+  // `olympus:jupiter-2:orb-dock:v1` (lib/world/orb-dock.js, the one
+  // shared mechanism — Hollow Earth uses the same module). The page
+  // owns the JUMP orb's instance; the ids are disjoint, and every
+  // save merges against a fresh storage read, so neither instance
+  // can clobber the other's newer save.
+  const dock = useOrbDock('jupiter-2', J2_SCENE_ORB_SIZES);
 
   // Show a short centred notice for 3 s (the tick clears it).
   const showNotice = (text) => {
@@ -1744,7 +1834,7 @@ export default function Jupiter2Scene({
           background: 'rgba(0,0,0,0.35)', padding: '6px 10px', borderRadius: 8,
           pointerEvents: 'none', zIndex: 5,
         }}>
-          {riding ? 'SPEEDER · STICK / WASD STEER · SHIFT / BOOST · F FIRE' : 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP · B SUMMON SPEEDER'}
+          {riding ? 'SPEEDER · STICK/WASD STEER · SHIFT BOOST · F FIRE' : 'STICK/WASD MOVE · DRAG LOOK · SPACE JUMP · B SUMMON SPEEDER'}
         </div>
       )}
       {/* walker health — an orb, not a pill: quiet while whole; the
@@ -1788,33 +1878,46 @@ export default function Jupiter2Scene({
           {notice.text}
         </div>
       )}
-      {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} onShoot={fireBlaster} />}
-      {/* speeder summon — the Earth 1 button, per user. Top-LEFT
-          column of orbs now: the top-right corner belongs to the
-          EXIT / FULLSCREEN orb alone, so the two can never pile up
-          on one row again. One label per orb. */}
+      {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} onShoot={fireBlaster} orbDock={dock} />}
+      {/* speeder summon / dismount / deck trade — FREE-FLOATING orbs
+          now (Merlin, Nov 16 ~02:35 — the Hollow Earth mirror): the
+          top-left column container is GONE. Each orb drags on its
+          own through the shared orb dock (lib/world/orb-dock.js)
+          and its spot persists per user; the defaults below are
+          the column's old slots, measured, so nothing moves until
+          the user drags it. The top-right corner still belongs to
+          the EXIT / FULLSCREEN orb alone. One label per orb. The
+          orb tally and the armed-lever orb are READOUTS (a plain
+          circle div / an action-less orb), not controls — they stay
+          fixed in their old slots. */}
       {mode !== 'orbit' && (
-        <div style={{ position: 'absolute', left: 12, top: 12, zIndex: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <OrbButton onClick={summon} ariaLabel={riding ? 'Dismiss speeder' : 'Summon speeder'}
-            accent={riding ? '#39c8ff' : ACCENT}>
+        <>
+          <OrbButton onClick={() => { if (dock.tapGuard()) return; summon(); }} ariaLabel={riding ? 'Dismiss speeder' : 'Summon speeder'}
+            accent={riding ? '#39c8ff' : ACCENT}
+            {...dock.bind('summon', {})}
+            style={dock.styleFor('summon', { left: 12, top: 12 })}>
             <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🛸</span>
             <OrbLabel>{riding ? 'DISMISS' : 'SUMMON'}</OrbLabel>
           </OrbButton>
           {riding && (
-            <OrbButton size={64} onClick={dismount} ariaLabel="Dismount speeder">
+            <OrbButton size={64} onClick={() => { if (dock.tapGuard()) return; dismount(); }} ariaLabel="Dismount speeder"
+              {...dock.bind('dismount', {})}
+              style={dock.styleFor('dismount', { left: 12, top: 76 })}>
               <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>⏏</span>
               <span style={{ fontSize: 8, letterSpacing: 1, lineHeight: 1 }}>DISMOUNT</span>
             </OrbButton>
           )}
           {/* deck trade — elemental orbs buy shields + blaster
               upgrades. The panel opens here; the fiction is the
-              deck trader at spawn. The tally below it is a readout
-              (plain circle div, like the HP orb), not a control. */}
-          <OrbButton onClick={() => setTradeOpen(true)} ariaLabel="Open the deck trade — spend elemental orbs on shields and blaster upgrades">
+              deck trader at spawn. */}
+          <OrbButton onClick={() => { if (dock.tapGuard()) return; setTradeOpen(true); }} ariaLabel="Open the deck trade — spend elemental orbs on shields and blaster upgrades"
+            {...dock.bind('trade', {})}
+            style={dock.styleFor('trade', { left: 12, top: riding ? 148 : 76 })}>
             <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬡</span>
             <OrbLabel>TRADE</OrbLabel>
           </OrbButton>
           <div title={`Elemental orbs — storm ${walletUi.storm} · dragon ${walletUi.dragon} · demobat ${walletUi.demobat}`} style={{
+            position: 'absolute', left: 12, top: riding ? 212 : 140, zIndex: 6,
             width: 56, height: 56, borderRadius: '50%',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             color: '#ffe3cc', fontSize: 12, fontWeight: 700, lineHeight: 1.2,
@@ -1825,14 +1928,15 @@ export default function Jupiter2Scene({
             <span style={{ fontSize: 8, letterSpacing: 1 }}>ORBS</span>
           </div>
           {leverUi.phase === 'armed' && (
-            <OrbButton ariaLabel={`Oblivion armed${leverUi.countdown ? `, ${leverUi.countdown}` : ''}`} accent="#22ff66">
+            <OrbButton ariaLabel={`Oblivion armed${leverUi.countdown ? `, ${leverUi.countdown}` : ''}`} accent="#22ff66"
+              style={{ position: 'absolute', left: 12, top: riding ? 276 : 204, zIndex: 6 }}>
               <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⚡</span>
               <span style={{ fontSize: 8, letterSpacing: 0.5, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%' }}>
                 {leverUi.countdown || 'ARMED'}
               </span>
             </OrbButton>
           )}
-        </div>
+        </>
       )}
       {/* oblivion warning — the gate: pull alone never arms it */}
       {leverUi.phase === 'warned' && (
@@ -1885,21 +1989,27 @@ export default function Jupiter2Scene({
             position: 'absolute', inset: 0, zIndex: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: 'rgba(0,0,0,0.6)', padding: 16,
           }}>
+          {/* Compact, one frame (Merlin, Nov 16 ~02:35 — the Hollow
+              Earth mirror's one-frame menu spirit): tight padding
+              and margins, short copy, every buy/recharge/close
+              kept. overflowY stays as a backstop for the smallest
+              screens, but the panel now measures ~500 px tall and
+              fits a phone frame without scrolling. */}
           <div style={{
             maxWidth: 440, width: '100%', maxHeight: 'calc(100% - 32px)', overflowY: 'auto',
-            background: '#160a04', border: '2px solid #e8a35c', borderRadius: 12, padding: 20,
+            background: '#160a04', border: '2px solid #e8a35c', borderRadius: 12, padding: 14,
           }}>
             <h2 style={{ margin: '0 0 4px', color: '#e8a35c', letterSpacing: 2, fontSize: 18 }}>⬡ DECK TRADE</h2>
-            <p style={{ margin: '0 0 16px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
+            <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
               Storm {walletUi.storm} · Dragon {walletUi.dragon} · Demobat {walletUi.demobat} — total {totalOrbs(walletUi)} orbs.
               Kill with the speeder blaster, walk over the orb to collect it.
             </p>
-            <h3 style={{ margin: '0 0 8px', color: '#ffe3cc', letterSpacing: 2, fontSize: 13 }}>🛡️ SHIELDS — ABSORB DAMAGE BEFORE YOUR 100 HP</h3>
+            <h3 style={{ margin: '0 0 6px', color: '#ffe3cc', letterSpacing: 2, fontSize: 13 }}>🛡️ SHIELDS — ABSORB DAMAGE BEFORE YOUR 100 HP</h3>
             {SHIELD_TIERS.slice(1).map((t) => {
               const owned = shieldUi.tier >= t.tier;
               const afford = totalOrbs(walletUi) >= t.cost;
               return (
-                <div key={t.tier} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div key={t.tier} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                   <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: '#f6e8da' }}>
                     <b>{t.label}</b> — absorbs {t.max} damage · {t.cost} ⬡
                   </div>
@@ -1914,7 +2024,7 @@ export default function Jupiter2Scene({
                 </div>
               );
             })}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: '#f6e8da' }}>
                 <b>Recharge shield</b> — back to full ({shieldUi.max}) · {SHIELD_RECHARGE_COST} ⬡
               </div>
@@ -1929,12 +2039,12 @@ export default function Jupiter2Scene({
                 RECHARGE {SHIELD_RECHARGE_COST} ⬡
               </button>
             </div>
-            <h3 style={{ margin: '0 0 8px', color: '#ffe3cc', letterSpacing: 2, fontSize: 13 }}>🔫 SPEEDER BLASTER — STOCK 34 DMG · 500 MS · 60 M</h3>
+            <h3 style={{ margin: '0 0 6px', color: '#ffe3cc', letterSpacing: 2, fontSize: 13 }}>🔫 SPEEDER BLASTER — STOCK 34 DMG · 500 MS · 60 M</h3>
             {BLASTER_TIERS.slice(1).map((t) => {
               const owned = blasterUi.tier >= t.tier;
               const afford = totalOrbs(walletUi) >= t.cost;
               return (
-                <div key={t.tier} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div key={t.tier} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
                   <div style={{ flex: 1, fontSize: 13, lineHeight: 1.4, color: '#f6e8da' }}>
                     <b>{t.label}</b> — {t.dmg} dmg · {t.cooldownMs} ms · {t.rangeM} m · {t.cost} ⬡
                   </div>
@@ -1949,9 +2059,8 @@ export default function Jupiter2Scene({
                 </div>
               );
             })}
-            <p style={{ margin: '8px 0 16px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
-              The blaster fires from the speeder only (F key, or the SHOOT orb) — on foot it is inactive.
-              Your shield refills to full whenever you buy a tier and whenever the storm takes you.
+            <p style={{ margin: '6px 0 10px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
+              Blaster fires from the speeder only (F key, or the SHOOT orb). Shields refill to full on tier purchase and when the storm takes you.
             </p>
             <button type="button" onClick={() => setTradeOpen(false)}
               style={{

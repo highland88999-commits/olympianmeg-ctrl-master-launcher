@@ -10,7 +10,7 @@
 export const LANDMARK_TYPES = [
   'ooze-pool', 'ember-spire', 'storm-pylon', 'mire-arch',
   'gloom-monolith', 'wreck-hulk', 'peak-shrine', 'frost-spire',
-  'korus-throne', 'intro-arch', 'haven',
+  'korus-throne', 'intro-arch', 'haven', 'court-brazier',
 ];
 
 function mat(color, extra) {
@@ -24,7 +24,7 @@ function mesh(R, geo, m, x, y, z, ry) {
   return o;
 }
 
-export function buildLandmark(type, R, T = {}) {
+export function buildLandmark(type, R, T = {}, art = null) {
   const g = new R.Group();
   let colliderR = 3;
   const M = (geo, m, x, y, z, ry) => { const o = mesh(R, geo, m, x, y, z, ry); g.add(o); return o; };
@@ -32,11 +32,15 @@ export function buildLandmark(type, R, T = {}) {
   if (type === 'ooze-pool') {
     colliderR = 6;
     M(new R.CylinderGeometry(6, 6.4, 0.5, 20), mat(0x6da83c), 0, 0.25, 0);
-    M(new R.CylinderGeometry(5, 5, 0.2, 20), mat(0xb6e33c, { emissive: 0x4a7a28, emissiveIntensity: 0.6 }), 0, 0.55, 0);
+    // G-05: the inner disc + bubble spheres are kept as refs so
+    // the zone can pulse them per frame (emissive breathe + bob).
+    const disc = M(new R.CylinderGeometry(5, 5, 0.2, 20), mat(0xb6e33c, { emissive: 0x4a7a28, emissiveIntensity: 0.6 }), 0, 0.55, 0);
+    const bubbles = [];
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * Math.PI * 2;
-      M(new R.SphereGeometry(0.5, 8, 6), mat(0xd8f26a), Math.cos(a) * 3, 0.9, Math.sin(a) * 3);
+      bubbles.push(M(new R.SphereGeometry(0.5, 8, 6), mat(0xd8f26a), Math.cos(a) * 3, 0.9, Math.sin(a) * 3));
     }
+    g.userData.oozePool = { disc, bubbles };
   } else if (type === 'ember-spire') {
     colliderR = 3;
     M(new R.CylinderGeometry(0.6, 2.2, 9, 7), mat(0x2a201c), 0, 4.5, 0);
@@ -71,6 +75,14 @@ export function buildLandmark(type, R, T = {}) {
     M(new R.CylinderGeometry(1.5, 3.5, 2, 7), mat(0x6e6e78), 0, 1, 0);
     M(new R.CylinderGeometry(0.8, 2.2, 3, 6), mat(0x7a7a82), 0, 3, 0);
     M(new R.ConeGeometry(0.7, 4.5, 4), mat(0xd8d8e0, { emissive: 0x888899, emissiveIntensity: 0.4 }), 0, 6.5, 0);
+    // G-09: white snow cap on the cone tip — MeshBasicMaterial,
+    // no light, just the pale read against the storm sky.
+    const cap = new R.Mesh(
+      new R.ConeGeometry(0.34, 1.3, 4),
+      new R.MeshBasicMaterial({ color: 0xffffff })
+    );
+    cap.position.set(0, 8.3, 0);
+    g.add(cap);
   } else if (type === 'frost-spire') {
     // The Frozen Reaches marker: a pale ice crystal spire on a
     // frost base — the yeti's band, visible from the wastes.
@@ -79,6 +91,43 @@ export function buildLandmark(type, R, T = {}) {
     M(new R.ConeGeometry(1.2, 8, 6), mat(0x9fd8e8, { emissive: 0x4a7a8a, emissiveIntensity: 0.7 }), 0, 5, 0);
     M(new R.ConeGeometry(0.6, 4, 5), mat(0xe8f4f8, { emissive: 0x9fd8e8, emissiveIntensity: 0.5 }), 1.4, 3, 0.8);
     M(new R.ConeGeometry(0.6, 4, 5), mat(0xe8f4f8, { emissive: 0x9fd8e8, emissiveIntensity: 0.5 }), -1.4, 3, -0.8);
+    // G-09: white snow caps on the spire tips — basic material, no light.
+    const capMain = new R.Mesh(
+      new R.ConeGeometry(0.42, 1.6, 6),
+      new R.MeshBasicMaterial({ color: 0xffffff })
+    );
+    capMain.position.set(0, 8.5, 0);
+    g.add(capMain);
+    const capSide = new R.Mesh(
+      new R.ConeGeometry(0.22, 0.9, 5),
+      new R.MeshBasicMaterial({ color: 0xffffff })
+    );
+    capSide.position.set(1.4, 4.7, 0.8);
+    g.add(capSide);
+  } else if (type === 'court-brazier') {
+  } else if (type === 'court-brazier') {
+    // G-10: a brazier for Korus's COURT APPROACH only — never the
+    // throne itself. Dark stone bowl + a breathing flame cone +
+    // a glow dome, all emissive/basic material: ZERO new lights
+    // (the lava-glow.js "breathing flame cones + glow dome, no
+    // new light" shape). The flame cone breathes via
+    // animateLandmark() (scale pulse); the dome is a static glow.
+    colliderR = 1.5;
+    M(new R.CylinderGeometry(0.9, 1.2, 1.4, 7), mat(0x242428), 0, 0.7, 0);
+    M(new R.CylinderGeometry(1.3, 0.9, 0.6, 7), mat(0x3a3a40), 0, 1.6, 0);
+    const flame = new R.Mesh(
+      new R.ConeGeometry(0.55, 2.2, 7),
+      new R.MeshBasicMaterial({ color: 0xffa030, transparent: true, opacity: 0.9 })
+    );
+    flame.position.set(0, 2.9, 0);
+    g.add(flame);
+    const glow = new R.Mesh(
+      new R.SphereGeometry(1.6, 12, 8),
+      new R.MeshBasicMaterial({ color: 0xff6a22, transparent: true, opacity: 0.16, depthWrite: false })
+    );
+    glow.position.set(0, 2.6, 0);
+    g.add(glow);
+    g.userData.brazier = { flame, glow };
   } else if (type === 'korus-throne') {
     // The boss seat: a colossal dark throne under a storm arch.
     // Korus himself is a monster figure (spawns.js), not stone.
@@ -117,7 +166,93 @@ export function buildLandmark(type, R, T = {}) {
 
   g.userData.landmarkType = type;
   g.userData.colliderR = colliderR;
+  // G-03: illustrated dressing, hung at build time when the page
+  // already holds the texture; otherwise the page calls
+  // applyLandmarkArt() once the art loads — the plain face stands
+  // until then, never a wrong image.
+  if (art) hangLandmarkArt(g, type, R, art);
   return g;
+}
+
+/* One illustrated graphic per dressed landmark type, hung on a
+ * flat face/disc of the landmark (G-03). Throne, haven and
+ * intro-arch take no art. Called from buildLandmark (art passed
+ * in) or from applyLandmarkArt() (art loaded after the build).
+ * Guards: unknown type, missing texture, or an already-hung face
+ * all no-op — never a duplicate, never a crash. */
+export function hangLandmarkArt(group, type, R, tex) {
+  if (!group || !tex || group.userData.artApplied) return false;
+  const basic = (w, h) => new R.MeshBasicMaterial({ map: tex, transparent: true });
+  let artMesh = null;
+  if (type === 'ooze-pool') {
+    artMesh = new R.Mesh(new R.CircleGeometry(4.6, 24), basic());
+    artMesh.rotation.x = -Math.PI / 2;
+    artMesh.position.set(0, 0.68, 0);
+  } else if (type === 'ember-spire') {
+    artMesh = new R.Mesh(new R.CylinderGeometry(1.45, 1.75, 2.6, 12, 1, true), basic());
+    artMesh.position.set(0, 4.5, 0);
+  } else if (type === 'storm-pylon') {
+    artMesh = new R.Mesh(new R.CircleGeometry(1.9, 24), basic());
+    artMesh.position.set(0, 11, 0.2);
+  } else if (type === 'mire-arch') {
+    artMesh = new R.Mesh(new R.CircleGeometry(2.6, 24), basic());
+    artMesh.position.set(0, 3, 0.2);
+  } else if (type === 'gloom-monolith') {
+    artMesh = new R.Mesh(new R.PlaneGeometry(2.6, 10), basic());
+    artMesh.position.set(0, 7, 0.85);
+  } else if (type === 'wreck-hulk') {
+    artMesh = new R.Mesh(new R.PlaneGeometry(8, 1.8), basic());
+    artMesh.position.set(0, 1.6, 2.05);
+    artMesh.rotation.z = 0.22;
+  } else if (type === 'peak-shrine') {
+    artMesh = new R.Mesh(new R.PlaneGeometry(2, 2.4), basic());
+    artMesh.position.set(0, 3, 1.75);
+  } else if (type === 'frost-spire') {
+    artMesh = new R.Mesh(new R.PlaneGeometry(1.6, 5), basic());
+    artMesh.position.set(0, 5, 1.05);
+  } else {
+    return false;
+  }
+  group.add(artMesh);
+  group.userData.artApplied = true;
+  return true;
+}
+
+/** Hang a landmark's art after the build (texture loaded late).
+ * Reads the type off the group; no-op for undressed types. */
+export function applyLandmarkArt(group, R, tex) {
+  if (!group || !tex) return false;
+  return hangLandmarkArt(group, group.userData.landmarkType, R, tex);
+}
+
+/* Per-frame landmark life (G-05 + G-10), called by the zone's
+ * update(): ooze pools bubble (inner-disc emissive breathe +
+ * bubble bob/scale on a slow seeded cycle) and court braziers
+ * breathe (flame cone scale pulse). Everything else is static.
+ * No-op for landmarks without animated parts. */
+export function animateLandmark(group, t, seed = 0) {
+  if (!group || !group.userData) return;
+  const ooze = group.userData.oozePool;
+  if (ooze) {
+    if (ooze.disc && ooze.disc.material && ooze.disc.material.emissiveIntensity != null) {
+      ooze.disc.material.emissiveIntensity = 0.6 + 0.25 * Math.sin(t * 1.3 + seed);
+    }
+    for (let i = 0; i < (ooze.bubbles || []).length; i++) {
+      const b = ooze.bubbles[i];
+      const ph = t * 1.5 + seed + i * 1.26;
+      b.position.y = 0.9 + 0.15 * Math.sin(ph);
+      const s = 1 + 0.2 * Math.sin(ph * 1.7);
+      b.scale.set(s, s, s);
+    }
+  }
+  const br = group.userData.brazier;
+  if (br && br.flame) {
+    const s = 1 + 0.18 * Math.sin(t * 2.1 + seed);
+    br.flame.scale.set(s, 1 + 0.28 * Math.sin(t * 2.1 + seed), s);
+    if (br.glow && br.glow.material) {
+      br.glow.material.opacity = 0.13 + 0.05 * Math.sin(t * 2.1 + seed);
+    }
+  }
 }
 
 /* Ambient world furniture: the glowing core-sun overhead and the
@@ -141,6 +276,9 @@ export function buildAmbient(type, R, T = {}) {
   } else if (type === 'inverted-horizon') {
     // A jagged silhouette ring far out, leaning inward: the
     // world's rim curving up overhead, as an inner world does.
+    // Ring radius 700 sits outside the 600 m disc rim — at the
+    // old 430 it would stand ON the ground inside the bigger
+    // disc, a ring of cones rising out of the walkable world.
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2;
       const h = 26 + ((i * 37) % 22);
@@ -148,7 +286,7 @@ export function buildAmbient(type, R, T = {}) {
         new R.ConeGeometry(26, h, 4),
         new R.MeshStandardMaterial({ color: 0x2a2238, roughness: 1 })
       );
-      peak.position.set(Math.cos(a) * 430, h / 2 - 4, Math.sin(a) * 430);
+      peak.position.set(Math.cos(a) * 700, h / 2 - 4, Math.sin(a) * 700);
       peak.rotation.z = -0.12;
       peak.rotation.y = a;
       g.add(peak);

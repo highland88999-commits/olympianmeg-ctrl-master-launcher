@@ -1,15 +1,17 @@
 // tests/hollow-earth-humanoid-operators.test.mjs
-// HOLLOW EARTH — HUMANOID OPERATOR AGENTS (Merlin, Nov 14 ~23:25):
+// HOLLOW EARTH — HUMANOID OPERATOR AGENTS (Merlin, Nov 14 ~23:25;
+// seven-agent life line Nov 16 ~02:31, savagery Nov 16):
 // Korus + Ghorrum + the hero-as-player + the upright-figure
 // monster families (a BLURB reading — families.js carries no
 // humanoid form); garments baked into the rigged GLBs; weapons
 // read from the existing combat systems (Korus's casts, the
 // HEROES weapons, the archetype attacks, the player's blade /
-// bolt); death is combat only (monsters do NOT respawn in code
-// — RESPAWN_S unread, flagged; Korus permanent; Ghorrum never
-// dies); user death wakes the hunter at The Haven whole — no
-// corpse fight; Jedi/Sith verified absent; Earth 2 / Earth 3
-// verified to hold no humanoid operator subjects.
+// bolt); death is combat / predation / territorial-duel / age,
+// with a 45 s respawn to the next generation in the same slot
+// (Korus permanent; Ghorrum never dies); user death wakes the
+// hunter at The Haven whole — no corpse fight; Jedi/Sith
+// verified absent; Earth 2 / Earth 3 verified to hold no
+// humanoid operator subjects.
 //
 // Run: node --test tests/hollow-earth-humanoid-operators.test.mjs (repo root)
 
@@ -157,9 +159,9 @@ describe('enumeration — humanoids in code', () => {
   });
 });
 
-describe('birth + growth — placed as adults, no growth in code', () => {
+describe('birth + growth — seeded mid-life, growth stages by age fraction', () => {
   it('monster birth is the seeded field, 2 per placed family', () => {
-    assert.equal(birthFor('monster').mode, 'seeded-on-entry');
+    assert.equal(birthFor('monster').mode, 'seeded-mid-life');
     assert.equal(birthFor('boss').mode, 'singleton');
     assert.equal(birthFor('watcher').mode, 'singleton');
     assert.equal(birthFor('hero').mode, 'player-pick');
@@ -174,13 +176,16 @@ describe('birth + growth — placed as adults, no growth in code', () => {
     assert.equal(growthFor('hero', { heroKey: 'dwarf' }).sizeM, 1.35);
     for (const g of [growthFor('monster', { type: 'slot-01' }), growthFor('boss'), growthFor('watcher')]) {
       assert.equal(g.stageName, 'Adult');
-      assert.equal(g.fraction, 1);
     }
+    // No birth on the record — age unknown, never invented: no fraction.
+    assert.equal(growthFor('monster', { type: 'slot-01' }).fraction, null);
+    assert.equal(growthFor('boss').fraction, 1);
+    assert.equal(growthFor('watcher').fraction, 1);
   });
 });
 
-describe('death law — combat only, no respawn, no remains', () => {
-  it('a dead monster does NOT respawn in code — RESPAWN_S is unread', () => {
+describe('death law — combat/predation/duel/age, 45 s respawn, remains fade', () => {
+  it('a dead monster respawns in 45 s as the next generation', () => {
     assert.equal(RESPAWN_S, 45);
     const m = createMonster({ id: 'm-1', type: 'slot-01', element: 'acid', x: 0, z: 0 });
     damageMonster(m, 1000);
@@ -188,8 +193,9 @@ describe('death law — combat only, no respawn, no remains', () => {
     const d = deathFor('monster', m);
     assert.equal(d.state, 'dead');
     assert.equal(d.cause, 'combat');
-    assert.equal(d.respawnAt, null);
-    assert.match(d.respawnNote, /no code reads it/);
+    assert.equal(d.respawnAt, m.respawnAtMs);
+    assert.equal(m.respawnAtMs - m.diedAtMs, 45000); // the 45 s window
+    assert.equal(d.respawnNote, 'Returns in 45 s, same family, near where it fell');
   });
 
   it('Korus dies once, permanently', () => {
@@ -209,15 +215,24 @@ describe('death law — combat only, no respawn, no remains', () => {
     assert.equal(d.cause, 'none');
   });
 
-  it('there is no decomposition in Hollow Earth code', () => {
+  it('remains lie for the 45 s respawn window and fade', () => {
+    // A live kind has no remains yet.
     for (const kind of ['monster', 'boss', 'watcher', 'hero']) {
       assert.equal(decompositionFor(kind).remains, 'none');
     }
-    assert.match(decompositionFor('monster').note, /fig\.visible = false/);
+    assert.match(decompositionFor('monster').note, /Alive — no remains/);
+    // A dead monster's remains fade over the 45 s window, then the next generation is born.
+    const m = createMonster({ id: 'm-1', type: 'slot-01', element: 'acid', x: 0, z: 0 });
+    damageMonster(m, 1000);
+    const dead = decompositionFor('monster', m);
+    assert.equal(dead.remains, 'fading disc');
+    assert.equal(dead.windowS, 45);
+    assert.equal(dead.nextGenerationAt, m.respawnAtMs);
+    assert.match(dead.note, /Remains lie for the 45 s respawn window/);
   });
 });
 
-describe('diet — feeding IS the hunt, no diet in code', () => {
+describe('diet — read from the family record', () => {
   it('a spotted monster hunts the user; an ambusher waits; the rest roam', () => {
     const hunter = createMonster({ id: 'm-1', type: 'slot-01', element: 'acid', x: 0, z: 0 });
     hunter.spotted = true;
@@ -226,7 +241,7 @@ describe('diet — feeding IS the hunt, no diet in code', () => {
     assert.equal(dietFor('monster', ambusher).action, 'ambush-wait');
     const roamer = createMonster({ id: 'm-3', type: 'slot-01', element: 'acid', x: 0, z: 0 });
     assert.equal(dietFor('monster', roamer).action, 'roam');
-    assert.equal(dietFor('monster', roamer).diet, null);
+    assert.equal(dietFor('monster', roamer).diet, 'Stalks other monsters and the hunter — a ranged acid predator of the acid band, leaves a corrosive pool under its prey.');
   });
 
   it('Korus, Ghorrum and the hero have no diet in code', () => {
@@ -343,16 +358,16 @@ describe('weapons agent — the existing combat systems', () => {
 });
 
 describe('territory + user hunt + user death', () => {
-  it('monsters hold no territory and never fight each other', () => {
-    assert.equal(territoryFor('monster').mode, 'none');
-    assert.match(territoryFor('monster').note, /no monster-vs-monster combat/);
+  it('monsters hold their habitat band and fight within it', () => {
+    assert.equal(territoryFor('monster').mode, 'habitat-band');
+    assert.match(territoryFor('monster').note, /habitat band/);
   });
 
-  it('the hunt gives up after 12 s unseen and breaks at The Haven', () => {
-    assert.equal(GIVE_UP_S, 12);
+  it('the hunt gives up after 20 s unseen and breaks at The Haven', () => {
+    assert.equal(GIVE_UP_S, 20);
     const h = userHuntFor({ spotted: true });
     assert.equal(h.spotted, true);
-    assert.equal(h.giveUpS, 12);
+    assert.equal(h.giveUpS, 20);
     assert.equal(h.haven.x, SAFE_BASE.x);
     assert.equal(h.haven.r, 28);
     assert.match(h.haven.note, /untouchable/);
@@ -408,10 +423,10 @@ describe('conductor — lifeFor + lifeLine', () => {
     assert.deepEqual(a, b);
     assert.equal(a.kind, 'monster');
     assert.equal(a.humanoidReading, true);
-    assert.equal(a.stageName, 'Adult');
+    assert.equal(a.stageName, 'Young');
     assert.equal(a.garment.summary, 'acid-wreathed figure');
     assert.equal(a.weapon.summary, 'ranged · 12 dmg · 22 m');
-    assert.equal(a.line, 'Adult · Roaming · Upright figure · acid-wreathed figure · ranged · 12 dmg · 22 m · acid');
+    assert.equal(a.line, 'Young · Roaming · Upright figure · acid-wreathed figure · ranged · 12 dmg · 22 m · acid');
   });
 
   it('a spotted upright family reads hunting you', () => {
@@ -432,12 +447,12 @@ describe('conductor — lifeFor + lifeLine', () => {
     assert.match(life.line, /Lying in wait/);
   });
 
-  it('a dead monster reads Remains with no return this session', () => {
+  it('a dead monster reads Remains with a 45 s return', () => {
     const m = createMonster({ id: 'm-4', type: 'slot-01', element: 'acid', x: 0, z: 0 });
     damageMonster(m, 1000);
     const life = lifeFor(m, T0);
     assert.equal(life.state, 'dead');
-    assert.equal(life.line, 'Remains — Adult Ooze Revenant — killed in combat, does not return this session');
+    assert.match(life.line, /^Remains — Young Ooze Revenant · slain by the hunter · returns in \d+s$/);
   });
 
   it('a non-reading monster is never dressed as humanoid on its line', () => {

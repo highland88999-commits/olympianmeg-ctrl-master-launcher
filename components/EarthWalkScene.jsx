@@ -45,6 +45,8 @@ import {
   LOOK_PITCH_MAX,
   lookTurnForDrag,
   dampLookAngle,
+  recenterLookOffset,
+  lookOffsetFromHeading,
   sphereTangentBasis,
   stepSphereWalker,
 } from '@/lib/planet-walker';
@@ -164,6 +166,15 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
   const walker = useRef(earthWalkLandingState());
   const keys = useRef(new Set());
   const dragging = useRef(null);
+  // Auto-center (Merlin, Nov 16, 2026 — UNIFY): on release after a
+  // real drag, the look eases back to where the drag STARTED — the
+  // heading when the user glanced aside — at the shared slow rate
+  // (recenterLookOffset, 0.8/s), not to the arrival angles: the
+  // walker has walked on since arrival. A tap never starts it; a
+  // new drag cancels it.
+  const recenterRef = useRef(false);
+  const lookAnchorRef = useRef({ yaw: 0, pitch: 0.35 });
+  const lookMovedRef = useRef(false);
   const jumpQueued = useRef(false);
 
   useEffect(() => {
@@ -186,11 +197,22 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
   useEffect(() => {
     const el = gl.domElement;
     const onDown = (e) => {
+      // The drag-look stage takes the gesture: no pull-to-refresh,
+      // no long-press callout (the Canvas also carries
+      // touch-action: none in app/earth-walk/page.jsx — that is the
+      // fix that stops iOS hijacking a downward drag; this is the
+      // belt-and-braces for the callout/selection).
+      e.preventDefault();
+      // The glance starts here — the ease-back returns to this view.
+      lookAnchorRef.current = { yaw: yawTarget.current, pitch: pitchTarget.current };
+      recenterRef.current = false;
+      lookMovedRef.current = false;
       dragging.current = { x: e.clientX, y: e.clientY };
     };
     const onMove = (e) => {
       const d = dragging.current;
       if (!d) return;
+      lookMovedRef.current = true;
       // The drag moves the look TARGET, not the angle — the frame
       // loop eases the camera toward it. The turn is a fraction of
       // the screen (lookTurnForDrag): one full-width swipe turns
@@ -208,6 +230,8 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
       dragging.current = { x: e.clientX, y: e.clientY };
     };
     const onUp = () => {
+      // A tap never starts the ease-back — only a real drag does.
+      if (lookMovedRef.current) recenterRef.current = true;
       dragging.current = null;
     };
     el.addEventListener('pointerdown', onDown);
@@ -246,6 +270,22 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
     // of snapping to it. The walker step's 0.05 s clamp bounds the
     // ease step too.
     const dtC = Math.min(delta, 0.05);
+    // Auto-center: decay the offset the drag opened — yaw from the
+    // drag-start heading, pitch from the drag-start pitch — back to
+    // zero at the shared slow rate, then snap exactly and stop.
+    if (recenterRef.current) {
+      const eased = recenterLookOffset(
+        { yaw: lookOffsetFromHeading(yawTarget.current, lookAnchorRef.current.yaw), pitch: pitchTarget.current - lookAnchorRef.current.pitch },
+        dtC
+      );
+      yawTarget.current = lookAnchorRef.current.yaw + eased.yaw;
+      pitchTarget.current = lookAnchorRef.current.pitch + eased.pitch;
+      if (Math.abs(eased.yaw) < 0.005 && Math.abs(eased.pitch) < 0.005) {
+        yawTarget.current = lookAnchorRef.current.yaw;
+        pitchTarget.current = lookAnchorRef.current.pitch;
+        recenterRef.current = false;
+      }
+    }
     yaw.current = dampLookAngle(yaw.current, yawTarget.current, dtC);
     pitch.current = dampLookAngle(pitch.current, pitchTarget.current, dtC);
     const { up, forward, right } = sphereTangentBasis(walker.current.feet, yaw.current, EARTH_RADIUS);

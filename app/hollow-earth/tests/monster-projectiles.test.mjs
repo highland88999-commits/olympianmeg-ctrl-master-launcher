@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 const THREE = await import('three');
 import {
   MONSTER_PROJECTILE_SPEED, MONSTER_PROJECTILE_HIT_R, MONSTER_PROJECTILE_GRACE_R,
-  PROJECTILE_STYLE, projectileStyleFor, projectileFlightTime, projectilePath,
+  PROJECTILE_STYLE, PROJECTILE_SPRITE_KIND, projectileStyleFor, projectileSpriteKindFor,
+  projectileFlightTime, projectilePath,
   createMonsterProjectiles,
 } from '../monster-projectiles.js';
 import { WALK_SPEED } from '../../../lib/world/walk-controls.js';
@@ -18,7 +19,7 @@ function manager() {
   const arrivals = [];
   const m = createMonsterProjectiles(THREE, group, {
     groundHeight: () => 0,
-    onArrive: (dmg, fromId) => arrivals.push({ dmg, fromId }),
+    onArrive: (dmg, fromId, element) => arrivals.push({ dmg, fromId, element }),
   });
   return { group, m, arrivals };
 }
@@ -73,7 +74,7 @@ test('manager: lightning bolt flies straight and hits on arrival', () => {
   assert.equal(m.count(), 1, 'still flying mid-flight');
   m.update(0.7, { x: 22, z: 0 });
   assert.equal(m.count(), 0, 'arrived and cleaned up');
-  assert.deepEqual(arrivals, [{ dmg: 13, fromId: 'slot-19' }], 'exact damage, exact source');
+  assert.deepEqual(arrivals, [{ dmg: 13, fromId: 'slot-19', element: 'lightning' }], 'exact damage, exact source, exact element');
   assert.equal(group.children.length, 7, 'arrival burst left behind, then fades');
 });
 
@@ -96,7 +97,7 @@ test('manager: walking into the shot mid-flight still hurts', () => {
     element: 'fire', dmg: 16, fromId: 'slot-07',
   });
   m.update(0.7, { x: 11, z: 0 }); // standing on the flight path
-  assert.deepEqual(arrivals, [{ dmg: 16, fromId: 'slot-07' }], 'intercept hurts');
+  assert.deepEqual(arrivals, [{ dmg: 16, fromId: 'slot-07', element: 'fire' }], 'intercept hurts');
   assert.equal(m.count(), 0);
 });
 
@@ -133,6 +134,31 @@ test('manager: dispose clears everything', () => {
   m.dispose();
   assert.equal(m.count(), 0);
   assert.equal(group.children.length, 0);
+});
+
+test('WS6 sprite map: one kind per element; null texture falls back to plain mesh, never a crash', () => {
+  assert.deepEqual(PROJECTILE_SPRITE_KIND, {
+    acid: 'bubble', fire: 'ember', lightning: 'spark', poison: 'wisp',
+    shadow: 'mist', sand: 'grain', frost: 'flake',
+  });
+  for (const el of ['acid', 'fire', 'lightning', 'poison', 'shadow', 'sand', 'frost']) {
+    assert.ok(projectileSpriteKindFor(el), `missing sprite kind for ${el}`);
+  }
+  assert.equal(projectileSpriteKindFor('unknown-element'), 'glow', 'unknown falls back to glow');
+  // Node has no document, so getParticleTexture returns null:
+  // the shot keeps its geometry body with NO sprite child, and
+  // the puffs stay plain spheres — the wrap degrades, never throws.
+  const { group, m } = manager();
+  m.spawn({
+    from: { x: 0, y: 1.2, z: 0 }, to: { x: 22, y: 1.2, z: 0 },
+    element: 'fire', dmg: 16, fromId: 'slot-07',
+  });
+  const shot = group.children.find((c) => c.type === 'Group');
+  assert.ok(shot, 'ball mesh present');
+  assert.ok(!shot.children.some((c) => c.isSprite), 'no sprite when the texture is null');
+  m.update(0.5, { x: 22, z: 0 });
+  assert.ok(group.children.length > 1, 'drip trail spawned');
+  assert.ok(group.children.every((c) => !c.isSprite), 'trail puffs are plain meshes without a texture');
 });
 
 test('radii pinned: endpoint hit radius and mid-flight grace', () => {

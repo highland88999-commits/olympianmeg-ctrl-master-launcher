@@ -1,12 +1,13 @@
 // tests/hollow-earth-operators.test.mjs
 // HOLLOW EARTH (OLYMPIAN MONSTERVERSE) — OPERATOR AGENTS
-// (Merlin, Nov 14 ~22:56 / behaviour logic Nov 14 ~22:59):
-// monsters die by combat only and do NOT respawn in code
-// (the field refills on re-entry); Korus dies once, by combat;
-// Ghorrum never dies; monsters hunt the user but never fight
-// each other (no diet, no corpse fight — the hunter wakes at
-// The Haven); the population rule holds for placed families
-// (spawnField PASS 1 guarantees 2 each) and 3 Stormwings.
+// (Merlin, Nov 14 ~22:56 / behaviour logic Nov 14 ~22:59;
+// seven-agent life line Nov 16 ~02:31, savagery Nov 16):
+// monsters die by combat / predation / territorial-duel / age
+// and respawn after 45 s as the next generation in the same
+// slot; Korus dies once, by combat; Ghorrum never dies;
+// monsters hunt the user AND each other (prey hunts, duels);
+// the population rule holds for placed families (spawnField
+// PASS 1 guarantees 2 each) and 3 Stormwings.
 //
 // Run: node --test tests/hollow-earth-operators.test.mjs (repo root)
 
@@ -80,7 +81,7 @@ describe('deterministic life', () => {
   });
 });
 
-describe('death law — combat only, no respawn in code', () => {
+describe('death law — combat kills, 45 s respawn to the next generation', () => {
   it('monsters do not age: an idle monster far in the future is still alive', () => {
     const m = createMonster({ id: 'm-1', type: 'slot-01', element: 'fire', x: 0, z: 0 }, () => 0.5);
     const life = lifeFor(m, T0 + 100 * 365.25 * 86400000);
@@ -88,7 +89,7 @@ describe('death law — combat only, no respawn in code', () => {
     assert.equal(life.deathCause, null);
   });
 
-  it('a killed monster records combat death and NO respawn', () => {
+  it('a killed monster records combat death and a 45 s respawn', () => {
     const m = createMonster({ id: 'm-1', type: 'slot-01', element: 'fire', x: 0, z: 0 }, () => 0.5);
     const hp = m.hp;
     assert.ok(hp >= 100 && hp <= 200); // the HP band rule
@@ -98,12 +99,13 @@ describe('death law — combat only, no respawn in code', () => {
     const life = monsterLifeFor(m, T0);
     assert.equal(life.state, 'dead');
     assert.equal(life.deathCause, 'combat');
-    assert.equal(life.respawnAt, null);
-    assert.match(life.respawnNote, /No respawn loop in code/);
-    assert.equal(life.line, `Remains — ${MONSTER_TYPES['slot-01'].name} — killed in combat, does not return this session`);
+    assert.equal(life.respawnAt, m.respawnAtMs);
+    assert.equal(m.respawnAtMs - m.diedAtMs, 45000); // the 45 s window
+    assert.equal(life.respawnNote, 'Returns in 45 s, same family, near where it fell');
+    assert.match(life.line, new RegExp(`^Remains — ${MONSTER_TYPES['slot-01'].name} · slain by the hunter · returns in \\d+s$`));
   });
 
-  it('RESPAWN_S exists but no refill loop reads it (flagged, not invented)', () => {
+  it('RESPAWN_S is the 45 s respawn window', () => {
     assert.equal(RESPAWN_S, 45);
   });
 
@@ -230,7 +232,7 @@ describe('tap-card life line', () => {
   it('monster: name · roaming/hunting · element', () => {
     const m = createMonster({ id: 'm-1', type: 'slot-01', element: 'acid', x: 0, z: 0 }, () => 0.5);
     const line = lifeFor(m, T0).line;
-    assert.match(line, new RegExp(`^${MONSTER_TYPES['slot-01'].name} · Roaming · acid$`));
+    assert.match(line, new RegExp(`^${MONSTER_TYPES['slot-01'].name} · (Young|Juvenile|Adult|Elder) · Roaming · acid$`));
     m.spotted = true;
     assert.match(lifeFor(m, T0).line, /Hunting you/);
   });

@@ -118,6 +118,10 @@ export default function EarthWalkPage() {
         dpr={[1, 2]}
         gl={{ antialias: true }}
         camera={{ position: spawnCam, fov: 60, near: 0.1, far: 1000 }}
+        // The drag-look stage takes the gesture: touch-action none
+        // stops iOS pull-to-refresh hijacking a downward look-drag
+        // (Merlin, Nov 16, 2026 — looking down reloaded the page).
+        style={{ touchAction: 'none' }}
       >
         <EarthWalkScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} onMoonClick={goMoon} />
       </Canvas>

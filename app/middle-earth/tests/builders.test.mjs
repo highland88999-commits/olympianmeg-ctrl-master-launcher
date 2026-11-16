@@ -129,7 +129,7 @@ test('blanket field: records across the whole disc, none on the spawn point', ()
     const recs = z.hunt.records;
     assert.ok(recs.length >= 10, `${id} records (${recs.length})`);
     for (const r of recs) {
-      assert.ok(Math.hypot(r.x, r.z) <= 295, `${id} record in disc`);
+      assert.ok(Math.hypot(r.x, r.z) <= DATA.PODS[id].boundsRadius - 12, `${id} record in disc`);
       assert.ok(Math.hypot(r.x - 0, r.z - 95) >= ORCS.SPAWN_SAFE_R, `${id} record clear of spawn`);
     }
     // spread, not a clump: max pairwise spread across quadrants

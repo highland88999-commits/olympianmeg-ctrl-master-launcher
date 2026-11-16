@@ -28,15 +28,39 @@ function raceCtx() {
   return { race, ctx, car: race.racers.find((r) => r.isPlayer) };
 }
 
-ok('joystick drag maps to steer -1..1 proportionally (left = +1, right = -1)', () => {
-  assert.equal(steerFromJoystick(-1), 1, 'full left');
-  assert.equal(steerFromJoystick(1), -1, 'full right');
-  assert.equal(steerFromJoystick(-0.4), 0.4, 'half left is half lock');
-  assert.equal(steerFromJoystick(0.25), -0.25, 'quarter right');
+ok('joystick drag maps to steer -1..1 proportionally (left = -1, right = +1)', () => {
+  // Sign (Merlin, Nov 16, 2026 — joystick inversion): in the race
+  // sim a positive steer moves the car to the screen-right
+  // (lateral+ is screen-right under the chase camera, and the AI
+  // steers positive to move right), so stick-right is steer +1.
+  // The old -x flipped it: stick right steered the car left.
+  assert.equal(steerFromJoystick(-1), -1, 'full left');
+  assert.equal(steerFromJoystick(1), 1, 'full right');
+  assert.equal(steerFromJoystick(-0.4), -0.4, 'half left is half lock');
+  assert.equal(steerFromJoystick(0.25), 0.25, 'quarter right');
   assert.equal(steerFromJoystick(0), 0, 'centred');
-  assert.equal(steerFromJoystick(2), -1, 'clamped past full right');
-  assert.equal(steerFromJoystick(-2), 1, 'clamped past full left');
+  assert.equal(steerFromJoystick(2), 1, 'clamped past full right');
+  assert.equal(steerFromJoystick(-2), -1, 'clamped past full left');
   assert.equal(steerFromJoystick(NaN), 0, 'NaN centres');
+});
+
+ok('stick right drives the car to the screen-right, stick left to the left', () => {
+  // End-to-end through the merged input and the sim: lateral+
+  // is screen-right (RaceScene's chase camera sits behind the
+  // car on its heading, so the lateral offset (-tz, tx) reads as
+  // screen-right), and a positive steer grows lateral+.
+  const { ctx, car } = raceCtx();
+  car.speed = 30; car.lateral = 0; car.slip = 0;
+  const right = mergeRaceInputs(KEYS_OFF, { ...TOUCH_PHONE, gas: true, steer: steerFromJoystick(1) });
+  assert.equal(right.steer, 1, 'stick right is steer +1');
+  for (let i = 0; i < 30; i++) stepRacer(car, right, 1 / 60, ctx);
+  assert.ok(car.lateral > 0, `stick right moved right (lateral ${car.lateral})`);
+  const { ctx: ctx2, car: car2 } = raceCtx();
+  car2.speed = 30; car2.lateral = 0; car2.slip = 0;
+  const left = mergeRaceInputs(KEYS_OFF, { ...TOUCH_PHONE, gas: true, steer: steerFromJoystick(-1) });
+  assert.equal(left.steer, -1, 'stick left is steer -1');
+  for (let i = 0; i < 30; i++) stepRacer(car2, left, 1 / 60, ctx2);
+  assert.ok(car2.lateral < 0, `stick left moved left (lateral ${car2.lateral})`);
 });
 
 ok('gas hold is throttle 1, gas released on touch is brake 1 (no coast)', () => {
@@ -75,13 +99,14 @@ ok('gas-release braking actually slows the car; gas held speeds it up', () => {
 ok('joystick steer is proportional in the merged input and clamps with keys', () => {
   // touch.steer holds the converted value — the page runs the raw joystick
   // x through steerFromJoystick first, exactly as these calls do.
+  // (Steer +1 is screen-right in the sim, so a left joystick is -0.5.)
   const half = mergeRaceInputs(KEYS_OFF, { ...TOUCH_PHONE, gas: true, steer: steerFromJoystick(-0.5) });
-  assert.equal(half.steer, 0.5, 'half-left joystick is half lock');
+  assert.equal(half.steer, -0.5, 'half-left joystick is half lock');
   assert.equal(half.throttle, 1, 'gas still held');
   const both = mergeRaceInputs({ ...KEYS_OFF, left: true }, { ...TOUCH_PHONE, steer: steerFromJoystick(-1) });
-  assert.equal(both.steer, 1, 'A key + full-left joystick clamp at full left');
+  assert.equal(both.steer, 0, 'A key (+1) + full-left joystick (-1) cancel out');
   const fight = mergeRaceInputs({ ...KEYS_OFF, left: true }, { ...TOUCH_PHONE, steer: steerFromJoystick(1) });
-  assert.equal(fight.steer, 0, 'A key + full-right joystick cancel out');
+  assert.equal(fight.steer, 1, 'A key (+1) + full-right joystick (+1) clamp at full right');
 });
 
 ok('touch boost button still boosts; joystick y is never steering', () => {
@@ -107,15 +132,21 @@ ok('desktop keyboard is unchanged: W throttle, S brake, A/D steer, Shift boost',
     { throttle: 0, brake: 1, steer: 0, boost: false },
     'S = brake only',
   );
+  // NOTE (Nov 16, 2026 — joystick inversion): steer +1 is screen-RIGHT
+  // in the sim, so these pinned values mean the A key steers right on
+  // screen and D steers left — the keyboard mapping carries the same
+  // inversion the joystick just lost. The values below are pinned
+  // as-is on purpose: the keyboard is a separate mapping from the
+  // joystick and is left for its own fix, not smuggled into this one.
   assert.deepEqual(
     mergeRaceInputs({ ...KEYS_OFF, left: true }, TOUCH_DESKTOP),
     { throttle: 0, brake: 0, steer: 1, boost: false },
-    'A = full left',
+    'A = steer +1 (screen-right — see note above)',
   );
   assert.deepEqual(
     mergeRaceInputs({ ...KEYS_OFF, right: true }, TOUCH_DESKTOP),
     { throttle: 0, brake: 0, steer: -1, boost: false },
-    'D = full right',
+    'D = steer -1 (screen-left — see note above)',
   );
   assert.deepEqual(
     mergeRaceInputs({ ...KEYS_OFF, left: true, right: true }, TOUCH_DESKTOP),

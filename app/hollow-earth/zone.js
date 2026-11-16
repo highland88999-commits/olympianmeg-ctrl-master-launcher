@@ -9,7 +9,13 @@
  *     shared verbatim by the mesh and the returned groundHeight,
  *     so what you see is exactly what you walk on — with VERTEX
  *     COLOURS mixed from the biome weight field (biomes.js), so
- *     the ground itself shows the blends, never a seam.
+ *     the ground itself shows the blends, never a seam. The
+ *     terrain is the INNER SPHERE SHELL (lib/hollow-earth/
+ *     planet.js, SPHERE_R 382 m): the flat disc's (x, z) chart
+ *     maps onto the shell by surface distance, so every old
+ *     coordinate keeps its meaning, the shell has no edge, and
+ *     the walker comes back around. Normals point inward
+ *     (toward the core-sun), the saga winding, DoubleSide.
  *   - landmarks seated by spanSeatY (footprint-ring minimum
  *     minus a footing sink — nothing hovers), colliders that
  *     cover the visual hulls (sanctuary excluded: The Haven is
@@ -36,28 +42,42 @@
  *     campaign gate opens (opts.gateOpen); his events flow
  *     through opts.onKorusEvent.
  *
- * opts: { gateOpen?, freeRoam?, onPlayerHit(dmg, from, archetype),
- *         onMonsterKilled(monster), onHazard(hazard),
+ * opts: { gateOpen?, freeRoam?, onPlayerHit(dmg, from, archetype, element),
+ *         onMonsterKilled({ victim, killer, cause }), onHazard(hazard),
  *         onAuraStrike(ev), onKorusEvent(ev), onSpotted(monster, via) }
  * Returns { group, colliders, spawn, bounds, groundHeight,
  *   biomeAt, monsters, korus, setObserver, update, dispose,
- *   strikeHunter, damageKorus, kind, sky, fog, cycleColors }.
+ *   strikeHunter, damageKorus, setOrbDrops, kind, sky, fog, cycleColors }.
+ * bounds is null — the inner sphere has no edge, so there is no
+ * clamp to return (the old circle bounds and the radial monster
+ * clamp retired with the disc).
  */
 import * as ThreeJS from 'three';
 import { createHeightFunction, spanSeatY } from '../star-wars/zone.js';
 import { biomeWeights, biomeAt, BIOMES } from './biomes.js';
-import { buildLandmark, buildAmbient } from './landmarks.js';
+import { buildLandmark, animateLandmark, applyLandmarkArt } from './landmarks.js';
+import { buildSkyDome, applySkyTint, setSkyDomeMap } from './sky.js';
+import { buildAmbientParticles } from './ambient.js';
+import { buildAmbientLife } from './ambient-life.js';
+import { getParticleTexture } from '../../lib/particles/sprites.js';
+import {
+  deckToDir, dirToDeck, spherePointFromDeck, sphereUpAtDeck, liftedPoint,
+  orientationQuat, flatQuat, auraRingPoints,
+} from '../../lib/hollow-earth/planet.js';
+import { ELEMENT_AURA } from './elemental-aura.js';
 import {
   spawnField, createMonster, stepMonster, strike,
-  applyMonsterAuraHit,
+  applyMonsterAuraHit, respawnMonster, RESPAWN_S, ELEMENT_COLORS,
   createKorus, stepKorus, damageKorus as damageKorusPure,
   MONSTER_MODELS, KORUS_MODEL,
   WORLD_SPAWN, ACTIVATE_R, DEACTIVATE_R, mulberry32,
   separateFromPlayer,
 } from './spawns.js';
+import { AURA_R_M, lightningColorFor } from '../../lib/lightning-aura.js';
+import { rainFor, RAIN_MAX_STREAKS, RAIN_FALL_SPEED_M_S, RAIN_HEIGHT_M } from './elemental-rain.js';
 import { kickOffGlb, preloadGlb } from './model-loader.js';
 import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
-import { buildElemental } from './elemental.js';
+import { buildElemental, hazeStateFor } from './elemental.js';
 import { createMonsterProjectiles } from './monster-projectiles.js';
 import { PLACED_FIELD_KEYS } from './models.js';
 import { variantFor, seedFor, breatheScale, clothSway, classifyLocomotionBones, locomotionPose } from './behavior.js';
@@ -80,6 +100,22 @@ const SCATTER_COLOR = {
   'frost-shard': 0x9fd8e8,
 };
 
+/* G-11 — transition-band mixed scatter gate: a scatter kind
+ * spawns where its own biome holds weight >= 0.35, as before —
+ * and, where the point sits in a transition band, also when its
+ * biome is the dominant or the runner-up band with weight
+ * >= 0.15, so blend lines read as mingled ground rather than a
+ * colour wash. Pure (biome field only) for tests. */
+export function scatterAllowedAt(x, z, biomeId) {
+  const w = biomeWeights(x, z);
+  const own = w[biomeId] || 0;
+  if (own >= 0.35) return true;
+  const b = biomeAt(x, z);
+  if (!b.transition) return false;
+  if (biomeId !== b.dominant && biomeId !== b.second) return false;
+  return own >= 0.15;
+}
+
 function losClear(heightAt, ax, az, bx, bz) {
   const samples = 9;
   const aY = heightAt(ax, az) + 1.7;
@@ -101,22 +137,45 @@ export function buildWorld(THREE, def, T, opts = {}) {
   const heightAt = createHeightFunction(def);
   const rng = mulberry32(def.seed || 77701);
 
-  // --- terrain: radial disc, vertex colours from the biome field ---
-  const radius = def.worldRadius || 340;
-  const rings = 72;
-  const segs = 96;
+  // --- terrain: the INNER SPHERE SHELL, not a disc ---
+  // The old radial disc (127 rings × 169 segs at r600) becomes
+  // a full shell: rings run pole → antipode (θ 0..π), segs run
+  // the azimuth, and every vertex is the deck point's sphere
+  // point — ground radius SPHERE_R minus the seeded height, so
+  // the deck under your feet does not change and the far side
+  // is the same height function carried round the shell. Vertex
+  // colours come from the same biome weight field, the ground
+  // detail texture is kept (map + bumpMap). Winding is the
+  // saga's +y order (star-wars/zone.js), which on the inside
+  // gives INWARD normals (verified in node: the old disc order
+  // (a,c,b) faces DOWN — the shipped disc ground was
+  // backface-culled from above — and the saga order faces in);
+  // DoubleSide is belt-and-braces on top. 128 rings × 256 segs
+  // (~33k verts) holds the disc's vertex density over the
+  // shell's ~1.83M m². UVs still run off the deck coordinates
+  // (radius 600 = the pole-to-equator surface distance), with
+  // RepeatWrapping so the detail tiles past the old rim instead
+  // of clamping to stretched edge texels on the far side.
+  const uvRadius = def.worldRadius || 600;
+  const rings = 128;
+  const segs = 256;
   const positions = [];
   const colors = [];
   const uvs = [];
   const indices = [];
   for (let ri = 0; ri <= rings; ri++) {
-    const r = (ri / rings) * radius;
+    const theta = (ri / rings) * Math.PI;
     for (let si = 0; si <= segs; si++) {
-      const a = (si / segs) * Math.PI * 2;
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r;
-      positions.push(x, heightAt(x, z), z);
-      const w = biomeWeights(x, z);
+      const alpha = (si / segs) * Math.PI * 2;
+      const dir = {
+        x: Math.sin(theta) * Math.sin(alpha),
+        y: -Math.cos(theta),
+        z: -Math.sin(theta) * Math.cos(alpha),
+      };
+      const deck = dirToDeck(dir);
+      const p = spherePointFromDeck(deck.x, deck.z, heightAt);
+      positions.push(p.x, p.y, p.z);
+      const w = biomeWeights(deck.x, deck.z);
       let cr = 0;
       let cg = 0;
       let cb = 0;
@@ -127,7 +186,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
         cb += bb * w[id];
       }
       colors.push(cr, cg, cb);
-      uvs.push(x / radius * 0.5 + 0.5, z / radius * 0.5 + 0.5);
+      uvs.push(deck.x / uvRadius * 0.5 + 0.5, deck.z / uvRadius * 0.5 + 0.5);
     }
   }
   const row = segs + 1;
@@ -137,7 +196,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
       const b = a + 1;
       const c = a + row;
       const d = c + 1;
-      indices.push(a, c, b, b, c, d);
+      indices.push(a, b, c, b, d, c);
     }
   }
   const geo = new R.BufferGeometry();
@@ -146,23 +205,103 @@ export function buildWorld(THREE, def, T, opts = {}) {
   geo.setAttribute('uv', new R.Float32BufferAttribute(uvs, 2));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  const terrain = new R.Mesh(geo, new R.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+  // G-01: the dead ground textures live at last — a single neutral
+  // detail map (grain + cracks + speckle) multiplied over the
+  // vertex colours, plus a matching bumpMap, ~28 tiles across the
+  // disc. Per-band character stays in the vertex colours. The
+  // page's `* as T` import is live through this call.
+  let terrainMat = new R.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: R.DoubleSide });
+  try {
+    if (T && typeof T.groundDetailTexture === 'function') {
+      const detail = T.groundDetailTexture();
+      detail.repeat.set(28, 28);
+      if (R.RepeatWrapping !== undefined) { detail.wrapS = R.RepeatWrapping; detail.wrapT = R.RepeatWrapping; }
+      const bump = T.groundDetailTexture();
+      if (R.NoColorSpace !== undefined) bump.colorSpace = R.NoColorSpace;
+      bump.repeat.set(28, 28);
+      if (R.RepeatWrapping !== undefined) { bump.wrapS = R.RepeatWrapping; bump.wrapT = R.RepeatWrapping; }
+      terrainMat = new R.MeshStandardMaterial({
+        vertexColors: true, roughness: 1, map: detail, bumpMap: bump, bumpScale: 0.6,
+        side: R.DoubleSide,
+      });
+    }
+  } catch { /* plain vertex-colour ground is the fallback */ }
+  const terrain = new R.Mesh(geo, terrainMat);
   group.add(terrain);
+
+  // --- sky dome (G-02): the video owns the sky when it loads,
+  // the static image is the fallback, the flat tint stands until
+  // either lands — never blank. The page retints the dome material
+  // each frame via setSkyTint(); the video/art textures arrive
+  // through setSkyVideoTexture()/setSkyArtTexture(). The dome is
+  // r370 INSIDE the 382 m shell (sky.js) — the old r780 dome sat
+  // outside the shell and the shell would hide it entirely; at
+  // 370 the player stands outside the dome (feet ~382, eye ~380)
+  // and reads its far interior as the sky overhead, the video
+  // intact, while the shell curving up around them is the
+  // inverted horizon itself.
+  const skyDome = buildSkyDome(R, def.sky || 0x2a1e3f);
+  group.add(skyDome);
+  let skyVideoTex = null;
+  let skyArtTex = null;
 
   // --- elemental light + atmosphere (2026-10-26 rework): this
   // module IS the world's lighting — the world shipped with
   // zero scene lights, so no band could ever read as its
   // families' home. Sun/moon cycle, acid rivers, brimstone
   // vents, poison veins, lightning storms, smoke haze. The
-  // inverted horizon stays; the static core-sun is replaced
-  // by the cycling sun/moon (same sky role, now alive).
+  // inverted-horizon cone ring is RETIRED (Nov 16 inner
+  // sphere): 26 cones at r700 stood outside the 382 m shell,
+  // invisible — the shell curving up around the walker IS the
+  // inverted horizon now. The sun/moon ride the core instead
+  // (elemental.js): both bodies sit at the sphere centre and
+  // the key light shines outward from it.
+  // Sphere projection for everything elemental places on the
+  // ground: rivers, vents, veins, wash lights, storm bolts all
+  // read groundPoint/groundUp (deck → 3D point / local up) and
+  // fall back to flat (x, heightAt, z) without them, so the
+  // elemental tests keep passing untouched.
+  const sphereGround = {
+    groundPoint: (x, z, lift = 0) => liftedPoint(x, z, lift, heightAt),
+    groundUp: (x, z) => sphereUpAtDeck(x, z),
+  };
   const elemental = buildElemental(R, {
     heightAt,
     biomeAt: (x, z) => biomeAt(x, z).dominant,
     rng,
+    groundPoint: sphereGround.groundPoint,
+    groundUp: sphereGround.groundUp,
+    // G-05: the river flow texture (acid bubble language on a pale
+    // base); elemental scrolls it per frame. Plain ribbons if the
+    // texture module has no such export.
+    riverTexture: (T && typeof T.acidRiverTexture === 'function') ? T.acidRiverTexture() : null,
   });
   group.add(elemental.group);
-  group.add(buildAmbient('inverted-horizon', R, T));
+
+  // --- ambient particles + ambient life (G-04, G-08): one shared
+  // Points system per band-field + procedural sky wings, night
+  // fireflies and spore-flies. Zero lights, no colliders, never
+  // counted as monsters.
+  let ambientParticles = null;
+  let ambientLife = null;
+  try {
+    ambientParticles = buildAmbientParticles(R, {
+      heightAt, biomeWeights,
+      groundPoint: sphereGround.groundPoint,
+      groundUp: sphereGround.groundUp,
+      texture: getParticleTexture('glow') || null,
+    });
+    group.add(ambientParticles.group);
+  } catch { /* particles are dressing, never requirement */ }
+  try {
+    ambientLife = buildAmbientLife(R, {
+      heightAt,
+      groundPoint: sphereGround.groundPoint,
+      groundUp: sphereGround.groundUp,
+      texture: getParticleTexture('firefly') || null,
+    });
+    group.add(ambientLife.group);
+  } catch { /* ambient life is dressing, never requirement */ }
 
   // Monster ranged attacks are visible traveling projectiles
   // (2026-10-26): a ranged 'hit' event launches one instead of
@@ -172,55 +311,401 @@ export function buildWorld(THREE, def, T, opts = {}) {
   // short-range keep instant damage + the attack lunge.
   const monsterShots = createMonsterProjectiles(R, group, {
     groundHeight: heightAt,
-    onArrive: (dmg, fromId) => { if (opts.onPlayerHit) opts.onPlayerHit(dmg, fromId, 'ranged'); },
+    groundPoint: sphereGround.groundPoint,
+    groundUp: sphereGround.groundUp,
+    // WS6: the element rides the arrival — the shot stored it all
+    // along, the callback just never passed it (flat-damage site D2).
+    onArrive: (dmg, fromId, element) => { if (opts.onPlayerHit) opts.onPlayerHit(dmg, fromId, 'ranged', element); },
   });
 
+  // --- ELEMENTAL RAIN (Merlin, Nov 16 ~01:33: "elemental rains";
+  // WS5 phase 2 wiring). Every live monster rains its element
+  // inside its own aura radius — the rain is the aura made
+  // visible at range, so a band reads its element before the
+  // monster is in sight. VISUAL ONLY: the ambient rain HP tick
+  // (1 HP / 2 s per element type) is HELD for Merlin's word and
+  // is NOT built anywhere — no damage rides this render; the
+  // aura strikes are the damage. One preallocated LineSegments
+  // (RAIN_MAX_STREAKS = 600), positions + colours updated in
+  // place each frame — no per-frame allocations, no new lights
+  // (unlit LineBasicMaterial, vertex colours). The streak set
+  // rebuilds ~once a second (rainFor walks the whole field);
+  // between rebuilds each streak falls in place and respawns at
+  // the top of its own column when it reaches the ground.
+  const rainGeo = new R.BufferGeometry();
+  const rainPos = new Float32Array(RAIN_MAX_STREAKS * 2 * 3);
+  const rainCol = new Float32Array(RAIN_MAX_STREAKS * 2 * 3);
+  rainGeo.setAttribute('position', new R.BufferAttribute(rainPos, 3));
+  rainGeo.setAttribute('color', new R.BufferAttribute(rainCol, 3));
+  const rainLines = new R.LineSegments(
+    rainGeo,
+    new R.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }),
+  );
+  rainLines.frustumCulled = false;
+  group.add(rainLines);
+  let rainStreaks = []; // rainFor() streaks, advanced in place
+  let rainRebuildAcc = 0;
+  function updateRain(dt) {
+    const step = typeof dt === 'number' && dt > 0 && dt < 5 ? dt : 0;
+    rainRebuildAcc += step;
+    if (rainStreaks.length === 0 || rainRebuildAcc >= 1) {
+      rainRebuildAcc = 0;
+      // In The Haven rainFor suppresses everything (sanctuary);
+      // dead / mounted / exempt monsters rain nothing (rainFor).
+      const rain = rainFor(monsters, { x: observer.x, z: observer.z, inBase: observer.inBase });
+      rainStreaks = rain.streaks;
+    }
+    const n = Math.min(rainStreaks.length, RAIN_MAX_STREAKS);
+    for (let i = 0; i < n; i++) {
+      const s = rainStreaks[i];
+      s.y -= RAIN_FALL_SPEED_M_S * step;
+      // Ground height under the streak, not the flat 0 the pure
+      // module assumes — columns follow the terrain. The streak
+      // falls RADIAL (toward the shell, the inner world's down):
+      // its top is the ground point lifted by its height above
+      // ground, its tail the same point less the streak length.
+      const gy = heightAt(s.x, s.z);
+      if (s.y <= gy) s.y = gy + RAIN_HEIGHT_M;
+      const lift = s.y - gy;
+      const top = liftedPoint(s.x, s.z, lift, heightAt);
+      const bot = liftedPoint(s.x, s.z, Math.max(lift - (s.lengthM || 2), 0), heightAt);
+      const o = i * 6;
+      rainPos[o] = top.x; rainPos[o + 1] = top.y; rainPos[o + 2] = top.z;
+      rainPos[o + 3] = bot.x; rainPos[o + 4] = bot.y; rainPos[o + 5] = bot.z;
+      const r = ((s.color >> 16) & 255) / 255;
+      const g = ((s.color >> 8) & 255) / 255;
+      const b = (s.color & 255) / 255;
+      rainCol[o] = r; rainCol[o + 1] = g; rainCol[o + 2] = b;
+      rainCol[o + 3] = r; rainCol[o + 4] = g; rainCol[o + 5] = b;
+    }
+    rainGeo.setDrawRange(0, n * 2);
+    rainGeo.attributes.position.needsUpdate = true;
+    rainGeo.attributes.color.needsUpdate = true;
+    rainLines.visible = n > 0;
+  }
+
+  // --- SAVAGERY visuals + kill feed (Merlin, Nov 16 ~01:33) ---
+  // Aura rings: one ring per live aura carrier, in its own
+  // element's colour, hugging the shell at its own aura radius
+  // (ELEMENT_AURA — lightning 59 m, fire 24, acid 18, poison
+  // 20, shadow 30, sand 26, frost 16). Lightning keeps its own
+  // streak colours (dragons red, lightning monsters
+  // white-yellow); every other element wears its ELEMENT_AURA
+  // colour. A flat ring would float up to ~4.5 m off the ground
+  // at 59 m on a 382 m sphere, so each ring owns its geometry
+  // and the points are rewritten in place from
+  // auraRingPoints — the J2 pattern — whenever the monster has
+  // moved > 2 m since the last build (a rebuild every frame
+  // would be 48 height-function calls per ring per frame).
+  const RING_SEGMENTS = 48;
+  const RING_REBUILD_M = 2;
+  const auraRings = new Map(); // monster id -> { loop, mat, geo, phase, radiusM, lastX, lastZ }
+  function ringColorFor(m) {
+    const element = (m.stats && m.stats.element) || m.element;
+    if (element === 'lightning') {
+      const kind = m.stats && m.stats.dragon ? 'dragon' : 'lightning-monster';
+      const color = lightningColorFor(kind);
+      return (color && color.glow) || 0xffe14d;
+    }
+    const row = ELEMENT_AURA[element];
+    return (row && row.color) || 0xffffff;
+  }
+  function ringRadiusFor(m) {
+    const element = (m.stats && m.stats.element) || m.element;
+    const row = ELEMENT_AURA[element];
+    return (row && row.radiusM) || AURA_R_M;
+  }
+  function syncAuraRings() {
+    const seen = new Set();
+    for (const m of monsters) {
+      if (m.dead || !m.active || m.mounted) continue;
+      const element = (m.stats && m.stats.element) || m.element;
+      if (!ELEMENT_AURA[element]) continue;
+      seen.add(m.id);
+      let ring = auraRings.get(m.id);
+      if (!ring) {
+        const geo = new R.BufferGeometry();
+        geo.setAttribute('position', new R.Float32BufferAttribute(new Float32Array(RING_SEGMENTS * 3), 3));
+        const mat = new R.LineBasicMaterial({ color: ringColorFor(m), transparent: true, opacity: 0.2 });
+        const loop = new R.LineLoop(geo, mat);
+        loop.frustumCulled = false;
+        group.add(loop);
+        ring = { loop, mat, geo, phase: seedFor(m.id) * Math.PI * 2, radiusM: 0, lastX: null, lastZ: null };
+        auraRings.set(m.id, ring);
+      }
+      const radiusM = ringRadiusFor(m);
+      const moved = ring.lastX == null || Math.hypot(m.x - ring.lastX, m.z - ring.lastZ) > RING_REBUILD_M;
+      if (moved || ring.radiusM !== radiusM) {
+        const pts = auraRingPoints(deckToDir(m.x, m.z), radiusM, RING_SEGMENTS, heightAt);
+        const attr = ring.geo.getAttribute('position');
+        for (let i = 0; i < RING_SEGMENTS; i++) {
+          attr.array[i * 3] = pts[i].x;
+          attr.array[i * 3 + 1] = pts[i].y;
+          attr.array[i * 3 + 2] = pts[i].z;
+        }
+        attr.needsUpdate = true;
+        ring.radiusM = radiusM;
+        ring.lastX = m.x;
+        ring.lastZ = m.z;
+      }
+      ring.mat.color.setHex(ringColorFor(m));
+      ring.loop.visible = true;
+      ring.mat.opacity = 0.15 + 0.1 * Math.sin(elapsed * 2 + ring.phase);
+    }
+    for (const [id, ring] of auraRings) {
+      if (!seen.has(id)) ring.loop.visible = false;
+    }
+  }
+  // Remains discs: a fading ground disc at a monster-vs-monster
+  // death point until the 45 s respawn (J2's remainsFor pattern).
+  const remains = []; // { mesh, mat, id, born }
+  function addRemainsDisc(victim) {
+    removeRemainsDisc(victim.id);
+    const r = (victim.stats && victim.stats.footprintR) || 2;
+    const mat = new R.MeshBasicMaterial({
+      color: ELEMENT_COLORS[victim.element] || 0xffffff,
+      transparent: true, opacity: 0.45, side: R.DoubleSide, depthWrite: false,
+    });
+    const mesh = new R.Mesh(new R.CircleGeometry(r + 0.5, 24), mat);
+    // The disc lies flat on the shell: its +Z normal is turned
+    // to the local up (toward the core) by flatQuat, and it sits
+    // 0.3 m above the ground point.
+    const gp = liftedPoint(victim.x, victim.z, 0.3, heightAt);
+    mesh.position.set(gp.x, gp.y, gp.z);
+    mesh.quaternion.copy(flatQuat(sphereUpAtDeck(victim.x, victim.z)));
+    group.add(mesh);
+    remains.push({ mesh, mat, id: victim.id, born: elapsed });
+  }
+  function removeRemainsDisc(id) {
+    for (let i = remains.length - 1; i >= 0; i--) {
+      if (remains[i].id !== id) continue;
+      group.remove(remains[i].mesh);
+      try { remains[i].mesh.geometry.dispose(); remains[i].mat.dispose(); } catch { /* noop */ }
+      remains.splice(i, 1);
+    }
+  }
+  function updateRemains() {
+    for (let i = remains.length - 1; i >= 0; i--) {
+      const age = (elapsed - remains[i].born) / RESPAWN_S;
+      if (age >= 1) { removeRemainsDisc(remains[i].id); continue; }
+      remains[i].mat.opacity = 0.45 * (1 - age);
+    }
+  }
+  // ELEMENTAL ORB DROPS (Merlin, Nov 16 ~01:52): a hunter kill
+  // leaves one small glowing orb in the monster's element colour
+  // at the death point. Unlit basic materials — no new lights.
+  // The page owns the drop list (create/collect/prune) and pushes
+  // it through setOrbDrops; this only renders it, bobbing at
+  // ground height (0.9 m + a 0.25 m sine bob).
+  const orbDropMeshes = new Map(); // drop id -> { group, baseY, phase }
+  function syncOrbDrops(drops) {
+    const seen = new Set();
+    for (const d of drops || []) {
+      if (!d || !d.id) continue;
+      seen.add(d.id);
+      if (orbDropMeshes.has(d.id)) continue;
+      const color = ELEMENT_COLORS[d.element] || 0xffffff;
+      const shell = new R.Mesh(
+        new R.SphereGeometry(0.35, 12, 10),
+        new R.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, fog: false }),
+      );
+      const core = new R.Mesh(
+        new R.SphereGeometry(0.16, 8, 6),
+        new R.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, fog: false }),
+      );
+      const g = new R.Group();
+      g.add(shell);
+      g.add(core);
+      // On the shell: 0.9 m above the ground point, along the
+      // local up. The bob rides the same up (updateOrbDrops),
+      // not world Y — at the far side world Y points down.
+      const gp = liftedPoint(d.x, d.z, 0.9, heightAt);
+      const up = sphereUpAtDeck(d.x, d.z);
+      g.position.set(gp.x, gp.y, gp.z);
+      group.add(g);
+      orbDropMeshes.set(d.id, { group: g, base: gp, up, phase: Math.random() * Math.PI * 2 });
+    }
+    for (const [id, rec] of [...orbDropMeshes]) {
+      if (seen.has(id)) continue;
+      group.remove(rec.group);
+      try {
+        for (const c of rec.group.children) { c.geometry.dispose(); c.material.dispose(); }
+      } catch { /* noop */ }
+      orbDropMeshes.delete(id);
+    }
+  }
+  function updateOrbDrops() {
+    for (const rec of orbDropMeshes.values()) {
+      const bob = Math.sin(elapsed * 2 + rec.phase) * 0.25;
+      rec.group.position.set(
+        rec.base.x + rec.up.x * bob,
+        rec.base.y + rec.up.y * bob,
+        rec.base.z + rec.up.z * bob,
+      );
+    }
+  }
+  // A monster-vs-monster kill becomes a real event: a remains
+  // disc at the death point and the page's kill-feed toast.
+  // No hunter reward rides along — the campaign counts the
+  // hunter's kills only (spawns.js).
+  function forwardMonsterKilled(ev) {
+    const victim = monsters.find((o) => o.id === ev.id);
+    if (victim) addRemainsDisc(victim);
+    if (!opts.onMonsterKilled) return;
+    const killer = ev.killerId ? monsters.find((o) => o.id === ev.killerId) : null;
+    try { opts.onMonsterKilled({ victim: victim || null, killer: killer || null, cause: ev.cause || 'predation' }); } catch { /* toast is optional */ }
+  }
+  function drawStrikeBolt(ev, tx, tz) {
+    // Only draw strikes the hunter could see: far-slice strikes
+    // hundreds of metres out would spawn invisible bolts.
+    if (Math.hypot(tx - observer.x, tz - observer.z) > 200) return;
+    monsterShots.skyBolt({
+      x: tx, z: tz, groundY: heightAt(tx, tz),
+      // Lightning events carry the shared-law colour object
+      // ({ glow }); every other element carries its numeric
+      // ELEMENT_AURA colour — both read as the streak colour.
+      color: typeof ev.color === 'number' ? ev.color : ((ev.color && ev.color.glow) || 0xffe14d),
+    });
+  }
+  // A streak at another monster lands on the monster, not the
+  // hunter: 8 on the hit + the burn, through the monster's own
+  // law — and the sky-bolt visual at the TARGET's position (the
+  // exact call Korus already uses). A streak at the player flows
+  // to the page unchanged, through the same damage path as
+  // before, with its bolt at the observer.
+  function routeAuraStrike(ev) {
+    if (ev.target && ev.target !== 'player') {
+      const prey = monsters.find((o) => o.id === ev.target);
+      if (prey) {
+        const killed = applyMonsterAuraHit(prey, ev);
+        drawStrikeBolt(ev, prey.x, prey.z);
+        if (killed) {
+          forwardMonsterKilled({ kind: 'monster-killed', id: prey.id, cause: prey.deathCause || 'predation', killerId: ev.from });
+        }
+      }
+    } else {
+      drawStrikeBolt(ev, observer.x, observer.z);
+      if (opts.onAuraStrike) opts.onAuraStrike(ev);
+    }
+  }
+
   // --- landmarks, seated, never hovering ---
+  // landmarkGroups is kept so the page can hang each type's art
+  // once it loads (applyLandmarkArt) and so update() can pulse
+  // the ooze pools and court braziers per frame.
+  const landmarkGroups = [];
   for (const lm of def.landmarks || []) {
     const built = buildLandmark(lm.type, R, T);
     const seatY = spanSeatY(heightAt, lm.x, lm.z, built.userData.colliderR || 2, { clampDrop: 1.5 });
-    built.position.set(lm.x, seatY - 0.3, lm.z);
-    built.rotation.y = lm.ry || 0;
+    // On the shell: the seat height is a lift above the ground
+    // point, along the local up; the whole piece stands with its
+    // +Y on that up and its own yaw around it.
+    const gp = liftedPoint(lm.x, lm.z, seatY - heightAt(lm.x, lm.z) - 0.3, heightAt);
+    built.position.set(gp.x, gp.y, gp.z);
+    built.quaternion.copy(orientationQuat(gp, lm.ry || 0));
     built.scale.setScalar(lm.s || 1);
     group.add(built);
+    landmarkGroups.push({ group: built, seed: lm.x * 0.37 + lm.z * 0.73 });
+    if (opts.landmarkArt && opts.landmarkArt[lm.type]) {
+      try { applyLandmarkArt(built, R, opts.landmarkArt[lm.type]); } catch { /* plain face stands */ }
+    }
     const cr = (built.userData.colliderR || 0) * (lm.s || 1);
     if (cr > 0) colliders.push({ x: lm.x, z: lm.z, r: cr });
   }
 
   // --- scatter: only where its biome holds weight ---
+  // G-11: the transition-band mixed gate (scatterAllowedAt) lets
+  // both neighbouring bands' kinds spawn on a blend line.
+  // G-05: spore-cap spheres are kept with their base scale so
+  // update() can pulse them gently, like the ooze bubbles.
+  const sporeCaps = [];
   for (const sc of def.scatter || []) {
     for (let i = 0; i < (sc.count || 0); i++) {
       const a = rng() * Math.PI * 2;
       const r = sc.minR + Math.sqrt(rng()) * ((sc.maxR || 290) - sc.minR);
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
-      const w = biomeWeights(x, z);
-      if ((w[sc.biome] || 0) < 0.35) continue;
+      if (!scatterAllowedAt(x, z, sc.biome)) continue;
       const s = sc.size[0] + rng() * (sc.size[1] - sc.size[0]);
-      const y = heightAt(x, z);
+      // Scatter stands on the shell: every piece sits on its
+      // ground point, lifted by its own half-height along the
+      // local up, and the upright pieces (cones, cylinders)
+      // stand on that up with a yaw — derived from the piece's
+      // own position, NOT from the shared rng: an extra draw
+      // per piece would shift the stream the scatter counts
+      // (and the G-06 spore-cap yield) are pinned against.
+      // Flat-world Y placement would bury them at the far side.
+      const ry = (x * 0.31 + z * 0.17) % (Math.PI * 2);
       let piece;
       if (sc.kind === 'ooze-bubble' || sc.kind === 'spore-cap') {
         piece = new R.Mesh(
           new R.SphereGeometry(0.5 * s, 8, 6),
           new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind] || 0x888888, roughness: 0.8 })
         );
-        piece.position.set(x, y + 0.3 * s, z);
+        const p = liftedPoint(x, z, 0.3 * s, heightAt);
+        piece.position.set(p.x, p.y, p.z);
       } else if (sc.kind === 'storm-crystal' || sc.kind === 'frost-shard') {
         piece = new R.Mesh(
           new R.ConeGeometry(0.5 * s, 2.2 * s, 5),
           new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind], emissive: sc.kind === 'frost-shard' ? 0x4a7a8a : 0x887a00, emissiveIntensity: 0.5 })
         );
-        piece.position.set(x, y + 1.1 * s, z);
+        const p = liftedPoint(x, z, 1.1 * s, heightAt);
+        piece.position.set(p.x, p.y, p.z);
+        piece.quaternion.copy(orientationQuat(p, ry));
       } else {
         piece = new R.Mesh(
           new R.CylinderGeometry(0.4 * s, 0.7 * s, 1.6 * s, 6),
           new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind] || 0x888888, roughness: 1 })
         );
-        piece.position.set(x, y + 0.8 * s, z);
+        const p = liftedPoint(x, z, 0.8 * s, heightAt);
+        piece.position.set(p.x, p.y, p.z);
+        piece.quaternion.copy(orientationQuat(p, ry));
       }
       group.add(piece);
+      if (sc.kind === 'spore-cap') sporeCaps.push({ mesh: piece, base: s, phase: x * 0.31 + z * 0.17 });
       if (SCATTER_SOLID[sc.kind]) colliders.push({ x, z, r: 0.7 * s });
     }
+  }
+
+  // --- G-09 dressing clusters (seeded, isolated rng — the shared
+  // rng stream must not shift, or monster variants would move):
+  // a ring of dark mountain rocks around Ghorrum's seat
+  // (198,-132 — his figure, gaze, blink and laugh are untouched)
+  // and a few more frost-shards clustered at the frost anchor
+  // (-230,130) so the band reads from the wastes. No colliders
+  // on the watcher ring (he never blocks the path); frost-shards
+  // keep their usual solid collider.
+  const dressRng = mulberry32((def.seed || 77701) + 904);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + dressRng() * 0.5;
+    const rr = 6 + dressRng() * 8;
+    const x = WATCHER.pos.x + Math.cos(a) * rr;
+    const z = WATCHER.pos.z + Math.sin(a) * rr;
+    const s = 1.5 + dressRng() * 1.5;
+    const rock = new R.Mesh(
+      new R.CylinderGeometry(0.4 * s, 0.7 * s, 1.6 * s, 6),
+      new R.MeshStandardMaterial({ color: SCATTER_COLOR['peak-rock'], roughness: 1 })
+    );
+    const rp = liftedPoint(x, z, 0.8 * s, heightAt);
+    rock.position.set(rp.x, rp.y, rp.z);
+    rock.quaternion.copy(orientationQuat(rp, dressRng() * Math.PI));
+    group.add(rock);
+  }
+  for (let i = 0; i < 6; i++) {
+    const a = dressRng() * Math.PI * 2;
+    const rr = 5 + dressRng() * 7;
+    const x = -230 + Math.cos(a) * rr;
+    const z = 130 + Math.sin(a) * rr;
+    const s = 1 + dressRng() * 1.2;
+    const shard = new R.Mesh(
+      new R.ConeGeometry(0.5 * s, 2.2 * s, 5),
+      new R.MeshStandardMaterial({ color: SCATTER_COLOR['frost-shard'], emissive: 0x4a7a8a, emissiveIntensity: 0.5 })
+    );
+    const sp = liftedPoint(x, z, 1.1 * s, heightAt);
+    shard.position.set(sp.x, sp.y, sp.z);
+    shard.quaternion.copy(orientationQuat(sp, (x * 0.31 + z * 0.17) % (Math.PI * 2)));
+    group.add(shard);
+    colliders.push({ x, z, r: 0.7 * s });
   }
 
   // --- monsters: habitat-band field, streamed figures ---
@@ -257,6 +742,13 @@ export function buildWorld(THREE, def, T, opts = {}) {
 
   // Behavior clock (seconds) for breathe/blink/sway/watcher cycles.
   let elapsed = 0;
+  // Far-slice tick (savagery step 7): 500 ms cadence, rotating
+  // cursor over the inactive field. FAR_PLAYER is the stand-in
+  // the slice steps against — 10 km out, so no far monster can
+  // spot it or strike it; only aura + prey-hunt run there.
+  let sliceAcc = 0;
+  let sliceCursor = 0;
+  const FAR_PLAYER = { x: 10000, z: 10000 };
 
   function syncFigure(m, dt) {
     const step = (typeof dt === 'number' && dt > 0) ? dt : 0.016;
@@ -334,15 +826,24 @@ export function buildWorld(THREE, def, T, opts = {}) {
     const br = breatheScale(elapsed, seed);
     const fl = 1 + flinch * 0.12;
     fig.scale.set(v.scaleMul * br.x * fl, v.scaleMul * br.y * fl, v.scaleMul * br.z * fl);
-    fig.rotation.z = clothSway(elapsed, 0.5, seed).swayZ;
-    fig.rotation.y = m.faceYaw || 0;
     fig.visible = !m.dead;
     const yaw = m.faceYaw || 0;
-    fig.position.set(
-      m.x + Math.sin(yaw) * flinch * 0.3 - Math.sin(yaw) * lunge * 0.35,
-      heightAt(m.x, m.z) + (m.stats.flyHeight || 0) + pose.bob,
-      m.z + Math.cos(yaw) * flinch * 0.3 - Math.cos(yaw) * lunge * 0.35,
-    );
+    // On the shell: the figure stands on its ground point with
+    // its +Y on the local up and its -Z on the facing yaw, the
+    // lunge/flinch jolt folded into the deck point first (a
+    // small deck-space offset, so it stays tangent). The cloth
+    // sway is a small local roll applied after the orientation.
+    const deckX = m.x + Math.sin(yaw) * flinch * 0.3 - Math.sin(yaw) * lunge * 0.35;
+    const deckZ = m.z + Math.cos(yaw) * flinch * 0.3 - Math.cos(yaw) * lunge * 0.35;
+    const fp = liftedPoint(deckX, deckZ, (m.stats.flyHeight || 0) + pose.bob, heightAt);
+    fig.position.set(fp.x, fp.y, fp.z);
+    fig.quaternion.copy(orientationQuat(fp, yaw));
+    const sway = clothSway(elapsed, 0.5, seed).swayZ;
+    if (sway) {
+      const q = new R.Quaternion();
+      q.setFromAxisAngle(new R.Vector3(0, 0, 1), sway);
+      fig.quaternion.multiply(q);
+    }
     // --- bone pose: walk swing + arm swing, or rest pose when idle ---
     const lb = fig.userData.locoBones;
     if (lb) {
@@ -401,7 +902,12 @@ export function buildWorld(THREE, def, T, opts = {}) {
           bar.tex.needsUpdate = true;
           bar.lastFrac = frac;
         }
-        bar.sprite.position.set(fig.position.x, fig.position.y + (m.stats.scaleM || 2.5) + 0.9, fig.position.z);
+        const up = sphereUpAtDeck(m.x, m.z);
+        bar.sprite.position.set(
+          fig.position.x + up.x * ((m.stats.scaleM || 2.5) + 0.9),
+          fig.position.y + up.y * ((m.stats.scaleM || 2.5) + 0.9),
+          fig.position.z + up.z * ((m.stats.scaleM || 2.5) + 0.9),
+        );
         bar.sprite.visible = true;
       }
     } else {
@@ -414,7 +920,9 @@ export function buildWorld(THREE, def, T, opts = {}) {
   korusFig.userData.bossId = 'korus';
   korusFig.userData.footprintR = 3;
   korusFig.userData.modelPath = KORUS_MODEL.url;
-  korusFig.position.set(korus.x, heightAt(korus.x, korus.z), korus.z);
+  const korusP = spherePointFromDeck(korus.x, korus.z, heightAt);
+  korusFig.position.set(korusP.x, korusP.y, korusP.z);
+  korusFig.quaternion.copy(orientationQuat(korusP, 0));
   group.add(korusFig);
   kickOffGlb(korusFig, KORUS_MODEL.url, KORUS_MODEL.height);
 
@@ -426,7 +934,9 @@ export function buildWorld(THREE, def, T, opts = {}) {
   const watcherFig = new R.Group();
   watcherFig.userData.watcher = true;
   watcherFig.userData.modelPath = WATCHER.model.url;
-  watcherFig.position.set(WATCHER.pos.x, heightAt(WATCHER.pos.x, WATCHER.pos.z), WATCHER.pos.z);
+  const watcherP = spherePointFromDeck(WATCHER.pos.x, WATCHER.pos.z, heightAt);
+  watcherFig.position.set(watcherP.x, watcherP.y, watcherP.z);
+  watcherFig.quaternion.copy(orientationQuat(watcherP, 0));
   group.add(watcherFig);
   kickOffGlb(watcherFig, WATCHER.model.url, WATCHER.model.height);
   let watcherWasLaughing = false;
@@ -437,6 +947,11 @@ export function buildWorld(THREE, def, T, opts = {}) {
     if (o.quiet != null) observer.quiet = o.quiet;
     if ('noise' in o) observer.noise = o.noise;
     if (o.inBase != null) observer.inBase = o.inBase;
+    // WS6: the page's hit-driven haze deadlines (ms) — shadow
+    // dim / sand gust — so the zone can drive the haze dome
+    // from them alongside shadow combat.
+    if (o.dimUntil != null) observer.dimUntil = o.dimUntil;
+    if (o.gustUntil != null) observer.gustUntil = o.gustUntil;
   }
 
   function update(dt) {
@@ -466,9 +981,21 @@ export function buildWorld(THREE, def, T, opts = {}) {
     watcherWasLaughing = laughing;
     for (const m of monsters) {
       if (m.dead) {
-        if (figures.has(m.id)) { const f = figures.get(m.id); f.visible = false; }
-        removeBar(m.id);
-        continue;
+        // REGENERATION (savagery step 2): the 45 s clock ran out —
+        // the monster returns in-slot, same family, near where it
+        // fell. Its figure is still in the map (only hidden), so
+        // syncFigure below re-shows it once it re-activates;
+        // kickOffGlb is a no-op for an already-attempted figure
+        // by design, and the loaded GLB children are still there.
+        if (m.respawnAtMs && Date.now() >= m.respawnAtMs) {
+          respawnMonster(m, rng);
+          removeRemainsDisc(m.id);
+          // fall through: re-activate by proximity below
+        } else {
+          if (figures.has(m.id)) { const f = figures.get(m.id); f.visible = false; }
+          removeBar(m.id);
+          continue;
+        }
       }
       const d = Math.hypot(m.x - observer.x, m.z - observer.z);
       if (!m.active && d <= ACTIVATE_R) m.active = true;
@@ -497,44 +1024,72 @@ export function buildWorld(THREE, def, T, opts = {}) {
         if (ev.kind === 'hit') m.attackT = elapsed; // throw motion at launch
         if (ev.kind === 'hit' && m.stats.archetype === 'ranged') {
           // Visible traveling projectile — damage lands on arrival.
-          const chestY = heightAt(m.x, m.z) + (m.stats.flyHeight || 0) + (m.stats.scaleM || 2.5) * 0.6;
+          // From the monster's chest (a lift above its ground
+          // point, along the local up) to the hunter's chest.
+          const from = liftedPoint(m.x, m.z, (m.stats.flyHeight || 0) + (m.stats.scaleM || 2.5) * 0.6, heightAt);
+          const to = liftedPoint(observer.x, observer.z, 1.2, heightAt);
           monsterShots.spawn({
-            from: { x: m.x, y: chestY, z: m.z },
-            to: { x: observer.x, y: heightAt(observer.x, observer.z) + 1.2, z: observer.z },
+            from, to,
             element: m.stats.element, dmg: ev.dmg, fromId: m.id,
           });
-        } else if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype);
+        } else if (ev.kind === 'hit' && opts.onPlayerHit) opts.onPlayerHit(ev.dmg, ev.from, ev.archetype, ev.element);
         if (ev.kind === 'hazard' && opts.onHazard) opts.onHazard(ev);
-        if (ev.kind === 'aura-strike') {
-          // A streak at another monster lands on the monster, not
-          // the hunter: 8 on the hit + the burn, through the
-          // monster's own law — no hunter reward, no Korus-gate
-          // progress (the campaign counts the hunter's kills
-          // only). A streak at the player flows to the page
-          // unchanged, through the same damage path as before.
-          if (ev.target && ev.target !== 'player') {
-            const prey = monsters.find((o) => o.id === ev.target);
-            if (prey) applyMonsterAuraHit(prey, ev);
-          } else if (opts.onAuraStrike) opts.onAuraStrike(ev);
-        }
+        if (ev.kind === 'aura-strike') routeAuraStrike(ev);
+        if (ev.kind === 'monster-killed') forwardMonsterKilled(ev);
         if (ev.kind === 'spotted' && opts.onSpotted) opts.onSpotted(m, ev.via);
       }
       // Solid characters: a ground monster may never stand inside
       // the hunter's own circle — it is pushed out to its
       // footprint + body radius (flyers ride above it, untouched).
       if (!m.stats.flyHeight) separateFromPlayer(m, observer.x, observer.z);
-      // Keep monsters out of the sanctuary ring and inside bounds.
-      const bd = Math.hypot(m.x, m.z);
-      if (bd > (def.boundsRadius || 295)) {
-        m.x *= (def.boundsRadius || 295) / bd;
-        m.z *= (def.boundsRadius || 295) / bd;
-      }
+      // No edge clamp: the inner sphere has no rim to fall off
+      // — a monster past the old r550 keeps walking and comes
+      // back around. The sanctuary push-out is the only
+      // boundary left, and it lives in stepMonster (inBase).
       syncFigure(m, dt);
     }
+    // SAVAGERY far slice (step 7): every 500 ms, step a rotating
+    // 1/5 slice of the inactive field through stepMonster with a
+    // far player stand-in — aura + prey-hunt only (no spotting:
+    // the stand-in sits 10 km out, past sight and aura alike).
+    // Burns tick here too, so a burning prey that deactivates no
+    // longer freezes mid-burn. Kills flow through the same
+    // monster-killed event as the near field. dt is the 0.5 s
+    // tick: far monsters simulate slower than real time rather
+    // than teleporting in 2.5 s jumps.
+    if (typeof dt === 'number' && dt > 0 && dt < 5) sliceAcc += dt;
+    if (sliceAcc >= 0.5) {
+      sliceAcc = 0;
+      const far = monsters.filter((mm) => !mm.dead && mm.active === false);
+      const chunk = Math.max(1, Math.ceil(far.length / 5));
+      for (let i = 0; i < chunk && far.length > 0; i++) {
+        const mm = far[(sliceCursor + i) % far.length];
+        if (mm.mounted) continue;
+        const farEvs = stepMonster(mm, 0.5, FAR_PLAYER, rng, {
+          losClear: (ax, az, bx, bz) => losClear(heightAt, ax, az, bx, bz),
+          others: monsters,
+          farSlice: true,
+        });
+        for (const ev of farEvs) {
+          if (ev.kind === 'aura-strike') routeAuraStrike(ev);
+          if (ev.kind === 'monster-killed') forwardMonsterKilled(ev);
+        }
+      }
+      sliceCursor = far.length > 0 ? (sliceCursor + chunk) % far.length : 0;
+    }
+    syncAuraRings();
+    updateRemains();
+    updateOrbDrops();
     // Fly the monster projectiles against the hunter's live position.
     monsterShots.update(dt, { x: observer.x, z: observer.z });
+    // Elemental rain: the aura made visible at range (visual-only).
+    try { updateRain(dt); } catch { /* rain is dressing, never breaks the frame */ }
     // Elemental atmosphere: fighting a shadow (smoke) monster
     // rolls smoke haze in around the hunter; it clears after.
+    // WS6: the haze state is generalised — a shadow/sand HIT
+    // keeps its haze up for its seconds even after the monster
+    // unspots or dies; otherwise the old shadow-combat behaviour.
+    // In The Haven the haze target is 0 (suppression, R4).
     let shadowCombat = false;
     for (const m of monsters) {
       if (m.active && !m.dead && m.stats.element === 'shadow' && m.spotted
@@ -545,8 +1100,30 @@ export function buildWorld(THREE, def, T, opts = {}) {
       observerX: observer.x,
       observerY: heightAt(observer.x, observer.z),
       observerZ: observer.z,
+      // The core-sun shines outward from the centre: the light
+      // target is the observer's real 3D point, not the flat
+      // (x, y, z) the old fields build.
+      observer3D: liftedPoint(observer.x, observer.z, 1.7, heightAt),
+      observerUp: sphereUpAtDeck(observer.x, observer.z),
       shadowCombat,
+      haze: hazeStateFor({
+        dimUntil: observer.dimUntil || 0,
+        gustUntil: observer.gustUntil || 0,
+        shadowCombat,
+        inBase: observer.inBase,
+      }),
     });
+    // WS4 dressing tick: ambient particles + ambient life drift,
+    // ooze pools bubble, court braziers breathe, spore-caps pulse.
+    try { if (ambientParticles) ambientParticles.update(dt, elapsed); } catch { /* dressing never breaks the frame */ }
+    try { if (ambientLife) ambientLife.update(dt, elapsed); } catch { /* dressing never breaks the frame */ }
+    for (const lg of landmarkGroups) {
+      try { animateLandmark(lg.group, elapsed, lg.seed); } catch { /* one bad landmark never breaks the frame */ }
+    }
+    for (const sp of sporeCaps) {
+      const s = sp.base * (1 + 0.08 * Math.sin(elapsed * 1.1 + sp.phase));
+      sp.mesh.scale.set(s / sp.base, s / sp.base, s / sp.base);
+    }
     // Korus, on his throne.
     if (!korus.dead) {
       const evs = stepKorus(korus, dt, player);
@@ -581,6 +1158,18 @@ export function buildWorld(THREE, def, T, opts = {}) {
 
   function dispose() {
     for (const id of [...barSprites.keys()]) removeBar(id);
+    for (const r of [...remains]) removeRemainsDisc(r.id);
+    for (const rec of [...orbDropMeshes.values()]) {
+      group.remove(rec.group);
+      try { for (const c of rec.group.children) { c.geometry.dispose(); c.material.dispose(); } } catch { /* noop */ }
+    }
+    orbDropMeshes.clear();
+    try { group.remove(rainLines); rainGeo.dispose(); rainLines.material.dispose(); } catch { /* noop */ }
+    for (const ring of auraRings.values()) {
+      try { ring.geo.dispose(); ring.mat.dispose(); } catch { /* noop */ }
+      try { group.remove(ring.loop); } catch { /* noop */ }
+    }
+    auraRings.clear();
     monsterShots.dispose();
     group.clear();
     figures.clear();
@@ -589,12 +1178,36 @@ export function buildWorld(THREE, def, T, opts = {}) {
   return {
     group, colliders,
     spawn: { ...(def.spawn || WORLD_SPAWN) },
-    bounds: def.boundsRadius || 295,
+    // No bounds: the inner sphere has no edge and no clamp.
+    // The old circle bound was itself the Phase-1 bug
+    // (a bare 295 the clamp never read); on a sphere there is
+    // nothing to clamp against — walking past the old r550
+    // keeps going and comes back around.
+    bounds: null,
     groundHeight: heightAt,
     biomeAt,
     monsters, korus,
     setObserver, update, dispose, strikeHunter, damageKorus,
+    // Elemental orb drops: the page pushes its live drop list
+    // here (create/collect/prune live in elemental-orbs.js).
+    setOrbDrops(drops) { syncOrbDrops(drops); },
     kind: 'walk', sky: def.sky, fog: def.fog,
+    // WS4 sky dome (G-02): the video owns the sky when it loads,
+    // the static image is the fallback, the flat tint stands
+    // until either lands. setSkyTint is the page's per-frame
+    // day/night retint, applied to the dome material instead of
+    // scene.background.
+    skyDome, landmarkGroups,
+    setSkyTint(hex) { applySkyTint(skyDome, hex); },
+    setSkyVideoTexture(tex) {
+      skyVideoTex = tex || null;
+      if (skyVideoTex) setSkyDomeMap(skyDome, skyVideoTex);
+      else if (skyArtTex) setSkyDomeMap(skyDome, skyArtTex);
+    },
+    setSkyArtTexture(tex) {
+      skyArtTex = tex || null;
+      if (!skyVideoTex && skyArtTex) setSkyDomeMap(skyDome, skyArtTex);
+    },
     // Elemental sky/fog colors for the page to apply each frame
     // (sun/moon cycle + smoke haze retint).
     cycleColors: () => elemental.colors(),

@@ -30,6 +30,10 @@ import {
   LOOK_DAMPING_RATE,
   LOOK_PITCH_MAX,
   dampLookAngle,
+  LOOK_RECENTER_RATE,
+  wrapAngle,
+  lookOffsetFromHeading,
+  recenterLookOffset,
   radialVelocityStep,
   sphereSurfaceUp,
   sphereTangentBasis,
@@ -53,6 +57,11 @@ import {
 } from '../lib/earth-walk.js';
 import { MOON_RADIUS } from '../lib/hub-layout.js';
 import { EARTH_RADIUS } from '../lib/god-orbits.js';
+import {
+  moonTangentBasis,
+  moonLandingState,
+  stepMoonWalker,
+} from '../lib/moon.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
@@ -256,6 +265,43 @@ test('look law: full-width swipe 180°, half 90°, damping 20/s, pitch clamp 1.2
   assert.equal(dampLookAngle(0.7, 1, 0), 0.7, 'dt 0 returns current exactly');
 });
 
+// --- 6b. The shared auto-center (UNIFY, Merlin Nov 16 ~02:43) ----------
+// One implementation for every vehicle in every realm: the caller
+// hands it the look offset + dt, gets the eased offset back. No
+// vehicle, no world, no Jupiter 2 constant inside — Jupiter 2's
+// speeder is the first consumer; the unify worker wires the rest.
+
+test('auto-center: slow ease back to forward — 0.8/s, offset decays, never snaps', () => {
+  assert.equal(LOOK_RECENTER_RATE, 0.8, 'recenter rate 0.8/s — slow, not the 20/s finger-tracking damp');
+  // wrapAngle: shortest arc, so a yaw offset never eases the long way around.
+  assert.ok(approx(wrapAngle(0), 0, 1e-12), '0 stays 0');
+  assert.ok(approx(wrapAngle(Math.PI / 2), Math.PI / 2, 1e-12), '90° stays 90°');
+  assert.ok(approx(wrapAngle((3 * Math.PI) / 2), -Math.PI / 2, 1e-12), '270° wraps to −90°');
+  assert.ok(approx(wrapAngle((-3 * Math.PI) / 2), Math.PI / 2, 1e-12), '−270° wraps to 90°');
+  assert.ok(approx(wrapAngle(Math.PI * 2), 0, 1e-12), 'a full turn wraps to 0');
+  // lookOffsetFromHeading: target minus heading, wrapped.
+  assert.ok(approx(lookOffsetFromHeading(0.6, 0.6), 0, 1e-12), 'on-heading → zero offset');
+  assert.ok(approx(lookOffsetFromHeading(0.6 + Math.PI / 2, 0.6), Math.PI / 2, 1e-12), '90° aside → +90° offset');
+  assert.ok(approx(lookOffsetFromHeading(-Math.PI + 0.1, Math.PI - 0.1), 0.2, 1e-12), 'across the ±π seam → the short way (0.2, not −6.08)');
+  // recenterLookOffset: exponential decay at 0.8/s — dt 0 changes
+  // nothing, 1 s leaves ~45%, ~3.75 s leaves ~5%, a long dt lands on zero.
+  const off = { yaw: Math.PI / 2, pitch: -0.6 };
+  assert.deepEqual(recenterLookOffset(off, 0), off, 'dt 0 returns the offset unchanged');
+  const one = recenterLookOffset(off, 1);
+  assert.ok(approx(one.yaw, (Math.PI / 2) * Math.exp(-0.8), 0.001), '1 s → 45% of a 90° yaw offset left');
+  assert.ok(approx(one.pitch, -0.6 * Math.exp(-0.8), 0.001), 'pitch decays at the same rate');
+  const slow = recenterLookOffset(off, 4);
+  assert.ok(Math.abs(slow.yaw) < 0.05 * (Math.PI / 2), '4 s → 95%+ back (slow, never a snap)');
+  const done = recenterLookOffset(off, 30);
+  assert.ok(Math.abs(done.yaw) < 1e-9 && Math.abs(done.pitch) < 1e-9, 'a long dt lands on zero');
+  // A custom rate still works (the unify worker's vehicles share
+  // the default; nothing per-vehicle is baked in).
+  assert.ok(approx(recenterLookOffset({ yaw: 1, pitch: 0 }, 1, 20).yaw, Math.exp(-20), 1e-9), 'rate is a parameter, not a constant');
+  // Guards: missing components read as zero, negative dt reads as zero.
+  assert.deepEqual(recenterLookOffset({}, 1), { yaw: 0, pitch: 0 }, 'missing components → zero');
+  assert.deepEqual(recenterLookOffset(off, -1), off, 'negative dt → unchanged');
+});
+
 // --- 7. Whole-sphere scatter ----------------------------------------------
 
 test('scatter is deterministic, on-sphere, and keeps clear of the landing site', () => {
@@ -353,4 +399,75 @@ test('moon module still exports its old names (back-compat)', async () => {
   assert.equal(moon.globalPebblePlacements().length, 24, 'Moon global pebbles still 24');
   // Spawn sits 3 m south of the +Y pole, so up.y = cos(3/14) ≈ 0.977.
   assert.ok(approx(sphereSurfaceUp(moon.MOON_SPAWN_FEET, 14).y, 0.9771, 0.001), 'spawn up is +Y-ish');
+});
+
+// --- 11. Joystick inversion (Merlin, Nov 16, 2026): stick right = go right ---
+
+test('Moon + Earth walk: stick right strafes right, stick up walks forward (no inversion)', () => {
+  // The chain, end to end: WalkJoystick reports onMove(dx/max, -dy/max)
+  // — x+ is stick right, y+ is stick up. Both scenes feed the stick
+  // straight into the walker (fwd += y, strafe += x), and the walker
+  // steps along basis.right for strafe — and right IS the walker's
+  // right (cross(forward, up)), not its mirror. A flipped sign
+  // anywhere in that chain would strafe the walker left.
+  const stick = read('components/world/WalkJoystick.jsx');
+  assert.ok(stick.includes('onMove(dx / max, -dy / max)'), 'WalkJoystick: x+ = stick right, y+ = stick up');
+  for (const f of ['components/MoonScene.jsx', 'components/EarthWalkScene.jsx']) {
+    const src = read(f);
+    assert.ok(src.includes('strafe += moveRef.current.x'), `${f}: strafe takes the stick x`);
+    assert.ok(src.includes('fwd += moveRef.current.y'), `${f}: fwd takes the stick y`);
+  }
+  const check = (label, step, state, basis) => {
+    // Strafe +1 (stick right) for one frame, grounded.
+    const s = step(state, { fwd: 0, strafe: 1, jump: false, forward: basis.forward, right: basis.right }, 0.05);
+    const d = { x: s.feet.x - state.feet.x, y: s.feet.y - state.feet.y, z: s.feet.z - state.feet.z };
+    const n = Math.hypot(d.x, d.y, d.z) || 1;
+    const alongRight = (basis.right.x * d.x + basis.right.y * d.y + basis.right.z * d.z) / n;
+    const alongFwd = (basis.forward.x * d.x + basis.forward.y * d.y + basis.forward.z * d.z) / n;
+    assert.ok(alongRight > 0.9, `${label}: stick right moves along the right vector, got ${alongRight}`);
+    assert.ok(Math.abs(alongFwd) < 0.1, `${label}: stick right does not move forward/back, got ${alongFwd}`);
+    // And forward +1 (stick up) walks along the view, not sideways.
+    const s2 = step(state, { fwd: 1, strafe: 0, jump: false, forward: basis.forward, right: basis.right }, 0.05);
+    const d2 = { x: s2.feet.x - state.feet.x, y: s2.feet.y - state.feet.y, z: s2.feet.z - state.feet.z };
+    const n2 = Math.hypot(d2.x, d2.y, d2.z) || 1;
+    const fwdAlong = (basis.forward.x * d2.x + basis.forward.y * d2.y + basis.forward.z * d2.z) / n2;
+    assert.ok(fwdAlong > 0.9, `${label}: stick up walks along the view, got ${fwdAlong}`);
+  };
+  // Moon: the scene's own step + basis, spawn pose, arrival yaw 0.
+  const moonState = moonLandingState();
+  check('Moon', stepMoonWalker, moonState, moonTangentBasis(moonState.feet, 0));
+  // Earth walk: the shared sphere walker on the 55 m sphere.
+  const earthState = earthWalkLandingState();
+  check('Earth walk', (st, input, dt) => stepSphereWalker(st, input, dt, EARTH_WALK_PLANET), earthState, sphereTangentBasis(earthState.feet, 0, EARTH_WALK_PLANET.radius));
+});
+
+// --- 12. Moon + Earth walk auto-center + pull-to-refresh fix (Merlin, Nov 16, 2026) ---
+
+test('Moon + Earth walk: the look eases back on release, and a downward drag cannot reload the page', () => {
+  // Both scenes consume the ONE shared helper (no local copy, no
+  // local rate), anchor the glance at drag start, and only start
+  // the ease-back after a real drag — a tap never starts it. The
+  // ease returns to the drag-start view, not the arrival angles:
+  // the walker has walked on since arrival.
+  for (const f of ['components/MoonScene.jsx', 'components/EarthWalkScene.jsx']) {
+    const src = read(f);
+    assert.match(src, /recenterLookOffset/);
+    assert.match(src, /lookOffsetFromHeading/);
+    assert.match(src, /recenterLookOffset\(/);
+    assert.match(src, /lookAnchorRef\.current = \{ yaw: yawTarget\.current, pitch: pitchTarget\.current \}/);
+    assert.match(src, /if \(lookMovedRef\.current\) recenterRef\.current = true;/);
+    assert.match(src, /yawTarget\.current = lookAnchorRef\.current\.yaw \+ eased\.yaw/);
+    assert.doesNotMatch(src, /const LOOK_RECENTER_RATE|const RECENTER_RATE|recenterRate =/);
+    // Pull-to-refresh: the drag-look handler takes the gesture.
+    assert.match(src, /e\.preventDefault\(\);/);
+  }
+  // The Canvas itself carries touch-action none — that is the fix
+  // that stops iOS hijacking a downward drag as pull-to-refresh.
+  for (const f of ['app/moon/page.jsx', 'app/earth-walk/page.jsx']) {
+    assert.match(read(f), /style=\{\{ touchAction: 'none' \}\}/);
+  }
+  // The shared helper the scenes call is the same one the J2
+  // speeder uses — one implementation, no drift.
+  assert.match(read('lib/planet-walker.js'), /export function recenterLookOffset\(offset, dt, rate = LOOK_RECENTER_RATE\)/);
+  assert.match(read('components/jupiter2/Jupiter2Scene.jsx'), /recenterLookOffset\(/);
 });

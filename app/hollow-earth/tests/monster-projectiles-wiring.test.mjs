@@ -23,8 +23,17 @@ test('ranged monster hits spawn projectiles instead of instant damage', () => {
   assert.match(zone, /element: m\.stats\.element, dmg: ev\.dmg, fromId: m\.id/);
 });
 
-test('melee and short-range hits still deal damage instantly', () => {
-  assert.match(zone, /else if \(ev\.kind === 'hit' && opts\.onPlayerHit\) opts\.onPlayerHit\(ev\.dmg, ev\.from, ev\.archetype\)/);
+test('melee and short-range hits still deal damage instantly — now carrying the element', () => {
+  assert.match(zone, /else if \(ev\.kind === 'hit' && opts\.onPlayerHit\) opts\.onPlayerHit\(ev\.dmg, ev\.from, ev\.archetype, ev\.element\)/);
+});
+
+test('projectile arrival carries the element through the zone (flat-damage site D2 closed)', () => {
+  assert.match(zone, /onArrive: \(dmg, fromId, element\) => \{ if \(opts\.onPlayerHit\) opts\.onPlayerHit\(dmg, fromId, 'ranged', element\); \}/);
+});
+
+test('aura-strike draws a sky-bolt at the player (WS3) — the visual already exists', () => {
+  assert.match(zone, /drawStrikeBolt\(ev, observer\.x, observer\.z\)/);
+  assert.match(zone, /monsterShots\.skyBolt\(\{/);
 });
 
 test('Korus blasts draw a sky-bolt visual; damage call unchanged', () => {

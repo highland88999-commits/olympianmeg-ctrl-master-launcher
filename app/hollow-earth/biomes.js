@@ -40,59 +40,82 @@ function noise2(x, z) {
 }
 
 /* Eight habitat bands, driven by the monster roster (monster-
- * first, Merlin 2026-10-25). Anchors sit inside the 295 m bounds
- * disc and clear of the world spawn (0, 95) — the sand
- * battlefield south of spawn is the arrival ground, so the intro
- * arch stands there. The shadow anchor sits on Korus's court
- * (-215, 55) so the throne stands deep in its own band, and the
- * frost anchor holds the far west rim for the roster's ice yeti
- * — the seventh element the roster demanded. */
+ * first, Merlin 2026-10-25). Each band holds TWO anchors: the
+ * primary inside the old 295 m bounds disc, and an OUTER anchor
+ * out in the ring beyond it (r ~420–500), in roughly the same
+ * direction — an extension of the same band, not a new one.
+ * Three bands carry a THIRD anchor filling the wide gaps
+ * between outer anchors (shadow north-west, sand south-west,
+ * mountain north), so no stretch of the outer ring sits far
+ * from every anchor. The outer anchors are what keep the
+ * bigger 600 m disc from washing out: without them every
+ * anchor is far away at large radius, all d² are large and
+ * similar, and every weight tends toward ~1/8 — a uniform
+ * muddy blend. All anchors sit clear of the world spawn
+ * (0, 95) and The Haven (0, 155) by construction. The shadow
+ * anchor sits on Korus's court (-215, 55) so the throne stands
+ * deep in its own band, and the frost anchor holds the far
+ * west rim for the roster's ice yeti — the seventh element the
+ * roster demanded. `anchor` stays the primary (spawn fallbacks
+ * read it); `anchors` is the full list the field reads. */
 export const BIOMES = {
   acid: {
     id: 'acid', name: 'Acid Ooze Pools', element: 'acid',
     anchor: { x: -160, z: 40 },
+    anchors: [{ x: -160, z: 40 }, { x: -410, z: 100 }],
     ground: 0x6da83c, accent: 0xb6e33c, fog: 0x5a7a44,
     blurb: 'Sickly green pools where the ground bubbles and hisses — home of the ooze families.',
   },
   fire: {
     id: 'fire', name: 'Volcanic Fire Lands', element: 'fire',
     anchor: { x: 160, z: -60 },
+    anchors: [{ x: 160, z: -60 }, { x: 420, z: -160 }],
     ground: 0x4a3630, accent: 0xff6a22, fog: 0x5a3a2c,
     blurb: 'Black basalt under ember light; the air itself glows.',
   },
   lightning: {
     id: 'lightning', name: 'Lightning Plains', element: 'lightning',
     anchor: { x: -70, z: -170 },
+    anchors: [{ x: -70, z: -170 }, { x: -160, z: -450 }],
     ground: 0x9aa08a, accent: 0xffe14d, fog: 0x6a6a58,
     blurb: 'Pale storm flats, charged — the sky cracks overhead.',
   },
   poison: {
     id: 'poison', name: 'Poison Groves', element: 'poison',
     anchor: { x: 180, z: 110 },
+    anchors: [{ x: 180, z: 110 }, { x: 420, z: 260 }],
     ground: 0x4a3a5e, accent: 0xc06ae0, fog: 0x4a3a5e,
-    blurb: 'Violet mists over thorn and spore — the poison families lurk here.',
+    // G-06 (2026-11-16, Merlin: Poison Groves YES — a deliberate
+    // spore garden, not a dead zone): violet mists, tall veined
+    // rocks and drifting spores. No monsters live here yet — the
+    // garden waits for the poison families to land.
+    blurb: 'A deliberate spore garden: violet mists over thorn and spore — no monsters live here yet, the garden waits for its families.',
   },
   shadow: {
     id: 'shadow', name: 'Shadow Smoke Wastes', element: 'shadow',
     anchor: { x: -225, z: 60 },
+    anchors: [{ x: -225, z: 60 }, { x: -480, z: 60 }, { x: -430, z: -240 }],
     ground: 0x3c3c40, accent: 0x8a8a9a, fog: 0x2e2e34,
     blurb: 'Grey gloom that looms; something vast waits in it — Korus’s throne stands here.',
   },
   sand: {
     id: 'sand', name: 'Desert Battlefield', element: 'sand',
     anchor: { x: 60, z: 190 },
+    anchors: [{ x: 60, z: 190 }, { x: 140, z: 460 }, { x: -160, z: 430 }],
     ground: 0xc2a15e, accent: 0xe8c87a, fog: 0xb09a68,
     blurb: 'Ochre dunes scattered with old wreckage — the arrival ground.',
   },
   mountain: {
     id: 'mountain', name: 'Mountain Reaches', element: 'lightning',
     anchor: { x: 210, z: -150 },
+    anchors: [{ x: 210, z: -150 }, { x: 400, z: -290 }, { x: 150, z: -460 }],
     ground: 0x7a7a82, accent: 0xd8d8e0, fog: 0x6a6a72,
     blurb: 'Jagged peaks where storms break — storm-charged heights.',
   },
   frost: {
     id: 'frost', name: 'Frozen Reaches', element: 'frost',
     anchor: { x: -230, z: 130 },
+    anchors: [{ x: -230, z: 130 }, { x: -410, z: 290 }],
     ground: 0xa8c8d8, accent: 0xe8f4f8, fog: 0x8aa0b0,
     blurb: 'Ice-locked flats at the far rim — the yeti’s ground, and no one else’s.',
   },
@@ -108,14 +131,26 @@ export const TRANSITION_MIX = 0.55;
 const FALLOFF = 1200;
 const NOISE_STIR = 0.55;
 
+/* A band's pull at a point comes from its NEAREST anchor —
+ * the primary inside, the outer out in the ring — so the field
+ * stays banded all the way to the rim instead of washing out. */
+function anchorDist2(b, x, z) {
+  let best = Infinity;
+  for (const a of b.anchors || [b.anchor]) {
+    const dx = x - a.x;
+    const dz = z - a.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < best) best = d2;
+  }
+  return best;
+}
+
 export function biomeWeights(x, z) {
   const raw = {};
   let total = 0;
   for (const id of BIOME_IDS) {
     const b = BIOMES[id];
-    const dx = x - b.anchor.x;
-    const dz = z - b.anchor.z;
-    const d2 = dx * dx + dz * dz;
+    const d2 = anchorDist2(b, x, z);
     const stir = 0.72 + NOISE_STIR * noise2(x * 0.008 + BIOME_IDS.indexOf(id) * 13.7, z * 0.008);
     const w = stir / (d2 + FALLOFF);
     raw[id] = w;

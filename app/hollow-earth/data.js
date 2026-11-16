@@ -1,6 +1,6 @@
 // OLYMPIAN MONSTERVERSE — content data layer (pure module).
 //
-// ONE ever-expansive world, not pods: a single 340 m disc whose
+// ONE ever-expansive world, not pods: a single 600 m disc whose
 // eight habitat bands blend into each other (biomes.js). Modes follow
 // the saga contract — on entry the player picks 🎯 Missions or
 // 🧭 Free Roam; roam writes no mission progress (kills still
@@ -32,8 +32,14 @@ export const WORLD = {
   kind: 'walk',
   seed: 77701,
   groundAmp: 3.4,
-  worldRadius: 340,
-  boundsRadius: 295,
+  // Full-world sphere (2026-11-16): 600 m of ground pole to
+  // equator (SPHERE_R 382), the walker never clamped — on an
+  // inner sphere there is no edge, no rim, no wall to hit, so
+  // there is no boundsRadius any more (the disc's 550 m clamp
+  // retired with the disc; Merlin Nov 16 ~02:42: no motion
+  // walls, and the honest circle clamp is NOT to be rebuilt).
+  // Every old anchor and landmark is interior, nothing moved.
+  worldRadius: 600,
   ambientRadius: 150,
   sky: 0x2a1e3f, // inner-world dusk under the core-sun
   fog: 0x3a2f4a,
@@ -57,16 +63,28 @@ export const WORLD = {
     { type: 'frost-spire', x: -230, z: 130, s: 1.1, ry: 0 },
     { type: 'frost-spire', x: -195, z: 175, s: 1, ry: 0.6 },
     { type: 'korus-throne', x: -215, z: 55, s: 1, ry: 0.4 },
+    // G-10 (court approach ONLY — never the throne): two emissive
+    // braziers flanking the court, 18 m from the throne centre —
+    // outside the throne's 10 m collider, outside the 12 m
+    // Throne Road target radius, and clear of every other
+    // landmark (nearest is the monolith row, 60+ m away).
+    { type: 'court-brazier', x: -205, z: 40, s: 1, ry: 0 },
+    { type: 'court-brazier', x: -205, z: 70, s: 1, ry: 0 },
   ],
   scatter: [
-    { kind: 'ooze-bubble', count: 60, minR: 20, maxR: 290, size: [0.6, 1.4], biome: 'acid' },
-    { kind: 'ember-rock', count: 70, minR: 20, maxR: 290, size: [0.8, 2.4], biome: 'fire' },
-    { kind: 'storm-crystal', count: 60, minR: 20, maxR: 290, size: [0.8, 2], biome: 'lightning' },
-    { kind: 'spore-cap', count: 60, minR: 20, maxR: 290, size: [0.7, 1.6], biome: 'poison' },
-    { kind: 'gloom-pillar', count: 50, minR: 20, maxR: 290, size: [1, 2.6], biome: 'shadow' },
-    { kind: 'dune-bone', count: 70, minR: 20, maxR: 290, size: [0.8, 2.2], biome: 'sand' },
-    { kind: 'peak-rock', count: 60, minR: 20, maxR: 290, size: [1, 3], biome: 'mountain' },
-    { kind: 'frost-shard', count: 50, minR: 20, maxR: 290, size: [0.8, 2.2], biome: 'frost' },
+    { kind: 'ooze-bubble', count: 60, minR: 20, maxR: 540, size: [0.6, 1.4], biome: 'acid' },
+    { kind: 'ember-rock', count: 70, minR: 20, maxR: 540, size: [0.8, 2.4], biome: 'fire' },
+    { kind: 'storm-crystal', count: 60, minR: 20, maxR: 540, size: [0.8, 2], biome: 'lightning' },
+    // G-06 (2026-11-16, Merlin: Poison Groves YES, a deliberate
+    // spore garden): 110 caps — denser than the other bands'
+    // 50–70, but still one mesh each, so +50 draw calls on a
+    // ~480-mesh scatter budget. The band stays monster-free
+    // until poison GLBs land; the garden is the dressing.
+    { kind: 'spore-cap', count: 110, minR: 20, maxR: 540, size: [0.7, 1.6], biome: 'poison' },
+    { kind: 'gloom-pillar', count: 50, minR: 20, maxR: 540, size: [1, 2.6], biome: 'shadow' },
+    { kind: 'dune-bone', count: 70, minR: 20, maxR: 540, size: [0.8, 2.2], biome: 'sand' },
+    { kind: 'peak-rock', count: 60, minR: 20, maxR: 540, size: [1, 3], biome: 'mountain' },
+    { kind: 'frost-shard', count: 50, minR: 20, maxR: 540, size: [0.8, 2.2], biome: 'frost' },
   ],
 };
 

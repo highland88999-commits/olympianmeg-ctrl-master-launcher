@@ -56,8 +56,8 @@ test('extra families are valid under the same rules as slot families', () => {
 
 test('spawn field: every PLACED extra family spawns in its own band, field stays sane', () => {
   const field = spawnField(77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
-  assert.equal(field.length, 153, `field has ${field.length} records, expected 153`);
-  assert.ok(field.length <= 200, `field has ${field.length} records — too many for performance`);
+  assert.equal(field.length, 303, `field has ${field.length} records, expected 303`);
+  assert.ok(field.length <= 400, `field has ${field.length} records — too many for performance`);
   const seen = new Set(field.map((r) => r.type));
   const placed = new Set(PLACED_FIELD_KEYS);
   for (const key of EXTRA_FAMILY_KEYS) {

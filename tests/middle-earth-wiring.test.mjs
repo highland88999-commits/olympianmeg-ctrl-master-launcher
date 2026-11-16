@@ -205,3 +205,16 @@ describe('BUILD 2 — life lines (pure helpers the page toasts / tags)', () => {
     );
   });
 });
+
+describe('NO MOTION WALL (Merlin, Nov 16 ~02:42) — the bound is the terrain edge', () => {
+  it('every pod: zone bounds max is the world radius, never a mid-terrain wall', () => {
+    for (const id of DATA.POD_ORDER) {
+      const def = DATA.PODS[id];
+      assert.equal(def.boundsRadius, def.worldRadius, `${id}: data bound is the terrain edge`);
+      const z = buildZone(THREE, def, T, { freeRoam: true });
+      assert.equal(z.bounds.kind, 'circle', `${id}: circle bound`);
+      assert.equal(z.bounds.max, def.worldRadius, `${id}: zone bound is the terrain edge (${def.worldRadius} m)`);
+      z.dispose();
+    }
+  });
+});

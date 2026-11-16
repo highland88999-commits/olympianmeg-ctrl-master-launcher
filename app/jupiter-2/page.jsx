@@ -9,6 +9,7 @@ import { LIGHTNING_MONSTER_MODELS, DEMOBAT_MODEL_ID, modelUrlFor } from "@/lib/j
 import { prefetchHawkins } from "@/lib/hawkins/loader";
 import { preloadGlb } from "@/app/hollow-earth/model-loader";
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
+import { useOrbDock } from "@/components/world/useOrbDock";
 
 // R3F scene loads client-side only (WebGL).
 const Jupiter2Scene = dynamic(() => import("@/components/jupiter2/Jupiter2Scene"), {
@@ -22,6 +23,11 @@ const Jupiter2Scene = dynamic(() => import("@/components/jupiter2/Jupiter2Scene"
 
 const ACCENT = "#e8a35c";
 const PRESET_ICONS = [IcSunrise, IcSun, IcSunset, IcMoon];
+
+// Orb dock sizes (lib/world/orb-dock.js — the one shared mechanism,
+// also used by Hollow Earth): px side per draggable orb on this page.
+// JUMP only here — the scene owns the rest.
+const J2_PAGE_ORB_SIZES = { jump: 76 };
 
 // Same clock helpers the other surface pages use (t: 0..1 of a day).
 function timeLabel(t) {
@@ -80,6 +86,12 @@ export default function Jupiter2Page() {
   // or the exit button drops it back to the menu. The R3F canvas
   // resizes itself to its parent, so no resize call is needed.
   const [fullscreen, setFullscreen] = useState(false);
+  // Orb dock (Merlin, Nov 16 ~02:35 — the Hollow Earth mirror): JUMP
+  // is free-floating and draggable; its spot persists per user under
+  // `olympus:jupiter-2:orb-dock:v1` (lib/world/orb-dock.js). The
+  // fullscreen orb stays fixed top-right — the law puts it there,
+  // and a draggable maximize would drift off its corner.
+  const dock = useOrbDock('jupiter-2', J2_PAGE_ORB_SIZES);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -191,8 +203,13 @@ export default function Jupiter2Page() {
             the Moon's button, Jupiter colours. */}
         {mode === 'walk' && !selected && (
           <OrbButton ariaLabel="Jump" size={76}
-            onPointerDown={() => { jumpRef.current = true; }}
-            style={{ position: 'absolute', right: 12, bottom: 12, zIndex: 6 }}>
+            {...dock.bind('jump', {
+              onPointerDown: () => { jumpRef.current = true; },
+              // A drag is not a jump: standing the queued jump down
+              // the moment the press becomes a drag.
+              onDragStart: () => { jumpRef.current = false; },
+            })}
+            style={dock.styleFor('jump', { right: 12, bottom: 12 })}>
             <span style={{ fontSize: 15 }}>JUMP</span>
           </OrbButton>
         )}

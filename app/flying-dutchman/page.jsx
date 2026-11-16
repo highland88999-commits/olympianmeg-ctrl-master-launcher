@@ -1158,7 +1158,15 @@ export default function DutchmanPage() {
     // -- fixed-step simulation ---------------------------------------------------
     function stepOnce(step) {
       const input = G.input;
-      const rudder = input.joy !== 0 ? input.joy : (input.keys.right ? 1 : 0) - (input.keys.left ? 1 : 0);
+      // Helm sign (Merlin, Nov 16, 2026 — joystick inversion):
+      // the engine turns the bow toward +X for a POSITIVE
+      // rudder (heading += rudder), and +X is screen-LEFT for
+      // the chase camera behind the ship — so a positive rudder
+      // turns LEFT on screen. The player's stick and arrow keys
+      // are negated here so stick-right / Right-arrow turn
+      // right. (The AI steers in the engine's own bearing terms
+      // and is untouched.)
+      const rudder = input.joy !== 0 ? -input.joy : (input.keys.left ? 1 : 0) - (input.keys.right ? 1 : 0);
       const fire = G.ashore ? null : input.fire;
       input.fire = null;
       if (G.mode === 'solo') {

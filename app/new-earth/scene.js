@@ -1950,7 +1950,12 @@ export function createWorld(canvas, cb) {
     if (S.tour.active || S.tour.glide) return;
     const sy = Math.sin(S.yaw), cy = Math.cos(S.yaw);
     fwdV.set(-sy, 0, -cy);
-    rightV.set(cy, 0, sy);
+    // Strafe basis (Merlin, Nov 16, 2026 — joystick inversion):
+    // camera-right is (cos yaw, 0, -sin yaw) — the shared
+    // stepWalker basis. The old (cy, 0, +sy) mirrored it, so
+    // stick-right strafed screen-left whenever the walker faced
+    // away from -Z (fully inverted at yaw ±90°).
+    rightV.set(cy, 0, -sy);
     if (S.mode === 'walk') {
       // Candidate step, then the edge wall first: clampToWorld
       // pulls the step back inside the grid before anything

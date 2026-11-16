@@ -20,7 +20,7 @@
 // the guard reads the files the way the other control tests do.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 const orb = read('../components/world/OrbButton.jsx');
@@ -54,10 +54,21 @@ test('Jupiter 2 page has no raw rectangular buttons left; fullscreen lives top-r
   assert.match(j2page, /ariaLabel="Exit fullscreen"/);
   assert.match(j2page, /position: 'absolute', right: 12, top: 12, zIndex: 9/);
   assert.match(j2page, /<OrbButton ariaLabel="Jump" size=\{76\}/);
+  // JUMP is docked (the Hollow Earth mirror, Nov 16 ~02:35): free-
+  // floating, draggable, its spot persisting per user — fullscreen
+  // stays fixed top-right, never docked.
+  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 12 \}\)/);
+  assert.match(j2page, /dock\.bind\('jump'/);
+  assert.doesNotMatch(j2page, /dock\.bind\('fullscreen'/);
 });
 
-test('Jupiter 2 fullscreen top row cannot pile up: speeder column top-left, HP orb beside it, hint below the row', () => {
-  assert.match(j2scene, /position: 'absolute', left: 12, top: 12, zIndex: 6, display: 'flex', flexDirection: 'column'/);
+test('Jupiter 2 fullscreen top row cannot pile up: free-floating speeder orbs top-left, HP orb beside them, hint below the row', () => {
+  // The top-left column container is GONE (the Hollow Earth mirror,
+  // Nov 16 ~02:35): SUMMON / DISMOUNT / TRADE are free-floating
+  // docked orbs now, defaulting to the column's old slots.
+  assert.doesNotMatch(j2scene, /position: 'absolute', left: 12, top: 12, zIndex: 6, display: 'flex', flexDirection: 'column'/);
+  assert.match(j2scene, /dock\.styleFor\('summon', \{ left: 12, top: 12 \}\)/);
+  assert.match(j2scene, /dock\.styleFor\('trade', \{ left: 12, top: riding \? 148 : 76 \}\)/);
   assert.match(j2scene, /top: 12, left: 76, zIndex: 6,\n *width: 56, height: 56, borderRadius: '50%'/);
   assert.match(j2scene, /top: 76, left: '50%', transform: 'translateX\(-50%\)',\n *maxWidth: 'calc\(100% - 184px\)'/);
   assert.doesNotMatch(j2scene, /🛸 DISMISS SPEEDER|🛸 SUMMON SPEEDER/);
@@ -66,20 +77,24 @@ test('Jupiter 2 fullscreen top row cannot pile up: speeder column top-left, HP o
 
 test('JUMP and the speeder action button never share a corner: BOOST parks above JUMP', () => {
   // JUMP orb: bottom 12, 76 tall — ends at bottom 88. BOOST: bottom 104.
-  assert.match(j2scene, /right: 16, bottom: 104, width: 64, height: 64, borderRadius: '50%'/);
-  assert.match(j2page, /right: 12, bottom: 12, zIndex: 6/);
+  // Both are docked now, defaulting to their old slots.
+  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 16, bottom: 104 \}\)/);
+  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 12 \}\)/);
 });
 
 test('SHOOT orb has its own spot: left of JUMP, below BOOST, riding only, wired to the blaster', () => {
   // SHOOT: right 104–168, bottom 12–76 — 16 px clear of JUMP (right 12–88),
   // below BOOST (bottom 104). One label per orb, never overlapping.
-  assert.match(j2scene, /<OrbButton size=\{64\} onClick=\{onShoot\} ariaLabel="Shoot the speeder blaster"/);
-  assert.match(j2scene, /position: 'absolute', right: 104, bottom: 12, zIndex: 6/);
+  // Docked now (the Hollow Earth mirror): same spot, draggable.
+  assert.match(j2scene, /<OrbButton size=\{64\} onClick=/);
+  assert.match(j2scene, /ariaLabel="Shoot the speeder blaster"/);
+  assert.match(j2scene, /orbDock\.styleFor\('shoot', \{ right: 104, bottom: 12 \}\)/);
+  assert.match(j2scene, /orbDock\.bind\('shoot'/);
   assert.match(j2scene, /\{riding && onShoot && \(/);
   assert.match(j2scene, /<OrbLabel>SHOOT<\/OrbLabel>/);
   // Wired: the scene passes fireBlaster down as onShoot.
-  assert.match(j2scene, /<Jupiter2TouchControls inputRef=\{inputRef\} riding=\{riding\} onShoot=\{fireBlaster\} \/>/);
-  assert.match(j2scene, /export function Jupiter2TouchControls\(\{ inputRef, riding, onShoot \}\)/);
+  assert.match(j2scene, /<Jupiter2TouchControls inputRef=\{inputRef\} riding=\{riding\} onShoot=\{fireBlaster\} orbDock=\{dock\} \/>/);
+  assert.match(j2scene, /export function Jupiter2TouchControls\(\{ inputRef, riding, onShoot, orbDock \}\)/);
 });
 
 test('Oblivion lever label cannot sit on the JUMP orb: raised and layered under the HUD', () => {
@@ -122,6 +137,52 @@ test('Hollow Earth and Middle-earth in-world controls are orbs; strike stays a c
   assert.match(hollow, /ariaLabel="Dismount"/);
   assert.match(hollow, /ariaLabel=\{`Weapon: \$\{weaponLabel\} — tap to switch weapon`\}/);
   assert.match(hollow, /ariaLabel="Spawn to base — return to The Haven"/);
+  // Hollow Earth, J2/Mars2 standard (Merlin, Nov 16 WS1): no raw
+  // <button> left under the game screen, a fullscreen orb top-right,
+  // and a JUMP orb. The menu/map cards and the Korus overlay button
+  // are NOT under a game screen, so the no-button assertion is scoped
+  // to the world-mode block — and inside it exactly ONE raw <button>
+  // remains, the Korus victory overlay's "Back to the map" (Q2, held
+  // for Merlin's word on a "Keep hunting" option).
+  const hollowWorld = hollow.slice(hollow.indexOf('// ---- world ----'));
+  const worldButtons = hollowWorld.match(/<button/g) || [];
+  assert.equal(worldButtons.length, 1);
+  assert.match(hollowWorld, /Back to the map/);
+  assert.match(hollow, /ariaLabel="Enter fullscreen"/);
+  assert.match(hollow, /ariaLabel="Exit fullscreen"/);
+  assert.match(hollow, /position: 'absolute', right: 12, top: 12, zIndex: 9/);
+  // JUMP wears its shared face now (fn="jump"), same tag otherwise.
+  assert.match(hollow, /<OrbButton fn="jump" ariaLabel="Jump" size=\{76\}/);
+  // Strike is an orb now, not the old raw 36 px button.
+  assert.match(hollow, /ariaLabel="Strike"/);
+  assert.match(hollow, /<OrbLabel>STRIKE<\/OrbLabel>/);
+  // JUMP is wired, not just drawn: Space (consumeJump) or the orb
+  // (jumpRef) reaches stepWalker, and a press while mounted is
+  // consumed-and-discarded, never a jump off the saddle.
+  assert.match(hollow, /const jump = ride \? false : keys\.consumeJump\(\) \|\| jumpRef\.current;/);
+  assert.match(hollow, /if \(ride\) \{ keys\.consumeJump\(\); jumpRef\.current = false; \}/);
+  // The bottom bar is GONE (Merlin, Nov 16 ~02:30 — WS1 Q4 answered
+  // by removal): no pill wrapper holds the orbs in world mode, the
+  // four orbs are free-floating in one draggable dock, and the
+  // corner lift it forced on JUMP/joystick is gone with it.
+  assert.doesNotMatch(hollowWorld, /rounded-full/);
+  // The dock lives in the ONE shared module now (Merlin, Nov 16
+  // ~02:35 — the Hollow Earth local copy moved to lib/world, and
+  // Jupiter 2 uses the same module): same import, same functions.
+  assert.match(hollow, /from '@\/lib\/world\/orb-dock'/);
+  assert.doesNotMatch(hollow, /from '\.\/orb-dock\.js'/);
+  assert.match(hollow, /loadOrbDockPosition/);
+  assert.match(hollow, /saveOrbDockPosition/);
+  assert.match(hollow, /beginDockDrag/);
+  assert.match(hollow, /dockTapGuard/);
+  assert.match(hollow, /right: 12, bottom: BOTTOM_CLEAR, zIndex: 6/);
+  assert.match(hollow, /left: 12, bottom: BOTTOM_CLEAR, zIndex: 6/);
+  // Map and Strike are at opposite ends of the dock column (Map
+  // first, Strike last), never next to each other.
+  assert.ok(hollow.indexOf('ariaLabel="Map"') < hollow.indexOf('ariaLabel="Strike"'));
+  // The Sanctuary/Wilds readout survived the bar's removal — it
+  // lives in the HUD row now.
+  assert.match(hollowWorld, /⚔️ Wilds/);
   assert.match(middle, /ariaLabel=\{`Mount \$\{mountPrompt\.name\}`\}/);
   assert.match(middle, /ariaLabel="Dismount"/);
   assert.match(middle, /ariaLabel="Map"/);
@@ -154,4 +215,26 @@ test('Erebus in-world controls are orbs', () => {
   assert.match(erebus, /ariaLabel="Atlas"/);
   assert.match(erebus, /ariaLabel="Portal — jump to another universe"/);
   assert.match(erebus, /<OrbButton accent="#67e8f9" size=\{72\}/);
+});
+
+test('One graphic per button function: every ORB_FUNCTIONS face exists on disk; Hollow Earth orbs wear their fn', () => {
+  // The map lives in the shared OrbButton layer: one art file per
+  // function, the TRON house style. Every face the map names must
+  // exist under public/ — a missing file would silently fall back
+  // to bare text (the img hides itself on error).
+  const faces = [...orb.matchAll(/art: '(\/images\/shadow-realm\/ui\/tron-[^']+\.webp)'/g)].map((m) => m[1]);
+  assert.ok(faces.length >= 70, `expected 70+ faces, got ${faces.length}`);
+  // The 8 TRON motion graphics are reused as-is, never redrawn.
+  for (const reused of ['tron-boost', 'tron-gas', 'tron-brake', 'tron-steer-left', 'tron-steer-right', 'tron-recenter', 'tron-pause', 'tron-leave']) {
+    assert.ok(faces.some((f) => f.endsWith(`${reused}.webp`)), `missing reused TRON face ${reused}`);
+  }
+  const missing = faces.filter((f) => !existsSync(new URL(`../public${f}`, import.meta.url)));
+  assert.deepEqual(missing, []);
+  // Hollow Earth (the realm in focus) wears its faces: 14 orbs, one
+  // fn each, no orb left on its old emoji.
+  const hollowWorld = hollow.slice(hollow.indexOf('// ---- world ----'));
+  for (const fn of ['fullscreen', 'fullscreen-exit', 'jump', 'trade', 'mount', 'dismount', 'buy-shield', 'recharge', 'buy-weapon', 'close', 'map', 'weapon', 'home', 'strike']) {
+    assert.match(hollowWorld, new RegExp(`fn="${fn}"`));
+  }
+  assert.equal((hollowWorld.match(/fn="/g) || []).length, 14);
 });

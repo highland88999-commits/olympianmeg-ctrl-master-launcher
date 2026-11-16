@@ -565,7 +565,7 @@ export function buildZone(THREE, podDef, T, opts) {
   const respawnS = def.orcs && def.orcs.respawnS ? def.orcs.respawnS : 45;
   if (def.orcs) {
     const tryPlace = (x, z) =>
-      Math.hypot(x, z) <= (def.boundsRadius || 295) - 12 && clearOfColliders(x, z, 8);
+      Math.hypot(x, z) <= (def.boundsRadius || def.worldRadius || 340) - 12 && clearOfColliders(x, z, 8);
     records = spawnField(seed, def.orcs, tryPlace).map((r) => ({
       ...r, alive: true, deadAt: -1,
     }));
@@ -781,7 +781,13 @@ export function buildZone(THREE, podDef, T, opts) {
   });
 
   const spawn = { x: 0, z: 95, yaw: Math.PI };
-  const bounds = { kind: 'circle', max: def.boundsRadius || 295 };
+  /* NO MOTION WALL (Merlin, Nov 16 ~02:42): the old 295 m circle
+   * clamp walled off 45 m of visible terrain — the disc runs to
+   * worldRadius (340) and the heightfield is analytic past it, so
+   * the bound is the terrain's own edge, never a wall inside
+   * visible ground. A pod without boundsRadius falls back to its
+   * world radius, never to 295 again. */
+  const bounds = { kind: 'circle', max: def.boundsRadius || def.worldRadius || 340 };
 
   function update(t, dt) {
     clock += dt;

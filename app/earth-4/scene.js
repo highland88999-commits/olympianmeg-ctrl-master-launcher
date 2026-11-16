@@ -613,7 +613,12 @@ export function createWorld(canvas, cb) {
   function updateMovement(dt) {
     const sy = Math.sin(S.yaw), cy = Math.cos(S.yaw);
     fwdV.set(-sy, 0, -cy);
-    rightV.set(cy, 0, sy);
+    // Strafe basis (Merlin, Nov 16, 2026 — joystick inversion):
+    // camera-right is (cos yaw, 0, -sin yaw) — the shared
+    // stepWalker basis. The old (cy, 0, +sy) mirrored it, so
+    // stick-right strafed screen-left whenever the walker faced
+    // away from -Z (fully inverted at yaw ±90°).
+    rightV.set(cy, 0, -sy);
     if (S.mode === 'walk') {
       const nx = S.pos.x + fwdV.x * S.move.y * WALK_SPEED * dt + rightV.x * S.move.x * WALK_SPEED * dt;
       const nz = S.pos.z + fwdV.z * S.move.y * WALK_SPEED * dt + rightV.z * S.move.x * WALK_SPEED * dt;

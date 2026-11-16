@@ -51,7 +51,7 @@ export const PODS = {
     tex: 'grass',
     groundAmp: 2.2,
     worldRadius: 340,
-    boundsRadius: 295,
+    boundsRadius: 340,
     ambientRadius: 150,
     horizon: { style: 'hills', radius: 430, count: 16, color: 0x6da352 },
     scatter: [
@@ -125,7 +125,7 @@ export const PODS = {
     tex: 'grass',
     groundAmp: 3,
     worldRadius: 340,
-    boundsRadius: 295,
+    boundsRadius: 340,
     ambientRadius: 150,
     /* The Bruinen gorge cuts the valley floor west to east. */
     canyon: {
@@ -204,7 +204,7 @@ export const PODS = {
     tex: 'grass',
     groundAmp: 3.2,
     worldRadius: 340,
-    boundsRadius: 295,
+    boundsRadius: 340,
     ambientRadius: 160,
     horizon: { style: 'hills', radius: 440, count: 18, color: 0x9ab45e },
     scatter: [
@@ -279,7 +279,7 @@ export const PODS = {
     tex: 'stone',
     groundAmp: 3,
     worldRadius: 340,
-    boundsRadius: 295,
+    boundsRadius: 340,
     ambientRadius: 150,
     horizon: { style: 'peaks', radius: 440, count: 16, color: 0xa8b0a4 },
     scatter: [
@@ -353,7 +353,7 @@ export const PODS = {
     tex: 'forest',
     groundAmp: 2.6,
     worldRadius: 340,
-    boundsRadius: 295,
+    boundsRadius: 340,
     ambientRadius: 150,
     horizon: { style: 'trees', radius: 420, count: 22, color: 0x2c5a30 },
     scatter: [
@@ -424,7 +424,7 @@ export const PODS = {
     tex: 'ash',
     groundAmp: 4.2,
     worldRadius: 340,
-    boundsRadius: 295,
+    boundsRadius: 340,
     ambientRadius: 160,
     canyon: {
       width: 20, depth: 7,

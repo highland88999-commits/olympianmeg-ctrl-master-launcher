@@ -152,6 +152,35 @@ export function frostGroundTexture() {
   });
 }
 
+/* Neutral ground detail (G-01): a near-white grey grain + cracks +
+ * speckle that multiplies over the terrain's vertex colours — the
+ * per-band character stays in the vertex colours, this adds only
+ * the grain the ground lacks. Base near white so the biome hues
+ * survive; dark cracks + light speckle give the bump read too. */
+export function groundDetailTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(7109);
+    groundBase(ctx, size, '#b4b4b4', rand);
+    cracks(ctx, size, 12, '#5f5f5f', rand, 2);
+    cracks(ctx, size, 8, '#8a8a8a', rand, 1);
+    speckle(ctx, size, 420, ['#d8d8d8', '#6a6a6a', '#9a9a9a'], rand, 1, 3);
+    blobs(ctx, size, 14, ['#c8c8c8', '#7a7a7a'], rand, 4, 14);
+  });
+}
+
+/* Acid-river flow texture (G-05): the acidGroundTexture bubble
+ * language on a PALE base, so it can ride as a map under the
+ * ribbon's bright-green basic colour (map x colour) and still
+ * read green, with lighter bubble streaks that scroll. */
+export function acidRiverTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(7110);
+    groundBase(ctx, size, '#c8e89a', rand);
+    blobs(ctx, size, 26, ['#ffffff', '#8fd43a', '#d8f26a'], rand, 4, 16);
+    speckle(ctx, size, 260, ['#ffffff', '#8fd43a'], rand, 1, 3);
+  });
+}
+
 /* The core-sun glow: concentric pale discs, flat calls only. */
 export function coreGlowTexture() {
   return makeCanvasTexture(256, (ctx, size) => {

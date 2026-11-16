@@ -28,6 +28,8 @@
 //   night and at range on a phone screen.
 //
 // DODGE MATH (pinned by tests): flight speed 16 m/s beats the
+
+import { getParticleTexture } from '../../lib/particles/sprites.js';
 // hunter's 10 m/s walk, so running away does NOT save you —
 // but a sidestep does: the hit radius at the endpoint is 1.2 m,
 // and walking 1.2 m sideways takes ~0.12 s against a 0.6–1.4 s
@@ -57,6 +59,22 @@ export function projectileStyleFor(element) {
   return PROJECTILE_STYLE[element] || PROJECTILE_STYLE.shadow;
 }
 
+// WS6 (2026-11-16): every projectile wears its element's sprite
+// as an additive halo — the geometry body stays (colour/shape
+// only), the sprite is glow, not a replacement. Kind map:
+// acid bubble, fire ember, lightning spark, poison wisp, shadow
+// mist, sand grain, frost flake. Unknown elements fall back to
+// 'glow' (the sprites.js contract); a null texture (SSR / no
+// document) means NO sprite — the caller keeps the plain mesh.
+export const PROJECTILE_SPRITE_KIND = {
+  acid: 'bubble', fire: 'ember', lightning: 'spark', poison: 'wisp',
+  shadow: 'mist', sand: 'grain', frost: 'flake',
+};
+
+export function projectileSpriteKindFor(element) {
+  return PROJECTILE_SPRITE_KIND[element] || 'glow';
+}
+
 export function projectileFlightTime(dist, speed = MONSTER_PROJECTILE_SPEED) {
   return Math.max(0, dist) / speed;
 }
@@ -70,15 +88,50 @@ export function projectilePath(from, to, arc, t) {
   return { x, y, z };
 }
 
+// Flight path on a SPHERE (Nov 16 inner sphere): the same
+// straight lerp, but the thrown arc lifts along the RADIAL
+// (toward the core), not world +Y — a world-Y arc on the far
+// side would throw the ball sideways through the shell. The
+// radial direction at the flight point is -normalize(point),
+// the point being measured from the sphere centre. Pure.
+export function projectilePathSphere(from, to, arc, t) {
+  const x = from.x + (to.x - from.x) * t;
+  const y = from.y + (to.y - from.y) * t;
+  const z = from.z + (to.z - from.z) * t;
+  const lift = arc * 4 * t * (1 - t);
+  if (!lift) return { x, y, z };
+  const len = Math.hypot(x, y, z) || 1;
+  return { x: x - (x / len) * lift, y: y - (y / len) * lift, z: z - (z / len) * lift };
+}
+
 export function createMonsterProjectiles(R, group, opts = {}) {
   const onArrive = opts.onArrive || (() => {});
   const groundHeight = opts.groundHeight || (() => 0);
+  // SPHERE PROJECTION (Nov 16 inner sphere): with
+  // opts.groundPoint/groundUp the flight path arcs radially,
+  // sky-bolts stand on the local up, and the player point is
+  // the real 3D chest. Without them every behaviour is the
+  // flat one, so the projectile tests keep passing untouched.
+  const groundPoint = opts.groundPoint || null;
+  const groundUp = opts.groundUp || null;
   const shots = [];
   const puffs = [];
   const skyBolts = [];
 
   function basic(color, opacity = 1) {
     return new R.MeshBasicMaterial({ color, fog: false, transparent: opacity < 1, opacity });
+  }
+
+  // Additive sprite halo for a style: the style's element kind
+  // tinted the style's colour, or null when no texture exists
+  // (SSR — the caller keeps the plain mesh, never a crash).
+  function spriteFor(style) {
+    const tex = getParticleTexture(projectileSpriteKindFor(style && style.element));
+    if (!tex) return null;
+    return new R.Sprite(new R.SpriteMaterial({
+      map: tex, color: style.color, transparent: true, opacity: 0.85,
+      blending: R.AdditiveBlending, depthWrite: false,
+    }));
   }
 
   // Thin box from point a to point b (for jagged bolts).
@@ -160,6 +213,15 @@ export function createMonsterProjectiles(R, group, opts = {}) {
   function spawn({ from, to, element, dmg, fromId }) {
     const style = projectileStyleFor(element);
     const mesh = buildMesh(style);
+    // WS6 halo: the sprite rides ON the body (a child, so it
+    // follows the flight and the velocity quaternion) — mid-bolt
+    // for elongated shapes, centred for balls/shards.
+    const halo = spriteFor({ ...style, element });
+    if (halo) {
+      halo.scale.set(style.size * 4, style.size * 4, 1);
+      if (style.shape === 'bolt') halo.position.z = style.size * 1.5;
+      mesh.add(halo);
+    }
     mesh.position.set(from.x, from.y, from.z);
     group.add(mesh);
     const dist = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) || 0.001;
@@ -173,45 +235,96 @@ export function createMonsterProjectiles(R, group, opts = {}) {
 
   function spawnBurst(x, y, z, style, big) {
     for (let i = 0; i < (big ? 7 : 4); i++) {
-      const s = new R.Mesh(
-        new R.SphereGeometry(big ? 0.3 : 0.18, 8, 6),
-        basic(style.color, 0.95),
-      );
+      // WS6: bursts wear the element sprite when a texture
+      // exists; plain spheres are the null-texture fallback.
+      // `base` is the puff's rest scale — the update loop grows
+      // from it, so a sprite (rest 0.6/0.36) and a mesh (rest 1)
+      // fade identically.
+      const halo = spriteFor(style);
+      let s;
+      let base = 1;
+      if (halo) {
+        base = big ? 0.6 : 0.36;
+        halo.scale.set(base, base, 1);
+        halo.material.opacity = 0.95;
+        s = halo;
+      } else {
+        s = new R.Mesh(
+          new R.SphereGeometry(big ? 0.3 : 0.18, 8, 6),
+          basic(style.color, 0.95),
+        );
+      }
       s.position.set(
         x + (Math.random() - 0.5) * 0.9,
         y + (Math.random() - 0.5) * 0.9,
         z + (Math.random() - 0.5) * 0.9,
       );
       group.add(s);
-      puffs.push({ mesh: s, life: 0.35, maxLife: 0.35, grow: big ? 2.0 : 1.3 });
+      puffs.push({ mesh: s, life: 0.35, maxLife: 0.35, grow: big ? 2.0 : 1.3, base });
     }
   }
 
   function spawnTrailPuff(pos, style) {
     if (puffs.length > 120) return; // perf guard: trails never pile up
-    const s = new R.Mesh(new R.SphereGeometry(0.12, 6, 5), basic(style.color, 0.7));
+    // WS6: trail puffs wear the element sprite, same fallback.
+    const halo = spriteFor(style);
+    let s;
+    let base = 1;
+    if (halo) {
+      base = 0.24;
+      halo.scale.set(base, base, 1);
+      halo.material.opacity = 0.7;
+      s = halo;
+    } else {
+      s = new R.Mesh(new R.SphereGeometry(0.12, 6, 5), basic(style.color, 0.7));
+    }
     s.position.set(pos.x, pos.y, pos.z);
     group.add(s);
-    puffs.push({ mesh: s, life: 0.4, maxLife: 0.4, grow: 1.0 });
+    puffs.push({ mesh: s, life: 0.4, maxLife: 0.4, grow: 1.0, base });
   }
 
   // Korus sky-bolt: a vertical jagged bolt from the sky to a blast
   // point, purely visual — damage timing is unchanged (the bolt
-  // coincides with the damage that was already landing).
+  // coincides with the damage that was already landing). On the
+  // sphere the bolt is built in LOCAL space (0..14 m along the
+  // local up) and the group stands on the ground point with its
+  // +Y on the local up — a world-Y bolt on the far side would
+  // lie flat along the shell instead of striking it.
   function skyBolt({ x, z, groundY, color }) {
     const g = new R.Group();
     const mat = basic(color, 0.95);
-    const top = groundY + 14;
-    const pts = [];
     const segs = 4;
-    for (let i = 0; i <= segs; i++) {
-      const y = top - ((top - groundY) * i) / segs;
-      const edge = i === 0 || i === segs;
-      pts.push(new R.Vector3(
-        edge ? 0 : (Math.random() - 0.5) * 1.2,
-        y,
-        edge ? 0 : (Math.random() - 0.5) * 1.2,
-      ));
+    const pts = [];
+    if (groundPoint) {
+      const gp = groundPoint(x, z, 0);
+      const u = groundUp(x, z);
+      const ul = Math.hypot(u.x, u.y, u.z) || 1;
+      g.position.set(gp.x, gp.y, gp.z);
+      g.quaternion.setFromUnitVectors(
+        new R.Vector3(0, 1, 0),
+        new R.Vector3(u.x / ul, u.y / ul, u.z / ul),
+      );
+      for (let i = 0; i <= segs; i++) {
+        const y = 14 - (14 * i) / segs;
+        const edge = i === 0 || i === segs;
+        pts.push(new R.Vector3(
+          edge ? 0 : (Math.random() - 0.5) * 1.2,
+          y,
+          edge ? 0 : (Math.random() - 0.5) * 1.2,
+        ));
+      }
+    } else {
+      const top = groundY + 14;
+      for (let i = 0; i <= segs; i++) {
+        const y = top - ((top - groundY) * i) / segs;
+        const edge = i === 0 || i === segs;
+        pts.push(new R.Vector3(
+          edge ? 0 : (Math.random() - 0.5) * 1.2,
+          y,
+          edge ? 0 : (Math.random() - 0.5) * 1.2,
+        ));
+      }
+      g.position.set(x, 0, z);
     }
     for (let i = 0; i < segs; i++) {
       const a = pts[i];
@@ -223,7 +336,6 @@ export function createMonsterProjectiles(R, group, opts = {}) {
       seg.quaternion.setFromUnitVectors(new R.Vector3(0, 1, 0), dir.clone().normalize());
       g.add(seg);
     }
-    g.position.set(x, 0, z);
     group.add(g);
     skyBolts.push({ group: g, life: 0.3, x, z, groundY, color });
   }
@@ -234,7 +346,12 @@ export function createMonsterProjectiles(R, group, opts = {}) {
   }
 
   function update(dt, player) {
-    const py = groundHeight(player.x, player.z) + 1.2; // hunter chest height
+    // The hunter's chest in 3D: with a sphere projection it is
+    // the ground point lifted 1.2 m along the local up; flat
+    // callers keep the old (x, groundHeight + 1.2, z).
+    const player3D = groundPoint
+      ? groundPoint(player.x, player.z, 1.2)
+      : { x: player.x, y: groundHeight(player.x, player.z) + 1.2, z: player.z };
     // Age puffs and sky-bolts FIRST: anything spawned by the shots
     // loop below must live its full life starting next tick, or a
     // single long frame would spawn-and-kill a trail puff at once.
@@ -247,14 +364,15 @@ export function createMonsterProjectiles(R, group, opts = {}) {
         continue;
       }
       p.mesh.material.opacity = Math.max(0, p.life / p.maxLife) * 0.95;
-      p.mesh.scale.setScalar(1 + (1 - p.life / p.maxLife) * (p.grow - 1));
+      p.mesh.scale.setScalar((p.base || 1) * (1 + (1 - p.life / p.maxLife) * (p.grow - 1)));
     }
     for (let i = skyBolts.length - 1; i >= 0; i--) {
       const b = skyBolts[i];
       b.life -= dt;
       if (b.life <= 0) {
         group.remove(b.group);
-        spawnBurst(b.x, b.groundY + 0.5, b.z, { color: b.color }, true);
+        const bp = groundPoint ? groundPoint(b.x, b.z, 0.5) : { x: b.x, y: b.groundY + 0.5, z: b.z };
+        spawnBurst(bp.x, bp.y, bp.z, { color: b.color }, true);
         skyBolts.splice(i, 1);
       }
     }
@@ -263,14 +381,18 @@ export function createMonsterProjectiles(R, group, opts = {}) {
       s.t += dt / s.dur;
       if (s.t >= 1 || s.dur <= 0) {
         // Arrival: hit only if the hunter is still near the endpoint.
-        const d = Math.hypot(player.x - s.to.x, py - s.to.y, player.z - s.to.z);
+        // The distance is fully 3D (the hunter's chest point
+        // against the shot's endpoint), never deck-vs-world.
+        const d = Math.hypot(player3D.x - s.to.x, player3D.y - s.to.y, player3D.z - s.to.z);
         const hit = d <= MONSTER_PROJECTILE_HIT_R;
         removeShot(i);
         spawnBurst(s.to.x, s.to.y, s.to.z, s.style, hit);
-        if (hit) onArrive(s.dmg, s.fromId);
+        if (hit) onArrive(s.dmg, s.fromId, s.element);
         continue;
       }
-      const pos = projectilePath(s.from, s.to, s.style.arc, s.t);
+      const pos = groundPoint
+        ? projectilePathSphere(s.from, s.to, s.style.arc, s.t)
+        : projectilePath(s.from, s.to, s.style.arc, s.t);
       const prev = s.mesh.position.clone();
       s.mesh.position.set(pos.x, pos.y, pos.z);
       // Elongated shapes point along their velocity.
@@ -282,11 +404,24 @@ export function createMonsterProjectiles(R, group, opts = {}) {
       // (drips/splash from an arcing ball). Horizontal distance
       // only — the arc lifts balls above chest height mid-flight,
       // and standing under one must still count as being hit.
-      const gd = Math.hypot(player.x - pos.x, player.z - pos.z);
+      // On the sphere "horizontal" is the tangent plane at the
+      // shot: the radial component is stripped out of the
+      // hunter-to-shot vector before the distance is taken.
+      let gd;
+      if (groundPoint) {
+        const dx = player3D.x - pos.x;
+        const dy = player3D.y - pos.y;
+        const dz = player3D.z - pos.z;
+        const pl = Math.hypot(pos.x, pos.y, pos.z) || 1;
+        const radial = (dx * -pos.x + dy * -pos.y + dz * -pos.z) / pl;
+        gd = Math.sqrt(Math.max(0, dx * dx + dy * dy + dz * dz - radial * radial));
+      } else {
+        gd = Math.hypot(player.x - pos.x, player.z - pos.z);
+      }
       if (gd <= MONSTER_PROJECTILE_GRACE_R) {
         removeShot(i);
         spawnBurst(pos.x, pos.y, pos.z, s.style, true);
-        onArrive(s.dmg, s.fromId);
+        onArrive(s.dmg, s.fromId, s.element);
         continue;
       }
       s.trailT += dt;

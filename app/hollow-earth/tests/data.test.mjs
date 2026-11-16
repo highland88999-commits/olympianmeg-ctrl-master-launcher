@@ -10,9 +10,17 @@ import {
 import { DEFAULT_HERO } from '../characters.js';
 import { KORUS_GATE_KILLS } from '../spawns.js';
 
-test('world def: one ever-expansive disc, spawn and Haven landmarks present', () => {
+test('world def: one ever-expansive sphere, spawn and Haven landmarks present', () => {
   assert.equal(WORLD.id, 'monsterverse');
   assert.ok(WORLD.worldRadius >= 300);
+  // Full-world sphere (2026-11-16): 600 m of ground pole to
+  // equator, scatter dressed out to 540 m — and NO boundsRadius:
+  // the inner sphere has no edge, so there is no clamp to store
+  // (Merlin Nov 16 ~02:42: no motion walls, the circle clamp is
+  // NOT to be rebuilt in any form).
+  assert.equal(WORLD.worldRadius, 600);
+  assert.equal(WORLD.boundsRadius, undefined, 'no boundsRadius — a sphere has no rim to clamp');
+  for (const sc of WORLD.scatter) assert.equal(sc.maxR, 540, `${sc.kind} scatter stops short of the rim`);
   const types = WORLD.landmarks.map((l) => l.type);
   assert.ok(types.includes('haven'), 'no Haven landmark');
   assert.ok(types.includes('korus-throne'), 'no Korus throne');

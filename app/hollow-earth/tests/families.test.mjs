@@ -106,7 +106,7 @@ test('Korus’s court stands deep in the shadow band', () => {
 
 test('spawn field with the real biome field: every PLACED family appears, in its own band', () => {
   const field = spawnField(77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
-  assert.equal(field.length, 153, `field has ${field.length} records, expected 153`);
+  assert.equal(field.length, 303, `field has ${field.length} records, expected 303`);
   const seen = new Set(field.map((r) => r.type));
   const placed = new Set(PLACED_FIELD_KEYS);
   for (const key of placed) {

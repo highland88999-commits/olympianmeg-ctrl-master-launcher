@@ -150,7 +150,10 @@ export function makeShip({ name = 'Ship', isPlayer = false, x = 0, z = 0, headin
     crew,
     souls: 0,          // total souls claimed (score)
     sails: SAILS.FULL,
-    rudder: 0,         // -1 port .. 1 starboard
+    rudder: 0,         // -1 = turn right (starboard), +1 = turn left (port):
+                        // stepShip adds rudder to the heading, and a
+                        // positive heading turns the bow toward +X,
+                        // screen-left for the chase camera — see page.jsx
     throttle: 1,       // -1 full astern .. 0 stop .. 1 full ahead
     anchored: false,   // anchor down: way dies fast, she pivots in place
     reloadPort: 0,

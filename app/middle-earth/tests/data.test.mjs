@@ -20,7 +20,10 @@ test('six pods, in order, each a full world def', () => {
     assert.equal(d.id, id);
     assert.ok(Number.isFinite(d.seed), `${id} seed`);
     assert.equal(d.worldRadius, 340);
-    assert.equal(d.boundsRadius, 295);
+    // NO MOTION WALL (Merlin, Nov 16 ~02:42): the bound IS the
+    // terrain edge — a bound inside the visible disc was an
+    // invisible wall the player could hit, and is gone.
+    assert.equal(d.boundsRadius, d.worldRadius, `${id} bound is the terrain edge, not a mid-terrain wall`);
     assert.ok(Array.isArray(d.landmarks) && d.landmarks.length >= 2, `${id} landmarks`);
     assert.ok(Array.isArray(d.characters) && d.characters.length >= 1, `${id} characters`);
     assert.ok(Array.isArray(d.scatter) && d.scatter.length >= 1, `${id} scatter`);

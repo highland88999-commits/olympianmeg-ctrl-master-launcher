@@ -26,6 +26,11 @@ import {
   AURA_R_M, BURN_HIT_DMG, BURN_DPS, BURN_SECONDS, STRIKE_INTERVAL_S,
   lightningColorFor,
 } from '../../lib/lightning-aura.js';
+import { ELEMENT_AURA } from './elemental-aura.js';
+import {
+  birthMsFor, lifespanDaysFor, hungerFor, ageDeathDue,
+} from './monster-life.js'; // the life agents — stepMonster reads
+// the hunger + age verdicts from here, never a second copy
 
 // PLACED-ONLY FIELD (2026-10-26 rework): only families with a
 // real rigged GLB on disk spawn on the field. The set comes
@@ -154,6 +159,188 @@ export const ELEMENT_COLORS = {
   poison: 0xc06ae0, shadow: 0x8a8a9a, sand: 0xe8c87a, frost: 0x9fd8e8,
 };
 
+/* ---------------- ELEMENTAL SECONDARIES (WS6, 2026-11-16) ----------------
+ * Merlin ordered typed damage (Nov 16 ~01:34): "the damage type
+ * should match their element." Each element gets ONE secondary
+ * on its hit/hazard, on top of the hit's own dmg (family dmg
+ * 11–20 stands, untouched). Numbers are the worker's call —
+ * Merlin ordered typed damage, not these numbers — chosen so
+ * the secondary is felt but never exceeds the hit that
+ * delivered it.
+ *   fire      BURN  5/s x 3 s (hit + 15)
+ *   lightning BURN  existing aura law ONLY (8 + 6/s x 3 s, aura
+ *             strikes only — archetype hits do NOT light a burn,
+ *             or one element would double-dip; auraOnly: true,
+ *             numbers delegated to lib/lightning-aura.js, never
+ *             re-typed here)
+ *   acid      CORROSIVE POOL 4/s while standing in a 3.5 m pool,
+ *             4 s life (hit + up to 16 if the hunter stands in it)
+ *   poison    VENOM 4/s x 5 s (hit + 20 over 5 s) — ships with NO
+ *             live deliverer (0 placed poison families); the code
+ *             must not crash on an element with no monsters, and
+ *             it cannot: secondaries ride hit events only placed
+ *             families emit
+ *   frost     CHILL walker speed x0.7 for 3 s + 2/s chip (hit + 6)
+ *             — x0.7 is the built+tested aura value
+ *             (elemental-aura.js FROST_CHILL_FACTOR), NOT the
+ *             audit draft's x0.6: one number everywhere.
+ *   shadow    DIM haze dome to full (grey 0x5a5a66, max 0.30) 4 s
+ *   sand      GUST sand-tinted haze (0xc2a15e, max 0.35) 2.5 s
+ * Rules R1–R7 (audit §4.1): one funnel, shield-first (every
+ * secondary routes through applyDamage); one DoT slot,
+ * refresh-not-stack, higher dps wins (fire/lightning/poison/
+ * frost-chip share it); pools positional, higher-dps-wins;
+ * timers run in The Haven, damage/effects do not (no instant
+ * cleanse); hunter-only (monster-vs-monster stays aura-only);
+ * Korus stays flat (his hits carry no element, so
+ * secondaryFor returns null — no entry, documented as exempt);
+ * Ghorrum is not a monster record and never touches this.
+ * Shield absorbs secondary damage first (applyDamage is
+ * shield-first — kept for ALL secondaries, no bypass anywhere). */
+
+export const ELEMENT_SECONDARY = Object.freeze({
+  fire: Object.freeze({ kind: 'burn', dps: 5, seconds: 3 }),
+  lightning: Object.freeze({ kind: 'burn', dps: BURN_DPS, seconds: BURN_SECONDS, auraOnly: true }),
+  acid: Object.freeze({ kind: 'pool', dps: 4, seconds: 4, radius: 3.5 }),
+  poison: Object.freeze({ kind: 'venom', dps: 4, seconds: 5 }),
+  frost: Object.freeze({ kind: 'chill', dps: 2, seconds: 3, speedFactor: 0.7 }),
+  shadow: Object.freeze({ kind: 'dim', dps: 0, seconds: 4, color: 0x5a5a66, max: 0.30 }),
+  sand: Object.freeze({ kind: 'gust', dps: 0, seconds: 2.5, color: 0xc2a15e, max: 0.35 }),
+});
+
+/** The secondary row for an element + event kind, or null.
+ * eventKind: 'hit' | 'hazard' | 'aura'. Lightning is aura-only:
+ * an archetype hit or hazard from a lightning monster lights no
+ * burn (the aura is lightning's secondary). Unknown elements,
+ * Korus ('korus' has no element) and Ghorrum never return a row. */
+export function secondaryFor(element, eventKind = 'hit') {
+  if (!element || !ELEMENT_SECONDARY[element]) return null;
+  const row = ELEMENT_SECONDARY[element];
+  if (row.auraOnly && eventKind !== 'aura') return null;
+  return row;
+}
+
+/** Light the single DoT slot (R2): refresh the duration, take
+ * the higher of the two dps values, never stack a second tick. */
+function lightDot(h, element, dps, seconds) {
+  const cur = h.dotRemainingS > 0 ? (h.dotDps || 0) : 0;
+  if (dps >= cur) { h.dotDps = dps; h.dotElement = element; }
+  h.dotRemainingS = seconds;
+}
+
+/**
+ * Apply a hit/hazard/aura secondary to a hunter record (mutates
+ * h, returns what the caller must still do, or null). The page
+ * owns positions: an acid return means "leave a pool" — the
+ * caller places it at the hunter (hit) or at the hazard (hazard).
+ * Timers are ms timestamps (slowUntil/dimUntil/gustUntil); the
+ * DoT rides the seconds countdown, like the old burn fields.
+ * Safe on a fresh hunter (undefined fields read as 0).
+ */
+export function applyHitSecondary(h, element, eventKind = 'hit', nowMs = Date.now()) {
+  if (!h || !element) return null;
+  const sec = secondaryFor(element, eventKind);
+  if (!sec) return null;
+  if (sec.kind === 'burn' || sec.kind === 'venom') {
+    lightDot(h, element, sec.dps, sec.seconds);
+    return { kind: sec.kind };
+  }
+  if (sec.kind === 'chill') {
+    h.slowUntil = nowMs + sec.seconds * 1000;
+    h.slowFactor = sec.speedFactor;
+    // The 2/s chip rides the same DoT slot — but only if it is
+    // the strongest DoT running (higher-dps-wins); a fire burn
+    // already ticking keeps its dps, the chill still slows.
+    if ((h.dotRemainingS > 0 ? (h.dotDps || 0) : 0) <= sec.dps) {
+      lightDot(h, element, sec.dps, sec.seconds);
+    }
+    return { kind: 'chill' };
+  }
+  if (sec.kind === 'pool') {
+    return { kind: 'pool', radius: sec.radius, dps: sec.dps, seconds: sec.seconds };
+  }
+  if (sec.kind === 'dim') {
+    h.dimUntil = nowMs + sec.seconds * 1000;
+    return { kind: 'dim' };
+  }
+  if (sec.kind === 'gust') {
+    h.gustUntil = nowMs + sec.seconds * 1000;
+    return { kind: 'gust' };
+  }
+  return null;
+}
+
+/** One DoT tick on a hunter record: returns the damage to route
+ * through applyDamage (shield-first, by the caller), 0 when no
+ * DoT runs. The caller gates on !isInBase — this helper only
+ * counts the timer down, it never decides sanctuary. */
+export function tickHunterDot(h, dt) {
+  if (!h || !(h.dotRemainingS > 0)) return 0;
+  const s = Math.min(Math.max(dt || 0, 0), h.dotRemainingS);
+  const dmg = (h.dotDps || 0) * s;
+  h.dotRemainingS = Math.max(0, h.dotRemainingS - s);
+  if (h.dotRemainingS <= 0) { h.dotDps = 0; h.dotElement = null; }
+  return dmg;
+}
+
+/** Walker speed factor from a frost chill (1 when no chill runs).
+ * The page multiplies the sphere step's speed line by this; inside
+ * The Haven the caller passes 1 (suppression, R4). */
+export function chillFactorFor(h, nowMs = Date.now()) {
+  if (!h || !(h.slowUntil > nowMs)) return 1;
+  return h.slowFactor || 0.7;
+}
+
+/** Clear every secondary on a hunter record (death-respawn: the
+ * hunter wakes at The Haven whole, not burning). Also clears the
+ * legacy burn fields, so no stale burn survives the rename. */
+export function clearHunterSecondaries(h) {
+  if (!h) return h;
+  h.dotElement = null;
+  h.dotDps = 0;
+  h.dotRemainingS = 0;
+  h.burnDps = 0;
+  h.burnRemainingS = 0;
+  h.slowUntil = 0;
+  h.slowFactor = 1;
+  h.dimUntil = 0;
+  h.gustUntil = 0;
+  return h;
+}
+
+/** Highest live pool dps at (x, z): standing in two pools deals
+ * the higher pool's dps only (R3). Expired pools deal nothing. */
+export function poolDpsAt(pools, x, z, nowMs = Date.now()) {
+  let best = 0;
+  for (const p of pools || []) {
+    if (!p || p.until <= nowMs) continue;
+    if (Math.hypot(x - p.x, z - p.z) <= p.radius) best = Math.max(best, p.dps || 0);
+  }
+  return best;
+}
+
+/** Drop expired pools (pure — returns a new array). */
+export function prunePools(pools, nowMs = Date.now()) {
+  return (pools || []).filter((p) => p && p.until > nowMs);
+}
+
+/** The active secondary for the HUD pill, or null. Priority is
+ * the ticking DoT, then chill, dim, gust. Seconds are whole
+ * seconds remaining (ceiling, so a 2.1 s burn reads "3 s" until
+ * its last second). */
+export function activeSecondary(h, nowMs = Date.now()) {
+  if (!h) return null;
+  if (h.dotRemainingS > 0 && h.dotElement) {
+    const icon = { fire: '🔥', lightning: '🔥', poison: '🧪', frost: '❄️' }[h.dotElement] || '🔥';
+    const label = { fire: 'burn', lightning: 'burn', poison: 'venom', frost: 'chill' }[h.dotElement] || 'burn';
+    return { icon, label, seconds: Math.ceil(h.dotRemainingS) };
+  }
+  if (h.slowUntil > nowMs) return { icon: '❄️', label: 'chill', seconds: Math.ceil((h.slowUntil - nowMs) / 1000) };
+  if (h.dimUntil > nowMs) return { icon: '🌫️', label: 'dim', seconds: Math.ceil((h.dimUntil - nowMs) / 1000) };
+  if (h.gustUntil > nowMs) return { icon: '💨', label: 'gust', seconds: Math.ceil((h.gustUntil - nowMs) / 1000) };
+  return null;
+}
+
 /* ---------------- THE SAFE BASE (Merlin, 2026-10-24) ----------------
  * The Haven: a sanctuary zone where the hunter CANNOT die. No
  * monster spawns inside it, no monster damage lands inside it,
@@ -216,8 +403,14 @@ const ELEMENT_PRIMARY_HABITAT = {
 
 export function spawnField(seed, opts = {}) {
   const rng = mulberry32(seed);
-  const count = opts.count || 150;
-  const radius = opts.radius || 280;
+  // Full-world field (2026-11-16): 300 monsters over r540 —
+  // the disc grew 340 → 600 m, so the old 150 over r280 would
+  // leave the outer ring empty. Density is ~half the old
+  // field's (area grew 3.7x, count 2x); records are cheap
+  // data and only monsters within ACTIVATE_R 110 m of the
+  // hunter get figures, so the streaming budget is unchanged.
+  const count = opts.count || 300;
+  const radius = opts.radius || 540;
   const habitatAt = opts.habitatAt
     || (opts.elementAt
       ? (x, z) => ELEMENT_PRIMARY_HABITAT[opts.elementAt(x, z)] || 'sand'
@@ -287,13 +480,24 @@ export function spawnField(seed, opts = {}) {
   return records;
 }
 
-export function createMonster(record, rng) {
+export function createMonster(record, rng, nowMs = Date.now()) {
   const stats = MONSTER_TYPES[record.type];
   const rand = rng || Math.random;
+  // Seeded mid-life birth (agents workstream, Nov 16 ~02:31):
+  // the field is already mid-life on entry — age 0..90% of the
+  // family's lifespan, hashed from type+id so the same slot
+  // always draws the same birth — and generation 0. A generation
+  // born by respawn starts at age 0 (respawnMonster resets
+  // birthMs); the lifespan rule is monster-life.js
+  // lifespanDaysFor (dragon 420 d, HP-band below that).
+  const lifespanDays = lifespanDaysFor(stats);
   return {
     ...record,
     stats,
     hp: stats.hp,
+    birthMs: birthMsFor(record.type, record.id, lifespanDays, nowMs),
+    generation: 0,
+    lifespanDays,
     state: stats.attitude === 'ambush' ? 'ambush' : 'idle',
     yaw: 0,
     faceYaw: rand() * Math.PI * 2, // the direction it watches
@@ -302,7 +506,15 @@ export function createMonster(record, rng) {
     target: null,
     attackCd: 0,
     hazardCd: 0,
-    auraCd: 0, // lightning-aura streak cooldown (1.5 s, STRIKE_INTERVAL_S)
+    auraCd: 0, // lightning-aura streak cooldown, player target (1.5 s, STRIKE_INTERVAL_S)
+    auraCdPrey: 0, // prey-streak cooldown: one streak per 1.5 s per TARGET per source
+    preyTarget: null, // monster prey id this carrier is chasing (stepMonster sets it)
+    dueling: null, // rival monster id this carrier is duelling this tick
+    deathCause: null, // 'combat' | 'predation' | 'territorial-duel' once dead
+    killerId: null, // monster id that killed it (predation / duel); null for player kills
+    diedAtMs: null,
+    respawnAtMs: null, // diedAtMs + RESPAWN_S * 1000 once dead
+    lastAuraStrikerId: null, // who lit the current burn (burn kills inherit it)
     burnDps: 0, // aura-burn from another monster's streak (monster-vs-monster)
     burnRemainingS: 0,
     chargeT: 0,
@@ -311,16 +523,20 @@ export function createMonster(record, rng) {
   };
 }
 
-const SIGHT_R = 26;
+export const DEATH_CAUSES = ['age', 'combat', 'predation', 'territorial-duel'];
+export const TERRITORY_R_M = 50; // J2's duel radius, adopted verbatim
+export const PREY_STALK_R_M = 140; // J2's stalk radius, adopted verbatim
+const SIGHT_R = 40;
 const SIGHT_HALF_ANGLE = 0.96; // ±55° cone, ME hunt convention
 const SIGHT_COS = 0.5736;
 const AMBUSH_R = 10;
 const PROXIMITY_R = 8; // spotted regardless of facing or cover
 const HEARING_R = 30; // loud actions draw nearby monsters
-export const GIVE_UP_S = 12; // JUDGMENT CALL: 12 s unseen and the
+export const GIVE_UP_S = 20; // JUDGMENT CALL: 20 s unseen and the
 // monster gives up the chase and returns to its roam — long enough
-// to break line of sight around a rock, short enough that a lost
-// trail actually goes cold.
+// to run a real hunt at the new 40 m sight range, short enough
+// that a lost trail actually goes cold. Prey chases have NO
+// unseen timer at all (tracked by position, not sight).
 
 /* SENSES (two-way hunt, ME hunt.js pattern adapted): monsters do
  * NOT aggro blindly. A monster hunts the player once it SPOTS
@@ -344,10 +560,33 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   const events = [];
   // A burn lit by another monster's aura-strike keeps eating
   // until it runs out — ticked here, wherever the AI runs.
-  if (tickMonsterBurn(m, dt)) return events; // the burn finished it — no further AI this tick
+  if (tickMonsterBurn(m, dt)) {
+    events.push({ kind: 'monster-killed', id: m.id, cause: m.deathCause || 'predation', killerId: m.killerId || null });
+    return events; // the burn finished it — no further AI this tick
+  }
+  // --- AGE DEATH (agents workstream, Nov 16 ~02:31) ---
+  // The life line's own clock: birth + lifespan (monster-life.js
+  // ageDeathDue). A monster whose seeded age runs out dies of
+  // age — cause 'age', the same monster-killed event / remains /
+  // 45 s next-generation path as every other death, so the zone
+  // needs no new hook: it already forwards monster-killed and
+  // respawns at respawnAtMs. The burn above wins ties (a burn
+  // already killing this tick keeps 'predation'). Mounts never
+  // reach stepMonster from the zone, and the guard covers direct
+  // callers too. Sanctuary does not stop old age — The Haven
+  // protects from damage, not from a lifespan ending. opts.nowMs
+  // pins the clock for tests; live callers use Date.now().
+  const nowMs = opts.nowMs != null ? opts.nowMs : Date.now();
+  if (!m.mounted && ageDeathDue(m, nowMs)) {
+    markMonsterDead(m, 'age', null, nowMs);
+    events.push({ kind: 'monster-killed', id: m.id, cause: 'age', killerId: null });
+    return events;
+  }
   m.attackCd = Math.max(0, m.attackCd - dt);
   m.hazardCd = Math.max(0, (m.hazardCd || 0) - dt);
   m.auraCd = Math.max(0, (m.auraCd || 0) - dt);
+  m.auraCdPrey = Math.max(0, (m.auraCdPrey || 0) - dt);
+  m.dueling = null; // duels are per-tick: set again below only while duelling
   const quiet = opts.quiet != null ? opts.quiet : 1;
   const sightR = SIGHT_R * quiet;
   const hearR = HEARING_R * quiet;
@@ -363,54 +602,94 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
     return events;
   }
 
-  // --- LIGHTNING AURA-STRIKE (Merlin, Nov 16 ~00:11: lightning /
-  // burn as the attack where the monster has it — lib/lightning-aura.js
-  // is the shared law: 59 m aura, 8 hit + 6/s burn for 3 s, one
-  // streak per 1.5 s). The aura is the monster's element, NOT a
+  // --- ELEMENTAL AURA-STRIKE (Merlin, Nov 16 ~00:11 lightning /
+  // Nov 16 ~01:33-01:34 all seven elements: "give each monster
+  // its own element and make them be the source of their
+  // elements"). The aura table is elemental-aura.js ELEMENT_AURA
+  // — one row per element (radius, hit, DoT, secondary, colour);
+  // the lightning row DELEGATES to lib/lightning-aura.js (59 m
+  // aura, 8 hit + 6/s burn for 3 s — Merlin's numbers, never
+  // re-typed here). The aura is the monster's element, NOT a
   // hunt decision: it fires whenever the monster is alive +
-  // active and a target stands inside 59 m, spotted or not —
-  // so this branch sits BEFORE the spotting/roam returns below.
-  // MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02): the player is
-  // struck first, always — the lightning is never softened
-  // against the user. Only when the player stands OUTSIDE the
-  // aura does the streak fall on the nearest monster prey
-  // inside it (opts.others — the field's monster records;
-  // Korus and Ghorrum are never prey, refused outright). The
-  // event carries `target`: 'player' or the prey's monster id,
-  // so the zone can route the damage to the right victim.
+  // active and a target stands inside its element's radius,
+  // spotted or not — so this branch sits BEFORE the
+  // spotting/roam returns below.
+  // MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02; savagery step 5,
+  // Nov 16 ~01:33): the player is struck first, always — the
+  // element is never softened against the user. The nearest
+  // monster prey inside the aura is struck on the SAME tick, on
+  // its own 1.5 s cooldown (auraCdPrey) — the old player-first
+  // SUPPRESSION (prey only when the player stood outside the
+  // aura) is gone; what stays is player-first ORDER. Prey comes
+  // from opts.others — the field's monster records; Korus and
+  // Ghorrum are never prey, refused outright. The event carries
+  // `target`: 'player' or the prey's monster id, so the zone can
+  // route the damage to the right victim. The event also carries
+  // `secondary` (burn / pool / dot / gloom / veil / chill — the
+  // ELEMENT_AURA row's secondary) and `color` (the lightning
+  // colour object for lightning, the numeric element colour for
+  // the other six).
   // It does NOT replace the archetype attack (separate cooldown,
-  // separate event kind): a lightning monster in range may both
-  // hit and aura-strike on one tick. Dragons get RED streaks
+  // separate event kind): a monster in range may both hit and
+  // aura-strike on one tick. Lightning dragons get RED streaks
   // (aura kind 'dragon'); lightning non-dragons get WHITE-YELLOW
-  // (aura kind 'lightning-monster'). Mounted monsters never
-  // aura-strike — the zone skips their AI entirely, and this
-  // guard covers direct stepMonster callers too. Korus keeps his
-  // own boss mechanics (stepKorus, never stepMonster) and
-  // Ghorrum is not a monster record, so neither can reach this
-  // branch. Sanctuary (inBase) returns above, so no streak
-  // lands inside The Haven. Distance is the same 2D ground
-  // distance the senses use.
-  if (!m.mounted && m.active !== false) {
-    const auraKind = m.stats && m.stats.dragon
-      ? 'dragon'
-      : (m.stats && m.stats.element === 'lightning' ? 'lightning-monster' : null);
-    if (auraKind && m.auraCd <= 0) {
-      const color = lightningColorFor(auraKind);
-      if (color) {
-        if (dist <= AURA_R_M) {
+  // (aura kind 'lightning-monster'); the fire and shadow dragons
+  // wear their own element's colour (the ELEMENT_AURA rule —
+  // only lightning rows carry the lightningColorFor colour).
+  // Mounted monsters never aura-strike —
+  // the zone skips their AI entirely, and this guard covers
+  // direct stepMonster callers too. Korus keeps his own boss
+  // mechanics (stepKorus, never stepMonster) and Ghorrum is not
+  // a monster record, so neither can reach this branch.
+  // Sanctuary (inBase) returns above, so no streak lands inside
+  // The Haven. Distance is the same 2D ground distance the
+  // senses use. An unknown element has no ELEMENT_AURA row and
+  // never fires.
+  // The aura kind is shared by the strike branch below and the
+  // duel / prey-hunt branches after spotting: dragons ('dragon',
+  // red) and lightning non-dragons ('lightning-monster',
+  // white-yellow) are the lightning carriers — the duel and the
+  // prey-HUNT stay carrier-only (WS3 savagery law); only the
+  // aura strike itself is generalised to all seven elements.
+  const auraKind = m.stats && m.stats.dragon
+    ? 'dragon'
+    : (m.stats && m.stats.element === 'lightning' ? 'lightning-monster' : null);
+  const auraRow = ELEMENT_AURA[(m.stats && m.stats.element) || m.element] || null;
+  if (!m.mounted && (m.active !== false || opts.farSlice)) {
+    if (auraRow) {
+      // Lightning keeps the shared-law colour object (red for
+      // dragons, white-yellow otherwise); every other element
+      // carries its numeric ELEMENT_AURA colour — including the
+      // fire/shadow dragons, whose streaks wear their element.
+      const color = auraRow.element === 'lightning' && auraKind
+        ? lightningColorFor(auraKind)
+        : auraRow.color;
+      if (color != null) {
+        // TWO INDEPENDENT CHECKS, one streak per 1.5 s per TARGET
+        // per source: the player is struck first in the same tick
+        // (ordering, never suppression), and the nearest prey
+        // inside the element's radius is struck on the same tick
+        // on its own cooldown (auraCdPrey). The global
+        // cross-source per-target gate is HELD for Merlin's word
+        // and is NOT built here — a victim can still take one
+        // streak per 1.5 s from EACH carrier.
+        if (dist <= auraRow.radiusM && m.auraCd <= 0) {
           m.auraCd = STRIKE_INTERVAL_S;
           events.push({
             kind: 'aura-strike', element: m.element, from: m.id, target: 'player',
-            dmg: BURN_HIT_DMG, burnDps: BURN_DPS, burnSeconds: BURN_SECONDS,
+            dmg: auraRow.hit, burnDps: auraRow.dps, burnSeconds: auraRow.seconds,
+            secondary: auraRow.secondary,
             color,
           });
-        } else {
-          const prey = nearestMonsterPrey(m, opts.others);
+        }
+        if ((m.auraCdPrey || 0) <= 0) {
+          const prey = nearestMonsterPrey(m, opts.others, auraRow.radiusM);
           if (prey) {
-            m.auraCd = STRIKE_INTERVAL_S;
+            m.auraCdPrey = STRIKE_INTERVAL_S;
             events.push({
               kind: 'aura-strike', element: m.element, from: m.id, target: prey.target.id,
-              dmg: BURN_HIT_DMG, burnDps: BURN_DPS, burnSeconds: BURN_SECONDS,
+              dmg: auraRow.hit, burnDps: auraRow.dps, burnSeconds: auraRow.seconds,
+              secondary: auraRow.secondary,
               color,
             });
           }
@@ -470,6 +749,74 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
     }
   }
 
+  // --- TERRITORIAL DUEL (J2 parity, savagery step 4) ---
+  // Two lightning carriers (dragons count) within 50 m duel;
+  // the bigger scaleM wins, ties break on a seeded hash of the
+  // pair id (duelOutcome). The loser takes lethal damage ONCE —
+  // deathCause 'territorial-duel', killerId the winner — and the
+  // same monster-killed event as a predation death. Duels are
+  // carrier-vs-carrier only; non-lightning families are prey,
+  // never rivals. The outcome is symmetric, so whichever rival
+  // steps first settles the pair; the dead check makes the
+  // second step a no-op, never a double-kill. A duelling winner
+  // keeps hunting afterwards (prey branch below).
+  if (!m.mounted && auraKind && opts.others) {
+    const rival = nearestDuelRival(m, opts.others, opts.farSlice);
+    if (rival) {
+      const outcome = duelOutcome(
+        { id: m.id, scaleM: (m.stats && m.stats.scaleM) || 1 },
+        { id: rival.id, scaleM: (rival.stats && rival.stats.scaleM) || 1 },
+      );
+      if (outcome.loserId === m.id) {
+        markMonsterDead(m, 'territorial-duel', outcome.winnerId);
+        events.push({ kind: 'monster-killed', id: m.id, cause: 'territorial-duel', killerId: outcome.winnerId });
+        return events;
+      }
+      m.dueling = rival.id;
+      markMonsterDead(rival, 'territorial-duel', m.id);
+      events.push({ kind: 'monster-killed', id: rival.id, cause: 'territorial-duel', killerId: m.id });
+    }
+  }
+
+  // --- MONSTER PREY HUNT (savagery step 3) ---
+  // Lightning carriers only: when the player is NOT the current
+  // target (unspotted — a spotted carrier hunts the player,
+  // never prey), the carrier closes on the nearest monster prey
+  // inside the 140 m stalk radius at its own speed ×1.5. The
+  // chase ends when the prey dies, leaves 140 m, or the
+  // carrier's aura kills it; there is NO unseen timer for prey
+  // chases — prey is tracked by position, not sight, same as
+  // J2's re-evaluation. Player hunt keeps absolute priority.
+  // HUNGER-GATED (agents workstream, Nov 16 ~02:31; WS3 audit
+  // G7's call): the chase reads the agent's hunger verdict
+  // (monster-life.js hungerFor — J2's clock, 0→1 over 210 s,
+  // hungry ≥ 0.72), never a second copy of the rule. A carrier
+  // closes on prey only while hungry, so the field is not in
+  // permanent frenzy. The player hunt above is NEVER gated, and
+  // the aura strike above fires hungry or not — hunger paces
+  // the CHASE only.
+  if (!m.spotted && !m.mounted && auraKind && opts.others) {
+    const hunger = hungerFor(m, nowMs);
+    if (hunger.hungry) {
+      const prey = nearestMonsterPrey(m, opts.others, PREY_STALK_R_M);
+      if (prey) {
+        m.preyTarget = prey.target.id;
+        const pdx = prey.target.x - m.x;
+        const pdz = prey.target.z - m.z;
+        const pdist = Math.hypot(pdx, pdz) || 0.001;
+        m.faceYaw = Math.atan2(pdx, pdz);
+        const close = Math.min(m.stats.speed * 1.5 * dt, pdist);
+        m.x += (pdx / pdist) * close;
+        m.z += (pdz / pdist) * close;
+        if (m.state === 'idle') m.state = 'stalk';
+        return events;
+      }
+    }
+    m.preyTarget = null;
+  } else if (m.spotted) {
+    m.preyTarget = null;
+  }
+
   if (!m.spotted) {
     // Roam drift: a slow wander so the field feels alive.
     if (rng) {
@@ -516,7 +863,7 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
       }
     } else if (dist <= arch.range + m.stats.footprintR) {
       m.attackCd = 1.1;
-      events.push({ kind: 'hit', dmg: m.stats.dmg, from: m.id, archetype: m.stats.archetype });
+      events.push({ kind: 'hit', element: m.element, dmg: m.stats.dmg, from: m.id, archetype: m.stats.archetype });
     }
   }
   return events;
@@ -525,7 +872,9 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
 export function damageMonster(m, dmg) {
   if (m.dead) return false;
   m.hp -= dmg;
-  if (m.hp <= 0) { m.hp = 0; m.dead = true; m.state = 'dead'; m.spotted = false; return true; }
+  // Player kills stay 'combat' (no killerId — the hunter is the
+  // killer) and respawn on the same 45 s clock as predation.
+  if (m.hp <= 0) { markMonsterDead(m, 'combat', null); return true; }
   // Pain wakes an ambusher — and spots the hunter for any monster.
   m.spotted = true;
   m.unseenT = 0;
@@ -535,15 +884,18 @@ export function damageMonster(m, dmg) {
 
 /* ---------------- MONSTER-VS-MONSTER (Merlin, Nov 16 ~01:02) ----------------
  * "Make monsters attack each other, not just the user." The
- * attack is the aura: a live lightning-element monster or
- * dragon strikes monster prey inside its 59 m aura with the
- * same law as the player strike (8 on the hit, 6/s burn for
- * 3 s, one streak per 1.5 s per source, player first). Non-
- * lightning monsters carry no aura, so they never hunt — they
- * can only BE prey. Archetype attacks (hit / hazard) stay
- * player-only; the aura is the monster's attack, and the field
- * is dense enough (~150 monsters over r280) that lightning
- * carriers meet prey without a chase.
+ * attack is the aura: a live monster strikes monster prey
+ * inside its own element's aura radius with its element's law
+ * (lightning: 8 on the hit, 6/s burn for 3 s; the other six
+ * ride their ELEMENT_AURA rows), one streak per 1.5 s per
+ * target per source, player first in the same tick. The
+ * prey-HUNT (closing to 140 m) and territorial duels stay
+ * lightning-carrier-only (WS3 savagery law) — every element's
+ * aura strikes prey in range, and any monster can BE prey.
+ * Archetype attacks (hit / hazard) stay player-only; the aura
+ * is the monster's attack, and the field is dense enough
+ * (~150 monsters over r280) that carriers meet prey without a
+ * chase.
  * KORUS and GHORRUM are EXEMPT by design and by code: Korus
  * is never a monster record (stepKorus, never stepMonster) and
  * Ghorrum is not a monster record either — and isMonsterPrey-
@@ -551,9 +903,12 @@ export function damageMonster(m, dmg) {
  * passing them in `others` can never make them prey.
  * A monster kill by another monster pays NO hunter reward: no
  * +12 heal, no shield progress, no Korus-gate progress — the
- * campaign counts the hunter's kills only (worker's call). The
- * field still empties the same way: a dead monster stays dead
- * this session, like a combat kill. */
+ * campaign counts the hunter's kills only (worker's call).
+ * REGENERATION (savagery step 2): a dead monster no longer
+ * stays dead this session — it returns after 45 s in-slot
+ * (respawnMonster), same family, near where it fell, so a
+ * livelier monster-vs-monster system cannot empty the field.
+ * Player kills respawn on the same clock; Korus never does. */
 export function isMonsterPreyTarget(t) {
   if (!t || t.dead) return false;
   if (t.mounted) return false; // a mount is the rider's own — never prey
@@ -562,31 +917,94 @@ export function isMonsterPreyTarget(t) {
   return true;
 }
 
-/** Nearest eligible monster prey inside the 59 m aura, or null. Pure. */
-export function nearestMonsterPrey(m, others) {
+/** Nearest eligible monster prey inside `radiusM` (default the 59 m aura), or null. Pure.
+ * The prey hunt (step 3) passes the 140 m stalk radius; the aura strike keeps 59 m. */
+export function nearestMonsterPrey(m, others, radiusM = AURA_R_M) {
   let best = null;
   let bestD = Infinity;
   for (const o of Array.isArray(others) ? others : []) {
     if (!o || o.id === m.id || !isMonsterPreyTarget(o)) continue;
     if (o.active === false) continue;
     const d = Math.hypot((o.x || 0) - (m.x || 0), (o.z || 0) - (m.z || 0));
-    if (d <= AURA_R_M && d < bestD) { best = o; bestD = d; }
+    if (d <= radiusM && d < bestD) { best = o; bestD = d; }
   }
   return best ? { target: best, distanceM: Math.round(bestD * 100) / 100 } : null;
 }
 
+/** Nearest live lightning carrier within the 50 m duel radius, or null. Pure.
+ * Carrier-vs-carrier only (dragons count); mounted, dead and (unless the
+ * far-slice tick is running) inactive records never duel. */
+export function nearestDuelRival(m, others, farSlice) {
+  let best = null;
+  let bestD = Infinity;
+  for (const o of Array.isArray(others) ? others : []) {
+    if (!o || o.id === m.id || o.dead || o.mounted) continue;
+    if (!o.stats) continue;
+    const isCarrier = o.stats.dragon || o.stats.element === 'lightning';
+    if (!isCarrier) continue;
+    if (o.active === false && !farSlice) continue;
+    const d = Math.hypot((o.x || 0) - (m.x || 0), (o.z || 0) - (m.z || 0));
+    if (d <= TERRITORY_R_M && d < bestD) { best = o; bestD = d; }
+  }
+  return best;
+}
+
+/** Seeded duel winner (J2's duelOutcome, on scaleM — HE has no
+ * per-model heightM table): bigger scaleM wins; ties break on a
+ * seeded hash of the pair id. Pure and symmetric — both rivals
+ * compute the same winner. */
+export function duelOutcome(a, b) {
+  const sa = Number((a && a.scaleM) || 1);
+  const sb = Number((b && b.scaleM) || 1);
+  if (sa !== sb) {
+    return sa > sb
+      ? { winnerId: a.id, loserId: b.id }
+      : { winnerId: b.id, loserId: a.id };
+  }
+  const [first, second] = [String(a && a.id), String(b && b.id)].sort();
+  const ids = `${first}|${second}`;
+  let h = 2166136261;
+  for (let i = 0; i < ids.length; i++) { h ^= ids.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) / 4294967296 < 0.5
+    ? { winnerId: first, loserId: second }
+    : { winnerId: second, loserId: first };
+}
+
+/** Shared death bookkeeping: HP 0, dead, cause + killer + diedAt
+ * + the 45 s respawn clock. Every death path funnels through here
+ * so the death law is one place, not three. */
+function markMonsterDead(m, cause, killerId, nowMs) {
+  m.hp = 0;
+  m.dead = true;
+  m.state = 'dead';
+  m.spotted = false;
+  m.target = null;
+  m.preyTarget = null;
+  m.deathCause = cause;
+  m.killerId = killerId || null;
+  m.diedAtMs = nowMs != null ? nowMs : Date.now();
+  m.respawnAtMs = m.diedAtMs + RESPAWN_S * 1000;
+  return true;
+}
+
 /**
- * A monster-prey aura hit lands: 8 damage on the hit, burn
- * (re)lit at 6/s for 3 s. Unlike damageMonster it does NOT wake
- * the victim onto the hunter — the streak came from another
- * monster, not the player. Returns true when the hit killed.
+ * A monster-prey aura hit lands: the event's hit damage, then
+ * its DoT (re)lit at the event's dps/seconds — the lightning
+ * defaults (8 + 6/s x 3 s) apply when an event carries no
+ * numbers, so older callers keep working. Unlike damageMonster
+ * it does NOT wake the victim onto the hunter — the streak came
+ * from another monster, not the player. Returns true when the
+ * hit killed.
  */
 export function applyMonsterAuraHit(m, ev) {
   if (!m || m.dead) return false;
+  // The striker who lit this burn owns the kill if the burn
+  // finishes the victim (tickMonsterBurn inherits it).
+  if (ev && ev.from) m.lastAuraStrikerId = ev.from;
   m.hp = Math.max(0, (m.hp || 0) - (ev && ev.dmg != null ? ev.dmg : BURN_HIT_DMG));
-  m.burnDps = BURN_DPS;
-  m.burnRemainingS = BURN_SECONDS;
-  if (m.hp <= 0) { m.hp = 0; m.dead = true; m.state = 'dead'; m.spotted = false; m.target = null; return true; }
+  m.burnDps = ev && ev.burnDps != null ? ev.burnDps : BURN_DPS;
+  m.burnRemainingS = ev && ev.burnSeconds != null ? ev.burnSeconds : BURN_SECONDS;
+  if (m.hp <= 0) { markMonsterDead(m, 'predation', ev && ev.from ? ev.from : null); return true; }
   return false;
 }
 
@@ -597,8 +1015,68 @@ export function tickMonsterBurn(m, dt) {
   m.hp = Math.max(0, (m.hp || 0) - (m.burnDps || 0) * s);
   m.burnRemainingS = Math.max(0, m.burnRemainingS - s);
   if (m.burnRemainingS <= 0) m.burnDps = 0;
-  if (m.hp <= 0) { m.hp = 0; m.dead = true; m.state = 'dead'; m.spotted = false; m.target = null; return true; }
+  if (m.hp <= 0) { markMonsterDead(m, 'predation', m.lastAuraStrikerId || null); return true; }
   return false;
+}
+
+/* ---------------- REGENERATION (savagery step 2 — load-bearing) ----------------
+ * RESPAWN_S = 45 finally has a reader. A dead monster returns
+ * after 45 s: same slot identity (id kept, so the field count
+ * never drops), same type, a new position near where it fell
+ * (within ~40 m — which keeps it in its habitat band in
+ * practice, since it died hunting there — clear of The Haven
+ * and the spawn-clear radius), full HP, fresh cooldowns. Korus
+ * never respawns: he is not a monster record and carries no
+ * respawnAtMs. THE 45 s CLOCK IS THE DECOMPOSITION WINDOW
+ * (agents workstream, Nov 16 ~02:31 — the one-death-law call):
+ * J2's multi-day decomposition clock is NOT copied — Hollow
+ * Earth is a session world, the field rebuilds on re-entry, so
+ * a corpse cannot decompose across days. Instead the remains
+ * lie for the 45 s window (the zone's remains disc fades over
+ * exactly that window) and then the NEXT GENERATION is born in
+ * the same slot: generation + 1, birthMs reset to the respawn
+ * instant (age 0, full lifespan ahead), same family, near where
+ * it fell. Age death now exists too (birth + lifespan, via
+ * stepMonster) — the generation walk is what the respawn IS. */
+export function respawnMonster(m, rng, nowMs = Date.now()) {
+  const rand = rng || Math.random;
+  const maxHp = (m.stats && m.stats.hp) || 100;
+  let x = m.x;
+  let z = m.z;
+  let guard = 0;
+  do {
+    const a = rand() * Math.PI * 2;
+    const r = Math.sqrt(rand()) * 40;
+    x = m.x + Math.cos(a) * r;
+    z = m.z + Math.sin(a) * r;
+    guard++;
+  } while (guard < 20 && (isInBase(x, z) || Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) < SPAWN_CLEAR_R));
+  m.x = x;
+  m.z = z;
+  m.hp = maxHp;
+  m.dead = false;
+  m.state = (m.stats && m.stats.attitude === 'ambush') ? 'ambush' : 'idle';
+  m.spotted = false;
+  m.unseenT = 0;
+  m.target = null;
+  m.preyTarget = null;
+  m.dueling = null;
+  m.attackCd = 0;
+  m.hazardCd = 0;
+  m.auraCd = 0;
+  m.auraCdPrey = 0;
+  m.burnDps = 0;
+  m.burnRemainingS = 0;
+  m.lastAuraStrikerId = null;
+  m.chargeT = 0;
+  m.deathCause = null;
+  m.killerId = null;
+  m.diedAtMs = null;
+  m.respawnAtMs = null;
+  m.generation = (m.generation || 0) + 1; // the next generation, same slot
+  m.birthMs = nowMs; // born fresh — age 0, full lifespan ahead
+  m.active = false; // re-activates by proximity in the zone loop
+  return m;
 }
 
 /* ---------------- hunter rewards (Merlin, 2026-10-24) ----------------
@@ -683,7 +1161,7 @@ export function strike(monsters, px, pz, yaw, spec) {
  * ever covered landmarks + solid scatter, never monsters, and the
  * first-person camera sits at the walker's eye, so overlapping a
  * monster puts the camera inside its mesh. These pure helpers are
- * the fix: monsterColliders() feeds the page's stepWalker call
+ * the fix: monsterColliders() feeds the page's sphere step
  * each frame (active, living monsters + Korus — Ghorrum is
  * deliberately EXCLUDED, he never blocks the path), and
  * separateFromPlayer() keeps ground monsters from walking into

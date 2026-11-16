@@ -115,10 +115,10 @@ test('hud: objective and roam rows are in-flow bands, not absolute overlays', ()
 test('hud: DOM order is header, then objective, then hunt', () => {
   const zone = pageSrc.slice(pageSrc.indexOf('styles.hudTop'));
   const header = zone.indexOf('styles.topBar');
-  const mission = Math.min(
-    zone.indexOf('styles.missionChip'),
-    zone.indexOf('styles.missionHud'),
-  );
+  // The objective row is the mission HUD card: the collapsed chip
+  // is an OrbButton now, not a styles.missionChip div (that style
+  // is unused), so missionHud alone pins the row.
+  const mission = zone.indexOf('styles.missionHud');
   const roam = Math.min(
     zone.indexOf('styles.roamCardFull'),
     zone.indexOf('styles.roamChip'),
@@ -147,8 +147,16 @@ test('controls: strike is the biggest thumb target, weapon buttons are 44px tall
   assert.match(kills, /fontSize: '0\.95rem'/);
 });
 
-test('controls: weapon bar is bounded so it cannot run under the joystick', () => {
-  const bar = styleBlock(pageSrc, 'weaponBar');
-  assert.match(bar, /maxWidth: 'calc\(100% - 1\.6rem\)'/);
-  assert.match(bar, /justifyContent: 'flex-end'/);
+test('controls: free-floating weapon orbs home bottom-right, clear of the joystick', () => {
+  // The weaponBar row is dissolved (Merlin, Nov 16 ~02:42 — the
+  // shared orb dock): the melee + ranged orbs free-float from
+  // right-anchored home slots at the bottom-right, and the backpack
+  // keeps its own home there — nothing in the row can run under the
+  // bottom-left joystick, because nothing is left-anchored at all.
+  assert.doesNotMatch(pageSrc, /styles\.weaponBar/);
+  const home = styleBlock(pageSrc, 'backpackHome');
+  assert.match(home, /right: '0\.8rem'/);
+  assert.match(home, /bottom: BOTTOM_CLEAR/);
+  assert.match(pageSrc, /dock\.styleFor\('melee', \{ right: 'calc\(0\.8rem \+ 112px \+ 0\.9rem\)', bottom: BOTTOM_CLEAR \}\)/);
+  assert.match(pageSrc, /dock\.styleFor\('ranged', \{ right: 'calc\(0\.8rem \+ 56px \+ 0\.45rem\)', bottom: BOTTOM_CLEAR \}\)/);
 });

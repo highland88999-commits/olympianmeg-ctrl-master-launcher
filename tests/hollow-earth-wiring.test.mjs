@@ -100,14 +100,14 @@ describe('BUILD 4 — life lines (pure helpers the page notices)', () => {
       { id: 'm-1', type: TYPE, element: MONSTER_TYPES[TYPE].element, x: 10, z: 20 },
       () => 0.5,
     );
-    assert.ok(monsterLifeFor(m, T0).line.startsWith(`${NAME} · Roaming`), 'roaming line');
+    assert.match(monsterLifeFor(m, T0).line, new RegExp(`^${NAME} · (Young|Juvenile|Adult|Elder) · Roaming`), 'roaming line');
     m.spotted = true;
     m.state = 'stalk';
     assert.match(monsterLifeFor(m, T0).line, /Hunting you/);
     assert.equal(damageMonster(m, 99999), true, 'killing blow');
-    assert.equal(
+    assert.match(
       monsterLifeFor(m, T0).line,
-      `Remains — ${NAME} — killed in combat, does not return this session`,
+      new RegExp(`^Remains — ${NAME} · slain by the hunter · returns in \\d+s$`),
     );
   });
 

@@ -44,6 +44,7 @@ import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from 
 import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { useOrbDock } from '@/components/world/useOrbDock';
 import { createWalker, stepWalker, applyLook, resolveColliders, clampBounds } from '@/lib/world/walk-controls';
 import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { followCameraPose } from '@/lib/world/follow-camera';
@@ -64,6 +65,9 @@ const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
 const CARD_CLEAR = 'max(7.5rem, calc(env(safe-area-inset-bottom) + 6.5rem))';
 const GOLD = '#d8b25c';
+// Orb sizes for the shared dock (lib/world/orb-dock.js): the weapon
+// orbs are the plain 56 px OrbButton circles.
+const ME_ORB_SIZES = { melee: 56, ranged: 56 };
 
 function readProgress() {
   try { return DATA.loadProgress() || DATA.createProgress(); } catch { return DATA.createProgress(); }
@@ -154,6 +158,13 @@ export default function MiddleEarthPage() {
   const [elapsed, setElapsed] = useState(0);
   const [hp, setHp] = useState(PLAYER_MAX_HP);
   const [weapon, setWeapon] = useState('melee'); // melee | ranged
+  // Orb dock (Merlin, Nov 16 ~02:42 — the Middle-earth mirror of the
+  // Hollow Earth / Jupiter 2 treatment): the melee + ranged orbs are
+  // free-floating and draggable; their spots persist per user under
+  // `olympus:middle-earth:orb-dock:v1` (lib/world/orb-dock.js). The
+  // action column (Strike/Jump/Sprint) keeps its mid-right home,
+  // untouched by this pass; the backpack keeps its own dock.
+  const dock = useOrbDock('middle-earth', ME_ORB_SIZES);
   const [huntHud, setHuntHud] = useState(null); // { heat, level }
   const [senseHud, setSenseHud] = useState('');
   const [bossHud, setBossHud] = useState(null); // { hp, maxHp, phase, state }
@@ -1436,6 +1447,9 @@ export default function MiddleEarthPage() {
                 <div style={styles.hpLabel}>♥ {Math.max(0, Math.round(hp))}</div>
                 <div style={styles.hpOuter}><div style={{ ...styles.hpInner, width: `${Math.max(0, (hp / hero.maxHp) * 100)}%` }} /></div>
               </div>
+              {/* kills chip, re-homed from the dissolved weapon bar —
+                  display only, next to the HP in the top bar */}
+              <span style={styles.killsChip}>⚔ {campaign.totalKills}</span>
             </div>
 
             {activeMission && !intro && !beatOverlay && (
@@ -1520,30 +1534,40 @@ export default function MiddleEarthPage() {
             </div>
           )}
 
-          {/* weapon bar — plain circle orbs now, never pills: each
-              orb shows the weapon's glyph + damage, the full name
-              stays in its aria-label. */}
-          <div style={{ ...styles.weaponBar, bottom: BOTTOM_CLEAR }}>
-            <OrbButton accent={GOLD} active={weapon === 'melee'}
-              onClick={() => setWeapon('melee')}
-              ariaLabel={`${hero.meleeLabel} ${hero.meleeDmg} — tap to switch to melee`}>
-              <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.meleeLabel.split(' ')[0]}</span>
-              <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.meleeDmg}</span>
-            </OrbButton>
-            <OrbButton accent={GOLD} active={weapon === 'ranged'}
-              onClick={() => setWeapon('ranged')}
-              ariaLabel={`${hero.rangedLabel} ${hero.ranged.dmg} — tap to switch to ranged`}>
-              <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.rangedLabel.split(' ')[0]}</span>
-              <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.ranged.dmg}</span>
-            </OrbButton>
-            <span style={styles.killsChip}>⚔ {campaign.totalKills}</span>
+          {/* weapon orbs — free-floating, draggable, persistent
+              (Merlin, Nov 16 ~02:42 — the shared orb dock,
+              lib/world/orb-dock.js): the old weaponBar row is
+              dissolved. Each orb shows the weapon's glyph +
+              damage, the full name stays in its aria-label. Home
+              slots are the row's old spots at the bottom-right,
+              left of the backpack's own home: ranged nearest the
+              backpack, melee left of it. The kills chip moved up
+              into the top bar; the backpack keeps its own docked
+              home at the row's right end. */}
+          <OrbButton accent={GOLD} active={weapon === 'melee'}
+            {...dock.bind('melee')}
+            style={dock.styleFor('melee', { right: 'calc(0.8rem + 112px + 0.9rem)', bottom: BOTTOM_CLEAR })}
+            onClick={() => setWeapon('melee')}
+            ariaLabel={`${hero.meleeLabel} ${hero.meleeDmg} — tap to switch to melee`}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.meleeLabel.split(' ')[0]}</span>
+            <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.meleeDmg}</span>
+          </OrbButton>
+          <OrbButton accent={GOLD} active={weapon === 'ranged'}
+            {...dock.bind('ranged')}
+            style={dock.styleFor('ranged', { right: 'calc(0.8rem + 56px + 0.45rem)', bottom: BOTTOM_CLEAR })}
+            onClick={() => setWeapon('ranged')}
+            ariaLabel={`${hero.rangedLabel} ${hero.ranged.dmg} — tap to switch to ranged`}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.rangedLabel.split(' ')[0]}</span>
+            <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.ranged.dmg}</span>
+          </OrbButton>
+          <div style={styles.backpackHome}>
             <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies docked
               onDinoSummon={(it) => { if (dinoApiRef.current) dinoApiRef.current.summon(it); }}
               onDinoRecall={(it) => { if (dinoApiRef.current) dinoApiRef.current.recall(it); }} />
           </div>
 
           {/* touch actions: the right-thumb column — strike, jump,
-              sprint — parked mid-right, clear of the weapon bar
+              sprint — parked mid-right, clear of the weapon orbs
               below it and the top bar above it */}
           {!intro && !fallen && (
             <div style={styles.actionCol}>
@@ -1714,7 +1738,10 @@ const styles = {
   reticle: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 8, pointerEvents: 'none', color: 'rgba(255,244,200,0.9)', textShadow: '0 0 6px rgba(0,0,0,0.8)' },
   chevron: { fontSize: '2rem', lineHeight: 1, display: 'block' },
   dot: { fontSize: '1.6rem', lineHeight: 1, display: 'block' },
-  weaponBar: { position: 'absolute', right: '0.8rem', bottom: BOTTOM_CLEAR, display: 'flex', gap: '0.45rem', alignItems: 'center', justifyContent: 'flex-end', maxWidth: 'calc(100% - 1.6rem)', zIndex: 10 },
+  /* backpack home: the docked BackpackHud's own in-flow slot at the
+   * old weapon row's right end — its own drag/persist (v2 keys),
+   * untouched by the shared orb dock. */
+  backpackHome: { position: 'absolute', right: '0.8rem', bottom: BOTTOM_CLEAR, zIndex: 10 },
   weaponBtn: { background: 'rgba(16,20,12,0.8)', color: '#cfc49c', border: '1px solid rgba(216,178,92,0.5)', borderRadius: 999, padding: '0.5rem 0.85rem', minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', fontFamily: 'Georgia, serif', fontSize: '0.9rem', whiteSpace: 'nowrap' },
   weaponBtnOn: { background: GOLD, color: '#221a08', border: `1px solid ${GOLD}`, fontWeight: '700' },
   killsChip: { background: 'rgba(16,20,12,0.8)', border: '1px solid rgba(216,178,92,0.4)', borderRadius: 999, padding: '0.5rem 0.75rem', fontSize: '0.95rem', fontWeight: '700', color: '#e8d9a8', whiteSpace: 'nowrap' },

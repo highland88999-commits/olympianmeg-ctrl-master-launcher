@@ -16,7 +16,9 @@ import {
 import {
   PLANET_R, CAVE_MOUTH_THETA_RAD, LEVER_CAVE_THETA_RAD,
   leverCavePoint, leverCaveMouthPoint, isInCave, thetaFromPole,
+  spherePointFromDeck, deckToDir, deckForwardForYaw,
 } from '../lib/jupiter2/planet.js';
+import { sphereTangentBasis } from '../lib/planet-walker.js';
 import {
   createSpeederState, summonSpeeder, dismissSpeeder, dismountSpeeder,
   stepSpeeder, speedFor, SPEEDER_MOUNTED_EYE_M,
@@ -115,24 +117,127 @@ describe('speeder (Earth 1 summon contract)', () => {
       }
       return sp.yaw;
     };
-    // Half deflection turns at half the 2.2 rad/s rate.
-    assert.ok(Math.abs(yawAfter(0.5) - 1.1) < 0.05, `half steer turns ~1.1 rad/s, got ${yawAfter(0.5)}`);
+    // Half deflection turns at half the 2.2 rad/s rate. Yaw speaks
+    // the shared basis language (yaw+ = RIGHT), steer is +1 = LEFT,
+    // so a left steer DECREASES the yaw and a right steer increases
+    // it — the scene's steer = -scaled * sign(raw) is correct.
+    assert.ok(Math.abs(yawAfter(0.5) + 1.1) < 0.05, `half left steer turns ~-1.1 rad, got ${yawAfter(0.5)}`);
     // Full deflection turns at the full rate, either way.
-    assert.ok(Math.abs(yawAfter(1) - 2.2) < 0.05, `full left steer turns ~2.2 rad/s, got ${yawAfter(1)}`);
-    assert.ok(Math.abs(yawAfter(-1) + 2.2) < 0.05, `full right steer turns ~-2.2 rad/s, got ${yawAfter(-1)}`);
+    assert.ok(Math.abs(yawAfter(1) + 2.2) < 0.05, `full left steer turns ~-2.2 rad, got ${yawAfter(1)}`);
+    assert.ok(Math.abs(yawAfter(-1) - 2.2) < 0.05, `full right steer turns ~+2.2 rad, got ${yawAfter(-1)}`);
     // A centred stick (steer 0) turns nothing, even with a left key held — the stick is the active device.
     const sp = createSpeederState();
     summonSpeeder(sp, { x: 0, z: 0, yaw: 0 });
     stepSpeeder(sp, { fwd: 0, back: 0, left: 1, right: 0, boost: false, steer: 0 }, 1);
     assert.equal(sp.yaw, 0);
     // Steer clamps to -1..1 instead of spinning faster than full rate.
-    assert.ok(Math.abs(yawAfter(2) - 2.2) < 0.05, `steer 2 clamps to full rate, got ${yawAfter(2)}`);
+    assert.ok(Math.abs(yawAfter(2) + 2.2) < 0.05, `steer 2 clamps to full rate, got ${yawAfter(2)}`);
+  });
+  it('the speeder drives nose-first: heading is the shared basis forward, never its mirror', () => {
+    // The old step drove along (-sin yaw, -cos yaw) — the mirror of
+    // sphereTangentBasis forward — so at spawn yaw 0.6 it crabbed
+    // 69° off the view, almost straight to screen-left. Drive a
+    // full second at top speed and the displacement must lie in the
+    // forward/up plane: along the basis forward, ~nothing sideways.
+    const drive = (yaw) => {
+      const sp = createSpeederState();
+      summonSpeeder(sp, { x: 0, z: 0, yaw });
+      sp.speed = SPEEDER_SPEED;
+      const before = spherePointFromDeck(sp.x, sp.z);
+      stepSpeeder(sp, { fwd: 1, back: 0, left: 0, right: 0, boost: false }, 1);
+      const after = spherePointFromDeck(sp.x, sp.z);
+      const d = { x: after.x - before.x, y: after.y - before.y, z: after.z - before.z };
+      const n = Math.hypot(d.x, d.y, d.z) || 1;
+      const basis = sphereTangentBasis(before, sp.yaw, PLANET_R);
+      return {
+        along: (basis.forward.x * d.x + basis.forward.y * d.y + basis.forward.z * d.z) / n,
+        sideways: (basis.right.x * d.x + basis.right.y * d.y + basis.right.z * d.z) / n,
+      };
+    };
+    const straight = drive(0.6);
+    // The chord over a full second dips radially (terrain + sphere
+    // curve), so `along` reads ~0.98, not 1 — the decisive pin is
+    // `sideways`: a mirrored heading crabbed at -0.92 across the
+    // view, a nose-first heading reads ~0 sideways.
+    assert.ok(straight.along > 0.95, `straight at yaw 0.6 drives along the view, got ${straight.along}`);
+    assert.ok(Math.abs(straight.sideways) < 0.02, `no sideways crab at yaw 0.6, got ${straight.sideways}`);
+    // Stick right (steer -1) turns the heading right, then the craft
+    // still drives along its new nose — the turn and the travel agree.
+    const sp = createSpeederState();
+    summonSpeeder(sp, { x: 0, z: 0, yaw: 0.6 });
+    stepSpeeder(sp, { fwd: 0, back: 0, left: 0, right: 0, boost: false, steer: -1 }, 0.5);
+    assert.ok(Math.abs(sp.yaw - 1.7) < 0.05, `stick right turns the yaw up (right), got ${sp.yaw}`);
+    sp.speed = SPEEDER_SPEED;
+    const before = spherePointFromDeck(sp.x, sp.z);
+    stepSpeeder(sp, { fwd: 1, back: 0, left: 0, right: 0, boost: false }, 1);
+    const after = spherePointFromDeck(sp.x, sp.z);
+    const d = { x: after.x - before.x, y: after.y - before.y, z: after.z - before.z };
+    const n = Math.hypot(d.x, d.y, d.z) || 1;
+    const basis = sphereTangentBasis(before, sp.yaw, PLANET_R);
+    const along = (basis.forward.x * d.x + basis.forward.y * d.y + basis.forward.z * d.z) / n;
+    const sideways = (basis.right.x * d.x + basis.right.y * d.y + basis.right.z * d.z) / n;
+    assert.ok(along > 0.95, `after a right turn the craft still drives along its nose, got ${along}`);
+    assert.ok(Math.abs(sideways) < 0.02, `after a right turn there is still no sideways crab, got ${sideways}`);
+  });
+  it('the deck-Jacobian step kills the residual rim crab: cap < 0.1°, sideways 0', () => {
+    // The flat (sin yaw, −cos yaw) step was only pole-exact: it
+    // crabbed 19.88° at (−60,−60) yaw 0 on the deck cap and
+    // 180° (fully backwards) at (0,−165) past the drop. The
+    // helper steps along the shared basis forward instead — so
+    // measure the angle between the helper's infinitesimal deck
+    // step and the basis forward, over the cap and past the drop.
+    const residual = (x, z, yaw) => {
+      const feet = spherePointFromDeck(x, z);
+      const basis = sphereTangentBasis(feet, yaw, PLANET_R);
+      const f = deckForwardForYaw(x, z, yaw);
+      const a0 = deckToDir(x, z);
+      const a1 = deckToDir(x + f.x * 0.01, z + f.z * 0.01);
+      const t = { x: a1.x - a0.x, y: a1.y - a0.y, z: a1.z - a0.z };
+      const n = Math.hypot(t.x, t.y, t.z) || 1;
+      const dot = (basis.forward.x * t.x + basis.forward.y * t.y + basis.forward.z * t.z) / n;
+      return Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+    };
+    const yaws = [0, 0.6, 1.3, 2.1, -0.9, 3.0];
+    let worstCap = 0;
+    let worstPast = 0;
+    for (let x = -170; x <= 170; x += 5) {
+      for (let z = -170; z <= 170; z += 5) {
+        const r = Math.hypot(x, z);
+        if (r > 170) continue;
+        for (const yaw of yaws) {
+          const off = residual(x, z, yaw);
+          if (r <= 85 && off > worstCap) worstCap = off;
+          if (off > worstPast) worstPast = off;
+        }
+      }
+    }
+    // Measured with the real modules: 0.022° on the cap, 0.097°
+    // past the drop — against 19.88° / 180° for the flat step.
+    assert.ok(worstCap < 0.1, `worst residual on the deck cap ${worstCap.toFixed(4)}° must stay under 0.1°`);
+    assert.ok(worstPast < 0.2, `worst residual past the drop ${worstPast.toFixed(4)}° must stay under 0.2°`);
+    // And in the nose-first test scenario the helper gives
+    // sideways = 0.0000 — the real pin (the 28 m chord dips over
+    // sphere curvature + terrain, so `along` reads 0.9799 there,
+    // not 1 — do NOT re-tighten the along > 0.95 pin to 0.98).
+    for (const yaw of [0.6, 1.7]) {
+      const sp = createSpeederState();
+      summonSpeeder(sp, { x: 0, z: 0, yaw });
+      sp.speed = SPEEDER_SPEED;
+      const before = spherePointFromDeck(sp.x, sp.z);
+      stepSpeeder(sp, { fwd: 1, back: 0, left: 0, right: 0, boost: false }, 1);
+      const after = spherePointFromDeck(sp.x, sp.z);
+      const d = { x: after.x - before.x, y: after.y - before.y, z: after.z - before.z };
+      const n = Math.hypot(d.x, d.y, d.z) || 1;
+      const basis = sphereTangentBasis(before, sp.yaw, PLANET_R);
+      const sideways = (basis.right.x * d.x + basis.right.y * d.y + basis.right.z * d.z) / n;
+      assert.ok(Math.abs(sideways) < 0.0001, `sideways at yaw ${yaw} is ${sideways.toFixed(4)}, must read 0.0000`);
+    }
   });
   it('no steer given keeps the binary WASD steering exactly as before', () => {
     const sp = createSpeederState();
     summonSpeeder(sp, { x: 0, z: 0, yaw: 0 });
     for (let i = 0; i < 60; i++) stepSpeeder(sp, { fwd: 0, back: 0, left: 1, right: 0, boost: false }, 1 / 60);
-    assert.ok(Math.abs(sp.yaw - 2.2) < 0.05, `left key still turns at 2.2 rad/s, got ${sp.yaw}`);
+    assert.ok(Math.abs(sp.yaw + 2.2) < 0.05, `left key still turns at 2.2 rad/s (yaw decreases: left), got ${sp.yaw}`);
     const sp2 = createSpeederState();
     summonSpeeder(sp2, { x: 0, z: 0, yaw: 0 });
     stepSpeeder(sp2, { fwd: 0, back: 0, left: 0, right: 0, boost: false, steer: null }, 1);
@@ -515,5 +620,62 @@ describe('speeder GLB (landspeeder swap, Merlin Nov 16 ~01:11)', () => {
     assert.match(sceneSrc, /flame\.outer\.scale\.set\(w, \(0\.7 \+ 0\.6 \* ratio\) \* flick, w\)/);
     assert.match(sceneSrc, /speederGroup\.userData\.glowMat\.opacity = 0\.6 \+/);
     assert.match(sceneSrc, /import \{ buildSpeeder, buildOblivionLever, buildMountain \} from '@\/lib\/jupiter2\/meshes'/);
+  });
+});
+
+describe('speeder auto-center + no motion walls (Merlin, Nov 16 ~02:41-02:44)', () => {
+  it('the auto-center is the ONE shared helper in lib/planet-walker.js — J2 speeder is the first consumer, no local copy', () => {
+    const walker = read('lib/planet-walker.js');
+    const sceneSrc = read('components/jupiter2/Jupiter2Scene.jsx');
+    // The helper lives in the shared module and takes only an
+    // offset + dt (vehicle-agnostic — no J2 constant inside).
+    assert.match(walker, /export const LOOK_RECENTER_RATE = 0\.8/);
+    assert.match(walker, /export function recenterLookOffset\(offset, dt, rate = LOOK_RECENTER_RATE\)/);
+    assert.match(walker, /export function lookOffsetFromHeading\(yawTarget, heading\)/);
+    assert.match(walker, /export function wrapAngle\(rad\)/);
+    // The scene consumes it — and defines no local rate of its own
+    // (it names the shared LOOK_RECENTER_RATE only in a comment).
+    assert.match(sceneSrc, /recenterLookOffset, lookOffsetFromHeading \} from '@\/lib\/planet-walker'/);
+    assert.match(sceneSrc, /recenterLookOffset\(/);
+    assert.match(sceneSrc, /lookOffsetFromHeading\(yawTarget\.current, sp\.yaw\)/);
+    assert.doesNotMatch(sceneSrc, /const LOOK_RECENTER_RATE|const RECENTER_RATE|recenterRate =/);
+    // The ease runs only while mounted, only after a real look-drag
+    // (a tap never starts it), and a new drag cancels it.
+    assert.match(sceneSrc, /if \(recenterRef\.current\) \{/);
+    assert.match(sceneSrc, /if \(moved\) \{/);
+    assert.match(sceneSrc, /if \(sp && sp\.summoned && sp\.mounted\) recenterRef\.current = true;/);
+    assert.match(sceneSrc, /recenterRef\.current = false;/);
+  });
+  it('no motion walls on Jupiter 2: the walker climbs, the speeder wraps, nothing clamps or turns back', () => {
+    const planet = read('lib/jupiter2/planet.js');
+    const speeder = read('lib/jupiter2/speeder.js');
+    const sceneSrc = read('components/jupiter2/Jupiter2Scene.jsx');
+    // The walker step has no position clamp and no turn-back: a
+    // rise climbs, a drop falls airborne.
+    assert.match(planet, /A rise is a climb, never a wall/);
+    assert.doesNotMatch(planet, /clampBounds|turnBack|turn-back/);
+    // The speeder step integrates its position freely (no clamp on
+    // x/z); the flat (x, z) maps onto the sphere and wraps past
+    // the antipode instead of turning back.
+    assert.doesNotMatch(speeder, /clamp/);
+    // The heading is the shared basis forward, read through the
+    // deck-Jacobian helper deckForwardForYaw — the flat
+    // (sin yaw, −cos yaw) step was only pole-exact and crabbed
+    // up to ~20° on the rim; the old line drove along
+    // (−sin yaw, −cos yaw), the mirror.
+    assert.match(speeder, /const f = deckForwardForYaw\(state\.x, state\.z, state\.yaw\);/);
+    assert.match(speeder, /state\.x \+= f\.x \* state\.speed \* dt;/);
+    assert.match(speeder, /state\.z \+= f\.z \* state\.speed \* dt;/);
+    assert.match(sceneSrc, /instead of being clamped and turned back/);
+    // The cave corridor has no walls in the ground law, and the
+    // drop stays a drop (a fall, not a barrier).
+    assert.match(planet, /with NO wall at the cave corridor/);
+    assert.match(planet, /Walked off a drop bigger than one step: go airborne and fall/);
+  });
+  it('the riding hint fits two lines now (was a cramped 3-line pill)', () => {
+    const sceneSrc = read('components/jupiter2/Jupiter2Scene.jsx');
+    assert.match(sceneSrc, /'SPEEDER · STICK\/WASD STEER · SHIFT BOOST · F FIRE'/);
+    assert.match(sceneSrc, /'STICK\/WASD MOVE · DRAG LOOK · SPACE JUMP · B SUMMON SPEEDER'/);
+    assert.doesNotMatch(sceneSrc, /SHIFT \/ BOOST · F FIRE/);
   });
 });

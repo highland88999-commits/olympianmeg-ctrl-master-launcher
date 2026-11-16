@@ -142,9 +142,9 @@ test('pin: the page mounts, rides, and dismounts through the new wiring', () => 
   assert.ok(pageSrc.includes('speed: rideSpeed'), 'the gallop has its own speed, not the walk speed');
   assert.ok(pageSrc.includes('sprint: false, jump: false'), 'sprint and jump are ignored from the saddle');
   assert.ok(pageSrc.includes('nearestHorseInRange(zone.horses, walker.pos.x, walker.pos.z)'), 'the prompt reads the live horse positions');
-  assert.ok(pageSrc.includes('styles.mountBtn'), 'the Mount button has its own style');
-  assert.ok(pageSrc.includes('🐎 Mount {mountPrompt.name}'), 'the mount prompt names the horse');
-  assert.ok(pageSrc.includes('⬇ Dismount'), 'there is a clear Dismount control');
+  assert.ok(pageSrc.includes('<OrbLabel>MOUNT</OrbLabel>'), 'the Mount control is its own labelled orb');
+  assert.ok(pageSrc.includes('ariaLabel={`Mount ${mountPrompt.name}`}'), 'the mount prompt names the horse');
+  assert.ok(pageSrc.includes('ariaLabel="Dismount"'), 'there is a clear Dismount control');
   assert.ok(pageSrc.includes("rideApiRef.current = {"), 'the buttons drive the scene through the ride API');
   assert.ok(pageSrc.includes("if (e.key === 'e' || e.key === 'E')"), 'E mounts / dismounts on desktop');
 });

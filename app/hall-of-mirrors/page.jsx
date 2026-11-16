@@ -162,13 +162,20 @@ export default function HallOfMirrorsPage() {
         setTime(Math.floor(elapsed));
 
         // Movement (tank-ish: joystick strafes, drag to look — simplified to move+turn)
+        // mz IS the forward amount here (the step below moves
+        // mz along the camera forward (-sin, -cos)): stick up
+        // and W must both give mz +1. The old -joy.y / W -1
+        // walked both backwards (Merlin, Nov 16, 2026 —
+        // joystick inversion; copied from the sports pages,
+        // where mz is a world -z axis instead of this
+        // yaw-relative forward). Strafe (mx) was already right.
         let mx = joyRef.current.x;
-        let mz = -joyRef.current.y;
+        let mz = joyRef.current.y;
         const keys = keysRef.current;
         if (keys.has('a') || keys.has('arrowleft')) pos.angle += 2.2 * dt;
         if (keys.has('d') || keys.has('arrowright')) pos.angle -= 2.2 * dt;
-        if (keys.has('w') || keys.has('arrowup')) mz -= 1;
-        if (keys.has('s') || keys.has('arrowdown')) mz += 1;
+        if (keys.has('w') || keys.has('arrowup')) mz += 1;
+        if (keys.has('s') || keys.has('arrowdown')) mz -= 1;
 
         const speed = 5;
         const dx = Math.sin(pos.angle) * -mz * speed * dt + Math.cos(pos.angle) * mx * speed * dt;

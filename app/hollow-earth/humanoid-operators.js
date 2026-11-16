@@ -88,41 +88,53 @@
 //     cd 0.45; bolt 28 @ 30 m, cd 0.8 (spawns.js WEAPONS).
 //
 // DEATH LAW (from code — never invented):
-//   * monsters die by COMBAT ONLY: player blade (36) / bolt
-//     (28) via damageMonster. A kill pays +12 HP and counts
-//     toward the 30-kill shield. A dead monster does NOT
-//     respawn in code: zone.js hides it (fig.visible = false)
-//     and no refill loop exists — the field empties as the
-//     player hunts, until re-entry rebuilds it. (RESPAWN_S =
-//     45 exists in spawns.js but no code reads it — flagged
-//     in the animal pass, NOT fixed here.)
+//   * monsters die by COMBAT (player blade (36) / bolt (28)
+//     via damageMonster), by PREDATION (another monster's aura-
+//     strike + burn), by TERRITORIAL DUEL (two lightning
+//     carriers within 50 m — bigger scaleM wins), or by AGE
+//     (birth + lifespan, monster-life.js). A kill pays +12 HP
+//     and counts toward the 30-kill shield. A dead monster
+//     RETURNS after 45 s in-slot (respawnMonster + the zone
+//     update loop — same family, near where it fell, full HP;
+//     player kills respawn on the same clock) as the NEXT
+//     GENERATION (generation + 1, birthMs reset). The 45 s clock
+//     IS the decomposition window — one death law, not two
+//     (agents workstream, Nov 16 ~02:31; the old "no respawn
+//     loop" reading is superseded — WS3 step 2 wired it).
 //   * Korus dies by COMBAT ONLY (1,000 HP via damageKorus);
 //     death is PERMANENT — no respawn in code.
 //   * Ghorrum NEVER dies (excluded from combat by code).
 //   * the hero (player) dies by combat; death wakes the hunter
 //     at The Haven, WHOLE (full HP, kills + shield kept —
-//     page.jsx). There is NO corpse entity and monsters do not
-//     fight each other.
-//   * DECOMPOSITION: there is none in code — a dead monster's
-//     figure is hidden, not left as remains; no carcass, no
-//     sinking, no residue. Recorded, never invented.
+//     page.jsx). There is NO corpse entity for the player.
+//   * DECOMPOSITION: remains lie for the 45 s respawn window
+//     and fade (fresh remains → fading charge → ash drift —
+//     monster-life.js decompFor; the zone draws the fading
+//     remains disc over exactly that window), then the next
+//     generation is born in the same slot. No multi-day clock:
+//     Hollow Earth is a session world.
 //
 // BEHAVIOUR LOGIC (Merlin, Nov 14 ~22:59) — per-realm check:
 //   * user-hunt branch: APPLIES. Monsters hunt the user once
 //     they SPOT them (stepMonster: sight cone / hearing /
 //     proximity; ambushers wait to 10 m); they give up after
-//     12 s unseen (GIVE_UP_S) and every chase breaks at The
+//     20 s unseen (GIVE_UP_S) and every chase breaks at The
 //     Haven's boundary (sanctuary).
 //   * user-death / corpse-fight branch: DOES NOT APPLY as a
 //     fight. On user death the hunter wakes at The Haven,
 //     whole — there is no corpse entity and monsters do not
 //     fight each other. Recorded as trail-going-cold at The
 //     Haven, never a corpse fight.
-//   * territorial rival fights: DO NOT APPLY. Monsters carry
-//     NO diet in code (element / attitude / archetype instead)
-//     and no monster-vs-monster combat exists.
-//   * diet-driven feeding: no diet data — a monster's feeding
-//     IS its hunt of the user (attitude + archetype).
+//   * territorial rival fights: APPLY NOW — aura, chase AND
+//     duel (Merlin, Nov 16 ~01:02; savagery, Nov 16 ~01:33).
+//     Lightning carriers strike monster prey in their 59 m aura,
+//     hunt prey inside 140 m while hungry (J2's hunger clock),
+//     and duel rivals inside 50 m — bigger scaleM wins.
+//   * diet-driven feeding: diet is READ from the family record
+//     (attitude + archetype + habitat + element secondary —
+//     monster-life.js dietFor), never invented: a monster eats
+//     other monsters and the hunter, taken the way its attitude
+//     and archetype say.
 //   * water-seeking: DOES NOT APPLY. No water habitat exists
 //     in code (habitats are acid / fire / lightning / poison /
 //     shadow / sand / frost) and no creature drinks.
@@ -148,7 +160,6 @@ import {
   korusPhase,
   GIVE_UP_S,
   SAFE_BASE,
-  RESPAWN_S,
   WEAPONS,
 } from './spawns.js';
 import {
@@ -174,6 +185,14 @@ import {
 } from './operators.js';
 import { companionLifeFor } from '../../lib/earth2/operators.js';
 import { localHour, isNightAt } from '../../lib/life-clock.js';
+import {
+  growthFor as monsterGrowthFor,
+  deathFor as monsterDeathFor,
+  decompFor as monsterDecompFor,
+  dietFor as monsterDietFor,
+} from './monster-life.js'; // the seven-agent life line — the
+// humanoid monster agents delegate to the same bundle
+// operators.js reads, never a second copy of the law
 
 export const MIN_COPIES_PER_HUMANOID_FAMILY = 2;
 export const PLACED_FIELD = new Set(PLACED_FIELD_KEYS);
@@ -263,8 +282,8 @@ export function humanoidReadings() {
 export function birthFor(kind, key) {
   if (kind === 'monster') {
     return {
-      mode: 'seeded-on-entry',
-      note: 'No birth — spawnField PASS 1 seeds 2 of every placed family in its habitat band on entry; the field refills on re-entry, never mid-session',
+      mode: 'seeded-mid-life',
+      note: 'Seeded mid-life on entry (birthMs hashed from type+id, age 0..90% of lifespan); on death the next generation is born in the same slot after 45 s (respawnMonster) — the field refills mid-session, and re-entry rebuilds it as the backstop',
     };
   }
   if (kind === 'boss') {
@@ -281,12 +300,13 @@ export function birthFor(kind, key) {
 
 // ── Growth Agent ─────────────────────────────────────────────
 /**
- * Growth state: every Hollow Earth humanoid is placed as an
- * adult — there is no growth in code (no juvenile monster, no
- * child figure). Size is the family's scaleM / the figure's
- * placed height.
+ * Growth state: the stage from age + scaleM (monster-life.js
+ * growthFor — young / juvenile / adult / elder by age fraction
+ * of lifespan). A READ only — the GLB never resizes in code
+ * (the figure is placed at its family scaleM). Korus, Ghorrum
+ * and heroes are placed as adults, as before.
  */
-export function growthFor(kind, record) {
+export function growthFor(kind, record, nowMs = Date.now()) {
   if (kind === 'boss') {
     return { stage: 'adult', stageName: 'Adult', fraction: 1, sizeM: 12, note: 'Adult — Korus stands 12 m on his throne (KORUS_MODEL)' };
   }
@@ -298,22 +318,27 @@ export function growthFor(kind, record) {
     return { stage: 'adult', stageName: 'Adult', fraction: 1, sizeM: hero ? hero.height : 1.9, note: 'Adult — the picked hero, at its HEROES height' };
   }
   const type = record && record.type ? MONSTER_TYPES[record.type] : null;
+  const g = monsterGrowthFor(record || {}, nowMs);
   return {
-    stage: 'adult', stageName: 'Adult', fraction: 1,
-    sizeM: type ? type.scaleM : 2.6,
-    note: 'Placed as an adult at the family scaleM — monsters never grow in code',
+    stage: g.stage, stageName: g.stageName, fraction: g.fraction,
+    sizeM: g.sizeM != null ? g.sizeM : (type ? type.scaleM : 2.6),
+    note: g.note,
   };
 }
 
-// ── Death Agent (combat only — read, never rewritten) ───────
-export const DEATH_CAUSES = Object.freeze(['combat']);
+// ── Death Agent (read from the record — never rewritten) ───────
+export const DEATH_CAUSES = Object.freeze(['age', 'combat', 'predation', 'territorial-duel']);
 
 /**
- * Death state for a humanoid. Monsters: combat, permanent for
- * the session (no respawn loop in code — RESPAWN_S exists but
- * no code reads it, flagged). Korus: combat, permanent.
- * Ghorrum: never dies. Hero: the player's death — wakes at
- * The Haven whole (see userDeathFor).
+ * Death state for a humanoid. Monsters: the record's death law
+ * (agents workstream, Nov 16 ~02:31) — cause combat /
+ * predation / territorial-duel / age, live 45 s respawn clock,
+ * next generation in the same slot. The old "no respawn loop"
+ * reading is superseded — WS3 step 2 wired respawnMonster +
+ * the zone update loop, and the agents workstream added age
+ * death. Korus: combat, permanent. Ghorrum: never dies. Hero:
+ * the player's death — wakes at The Haven whole (see
+ * userDeathFor).
  */
 export function deathFor(kind, record, opts = {}) {
   if (kind === 'watcher') {
@@ -344,27 +369,45 @@ export function deathFor(kind, record, opts = {}) {
         : 'Alive — the player',
     };
   }
-  // Monster.
+  // Monster — the record's death law (monster-life.js deathFor).
+  const d = monsterDeathFor(record || {});
   const dead = !!record && record.dead === true;
-  if (!dead) return { state: 'alive', cause: null, respawnAt: null, respawnNote: null };
+  if (!dead) {
+    return {
+      state: 'alive', cause: null, respawnAt: null, respawnNote: null,
+      deathMs: d.deathMs, byAge: true,
+      note: 'Alive — its lifespan ends at birth + lifespan (age death), unless combat, predation or a duel ends it first',
+    };
+  }
   return {
     state: 'dead',
-    cause: 'combat',
-    respawnAt: null,
-    respawnNote: `No respawn loop in code — the field refills on re-entry (RESPAWN_S = ${RESPAWN_S} exists in spawns.js but no code reads it — flagged, not fixed here)`,
-    note: 'Killed in combat — does not return this session',
+    cause: d.cause,
+    killerId: d.killerId,
+    respawnAt: d.respawnAtMs,
+    respawnNote: d.respawnAtMs
+      ? 'Returns in 45 s, same family, near where it fell'
+      : 'No respawn time on the record — the field refills on re-entry',
+    note: d.byAge
+      ? 'Died of age — its lifespan ran out; the next generation is born in the same slot after 45 s'
+      : d.cause === 'predation'
+        ? 'Slain by another monster — the next generation is born in the same slot after 45 s'
+        : d.cause === 'territorial-duel'
+          ? 'Slain by a rival in a territorial duel — the next generation is born in the same slot after 45 s'
+          : 'Killed in combat — the next generation is born in the same slot after 45 s',
   };
 }
 
 // ── Decomposition Agent ──────────────────────────────────────
 /**
- * What a body does after death: NOTHING in Hollow Earth code.
- * A dead monster's figure is hidden (zone.js fig.visible =
- * false); Korus's figure is hidden too. No carcass, no
- * sinking, no skeletal residue, no remains entity. Recorded,
- * never invented.
+ * What a body does after death. Monsters: remains lie for the
+ * 45 s respawn window and fade (fresh remains → fading charge
+ * → ash drift — monster-life.js decompFor; the zone draws the
+ * fading remains disc over exactly that window), then the next
+ * generation is born in the same slot. Korus's figure is
+ * hidden, no remains (death is permanent); Ghorrum never dies;
+ * the player wakes at The Haven whole — no remains.
  */
-export function decompositionFor(kind) {
+export function decompositionFor(kind, record, nowMs = Date.now()) {
   if (kind === 'boss') {
     return {
       remains: 'none',
@@ -379,32 +422,36 @@ export function decompositionFor(kind) {
         : 'The player wakes at The Haven whole — no remains',
     };
   }
+  const d = monsterDecompFor(record || {}, nowMs);
   return {
-    remains: 'none',
-    note: 'No decomposition in code — the figure is hidden on death (fig.visible = false); no carcass, no residue',
+    remains: d.remains,
+    fraction: d.fraction,
+    stageName: d.stageName,
+    stages: d.stages,
+    windowS: d.windowS,
+    nextGenerationAt: d.nextGenerationAt,
+    note: d.note,
   };
 }
 
 // ── Diet / Feeding Agent ─────────────────────────────────────
 /**
- * What a humanoid does for food. Monsters have NO diet in
- * code (element / attitude / archetype instead) — their
- * feeding IS the hunt of the user. Korus, Ghorrum and the hero
- * have no diet either. Where a branch has no coded basis it
- * is recorded as not-applicable, never invented.
+ * What a humanoid does for food. Monsters: the diet agent
+ * (monster-life.js dietFor) — read from the family record
+ * (attitude + archetype + habitat + element secondary), never
+ * invented. A monster eats other monsters and the hunter, taken
+ * the way its attitude and archetype say. Korus, Ghorrum and
+ * the hero have no diet either.
  */
 export function dietFor(kind, record) {
   if (kind === 'monster') {
-    const spotted = !!record && !!record.spotted && !record.dead;
-    const ambush = record && MONSTER_TYPES[record.type] && MONSTER_TYPES[record.type].attitude === 'ambush';
+    const d = monsterDietFor(record || {});
     return {
-      diet: null,
-      action: !record || record.dead ? 'none' : spotted ? 'hunt-user' : ambush ? 'ambush-wait' : 'roam',
-      note: spotted
-        ? 'Hunting the user — spotted by sight, hearing or proximity'
-        : ambush
-          ? 'Lying in wait — ambushers strike inside 10 m'
-          : 'No diet in code — feeding IS the hunt; unspotted monsters roam',
+      diet: d.diet,
+      action: d.feedingMode,
+      note: d.feedingNote,
+      hunger: d.hunger,
+      hungry: d.hungry,
     };
   }
   if (kind === 'boss') {
@@ -661,7 +708,7 @@ export function habitsFor(kind, record, now = Date.now()) {
       activity,
       moving: !!record && !!record.spotted && record.state !== 'ambush',
       note: activity === 'dead'
-        ? 'Dead — does not hunt (and does not return this session)'
+        ? 'Dead — does not hunt (returns in 45 s, same family, near where it fell)'
         : activity === 'ambush-wait'
           ? 'Lying in wait — ambushers strike inside 10 m'
           : record && record.spotted
@@ -703,8 +750,9 @@ export function habitsFor(kind, record, now = Date.now()) {
 
 // ── Territory + User-hunt Agents ─────────────────────────────
 /**
- * Territory: monsters hold NO territory and NEVER fight each
- * other (no diet, no monster-vs-monster combat in code).
+ * Territory: monsters hold their habitat band and fight for it
+ * — lightning carriers strike prey in their 59 m aura, hunt
+ * prey inside 140 m while hungry, and duel rivals inside 50 m.
  * Korus holds his throne; Ghorrum holds no territory.
  */
 export function territoryFor(kind) {
@@ -712,21 +760,24 @@ export function territoryFor(kind) {
     return { mode: 'boss-throne', note: 'One boss, one throne — a singleton by design' };
   }
   if (kind === 'monster') {
-    return { mode: 'none', note: 'No diet, no monster-vs-monster combat in code' };
+    return {
+      mode: 'habitat-band',
+      note: 'Monsters hold their habitat band — lightning carriers strike prey in their 59 m aura, hunt prey inside 140 m while hungry, and duel rivals inside 50 m (bigger scaleM wins)',
+    };
   }
   return { mode: 'none', note: kind === 'watcher' ? 'Excluded from combat and the hunt by code' : 'The player holds no territory' };
 }
 
 /**
  * The user-hunt reading for a monster: spotted state, the
- * 12 s give-up, and the Haven sanctuary break.
+ * 20 s give-up, and the Haven sanctuary break.
  */
 export function userHuntFor(monster) {
   return {
     spotted: !!monster && !!monster.spotted && !monster.dead,
     giveUpS: GIVE_UP_S,
     haven: { ...SAFE_BASE, note: 'Every chase breaks at The Haven’s boundary — the hunter inside is untouchable' },
-    note: 'Monsters hunt once they spot the user (sight cone / hearing / proximity; ambushers wait to 10 m); unseen for 12 s and the trail goes cold',
+    note: 'Monsters hunt once they spot the user (sight cone / hearing / proximity; ambushers wait to 10 m); unseen for 20 s and the trail goes cold',
   };
 }
 
@@ -825,7 +876,8 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
   const habits = habitsFor('monster', m, t);
   const diet = dietFor('monster', m);
   const death = deathFor('monster', m, opts);
-  const decomp = decompositionFor('monster');
+  const decomp = decompositionFor('monster', m, t);
+  const growth = growthFor('monster', m, t);
   const garment = garmentFor('monster', m);
   const weapon = weaponFor('monster', m, opts);
   const life = {
@@ -840,9 +892,9 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
     archetype: type ? type.archetype : null,
     habitat: type ? type.habitat : null,
     dragon: !!(type && type.dragon),
-    stage: 'adult',
-    stageName: 'Adult',
-    sizeM: type ? type.scaleM : null,
+    stage: growth.stage,
+    stageName: growth.stageName,
+    sizeM: growth.sizeM,
     state: dead ? 'dead' : 'alive',
     activity: habits.activity,
     moving: habits.moving,
@@ -851,6 +903,8 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
     maxHp: type ? type.hp : 0,
     spotted,
     deathCause: death.cause,
+    respawnAt: death.respawnAt || null,
+    respawnInS: death.respawnAt != null ? Math.max(0, Math.ceil((death.respawnAt - t) / 1000)) : null,
     decomp,
     feeding: diet.action,
     feedingNote: diet.note,
@@ -860,7 +914,7 @@ export function monsterLifeFor(m, now = Date.now(), opts = {}) {
     water: 'none',
     waterNote: 'No water habitat in code — habitats are element bands',
     breeding: false,
-    breedingNote: 'No breeding — the field is seeded on entry (2 of every placed family)',
+    breedingNote: 'No breeding — the field is seeded on entry (2 of every placed family); each slot’s next generation is born by respawn, 45 s after death',
     groupSize: 2,
     garment: {
       summary: reading
@@ -1061,7 +1115,14 @@ export function lifeLine(life) {
     return `Adult · Combat · Boss · Demon-boss figure · Shadow ${KORUS_BLAST.shadowDmg} / bolt ${KORUS_BLAST.boltDmg} · ${life.hp}/${life.maxHp} HP`;
   }
   if (life.state === 'dead') {
-    return `Remains — ${life.stageName} ${life.name} — killed in combat, does not return this session`;
+    const cause = life.deathCause === 'age' ? 'died of age'
+      : life.deathCause === 'predation' ? 'slain by another monster'
+        : life.deathCause === 'territorial-duel' ? 'slain by a rival'
+          : 'slain by the hunter';
+    if (life.respawnAt != null && life.respawnInS != null) {
+      return `Remains — ${life.stageName} ${life.name} · ${cause} · returns in ${life.respawnInS}s`;
+    }
+    return `Remains — ${life.stageName} ${life.name} · ${cause} — does not return this session`;
   }
   if (life.isAlly) return `${life.stageName || 'Adult'} · Following you · Ally`;
   if (life.kind === 'hero') {

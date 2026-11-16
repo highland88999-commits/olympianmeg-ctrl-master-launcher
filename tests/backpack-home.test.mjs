@@ -73,14 +73,18 @@ describe('every in-scope realm docks its backpack home', () => {
   });
 });
 
-describe('Hollow Earth: home sits next to the bar, not inside the pill', () => {
-  it('the mount follows the pill close, so the circle never stretches the pill', () => {
+describe('Hollow Earth: home sits next to the dock, not inside it', () => {
+  it('the mount follows the dock close, so the circle never stretches the dock', () => {
     const he = read('app/hollow-earth/page.jsx');
-    const mapBtn = he.indexOf('🗺️ Map</button>');
+    // Stale pin fixed (the bar is gone since Nov 16 ~02:30 — Map is
+    // an orb in the free-floating dock now, not a bar button): the
+    // invariant is the same, the mount still follows Map in the
+    // file and sits outside the dock's closing div.
+    const mapBtn = he.indexOf('fn="map"');
     const mount = he.indexOf('<BackpackHud realm="hollow-earth"');
-    assert.ok(mapBtn > -1 && mount > mapBtn, 'mount follows the Map button');
+    assert.ok(mapBtn > -1 && mount > mapBtn, 'mount follows the Map orb');
     const between = he.slice(mapBtn, mount);
-    assert.ok(between.includes('</div>'), 'the pill closes before the mount (sibling, not child)');
+    assert.ok(between.includes('</div>'), 'the dock closes before the mount (sibling, not child)');
   });
 });
 

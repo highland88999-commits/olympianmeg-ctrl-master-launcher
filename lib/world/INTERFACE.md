@@ -11,6 +11,7 @@ If you must change behavior, add a new option and document it here.
 |---|---|
 | `walk-controls.js` | Pure movement/look/collision math. No DOM, no three.js. Headless-testable in node. |
 | `walk-input.js` | Vanilla DOM bindings: keyboard state, drag-to-look. Attach/detach pairs. |
+| `orb-dock.js` | The ONE shared free-floating draggable orb dock (pure functions, no DOM/React/THREE — node-testable in `tests/orb-dock.test.mjs`). Fractions, 8 px tap-vs-drag, grab offset, live clamp, localStorage + `/api/ui-state`. Hollow Earth (one cluster spot) and Jupiter 2 (one spot per orb, via `components/world/useOrbDock.js`) both use it. |
 | `components/world/WalkJoystick.jsx` | Shared React virtual joystick (mobile). Pointer-events, `-1..1` output. |
 
 ## walk-controls.js
@@ -61,6 +62,32 @@ Space = jump (edge). `consumeJump()` reads and clears the jump flag.
 ### attachDragLook(el, { onLook(dx,dy), onTap(x,y), sens })
 Mouse drag (desktop) and single-finger drag (touch) look. Quick taps fire
 `onTap` so worlds keep tap-to-interact. Returns `detach()`.
+
+## orb-dock.js
+
+### Key pattern
+One key per world: `orbDockStorageKeyFor(world)` → `` `olympus:<world>:orb-dock:v1` ``
+(device copy) and `orbDockUiStateKeyFor(world)` → `` `<world>_orb_dock` ``
+(`/api/ui-state` account copy). Hollow Earth keeps its own pre-existing
+constants (`ORB_DOCK_STORAGE_KEY`, `ORB_DOCK_UI_STATE_KEY`) — same shape,
+unchanged. The `/api/ui-state` keys are NOT whitelisted in
+`app/api/ui-state/route.js` yet, so the server copy is ignored today and
+the device copy stands alone.
+
+### Shapes
+- Single spot (Hollow Earth cluster): `{x, y}` fractions via
+  `loadOrbDockPosition` / `saveOrbDockPosition` /
+  `resolveOrbDockPosition`.
+- Per-orb map (Jupiter 2): `{ [orbId]: {x, y} }` via
+  `loadOrbDockMap` / `saveOrbDockMap` / `resolveOrbDockMap`.
+  Malformed entries are dropped, never trusted; corrupt saves return
+  the empty shape, never throw.
+
+### Drag math (all parameterized by key / box size — the Hollow Earth
+values are the defaults, never a per-realm fork)
+`isOrbDockDrag(dx, dy)` (8 px threshold) · `orbDockFracToPx` /
+`orbDockPxToFrac` · `clampOrbDockPx` (8 px edge margin) ·
+`dragOrbDockTopLeft` (grab offset kept) · `defaultOrbDockFractions`.
 
 ## Typical wiring (per world)
 
