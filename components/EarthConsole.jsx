@@ -189,18 +189,18 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
       )}
 
       {/* Drive cluster — always on screen while driving:
-          speed + boost bottom-left, torpedo count + FIRE
-          bottom-right. The FIRE button is a 64 px tap target,
-          disabled/greyed at 0 missiles. Positions (Merlin,
-          2026-11-15, annotated screenshot — move them DOWN):
-          speed pill and drive stick sit at the bottom edge
-          (18px); the FIRE cluster rides just above the stick
-          (stick top 18 + 112 = 130px, + 12px gap = 142px). */}
+          speed bottom-MIDDLE, torpedo count + FIRE bottom-right
+          where the drive stick used to be, stick bottom-left
+          (Merlin, Nov 16 ~04:41 — the universal layout,
+          semi-intact: one thumb can't steer and fire on the
+          same side, so left thumb steers, right thumb fires).
+          The FIRE button is a 64 px tap target, disabled/greyed
+          at 0 missiles. */}
       {atStreet && (
         <>
           <div
-            className="fixed z-[70] ui-element flex flex-col items-start gap-1.5 pointer-events-none"
-            style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
+            className="fixed z-[70] ui-element flex flex-col items-center gap-1.5 pointer-events-none"
+            style={{ left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
           >
             <div className="rounded-xl border border-cyan-500/40 bg-zinc-950/80 px-4 py-2 backdrop-blur-md">
               <div className="text-2xl font-black tabular-nums text-white leading-none">
@@ -215,16 +215,14 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
               )}
             </div>
           </div>
-          {/* FIRE sits just ABOVE the drive stick: the page's
-              drive stick owns bottom-right at 18px (112px tall,
-              so 18–130px from the bottom); the FIRE cluster
-              rides at 142px so the two never overlap. VERTICAL
-              STACK (Merlin, 2026-11-15): the rocket pill sits
-              where the FIRE button was, and FIRE sits below the
-              rocket pill — a right-edge column, not a row. */}
+          {/* FIRE sits at the bottom-right, where the drive
+              stick used to be (Merlin, Nov 16 ~04:41): right
+              thumb fires while the left thumb steers. VERTICAL
+              STACK: the rocket pill sits above, FIRE below —
+              a right-edge column, not a row. */}
           <div
             className="fixed z-[70] ui-element flex flex-col items-end gap-2 pointer-events-none"
-            style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 142px)' }}
+            style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
           >
             <div className="rounded-full border border-amber-500/50 bg-zinc-950/80 px-3 py-2 text-sm font-black tabular-nums text-amber-100 backdrop-blur-md">
               🚀 ×{hud.missiles}

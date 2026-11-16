@@ -15,18 +15,23 @@ const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/g
 const code = strip(src);
 const { createProgress, completeMission, isMissionDone } = await import('../data.js');
 
-test('map mode: a done mission renders a "Hunt again" replay button that re-enters the mission', () => {
-  assert.match(code, /Hunt again/, 'no "Hunt again" replay label in page.jsx');
-  // The replay button lives in the isDone branch and re-enters
-  // the same mission id — not roam, not a reset.
-  const replayBranch = code.match(/isDone \? \(([\s\S]*?)\) : \(/);
-  assert.ok(replayBranch, 'no isDone ternary branch in the mission row');
-  assert.match(replayBranch[1], /Hunt again/);
-  assert.match(replayBranch[1], /enterCluster\(cid, 'mission', m\.id\)/,
+test('map mode: a done mission renders a "Hunt again" mission orb that re-enters the mission', () => {
+  // ORB REWORK (Merlin, Nov 16 ~03:53): the rectangular Hunt /
+  // Hunt again pills are gone — the mission orb IS the Hunt pick.
+  // A done mission's orb carries "Hunt again" in its aria-label
+  // and title and re-enters the same mission id (not roam, not a
+  // reset); an unfinished mission's orb carries "Hunt:".
+  assert.match(code, /Hunt again: \$\{m\.title\}/, 'no "Hunt again" replay label on the mission orb');
+  assert.match(code, /Hunt: \$\{m\.title\}/, 'no "Hunt" label on the mission orb');
+  const orb = code.match(/<OrbButton fn=\{missionOrbFn\(m\.id\)\}([\s\S]*?)\/>/);
+  assert.ok(orb, 'no mission orb in the mission row');
+  assert.match(orb[1], /enterCluster\(cid, 'mission', m\.id\)/,
     'replay must re-enter the same mission via enterCluster');
-  assert.doesNotMatch(replayBranch[1], /roam/, 'replay must not fall back to roam');
-  // The unfinished branch still renders the plain Hunt button.
-  assert.match(code, />Hunt<\/button>/, 'unfinished missions must keep the plain Hunt button');
+  assert.doesNotMatch(orb[1], /'roam'/, 'replay must not fall back to roam');
+  assert.match(orb[1], /isDone \? `Hunt again:/, 'done state must switch the orb to Hunt again');
+  // No rectangular Hunt / Hunt again pill survives anywhere.
+  assert.doesNotMatch(code, />Hunt<\/button>/, 'rectangular Hunt pill still in page.jsx');
+  assert.doesNotMatch(code, /Hunt again<\/button>/, 'rectangular Hunt again pill still in page.jsx');
 });
 
 test('replay state: a done mission stays done; re-completing it is a no-op, no reward is re-awarded', () => {

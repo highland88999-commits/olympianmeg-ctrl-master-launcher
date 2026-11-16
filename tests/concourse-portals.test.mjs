@@ -50,8 +50,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 214 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026)', () => {
-    assert.equal(enRoster().length, 214);
+  it('yields exactly 213 portals from the real registry — the Portal Room count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card))', () => {
+    assert.equal(enRoster().length, 213);
   });
 
   it('skips the Portal Room itself', () => {
@@ -103,7 +103,7 @@ describe('wall paging + hues', () => {
   it('WALL_PAGE_SIZE is 42 and GAMES (85) spans 3 pages, 42 + 42 + 1', () => {
     assert.equal(WALL_PAGE_SIZE, 42);
     const games = enRoster().filter((p) => p.section === 'GAMES');
-    assert.equal(games.length, 85); // Omega 500 seat: 70→71 (the old 54 pin was stale); Hades seat: 71→72; nether-realms homes: 72→84 (Nov 12, 2026); Ghost Rider seat: 84→85 (Nov 15, 2026)
+    assert.equal(games.length, 85); // Omega 500 seat: 70→71 (the old 54 pin was stale); Hades seat: 71→72; nether-realms homes: 72→84 (Nov 12, 2026); Ghost Rider seat: 84→85 (Nov 15, 2026); Land of the Dead seat (HADES/GAMES): 85→86 (Nov 16, 2026); Land of the Dead seat removed: 86→85 (Nov 16, 2026, floor drop only)
     const pages = paginateWall(games);
     assert.deepEqual(pages.map((pg) => pg.length), [42, 42, 1]);
   });
@@ -131,7 +131,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
 
   it('section filter keeps only that section', () => {
     const tools = filterPortals(roster, { section: 'TOOLS' });
-    assert.equal(tools.length, 26); // Social Media Cheat Code seat (HERMES/TOOLS): 25→26; Request a Billboard seat (PLUTUS/TOOLS): 26→27; Weapons Forge seat removed (HEPHAESTUS/TOOLS): 27→26 (Nov 15, 2026)
+    assert.equal(tools.length, 25); // Social Media Cheat Code seat (HERMES/TOOLS): 25→26; Request a Billboard seat (PLUTUS/TOOLS): 26→27; Weapons Forge seat removed (HEPHAESTUS/TOOLS): 27→26 (Nov 15, 2026); ARES seat removed (ATHENA/TOOLS): 26→25 (Nov 16, 2026)
     assert.ok(tools.every((p) => p.section === 'TOOLS'));
   });
 
@@ -145,7 +145,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 214); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026)
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 213); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026)
     assert.deepEqual(groupBySection([]), []);
   });
 });

@@ -21,6 +21,7 @@ const j2 = readFileSync(join(repo, 'app', 'jupiter-2', 'page.jsx'), 'utf8');
 const e3 = readFileSync(join(repo, 'app', 'new-earth', 'page.jsx'), 'utf8');
 const e4 = readFileSync(join(repo, 'app', 'earth-4', 'page.jsx'), 'utf8');
 const e2 = readFileSync(join(repo, 'app', 'earth-2', 'page.jsx'), 'utf8');
+const core = readFileSync(join(repo, 'components', 'world', 'ControlsCore.jsx'), 'utf8');
 
 describe('the fullscreen mechanism is Earth 2’s, on all three pages', () => {
   it('Earth 2’s reference: the world mounts in a fixed inset-0 overlay on entry', () => {
@@ -48,11 +49,15 @@ describe('the fullscreen mechanism is Earth 2’s, on all three pages', () => {
   it('every page offers an enter button and an in-stage exit button', () => {
     // Orb law (Merlin, Nov 16): the FULLSCREEN / EXIT FULLSCREEN pills
     // are plain circle orbs now — the visible text is FULL / EXIT and
-    // the full wording lives in the aria-label.
+    // the full wording lives in the aria-label. Earth 3 / Earth 4
+    // wear the shared core (Nov 16 — Universal Controls Core), so
+    // the labels live in ControlsCore.jsx and the page wires it with
+    // onToggleFullscreen; Jupiter 2 still carries its own orb.
     for (const [name, src] of [['jupiter-2', j2], ['earth-3', e3], ['earth-4', e4]]) {
-      assert.ok(src.includes('Enter fullscreen'), `${name}: an enter control`);
-      assert.ok(src.includes('Exit fullscreen'), `${name}: an exit control inside the stage`);
-      assert.ok(src.includes('OrbButton'), `${name}: the fullscreen control is an orb`);
+      const viaCore = src.includes('onToggleFullscreen') && src.includes('ControlsCore');
+      assert.ok(src.includes('Enter fullscreen') || (viaCore && core.includes('Enter fullscreen')), `${name}: an enter control`);
+      assert.ok(src.includes('Exit fullscreen') || (viaCore && core.includes('Exit fullscreen')), `${name}: an exit control inside the stage`);
+      assert.ok(src.includes('OrbButton') || (viaCore && core.includes('OrbButton')), `${name}: the fullscreen control is an orb`);
     }
   });
   it('Escape exits fullscreen on every page', () => {

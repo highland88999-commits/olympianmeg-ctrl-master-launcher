@@ -47,6 +47,22 @@ import {
   ensureVehicleModel,
   subscribeVehicleModel,
 } from '@/lib/earth/vehicle-model';
+import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
+import VehicleSelectMenu from '@/components/world/VehicleSelectMenu';
+import { earthVehicleOptions } from '@/lib/world/vehicle-select';
+
+// The preview box is ~2 hub units across at the camera's depth,
+// but prepareModel scales a 4.5 m car to ~0.07 hub units — the
+// car read as ~1% of the frame and the box looked black (round
+// 1 diagnosis, still live Nov 15). The turntable group is
+// scaled back up so the model reads ~2 units long in the box,
+// and the camera is pulled in to match — the real GLB, framed
+// from its rendered size. Lift scales with it so the car keeps
+// sitting on the box floor.
+function previewFitScale(craft) {
+  if (!craft || !craft.lengthM) return 1;
+  return 2 / (craft.lengthM * DISPLAY_UNITS_PER_METRE);
+}
 
 // km/h the same way the in-drive HUD converts it
 // (kartHud.speedKmh = speed × 3 m/s × 3.6): the menu number is
@@ -57,7 +73,7 @@ function topSpeedKmh(v) {
 
 // Slow turntable for the preview — the driver sees the real
 // model from all sides before picking it.
-function PreviewTurntable({ model }) {
+function PreviewTurntable({ model, fitScale = 1 }) {
   const ref = useRef();
   useFrame((state, rawDt) => {
     const g = ref.current;
@@ -74,7 +90,7 @@ function PreviewTurntable({ model }) {
   }, [model]);
   if (!clone) return null;
   return (
-    <group ref={ref} scale={model.scale} rotation-y={model.rotY} position-y={model.liftY * model.scale}>
+    <group ref={ref} scale={model.scale * fitScale} rotation-y={model.rotY} position-y={model.liftY * model.scale * fitScale}>
       <primitive object={clone} />
     </group>
   );
@@ -115,11 +131,13 @@ function VehiclePreview({ craftId }) {
     <div className="h-48 w-full overflow-hidden rounded-lg border border-cyan-500/30 bg-zinc-900/60">
       {/* The preview Canvas carries its own minimal lights
           (ambient + one directional), confined to this box —
-          it never touches the globe scene's lighting. */}
-      <Canvas camera={{ position: [0, 2.2, 9], fov: 45 }} dpr={[1, 2]}>
+          it never touches the globe scene's lighting. The
+          camera sits 6 units out (was 9): the ~2-unit fitted
+          model fills ~40% of the frame instead of ~1%. */}
+      <Canvas camera={{ position: [0, 1.2, 6], fov: 45 }} dpr={[1, 2]}>
         <ambientLight intensity={0.9} />
         <directionalLight position={[5, 8, 5]} intensity={1.4} />
-        <PreviewTurntable model={model} />
+        <PreviewTurntable model={model} fitScale={previewFitScale(craft)} />
       </Canvas>
     </div>
   );
@@ -209,28 +227,23 @@ export default function EarthVehicleSelect({ onSelect, onCancel, onPickModeChang
           )}
         </div>
 
-        <div className="flex min-h-0 flex-col gap-1 overflow-y-auto custom-scrollbar pt-3">
-          {vehicles.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setSelected(v.id)}
-              aria-pressed={v.id === selected}
-              className={`flex items-center gap-2 text-left px-2 py-1.5 rounded border transition-all ${
-                v.id === selected
-                  ? 'bg-cyan-950/70 border-cyan-500/60'
-                  : 'bg-zinc-900/60 border-zinc-800 hover:border-cyan-500/40'
-              }`}
-            >
-              <span aria-hidden="true" className="text-lg shrink-0">{v.emoji}</span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[12px] font-bold text-zinc-100 truncate">{v.name}</span>
-                <span className="block text-[10px] text-zinc-500 truncate">{v.blurb}</span>
-              </span>
-              <span className="text-[10px] font-bold tabular-nums text-cyan-300 shrink-0">
-                {topSpeedKmh(v)} km/h
-              </span>
-            </button>
-          ))}
+        {/* VEHICLE SELECTION MENU (Merlin, Nov 16 ~03:49 — workstream
+            E): the roster is picked with circle orbs, each wearing
+            a graphic of THAT vehicle, no words on the orbs. The
+            picked name / speed / blurb still show above (the
+            preview block), and the spawn step is unchanged — the
+            orb only SELECTS; "Tap the Earth to spawn" still
+            starts the globe pick. One shared menu, not a second
+            selector: the list rows this replaced were the old
+            rectangular picker. */}
+        <div className="flex min-h-0 flex-col overflow-y-auto custom-scrollbar pt-3">
+          <VehicleSelectMenu
+            embedded
+            showTitle={false}
+            options={earthVehicleOptions(vehicles)}
+            selectedId={selected}
+            onSelect={(opt) => setSelected(opt.id)}
+          />
         </div>
 
         <button

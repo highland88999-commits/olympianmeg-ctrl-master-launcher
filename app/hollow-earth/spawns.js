@@ -27,6 +27,7 @@ import {
   lightningColorFor,
 } from '../../lib/lightning-aura.js';
 import { ELEMENT_AURA } from './elemental-aura.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import {
   birthMsFor, lifespanDaysFor, hungerFor, ageDeathDue,
 } from './monster-life.js'; // the life agents — stepMonster reads
@@ -974,6 +975,10 @@ export function duelOutcome(a, b) {
  * + the 45 s respawn clock. Every death path funnels through here
  * so the death law is one place, not three. */
 function markMonsterDead(m, cause, killerId, nowMs) {
+  // The Land of the Dead (Merlin, Nov 16 ~04:02): every death
+  // arrives there. First death only — respawnMonster reuses this
+  // record, so a second call for the same death must not re-record.
+  const firstDeath = !m.dead;
   m.hp = 0;
   m.dead = true;
   m.state = 'dead';
@@ -984,6 +989,14 @@ function markMonsterDead(m, cause, killerId, nowMs) {
   m.killerId = killerId || null;
   m.diedAtMs = nowMs != null ? nowMs : Date.now();
   m.respawnAtMs = m.diedAtMs + RESPAWN_S * 1000;
+  if (firstDeath) {
+    recordSoulArrival({
+      kind: 'monster',
+      name: (MONSTER_TYPES[m.type] && MONSTER_TYPES[m.type].name) || m.type || 'monster',
+      origin: 'hollow-earth',
+      diedAt: m.diedAtMs,
+    });
+  }
   return true;
 }
 

@@ -8,6 +8,7 @@ import { MARS2_SEED, MARS2_WORLD_NAME } from "@/lib/mars2/world";
 import { ROVER_NAME, ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS, roverSpeedKmh } from "@/lib/mars2/rovers";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute } from "@/app/artemis-ui/icons";
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
+import ControlsCore from "@/components/world/ControlsCore";
 
 // MARS 2 — the successor world (Merlin, Nov 15, 2026). One-word
 // spec: ROVERS. Fixed seed, no seed picker, no exobiology — walk
@@ -102,6 +103,20 @@ export default function Mars2Page() {
     setMode("walk");
   }
 
+  // Touch stick (the universal controls core): the scene reads
+  // these keys for walking AND for driving the rover, so the
+  // stick drives both. 0.2 dead zone, so a resting thumb never
+  // creeps the walker. The keyboard writes the same keys; a stick
+  // release centres them (a held key + stick together is the one
+  // overlap — the stick wins while it is held).
+  const onMarsMove = (x, y) => {
+    const k = inputRef.current.keys;
+    k.fwd = y > 0.2;
+    k.back = y < -0.2;
+    k.left = x < -0.2;
+    k.right = x > 0.2;
+  };
+
   const presets = [["Dawn", 0.26], ["Day", 0.5], ["Dusk", 0.72], ["Night", 0.95]];
   const clock = useMemo(() => {
     try {
@@ -160,17 +175,17 @@ export default function Mars2Page() {
           onRoverChange={setRover}
           jumpRef={jumpRef}
         />
-        {/* Jump (Merlin, Nov 15, 2026 — same gravity logic as the
-            Moon): walk mode only — the rover has no jump. Bottom-
-            right, the Moon's button, Mars colours. A circle orb,
-            like every other game control. */}
-        {mode === 'walk' && (
-          <OrbButton ariaLabel="Jump" size={76} accent="#e07840"
-            onPointerDown={() => { jumpRef.current = true; }}
-            style={{ position: 'absolute', right: 12, bottom: 12, zIndex: 6 }}>
-            <span style={{ fontSize: 15 }}>JUMP</span>
-          </OrbButton>
-        )}
+        {/* Universal controls core (Merlin, Nov 16 ~03:49): the
+            fixed joystick bottom-left + the docked JUMP orb (walk
+            mode only — the rover has no jump). The roverbar above
+            already carries the instructions, so no hint pill here.
+            Mars 2 has no backpack, no weapon and no merchant, so
+            those core slots stay off — nothing invented. No
+            fullscreen mode on Mars 2, so no maximize orb either. */}
+        <ControlsCore world="mars-2" accent={ACCENT}
+          onMove={mode === "orbit" ? undefined : onMarsMove}
+          onJump={mode === "walk" ? () => { jumpRef.current = true; } : undefined}
+        />
         <div className="roverbar" aria-live="polite">
           {rover.active ? (
             <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h — stick / WASD to drive</span>

@@ -26,6 +26,8 @@ const satKeys = [...satSrc.matchAll(/\{ key: "([^"]+)", route: "([^"]+)", pos: "
 // XIBALBA, HELL, NARAKA, DIYU, KUR, NAV, ORUN) added 2026-11-12 on
 // Merlin's order ("the rest of the worlds" build), appended after HADES
 // the same way: radii unchanged, phase spacing re-divides (360/24).
+// THANATOS (land-of-the-dead) added Nov 16, 2026 and removed the same
+// day on Merlin's order (floor drop only, no portal card, no menu).
 t('exactly 24 god menus', GOD_MENUS.length === 24);
 
 const godNameRe = /^[A-Z][A-Z]+$/;

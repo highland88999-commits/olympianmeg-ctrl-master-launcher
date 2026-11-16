@@ -16,6 +16,8 @@
 
 import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { FloorDropDisc } from '@/components/world/FloorDrop';
+import { FLOOR_DROP_DISC_HEAVEN, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
@@ -609,10 +611,11 @@ function Motes({reduced}) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, onFloorDrop}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
+  const floorDropGuardRef = useRef(createFloorDropGuard());
   const lastRegionRef = useRef('');
 
   useFrame((state, dtRaw) => {
@@ -667,6 +670,15 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
     } else {
       travelingRef.current = false;
     }
+    // FLOOR DROP (WS-C, Nov 16): the disc at the Anti-Life spot (-70, 110) drops the
+    // walker through the floor to the Land of the Dead — the same
+    // once-per-entry guard as the arches and the Anti-Life disc, with
+    // its own guard state, so standing on the disc re-fires only
+    // after stepping back out. The origin rides along, so the floor
+    // portal in the Land of the Dead knows where to send the walker back.
+    if (onFloorDrop && floorDropGuardShouldFire(floorDropGuardRef.current, player.x, player.z, FLOOR_DROP_DISC_HEAVEN, now)) {
+      onFloorDrop();
+    }
   });
 
   return null;
@@ -674,7 +686,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced}) {
 
 // --- the whole scene ---------------------------------------------------------
 
-export function ElysiumScene({playerRef, inputRef, onPortal, onRegion, reduced}) {
+export function ElysiumScene({playerRef, inputRef, onPortal, onRegion, reduced, onFloorDrop}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -692,10 +704,12 @@ export function ElysiumScene({playerRef, inputRef, onPortal, onRegion, reduced})
       <AscentPortal />
       <Torches reduced={reduced} />
       <Motes reduced={reduced} />
+      <FloorDropDisc side="heaven" reduced={reduced} />
       <CameraRig
         playerRef={playerRef}
         inputRef={inputRef}
         onPortal={onPortal}
+        onFloorDrop={onFloorDrop}
         onRegion={onRegion}
         reduced={reduced}
       />

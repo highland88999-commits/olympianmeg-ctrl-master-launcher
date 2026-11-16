@@ -35,6 +35,8 @@ import {
 import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
+import { FloorDropDisc } from '@/components/world/FloorDrop';
+import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
@@ -596,12 +598,13 @@ function Embers({reduced}) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, onAntiLife}) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, onAntiLife, onFloorDrop}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
   const lastAntiLifeRef = useRef(0);
   const antiLifeTravelingRef = useRef(false);
+  const floorDropGuardRef = useRef(createFloorDropGuard());
   const lastRegionRef = useRef('');
 
   useFrame((state, dtRaw) => {
@@ -670,6 +673,15 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, onA
     } else {
       antiLifeTravelingRef.current = false;
     }
+    // FLOOR DROP (WS-C, Nov 16): the disc at the mirror spot (+70, 110) drops the
+    // walker through the floor to the Land of the Dead — the same
+    // once-per-entry guard as the arches and the Anti-Life disc, with
+    // its own guard state, so standing on the disc re-fires only
+    // after stepping back out. The origin rides along, so the floor
+    // portal in the Land of the Dead knows where to send the walker back.
+    if (onFloorDrop && floorDropGuardShouldFire(floorDropGuardRef.current, player.x, player.z, FLOOR_DROP_DISC_NETHER, now)) {
+      onFloorDrop();
+    }
   });
 
   return null;
@@ -677,7 +689,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, onA
 
 // --- the whole scene ---------------------------------------------------------
 
-export function DiyuScene({playerRef, inputRef, onPortal, onRegion, reduced, onAntiLife}) {
+export function DiyuScene({playerRef, inputRef, onPortal, onRegion, reduced, onAntiLife, onFloorDrop}) {
   const world = useMemo(() => makeWorld(1340), []);
 
   // DAY / NIGHT STORM (Merlin, 2026-11-14): a strike sometimes sets a
@@ -722,6 +734,7 @@ export function DiyuScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
       <NorthRegion dressing={world.wheelSpokes} shades={world.shades} reduced={reduced} />
       <PortalArches />
       <AntiLifePortalDisc />
+      <FloorDropDisc side="nether" reduced={reduced} />
       <DescentPortal />
       <Torches reduced={reduced} />
       <Embers reduced={reduced} />
@@ -730,6 +743,7 @@ export function DiyuScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
         inputRef={inputRef}
         onPortal={onPortal}
         onAntiLife={onAntiLife}
+        onFloorDrop={onFloorDrop}
         onRegion={onRegion}
         reduced={reduced}
       />

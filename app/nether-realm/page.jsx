@@ -70,12 +70,14 @@ import {
 import { getBackpackRecord, updateBackpack, useBackpack } from '@/lib/backpack/store';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import OrbButton from '@/components/world/OrbButton';
+import { FloorDropFallOverlay, useFloorDrop } from '@/components/world/FloorDrop';
 import { createPresenceClient } from '@/lib/presence';
 import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { supabase } from '@/lib/supabase';
 import { createSoundEngine } from '@/lib/sound/engine';
 import { SEED_PROFILES } from '@/lib/sound/seed-profiles';
 import { HADES_PROFILES, ambientForRegion, shouldGrowl } from '@/lib/nether-realm/sounds';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 const STICK_RADIUS = 60;
 
@@ -84,6 +86,7 @@ export default function NetherRealmPage() {
   const { travel, overlay: vortexOverlay } = useVortexTravel();
 
   const playerRef = useRef({ x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw });
+  const floorDrop = useFloorDrop({ origin: 'hades' });
   const inputRef = useRef({ fwd: 0, strafe: 0, run: false, lookDx: 0 });
   const keysRef = useRef(new Set());
   const dragRef = useRef({ active: false, lastX: 0 });
@@ -374,6 +377,12 @@ export default function NetherRealmPage() {
       if (handledStatueIdsRef.current.has(s.id)) continue;
       if (!s.created_at || new Date(s.created_at).getTime() < sessionStartRef.current) continue;
       handledStatueIdsRef.current.add(s.id);
+      // The Land of the Dead (Merlin, Nov 16 ~04:17): being turned
+      // to stone arrives there too — additive only, the 100 m wake
+      // below is untouched. Guarded by handledStatueIdsRef, once per
+      // statue. (The petrifier's device records the same fall from
+      // their side in onUseHead; each device records it once.)
+      recordSoulArrival({ kind: 'user', origin: 'nether-realm', diedAt: Date.now() });
       const spot = petrifyRespawnSpot(s.x, s.z, Math.random() * Math.PI * 2);
       playerRef.current.x = spot.x;
       playerRef.current.z = spot.z;
@@ -415,6 +424,11 @@ export default function NetherRealmPage() {
         if (handledIncinerationIdsRef.current.has(s.id)) continue;
         if (!s.created_at || new Date(s.created_at).getTime() < sessionStartRef.current) continue;
         handledIncinerationIdsRef.current.add(s.id);
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): being burned
+        // to ash by the flaming chain arrives there too — additive
+        // only, the Lake of Fire landing below is untouched. Guarded
+        // by handledIncinerationIdsRef, once per incineration.
+        recordSoulArrival({ kind: 'user', origin: 'nether-realm', diedAt: Date.now() });
         setLakeLanding(window.localStorage);
         showNotice(`🔥 ${s.chainer_name} burned you to ash with the flaming chain — you wake in the Lake of Fire.`);
         travel('/hell', 'the Lake of Fire');
@@ -688,6 +702,15 @@ export default function NetherRealmPage() {
       z: t.z,
     }));
     const names = targets.map((t) => t.label || 'Traveller').join(', ');
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): every foe turned
+    // to stone by the gaze arrives there too — additive only, the
+    // statue records below are untouched. The targets are other
+    // users (their statues stand where they fell; each wakes 100 m
+    // away), so each arrival is kind 'user'. One per target, once
+    // per use — targets are computed once above.
+    for (const t of targets) {
+      recordSoulArrival({ kind: 'user', name: t.label || 'Traveller', origin: 'nether-realm', diedAt: Date.now() });
+    }
     const token = await getToken();
     try {
       if (!token) throw new Error('signed-out');
@@ -914,6 +937,13 @@ export default function NetherRealmPage() {
   const onAntiLife = useCallback(() => {
     travel(ANTI_LIFE_ROUTE, ANTI_LIFE_PORTAL_NAME);
   }, [travel]);
+  // FLOOR DROP (WS-C, Nov 16): stepping onto the floor disc drops the
+  // walker through the floor to the Land of the Dead. The Anti-Life
+  // guard pattern; the drop itself carries the origin, so the floor
+  // portal in the Land of the Dead returns the walker to this realm.
+  const onFloorDrop = useCallback(() => {
+    floorDrop.open();
+  }, [floorDrop]);
 
   // The scene reports Medusa's live patrol position every frame —
   // the strike needs her real x/z, not her chamber centre.
@@ -1109,6 +1139,7 @@ export default function NetherRealmPage() {
             inputRef={inputRef}
             onPortal={onPortal}
             onAntiLife={onAntiLife}
+            onFloorDrop={onFloorDrop}
             onLava={onLava}
             onRegion={onRegion}
             reduced={reduced}
@@ -1264,6 +1295,7 @@ export default function NetherRealmPage() {
         </OrbButton>
       )}
 
+      <FloorDropFallOverlay phase={floorDrop.phase} depth={floorDrop.depth} />
       {vortexOverlay}
     </main>
   );

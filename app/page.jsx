@@ -492,13 +492,19 @@ function NexusHub() {
   };
 
   const arriveEarth = (dest) => {
-    setEarthFocus(dest);
     setPendingDest(null);
     if (pendingRoamRef.current) {
       pendingRoamRef.current = false;
-      beginRoam(roamState, dest.lat, dest.lon, 0);
+      // Spawn rule (Merlin, Nov 16 ~04:41): if another user or
+      // an agent is already driving at the destination, land the
+      // newcomer a little ways away instead of on top of them —
+      // same rule as the globe tap.
+      const spot = clearSpawnPoint(dest.lat, dest.lon, [...kartState.rivals, ...sharedPeerVehicles]);
+      setEarthFocus({ ...dest, lat: spot.lat, lon: spot.lon });
+      beginRoam(roamState, spot.lat, spot.lon, 0);
       setAppState('diving_to_street');
     } else {
+      setEarthFocus(dest);
       setAppState('earth_surface');
     }
   };
@@ -516,7 +522,13 @@ function NexusHub() {
   const beginStreetDive = () => {
     if (!earthFocus) return;
     fx.earthDive();
-    beginRoam(roamState, earthFocus.lat, earthFocus.lon, roamState.yawDeg || 0);
+    // Spawn rule (Merlin, Nov 16 ~04:41): same check as the
+    // globe tap — if another user or an agent is already driving
+    // at the focus, dive a little ways away instead of on top
+    // of them.
+    const spot = clearSpawnPoint(earthFocus.lat, earthFocus.lon, [...kartState.rivals, ...sharedPeerVehicles]);
+    setEarthFocus({ ...earthFocus, lat: spot.lat, lon: spot.lon });
+    beginRoam(roamState, spot.lat, spot.lon, roamState.yawDeg || 0);
     setAppState('diving_to_street');
   };
 
@@ -1084,8 +1096,10 @@ function NexusHub() {
       )}
 
       {/* Persistent Earth street drive stick (video QA V2-2):
-          bottom-right square (Merlin, 2026-10-26: steering lives
-          in a bottom-right square of the screen) — it steers the
+          bottom-LEFT square (Merlin, Nov 16 ~04:41 — the
+          universal layout, semi-intact: stick left, actions
+          right, speedo bottom-middle; one thumb can't steer
+          and fire on the same side) — it steers the
           supercar (thrust + turn on the same moveX/moveY
           channels). The wrapper carries .ui-element so the page's
           own drag-look handler ignores touches on the stick.
@@ -1097,12 +1111,12 @@ function NexusHub() {
           throttle was the invisible left-half floating stick).
           BOTTOM EDGE (Merlin, 2026-11-15, annotated screenshot
           — move it DOWN): 18px, so the stick sits at the very
-          bottom of the screen; the FIRE cluster rides just
-          above it at 142px. */}
+          bottom of the screen; the FIRE cluster now rides at
+          18px on the RIGHT, where the stick used to be. */}
       {(user || cloudOffline) && appState === 'earth_roam' && (
         <div
           className="absolute z-[70] ui-element pointer-events-auto"
-          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
+          style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
         >
           <WalkJoystick
             size={112}
@@ -1125,7 +1139,7 @@ function NexusHub() {
           onClick={dismissEarthMoveHint}
           className="absolute top-5 left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg whitespace-nowrap"
         >
-          Bottom-right stick steers · drag the right side to look · tap to dismiss
+          Bottom-left stick steers · drag the right side to look · tap to dismiss
         </button>
       )}
 

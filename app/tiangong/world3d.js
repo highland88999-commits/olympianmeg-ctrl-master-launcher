@@ -12,6 +12,8 @@
 
 import { useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { FloorDropDisc } from '@/components/world/FloorDrop';
+import { FLOOR_DROP_DISC_HEAVEN, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
@@ -617,10 +619,11 @@ function CloudMotes({reduced}) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, peaches = [], onPeachNearby}) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, peaches = [], onPeachNearby, onFloorDrop}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
+  const floorDropGuardRef = useRef(createFloorDropGuard());
   const lastRegionRef = useRef('');
   const lastPeachRef = useRef(null);
   const lastPeachCheckRef = useRef(0);
@@ -677,6 +680,15 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, pea
     } else {
       travelingRef.current = false;
     }
+    // FLOOR DROP (WS-C, Nov 16): the disc at the Anti-Life spot (-70, 110) drops the
+    // walker through the floor to the Land of the Dead — the same
+    // once-per-entry guard as the arches and the Anti-Life disc, with
+    // its own guard state, so standing on the disc re-fires only
+    // after stepping back out. The origin rides along, so the floor
+    // portal in the Land of the Dead knows where to send the walker back.
+    if (onFloorDrop && floorDropGuardShouldFire(floorDropGuardRef.current, player.x, player.z, FLOOR_DROP_DISC_HEAVEN, now)) {
+      onFloorDrop();
+    }
 
     // PEACHES (Merlin, 2026-11-15): the nearest standing peach
     // within reach offers itself — checked twice a second, and
@@ -704,7 +716,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, pea
 
 // --- the whole scene ---------------------------------------------------------
 
-export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced, peaches = [], onPeachNearby}) {
+export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced, peaches = [], onPeachNearby, onFloorDrop}) {
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
@@ -722,10 +734,12 @@ export function TiangongScene({playerRef, inputRef, onPortal, onRegion, reduced,
       <EntryPortal />
       <Torches reduced={reduced} />
       <CloudMotes reduced={reduced} />
+      <FloorDropDisc side="heaven" reduced={reduced} />
       <CameraRig
         playerRef={playerRef}
         inputRef={inputRef}
         onPortal={onPortal}
+        onFloorDrop={onFloorDrop}
         onRegion={onRegion}
         reduced={reduced}
         peaches={peaches}

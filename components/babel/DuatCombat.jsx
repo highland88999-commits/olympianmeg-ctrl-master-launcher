@@ -5,6 +5,7 @@ import { WEAPONS } from '@/lib/babel/duat-arena';
 import { pushOutOfCircles } from '@/lib/babel/arena-collide';
 import { prefersReducedMotion } from '@/lib/babel/walk';
 import { useDuatArena } from './DuatArena';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 // Page-level toast plumbing: same DUAT_ARENA_EVENT string the page listens
 // for ({ detail: { kind: 'toast', text } }). Kept as a local export so this
@@ -47,6 +48,18 @@ function applyDamage(g, enemy, dmg) {
     enemy.stateT = 0;
     const p = g.player;
     p.kills = (p.kills || 0) + 1;
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): the killing blow
+    // arrives there too — additive only, the kills count and the HUD
+    // event below are untouched. applyDamage is the single place
+    // enemy hp falls (DuatEnemies only animates 'dying'), and the
+    // state guard means this fires once per enemy. The scorpion is
+    // the boss; the anubis warriors are monsters.
+    recordSoulArrival({
+      kind: enemy.type === 'scorpion' ? 'boss' : 'monster',
+      name: enemy.type === 'scorpion' ? 'Scorpion' : 'Anubis',
+      origin: 'babel',
+      diedAt: Date.now(),
+    });
     if (Array.isArray(g.events)) {
       g.events.push({ type: 'enemy-down', detail: { enemyType: enemy.type }, at: Date.now() });
     }
@@ -351,6 +364,11 @@ export default function DuatCombat({ gameRef, inputRef, walkMode }) {
         }
         if (p.hp <= 0) {
           p.dead = true;
+          // The Land of the Dead (Merlin, Nov 16 ~04:17): falling in
+          // the arena arrives there too — additive only, the 'You
+          // fell…' toast below is untouched. Guarded by `!p.dead` on
+          // the enclosing block, so this fires once per fall.
+          recordSoulArrival({ kind: 'user', origin: 'babel', diedAt: Date.now() });
           try {
             window.dispatchEvent(
               new CustomEvent(DUAT_ARENA_EVENT, {

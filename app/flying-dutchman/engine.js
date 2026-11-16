@@ -14,6 +14,7 @@ import {
   levelFor, applyLevelStats, stepMegaSouls, stepKraken,
   respawnPlayer, syncCaptain, dressIslands,
 } from './voyage.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -331,7 +332,15 @@ export function stepBalls(balls, ships, souls, dt, t, events, rng, kraken = null
       kraken.hits += 1;
       kraken.hp -= 5 + (bane ? 5 : 0);
       events.push({ type: 'krakenHit', hits: kraken.hits, hp: kraken.hp, x: b.x, z: b.z });
-      if (kraken.hp <= 0) kraken.state = 'dying';
+      if (kraken.hp <= 0) {
+        kraken.state = 'dying';
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): the kraken's
+        // killing blow arrives there too — additive only, the 'dying'
+        // conversion in stepKraken (mega-soul + krakenSlain) is
+        // untouched. Guarded by `kraken.state === 'attack'`, so this
+        // fires once per kraken.
+        recordSoulArrival({ kind: 'boss', name: 'Kraken', origin: 'flying-dutchman', diedAt: Date.now() });
+      }
       dead = true;
     }
     // Hull crossing: the ball is inside the hittable band — test the
@@ -406,6 +415,12 @@ export function damageShip(ship, dmg, events, souls, rng, x, z) {
     ship._hullAtCrewLoss = ship.hull;
     if (ship.crew > 0) {
       ship.crew -= 1;
+      // The Land of the Dead (Merlin, Nov 16 ~04:17): a crewman lost
+      // to hull damage arrives there too — additive only. One
+      // arrival per crewman lost in the fight; the crew still aboard
+      // when the ship sinks is covered by the 'sunk' arrival below,
+      // so nobody is counted twice.
+      recordSoulArrival({ kind: 'creature', name: `Crewman of ${ship.name}`, origin: 'flying-dutchman', diedAt: Date.now() });
       events.push({ type: 'crewLost', shipId: ship.id, x, z });
     }
   }
@@ -416,6 +431,18 @@ export function damageShip(ship, dmg, events, souls, rng, x, z) {
     ship.burning = true; // wreck fire — the 3D layer reads this
     ship.sinkT = 0;
     if (ship.isPlayer) { ship._wreckX = ship.x; ship._wreckZ = ship.z; }
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): a sinking arrives
+    // there too — additive only, the wreck-soul release below is
+    // untouched. A foe ship (and her remaining crew) arrives as one
+    // creature; the player's own sinking is the user-death outcome
+    // (voyage.js respawnPlayer). Guarded by `!ship.alive` at the top
+    // of damageShip, so this fires once per sinking.
+    recordSoulArrival({
+      kind: ship.isPlayer ? 'user' : 'creature',
+      name: ship.name,
+      origin: 'flying-dutchman',
+      diedAt: Date.now(),
+    });
     events.push({ type: 'sunk', shipId: ship.id, x: ship.x, z: ship.z, name: ship.name });
     // The dead release their souls — one per crewman lost with the
     // ship (everyone aboard, including those already lost to damage

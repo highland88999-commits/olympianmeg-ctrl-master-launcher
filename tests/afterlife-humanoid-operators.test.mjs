@@ -4,7 +4,7 @@
 // handling, all of it."): the humanoid layer over the animal
 // operators — seven agents in the Earth 4 pure-function shape,
 // plus a garment agent and a weapons agent, for the drift kinds of
-// all 24 afterlife realms. Garments are data-only (the renderer
+// all 25 afterlife realms. Garments are data-only (the renderer
 // draws one translucent cone per figure — no separate garment mesh
 // exists); weapons are a verified-absent state (no drift figure
 // and no guardian carries anything in any world3d.js).
@@ -39,6 +39,7 @@ import { makeWorld as makeTirNaNog } from '../lib/tir-na-nog/world.js';
 import { makeWorld as makeElysium } from '../lib/elysium/world.js';
 import { makeWorld as makeValhalla } from '../lib/valhalla/world.js';
 import { makeWorld as makeAaru } from '../lib/aaru/world.js';
+import { makeWorld as makeLandOfTheDead } from '../lib/land-of-the-dead/world.js';
 
 import {
   REALM_KEYS,
@@ -100,6 +101,7 @@ const ALL = [
   ['maya-sky', 'drifters', makeMayaSky],
   ['vyraj', 'drifters', makeVyraj],
   ['tiangong', 'drifters', makeTiangong],
+  ['land-of-the-dead', 'shades', makeLandOfTheDead],
 ];
 
 const NOW = Date.UTC(2026, 11, 14, 12); // fixed clock for determinism
@@ -110,13 +112,14 @@ const EXPECTED_KINDS = {
   elysium: 'Shade', valhalla: 'Shade', aaru: 'Shade', heaven: 'Blessed',
   svarga: 'Apsara', takamagahara: 'Kami', 'tir-na-nog': 'Fae',
   tlalocan: 'Drifter', 'maya-sky': 'Drifter', vyraj: 'Drifter', tiangong: 'Drifter',
+  'land-of-the-dead': 'Shade',
 };
 
 // --- the roster ------------------------------------------------------------
 
 describe('humanoid roster (enumerated from code)', () => {
-  it('covers exactly the 24 afterlife realms, one drift kind each', () => {
-    assert.equal(REALM_KEYS.length, 24);
+  it('covers exactly the 25 afterlife realms, one drift kind each', () => {
+    assert.equal(REALM_KEYS.length, 25);
     assert.deepEqual(ALL.map(([k]) => k).sort(), [...REALM_KEYS].sort());
     for (const [key, varName] of ALL) {
       const rec = speciesFor(key);
@@ -333,7 +336,7 @@ describe('seven agents (Earth 4 shape, pure functions of the clock)', () => {
     assert.match(annwn.reason, /mist/);
   });
 
-  it('territory: user-hunt and corpse-fight are off in all 24 realms', () => {
+  it('territory: user-hunt and corpse-fight are off in all 25 realms', () => {
     for (const [key] of ALL) {
       assert.equal(userAsPrey(key), false, `${key}: no user-as-prey mechanic`);
       assert.equal(userDeathOutcome(key), false, `${key}: no user-death outcome`);
@@ -479,7 +482,7 @@ describe('what was deliberately NOT built stays unbuilt', () => {
       const hits = [...src.matchAll(new RegExp(`\\b${word}\\b`, 'gi'))];
       for (const h of hits) {
         const line = src.slice(Math.max(0, h.index - 200), h.index + 200);
-        assert.ok(/no [\s\S]{0,60}mesh|do not fight|never|not |absent|VERIFIED|weapon mesh|OFF in all 24|false everywhere|gated/i.test(line), `${word} appears outside a negation: …${line.trim().slice(0, 120)}…`);
+        assert.ok(/no [\s\S]{0,60}mesh|do not fight|never|not |absent|VERIFIED|weapon mesh|OFF in all 25|false everywhere|gated/i.test(line), `${word} appears outside a negation: …${line.trim().slice(0, 120)}…`);
       }
     }
     assert.ok(!/einherjarMesh|houndMesh/.test(src), 'no invented Einherjar/Hound meshes');

@@ -25,8 +25,10 @@ import OrbButton from '@/components/world/OrbButton';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import {
   mountVehicle, dismountPoint, parkVehicle, stepVehicle,
-  vehicleInPromptRange, chaseCameraPose,
+  vehicleInPromptRange, chaseCameraPose, VEHICLE_TYPES,
 } from './vehicles';
+import VehicleSelectMenu from '@/components/world/VehicleSelectMenu';
+import { starWarsVehicleOptions, summonSpawnPose } from '@/lib/world/vehicle-select';
 import { speederInPromptRange, speederDismountSpot } from './riding';
 import { graphicForPlanet, artScrimBackground, NEUTRAL_GRAPHIC } from '../../lib/star-wars/menu-graphics';
 import { lifeFor } from './operators';
@@ -129,6 +131,14 @@ export default function StarWarsPage() {
   const [crawlIdx, setCrawlIdx] = useState(0);
   const [ridePrompt, setRidePrompt] = useState(null); // vehicle id offering a ride
   const [mountedId, setMountedId] = useState(null); // vehicle id being driven
+  // VEHICLE SELECTION MENU (Merlin, Nov 16 ~03:49 — workstream E):
+  // Star Wars can summon MORE THAN ONE vehicle, so SUMMON opens
+  // the menu instead of summoning directly. zoneVehicles is the
+  // zone's parked roster ({ id, type }) for the menu; the summon
+  // itself runs through vehicleApiRef (the zone effect owns the
+  // walker + groundHeight it needs).
+  const [showVehicleMenu, setShowVehicleMenu] = useState(false);
+  const [zoneVehicles, setZoneVehicles] = useState([]);
   const [lifeCard, setLifeCard] = useState(null); // tapped life: { name, line, kind, planet }
   const [roamCard, setRoamCard] = useState(true); // free-roam banner: full card -> chip
 
@@ -299,6 +309,9 @@ export default function StarWarsPage() {
         : null;
       const zone = buildZone(THREE, def, T, roam ? { freeRoam: true } : { mission });
       scene.add(zone.group);
+      // The parked roster, for the vehicle selection menu (one
+      // landspeeder + three podracers, each with its own vid).
+      setZoneVehicles((zone.vehicles || []).map((v) => ({ id: v.id, type: v.type })));
       if (def.sky) scene.background = new THREE.Color(def.sky);
       if (def.fog) scene.fog = new THREE.FogExp2(new THREE.Color(def.fog), def.fogDensity || 0.015);
 
@@ -409,6 +422,33 @@ export default function StarWarsPage() {
           mounted = null;
           vehIgnore.clear();
           setMountedId(null);
+        },
+        // SUMMON (Merlin, Nov 16 ~03:49 — workstream E): the menu's
+        // pick brings THAT parked vehicle to the rider and mounts
+        // it, ready to go — front-forward (the shared
+        // summonSpawnPose: the vehicle arrives ahead of the
+        // walker on the walker's own heading, nose facing the
+        // way the walker faces), then the plain mount above
+        // takes over. The vehicle's old parked colliders stay
+        // where they were (the same as driving away from a
+        // parked spot — colliders never followed a driven
+        // vehicle); the summon itself is a relocation, not a
+        // new vehicle. Returns true when a mount followed.
+        summon(id) {
+          const v = (zone.vehicles || []).find((e) => e.id === id);
+          if (!v || mounted || !walker) return false;
+          const def = VEHICLE_TYPES[v.state.type];
+          if (!def) return false;
+          const pose = summonSpawnPose({
+            walkerX: walker.pos.x, walkerZ: walker.pos.z,
+            walkerYaw: walker.yaw, bodyRadiusM: def.radius,
+          });
+          v.state.x = pose.x;
+          v.state.z = pose.z;
+          v.state.yaw = pose.yaw;
+          v.state.y = zone.groundHeight(pose.x, pose.z) + def.rest;
+          this.mount(id);
+          return true;
         },
       };
 
@@ -622,6 +662,8 @@ export default function StarWarsPage() {
       ridePromptRef.current = null;
       setRidePrompt(null);
       setMountedId(null);
+      setZoneVehicles([]);
+      setShowVehicleMenu(false);
       setLifeCard(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -870,6 +912,31 @@ export default function StarWarsPage() {
               style={{ position: 'absolute', right: 20, bottom: BOTTOM_CLEAR }}>
               <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
             </OrbButton>
+          )}
+
+          {/* VEHICLE SELECTION MENU (Merlin, Nov 16 ~03:49 —
+              workstream E): Star Wars can summon more than one
+              vehicle, so SUMMON opens the menu — one orb per
+              parked ride, each wearing that vehicle's graphic,
+              no words on the orbs. A pick summons that vehicle
+              to the rider and mounts it, ready to go. The
+              SUMMON orb sits where DISMOUNT sits while mounted
+              (the two never show together). */}
+          {!mountedId && !intro && !showVehicleMenu && (
+            <OrbButton fn="summon" accent="#ffe81f"
+              onClick={() => setShowVehicleMenu(true)}
+              ariaLabel="Summon a vehicle"
+              style={{ position: 'absolute', right: 20, bottom: BOTTOM_CLEAR }} />
+          )}
+          {showVehicleMenu && !mountedId && (
+            <VehicleSelectMenu
+              options={starWarsVehicleOptions(zoneVehicles)}
+              onSelect={(opt) => {
+                const ok = vehicleApiRef.current ? vehicleApiRef.current.summon(opt.id) : false;
+                if (ok) setShowVehicleMenu(false);
+              }}
+              onClose={() => setShowVehicleMenu(false)}
+            />
           )}
 
           {/* life card: tap a creature or named figure for its life line */}

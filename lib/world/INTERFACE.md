@@ -11,6 +11,8 @@ If you must change behavior, add a new option and document it here.
 |---|---|
 | `walk-controls.js` | Pure movement/look/collision math. No DOM, no three.js. Headless-testable in node. |
 | `walk-input.js` | Vanilla DOM bindings: keyboard state, drag-to-look. Attach/detach pairs. |
+| `controls-core.js` | The UNIVERSAL CONTROLS CORE (pure half): layout constants, hint clock, per-world config, drag-look step. No DOM, no React, no THREE — node-testable in `tests/controls-core.test.mjs`. |
+| `components/world/ControlsCore.jsx` | The core's React half: fixed joystick, right column (BACKPACK/JUMP/FIRE), HP/ORBS pill, hint pill, fullscreen orb. Composes WalkJoystick + OrbButton + useOrbDock — never re-implements them. |
 | `orb-dock.js` | The ONE shared free-floating draggable orb dock (pure functions, no DOM/React/THREE — node-testable in `tests/orb-dock.test.mjs`). Fractions, 8 px tap-vs-drag, grab offset, live clamp, localStorage + `/api/ui-state`. Hollow Earth (one cluster spot) and Jupiter 2 (one spot per orb, via `components/world/useOrbDock.js`) both use it. |
 | `components/world/WalkJoystick.jsx` | Shared React virtual joystick (mobile). Pointer-events, `-1..1` output. |
 
@@ -88,6 +90,80 @@ values are the defaults, never a per-realm fork)
 `isOrbDockDrag(dx, dy)` (8 px threshold) · `orbDockFracToPx` /
 `orbDockPxToFrac` · `clampOrbDockPx` (8 px edge margin) ·
 `dragOrbDockTopLeft` (grab offset kept) · `defaultOrbDockFractions`.
+
+## controls-core.js + components/world/ControlsCore.jsx
+
+The UNIVERSAL CONTROLS CORE (Merlin, Nov 16 ~03:49) — one shared
+implementation of the confirmed universal controls. Worlds keep
+their own content (vehicles, monsters, art); the controls come
+from the core. No per-world copies of the control layer.
+
+### The confirmed layout
+- Joystick FIXED bottom-left (`JOYSTICK_HOME` { left 14, bottom 14 }
+  + safe-area inset, `JOYSTICK_SIZE` 124) — works, never moves,
+  never docked. Shared `WalkJoystick` (x+ = right, y+ = forward).
+- Right column, top-to-bottom: BACKPACK / JUMP / FIRE
+  (`RIGHT_COLUMN_SLOTS`, `rightColumnHomeSlots(columnBottom)` —
+  56 px orbs, 10 px gaps, FIRE on the floor, JUMP above, BACKPACK
+  on top). Each orb drags individually through the shared orb dock
+  (`useOrbDock(world)` — one `olympus:<world>:orb-dock:v1` key).
+  A world with a bottom-right button row parks the column above it
+  (`columnBottom` — Earth 3 / Earth 4 pass 80 for their FLY rows).
+- ORBS counter orb beside the HP pill, top-left; clicking it opens
+  the merchant for upgrades. Only rendered when the world has a
+  merchant (`onOpenMerchant`).
+- Hint pill fades after 5 s (`CONTROLS_HINT_FADE_MS` 5000, 500 ms
+  fade-out — `hintVisibleAt` / `hintOpacityAt`).
+- Auto-center recenter (`recenterLookOffset`, `LOOK_RECENTER_RATE`
+  0.8) lives in `lib/planet-walker.js` — consumed here, never
+  re-implemented. Finger-follows drag-look uses the same shared
+  helpers (`lookTurnForDrag`, `dampLookAngle`).
+- Per-function button faces: JUMP wears `tron-jump`, FIRE wears
+  `tron-fire` (`OrbButton fn=`). BACKPACK and ORBS have no TRON
+  face yet — they wear icon + label until one is drawn.
+
+### What a world passes in / what the core owns
+`resolveControlsCore({ world, accent, showJoystick, showJump,
+showFire, showBackpack, showHpOrbs, showFullscreen, showHint,
+columnBottom, hint, hp, orbs })` — every slot is opt-in (only the
+joystick defaults on); unknown keys are dropped; `world` is
+required. `visibleSlots(config)` / `visibleDockOrbIds(config)`
+list the slots the config actually shows. A world with no
+backpack, no weapon and no merchant shows a joystick and a JUMP
+orb and nothing invented.
+The React half takes the same shape as props: `world`, `accent`,
+`onMove(x, y)`, `onJump()` (edge, pointerdown), `onFire()` (edge),
+`onOpenBackpack()`, `onOpenMerchant()`, `hp`, `orbs`, `hint`,
+`fullscreen`, `onToggleFullscreen`, `columnBottom`, `children`
+(the world's own extra orbs, caller-positioned).
+
+### dragLookStep — the shared drag-look shape (next pass)
+`dragLookStep({ yaw, pitch }, dx, dy, viewportWidthPx, pitchLimit
+= 1.25)` — drag right → look right (yaw decreases), drag up →
+look up, pitch clamped. The scenes that still run bespoke
+drag-look (Earth 3 / Earth 4 / Mars 2: fixed 0.0048 walk / 0.0042
+fly rad/px) keep their feel this round — the shared full-swipe
+turn (180° per viewport width) changes look speed under the
+finger and needs Merlin's phone check before it lands. The
+conversion is a one-line call per scene when he says go; the
+tap-vs-drag threshold and tap handling stay the scene's own.
+
+### Typical wiring (per world)
+
+```jsx
+import ControlsCore from '@/components/world/ControlsCore';
+
+// Inside the stage (position: relative), replacing the world's
+// bespoke joystick + JUMP orb. World-specific orbs (FLY, TOUR,
+// rover summon…) stay in the page.
+<ControlsCore world="new-earth" accent="#7ddf9a"
+  onMove={(x, y) => worldRef.current && worldRef.current.setMove(x, y)}
+  onJump={mode === 'walk' ? () => worldRef.current && worldRef.current.jump() : undefined}
+  hint="Drag to look · stick to move · FLY to soar"
+  fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen(!fullscreen)}
+  columnBottom={80}
+/>
+```
 
 ## Typical wiring (per world)
 

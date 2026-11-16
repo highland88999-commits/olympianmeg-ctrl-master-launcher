@@ -3,6 +3,8 @@
 // dark. Cannon fire, seeker missiles, and a hyper burst are the tools.
 // Levels scale drone speed and count; every third level a boss arrives.
 
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
+
 export const FIELD = { w: 900, h: 1400 };
 
 export const PLAYER_CFG = {
@@ -161,6 +163,11 @@ export function updateBattle(b, input, dt) {
     for (let i = b.drones.length - 1; i >= 0; i--) {
       if (dist(p.x, p.y, b.drones[i].x, b.drones[i].y) < 260) {
         b.drones.splice(i, 1);
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): a drone cleared
+        // by the hyper burst arrives there too — additive only. The
+        // drones are unnamed in code, so no name is passed — the module
+        // falls back to 'A fallen creature'. One per drone spliced.
+        recordSoulArrival({ kind: 'creature', origin: 'astra', diedAt: Date.now() });
         registerKill(b);
       }
     }
@@ -226,6 +233,9 @@ export function updateBattle(b, input, dt) {
         hit = true;
         if (d.hp <= 0) {
           b.drones.splice(j, 1);
+          // The Land of the Dead (Merlin, Nov 16 ~04:17): a drone shot
+          // down arrives there too — additive only.
+          recordSoulArrival({ kind: 'creature', origin: 'astra', diedAt: Date.now() });
           registerKill(b);
         }
         break;
@@ -237,6 +247,13 @@ export function updateBattle(b, input, dt) {
         hit = true;
         if (b.boss.hp <= 0) {
           b.boss = null;
+          // The Land of the Dead (Merlin, Nov 16 ~04:17): the boss
+          // going down arrives there too — additive only, the double
+          // registerKill (boss counts two kills) is untouched. One
+          // arrival per boss, not per registerKill. The boss is
+          // unnamed in code, so no name is passed — the module falls
+          // back to 'A fallen boss'.
+          recordSoulArrival({ kind: 'boss', origin: 'astra', diedAt: Date.now() });
           registerKill(b);
           registerKill(b);
           b.events.push({ type: "bossDown" });
@@ -266,6 +283,10 @@ export function updateBattle(b, input, dt) {
         tgt.hp -= 3;
         if (tgt.hp <= 0) {
           b.boss = null;
+          // The Land of the Dead (Merlin, Nov 16 ~04:17): the boss
+          // going down to a seeker arrives there too — additive only.
+          // One arrival per boss, not per registerKill.
+          recordSoulArrival({ kind: 'boss', origin: 'astra', diedAt: Date.now() });
           registerKill(b);
           registerKill(b);
           b.events.push({ type: "bossDown" });
@@ -274,6 +295,9 @@ export function updateBattle(b, input, dt) {
         const idx = b.drones.indexOf(tgt);
         if (idx >= 0) {
           b.drones.splice(idx, 1);
+          // The Land of the Dead (Merlin, Nov 16 ~04:17): a drone
+          // destroyed by a seeker arrives there too — additive only.
+          recordSoulArrival({ kind: 'creature', origin: 'astra', diedAt: Date.now() });
           registerKill(b);
         }
       }
@@ -307,6 +331,11 @@ function damagePlayer(b, amt) {
   if (p.shield <= 0) {
     p.shield = 0;
     b.over = true;
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): the player's ship
+    // going down arrives there too — additive only, the gameOver event
+    // below is untouched. step() returns early once b.over is set, so
+    // this fires once per run.
+    recordSoulArrival({ kind: 'user', origin: 'astra', diedAt: Date.now() });
     b.events.push({ type: "gameOver", kills: b.kills, level: b.level });
   }
 }

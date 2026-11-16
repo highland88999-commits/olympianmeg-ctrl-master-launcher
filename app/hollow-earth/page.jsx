@@ -44,6 +44,7 @@ import { LANDMARK_ART_TYPES, useLandmarkArtTextures } from './landmark-art';
 import { applyLandmarkArt } from './landmarks';
 import * as DATA from './data';
 import { HEROES, HERO_ORDER, heroDef, buildHeroFigure } from './characters.js';
+import { MENU_LAYOUT, MAP_LAYOUT, heroOrbFn, clusterOrbFn, missionOrbFn } from './menu-orbs.js';
 import {
   createHunterState, onMonsterKilled, applyDamage, isInBase, canTeleport,
   SAFE_BASE, PLAYER_MAX_HP, KORUS_POS, damageMonster, MONSTER_TYPES,
@@ -60,6 +61,7 @@ import {
   SHIELD_RECHARGE_COST, ORB_ELEMENTS,
 } from './elemental-orbs.js';
 import { monsterLifeFor, korusLifeFor } from './operators.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry } from '../../lib/backpack/backpack.js';
 import { boltKindFor, BOLT_STYLE, BOLT_SPEED, BOLT_MAX_LIFE } from './bolt-visual.js';
 import { updateBackpack, useBackpack, getBackpackRecord } from '../../lib/backpack/store.js';
@@ -633,6 +635,7 @@ export default function HollowEarthPage() {
         h.hp = hero.maxHp;
         clearSecondaries();
         notice('💀 Slain — you wake at The Haven, whole. Your kills and shield remain.');
+        recordSoulArrival({ kind: 'user', origin: 'hollow-earth', diedAt: Date.now() });
         setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield, secondary: null }));
         return true;
       }
@@ -1001,6 +1004,7 @@ export default function HollowEarthPage() {
           try { updateBackpack((rec) => DATA.applyRewardToRecord(rec)); } catch { /* pack unavailable */ }
           setKorusDead(true);
           notice('👑 KORUS FALLS — Stormfang is yours. The Monsterverse remembers.');
+          recordSoulArrival({ kind: 'boss', name: 'Korus', origin: 'hollow-earth', diedAt: Date.now() });
         } else {
           /* Life line (operators.js): Korus has no figure label
            * (GLB-only throne figure), so the strike notice is
@@ -1276,6 +1280,7 @@ export default function HollowEarthPage() {
               h.hp = hero.maxHp;
               clearSecondaries();
               notice('💀 Slain — you wake at The Haven, whole.');
+              recordSoulArrival({ kind: 'user', origin: 'hollow-earth', diedAt: Date.now() });
             } else if (hz.element) {
               // WS6: hazards light secondaries too — fire burns,
               // poison venoms, acid leaves a pool at the hazard.
@@ -1306,6 +1311,7 @@ export default function HollowEarthPage() {
             hb.hp = hero.maxHp;
             clearSecondaries();
             notice('💀 Slain — you wake at The Haven, whole.');
+            recordSoulArrival({ kind: 'user', origin: 'hollow-earth', diedAt: Date.now() });
           }
         }
       }
@@ -1334,6 +1340,7 @@ export default function HollowEarthPage() {
             hp2.hp = hero.maxHp;
             clearSecondaries();
             notice('💀 Slain — you wake at The Haven, whole.');
+            recordSoulArrival({ kind: 'user', origin: 'hollow-earth', diedAt: Date.now() });
           }
         }
       }
@@ -1503,16 +1510,33 @@ export default function HollowEarthPage() {
 
   if (mode === 'menu') {
     // THE CONCOURSE ENTRY: intro + character selection first.
+    // ORB HUNTER-PICK (Merlin, Nov 16 ~03:53 — the 5 s video):
+    // the 6 rectangular chips are gone. Each hero is a circle orb
+    // wearing that hero's own graphic, no words — the orb IS the
+    // pick (the selected hero's name, stats, blurb and trait stay
+    // in the detail strip below; the Enter pill stays). The orbs
+    // sit in ONE row of six at 390 px (52 px + 6 px gaps = 342 px
+    // inside 358 px of content) and wrap to two rows of three at
+    // 320 px — the budget in menu-orbs.js counts both.
+    // ONE FRAME, NO SCROLL: the old menu overflowed because the
+    // banner is a SQUARE 1080x1080 poster — full-width it renders
+    // ~390 px tall on its own, which is what Wave 1's 322 px
+    // measurement missed (it counted the menu without the banner).
+    // The banner is now capped at MENU_LAYOUT.banner (150 px,
+    // object-fit cover) and every row is counted in
+    // menuStackHeight(): 465 px total against a 700 px visible
+    // height (844 px device, browser chrome up) — 235 px spare.
+    const L = MENU_LAYOUT;
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#1a1426 0%,#3a2a1a 55%,#c2a15e 100%)', color: '#fff', padding: '2rem 1rem 0.75rem', fontFamily: 'Georgia, serif' }}>
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg,#1a1426 0%,#3a2a1a 55%,#c2a15e 100%)', color: '#fff', padding: `${L.padTop}px 1rem ${L.padBottom}px`, fontFamily: 'Georgia, serif' }}>
         <div style={{ maxWidth: 720, margin: '0 auto', textAlign: 'center' }}>
-          <div style={{ fontSize: 12, letterSpacing: 4, color: GOLD }}>THE WORLD INSIDE THE WORLD</div>
-          <h1 style={{ fontSize: 'clamp(2rem, 7vw, 3.4rem)', margin: '0.4rem 0', background: 'linear-gradient(180deg,#ffe9a8,#d8b25c)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
+          <div style={{ fontSize: 12, lineHeight: 1.25, letterSpacing: 4, color: GOLD }}>THE WORLD INSIDE THE WORLD</div>
+          <h1 style={{ fontSize: 'clamp(1.5rem, 6vw, 3.4rem)', lineHeight: 1.15, margin: '0.2rem 0', background: 'linear-gradient(180deg,#ffe9a8,#d8b25c)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}>
             {DATA.INTRO.title}
           </h1>
-          {/* Intro video (Merlin's own render from the banner); the banner image is the fallback, then the procedural orbs. */}
+          {/* Intro video (Merlin's own render from the banner); the banner image is the fallback, then the procedural orbs. Both are capped at the layout's banner height — the square poster rendered ~390 px tall full-width, which is what pushed the old menu off the frame. */}
           {bannerFailed ? (
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', margin: '0.6rem 0 0.2rem' }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', margin: '0.25rem 0 0.1rem' }}>
               {DATA.INTRO.orbs.map((o) => (
                 <span key={o.element} title={o.element} style={{ width: 22, height: 22, borderRadius: '50%', background: o.color, boxShadow: `0 0 14px ${o.color}`, display: 'inline-block' }} />
               ))}
@@ -1520,43 +1544,36 @@ export default function HollowEarthPage() {
           ) : videoFailed ? (
             <img src="/images/hollow-earth/intro-banner.jpg" alt="Olympian Monsterverse banner"
               onError={() => setBannerFailed(true)}
-              style={{ width: '100%', maxWidth: 640, borderRadius: 16, margin: '0.8rem auto 0.2rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
+              style={{ width: '100%', maxWidth: 640, height: L.banner, objectFit: 'cover', objectPosition: 'center 35%', borderRadius: 16, margin: '0.25rem auto 0.1rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
           ) : (
             <video src="/videos/hollow-earth/intro.mp4" poster="/images/hollow-earth/intro-banner.jpg" alt="Olympian Monsterverse intro"
               autoPlay muted loop playsInline
               onError={() => setVideoFailed(true)}
-              style={{ width: '100%', maxWidth: 640, borderRadius: 16, margin: '0.8rem auto 0.2rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
+              style={{ width: '100%', maxWidth: 640, height: L.banner, objectFit: 'cover', objectPosition: 'center 35%', borderRadius: 16, margin: '0.25rem auto 0.1rem', display: 'block', boxShadow: '0 0 24px rgba(216,178,92,0.35)' }} />
           )}
-          <p style={{ opacity: 0.85 }}>{DATA.INTRO.tagline}</p>
-          {/* Compact one-frame hunter pick (Merlin, Nov 16 ~02:32):
-              the whole menu fits in a single phone frame under the
-              banner — no scroll. 6 heroes as a 3x2 chip grid (name +
-              HP + weapon damage); the selected hero's full card
-              (realm, full stats, blurb, trait) lives in the detail
-              strip below, so tapping any chip shows its story. */}
-          <h2 style={{ marginTop: '0.5rem', marginBottom: 0, fontSize: 17 }}>Choose your hunter</h2>
-          <p style={{ opacity: 0.7, fontSize: 12, margin: '0 0 0.4rem', lineHeight: 1.25 }}>Tapping the Monsterverse Concourse icon opens here — pick first, then enter as that character.</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginTop: '0.4rem', textAlign: 'left' }}>
+          <p style={{ opacity: 0.85, fontSize: 12, lineHeight: 1.25, margin: 0 }}>{DATA.INTRO.tagline}</p>
+          <h2 style={{ marginTop: '0.25rem', marginBottom: 0, fontSize: 15, lineHeight: 1.2 }}>Choose your hunter</h2>
+          <p style={{ opacity: 0.7, fontSize: 11, lineHeight: 1.25, margin: '0 0 0.3rem' }}>Tap an orb to pick your hunter, then enter.</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 6, marginTop: '0.4rem' }}>
             {HERO_ORDER.map((key) => {
               const h = HEROES[key];
               const selected = key === heroKey;
               return (
-                <button key={key} type="button" onClick={() => pickHero(key)}
-                  style={{ padding: '0.4rem', borderRadius: 10, border: selected ? `2px solid ${GOLD}` : '1px solid rgba(255,255,255,0.2)', background: selected ? 'rgba(216,178,92,0.22)' : 'rgba(0,0,0,0.35)', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', minWidth: 0, overflow: 'hidden' }}>
-                  <div style={{ fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.name}{h.sense ? ' 🔍' : ''}</div>
-                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2, whiteSpace: 'nowrap' }}>❤️{h.maxHp} {Array.from(h.meleeLabel)[0]}{h.meleeDmg} {Array.from(h.rangedLabel)[0]}{h.ranged.dmg}</div>
-                </button>
+                <OrbButton key={key} fn={heroOrbFn(key)} size={L.orbs} accent={selected ? GOLD : 'rgba(255,255,255,0.35)'}
+                  ariaLabel={`Pick ${h.name}`} title={h.name} aria-pressed={selected}
+                  onClick={() => pickHero(key)}
+                  style={selected ? { boxShadow: '0 0 0 2px rgba(216,178,92,0.5), 0 0 14px rgba(216,178,92,0.6)' } : undefined} />
               );
             })}
           </div>
           <div style={{ marginTop: 6, padding: '0.45rem 0.6rem', borderRadius: 10, border: `1px solid ${GOLD}`, background: 'rgba(216,178,92,0.12)', textAlign: 'left' }}>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{hero.name} <span style={{ opacity: 0.6, fontWeight: 400 }}>· {hero.realm}</span></div>
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>❤️ {hero.maxHp} · {hero.meleeLabel} {hero.meleeDmg} · {hero.rangedLabel} {hero.ranged.dmg} @ {hero.ranged.range} m{hero.sense ? ' · 🔍 Tracking sense' : ''}</div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.blurb}</div>
-            {hero.trait && <div style={{ fontSize: 12, color: GOLD, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.trait}</div>}
+            <div style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.2 }}>{hero.name} <span style={{ opacity: 0.6, fontWeight: 400 }}>· {hero.realm}</span></div>
+            <div style={{ fontSize: 12, lineHeight: 1.25, opacity: 0.85, marginTop: 2 }}>❤️ {hero.maxHp} · {hero.meleeLabel} {hero.meleeDmg} · {hero.rangedLabel} {hero.ranged.dmg} @ {hero.ranged.range} m{hero.sense ? ' · 🔍 Tracking sense' : ''}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.25, opacity: 0.7, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.blurb}</div>
+            {hero.trait && <div style={{ fontSize: 12, lineHeight: 1.25, color: GOLD, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.trait}</div>}
           </div>
           <button type="button" onClick={() => setMode('map')}
-            style={{ marginTop: '0.5rem', padding: '0.5rem 2rem', borderRadius: 999, border: 'none', background: GOLD, color: '#1a1426', fontWeight: 800, fontSize: 15, cursor: 'pointer' }}>
+            style={{ marginTop: '0.5rem', padding: '0.5rem 2rem', borderRadius: 999, border: 'none', background: GOLD, color: '#1a1426', fontWeight: 800, fontSize: 15, lineHeight: 1.2, cursor: 'pointer' }}>
             Enter as {hero.name} →
           </button>
         </div>
@@ -1565,21 +1582,27 @@ export default function HollowEarthPage() {
   }
 
   if (mode === 'map') {
+    // ORB MISSIONS MAP (Merlin, Nov 16 ~03:53): the pick IS the
+    // orb here too — the cluster orb (wearing the cluster's
+    // graphic) IS the Free Roam entry, and each mission orb
+    // (wearing that mission's graphic) IS the Hunt / Hunt again
+    // entry. The old rectangular Hunt / Hunt again / Free Roam
+    // pills are gone; every function they carried now rides on
+    // its orb (full name in the aria-label, done state in the
+    // text + gold orb border). Nothing is dropped: all 3
+    // clusters, all 7 missions, blurbs, counts, campaign + Korus
+    // gate readout stay. ONE FRAME: every row is counted in
+    // mapStackHeight() — 658 px total against a 700 px visible
+    // height (844 px device, browser chrome up), 42 px spare.
     const gp = DATA.gateProgress(campaign);
+    const L = MAP_LAYOUT;
     return (
-      <div style={{ minHeight: '100vh', background: '#17121f', color: '#fff', padding: '1rem 1rem 0.75rem', fontFamily: 'Georgia, serif' }}>
+      <div style={{ minHeight: '100vh', background: '#17121f', color: '#fff', padding: `${L.padTop}px 0.75rem ${L.padBottom}px`, fontFamily: 'Georgia, serif' }}>
         <div style={{ maxWidth: 760, margin: '0 auto' }}>
-          {/* Compact one-frame mission map (Merlin, Nov 16 ~02:32):
-              every cluster, mission, Hunt / Hunt again, Free Roam
-              and the campaign + Korus gate readout fit in a single
-              phone frame — no long scroll. Cluster blurbs stay;
-              mission rows are one flex line each (text wraps, the
-              Hunt pill stays pinned right); Free Roam rides in the
-              cluster header, element-coloured by first biome. */}
-          <button type="button" onClick={() => setMode('menu')} style={{ background: 'none', border: 'none', color: GOLD, cursor: 'pointer', fontSize: 13, padding: 0 }}>← Hunters</button>
-          <h1 style={{ color: GOLD, fontSize: 20, margin: '0.15rem 0' }}>Olympian Monsterverse</h1>
-          <p style={{ opacity: 0.8, fontSize: 12, margin: '0 0 0.5rem' }}>Entering as <b>{hero.name}</b> · ❤️ {hero.maxHp} · {hero.meleeLabel} {hero.meleeDmg}</p>
-          <div style={{ border: '1px solid rgba(216,178,92,0.5)', borderRadius: 10, padding: '0.45rem 0.6rem', margin: '0 0 0.5rem', background: 'rgba(216,178,92,0.08)', fontSize: 13 }}>
+          <button type="button" onClick={() => setMode('menu')} style={{ background: 'none', border: 'none', color: GOLD, cursor: 'pointer', fontSize: 13, lineHeight: 1.15, padding: 0 }}>← Hunters</button>
+          <h1 style={{ color: GOLD, fontSize: 18, lineHeight: 1.15, margin: '0.1rem 0' }}>Olympian Monsterverse</h1>
+          <p style={{ opacity: 0.8, fontSize: 12, lineHeight: 1.25, margin: 0 }}>Entering as <b>{hero.name}</b> · ❤️ {hero.maxHp} · {hero.meleeLabel} {hero.meleeDmg}</p>
+          <div style={{ border: '1px solid rgba(216,178,92,0.5)', borderRadius: 10, padding: '0.3rem 0.6rem', margin: '0 0 0.5rem', background: 'rgba(216,178,92,0.08)', fontSize: 13, lineHeight: 1.2 }}>
             <div style={{ fontWeight: 700 }}>🏆 Campaign — {campaign.kills} kills{campaign.shield > 0 ? ` · 🛡️ Shield ${campaign.shield}` : ''}</div>
             <div style={{ marginTop: 2 }}>
               {campaign.korusDone ? '👑 Korus has fallen. The throne is silent.'
@@ -1592,31 +1615,35 @@ export default function HollowEarthPage() {
             const done = DATA.clusterMissionsDone(progress, cid);
             const accent = (DATA.INTRO.orbs.find((o) => o.element === c.biomes[0]) || {}).color || GOLD;
             return (
-              <div key={cid} style={{ border: '1px solid rgba(255,255,255,0.15)', borderLeft: `3px solid ${accent}`, borderRadius: 10, padding: '0.5rem 0.6rem', marginBottom: '0.5rem', background: 'rgba(0,0,0,0.3)' }}>
+              <div key={cid} style={{ border: '1px solid rgba(255,255,255,0.15)', borderLeft: `3px solid ${accent}`, borderRadius: 10, padding: '0.45rem 0.6rem', marginBottom: '0.5rem', background: 'rgba(0,0,0,0.3)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ fontWeight: 700, fontSize: 14, flex: 1, minWidth: 0 }}>{c.name} <span style={{ opacity: 0.6, fontWeight: 400 }}>· {done}/{c.missions.length} missions</span></div>
-                  <button type="button" onClick={() => enterCluster(cid, 'roam')} style={{ background: 'none', color: GOLD, border: `1px solid ${GOLD}`, borderRadius: 999, padding: '0.15rem 0.6rem', cursor: 'pointer', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>🧭 Free Roam</button>
+                  {/* Cluster orb = the Free Roam pick: tap it to roam
+                      the cluster. (The old 🧭 Free Roam pill's
+                      function, re-formed as an orb.) */}
+                  <OrbButton fn={clusterOrbFn(cid)} size={L.clusterHeader} accent={accent}
+                    ariaLabel={`Free Roam — ${c.name}`} title={`Free Roam — ${c.name}`}
+                    onClick={() => enterCluster(cid, 'roam')} />
+                  <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name} <span style={{ opacity: 0.6, fontWeight: 400 }}>· {done}/{c.missions.length} missions</span></div>
                 </div>
-                <div style={{ opacity: 0.75, fontSize: 12, marginTop: 2 }}>{c.blurb}</div>
+                <div style={{ opacity: 0.75, fontSize: 12, lineHeight: 1.25, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.blurb}</div>
                 {c.missions.map((m) => {
                   const isDone = DATA.isMissionDone(progress, cid, m);
                   return (
-                    <div key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 4, fontSize: 12.5 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                    <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, fontSize: 12.5 }}>
+                      {/* Mission orb = the Hunt pick: tap it to hunt
+                          (or hunt again, once done — D-M2 mission
+                          replay, Merlin: YES, finished missions are
+                          replayable; re-completing just re-marks it,
+                          completeMission is idempotent, no reward is
+                          double-awarded; kills still feed the
+                          campaign, as in Free Roam). */}
+                      <OrbButton fn={missionOrbFn(m.id)} size={L.missionRow - 4} accent={isDone ? GOLD : accent}
+                        ariaLabel={isDone ? `Hunt again: ${m.title} — already complete` : `Hunt: ${m.title}`}
+                        title={isDone ? `Hunt again: ${m.title}` : `Hunt: ${m.title}`}
+                        onClick={() => enterCluster(cid, 'mission', m.id)} />
+                      <div style={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
                         {isDone ? '✅' : '🎯'} <b>{m.title}</b> — {m.objective} <span style={{ opacity: 0.6 }}>({DATA.DIFFICULTY_LABELS[m.difficulty]}, par {m.par}s)</span>
                       </div>
-                      {/* D-M2 / mission replay (2026-11-16, Merlin: YES,
-                          finished missions are replayable): a done
-                          mission stays done — replay re-enters it and
-                          re-completing just re-marks it (completeMission
-                          is an idempotent flag-set, and there is no
-                          per-mission reward to double-award; kills
-                          still feed the campaign, as in Free Roam). */}
-                      {isDone ? (
-                        <button type="button" onClick={() => enterCluster(cid, 'mission', m.id)} style={{ background: 'none', color: GOLD, border: `1px solid ${GOLD}`, borderRadius: 999, padding: '0.15rem 0.7rem', cursor: 'pointer', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>Hunt again</button>
-                      ) : (
-                        <button type="button" onClick={() => enterCluster(cid, 'mission', m.id)} style={{ background: GOLD, color: '#1a1426', border: 'none', borderRadius: 999, padding: '0.15rem 0.7rem', cursor: 'pointer', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>Hunt</button>
-                      )}
                     </div>
                   );
                 })}

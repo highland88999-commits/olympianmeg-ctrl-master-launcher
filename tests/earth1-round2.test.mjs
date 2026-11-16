@@ -77,14 +77,19 @@ const src = (p) => readFileSync(p, 'utf8');
   t('rocket pill renders inside the stack', rocketIdx !== -1);
   t('FIRE button renders inside the stack', fireIdx !== -1);
   t('rocket pill sits ABOVE the FIRE button', rocketIdx !== -1 && fireIdx !== -1 && rocketIdx < fireIdx);
-  // Round 3 (Merlin, 2026-11-15, annotated screenshot — move
-  // them DOWN): the stack rides at 142px, just above the drive
-  // stick (bottom edge 18px, 112px tall → top at 130px, + 12px
-  // gap), and the speed pill sits at the bottom edge too.
-  t('stack rides at 142px (just above the 18–130px drive stick)',
-    c.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 142px)'"));
+  // Nov 16 ~04:41 (Merlin — the universal layout, semi-intact):
+  // the stick moved to bottom-LEFT, the speed pill to
+  // bottom-CENTER, and the FIRE stack to the bottom edge on the
+  // RIGHT (18px), where the stick used to be — the old 142px
+  // perch above the stick is gone with it.
+  t('FIRE stack rides at the bottom edge on the right (18px, where the stick was)',
+    c.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)'"));
   t('speed pill sits at the bottom edge (18px)',
     c.includes("bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)'"));
+  t('speed pill is centered (left 50% + translateX(-50%))',
+    c.includes("left: '50%'") && c.includes("translateX(-50%)"));
+  t('no HUD piece sits at the old 142px perch',
+    !c.includes('+ 142px)'));
   t('no HUD piece sits at the old 216px / 92px heights',
     !c.includes('+ 216px)') && !c.includes('+ 92px)'));
 }
@@ -189,7 +194,7 @@ const src = (p) => readFileSync(p, 'utf8');
   t('left-half floating stick stands down in earth_roam',
     page.includes("if (appState === 'earth_roam') return;"));
   t('first-entry hint is top level too',
-    page.indexOf('Bottom-right stick steers') > hubClose);
+    page.indexOf('Bottom-left stick steers') > hubClose);
 }
 
 // --- Thanksgiving decor untouched ---
@@ -271,6 +276,14 @@ const src = (p) => readFileSync(p, 'utf8');
   // The tapped spawn point is separation-checked at the tap.
   t('globe tap checks the spawn point against rivals + peers',
     page.includes('clearSpawnPoint(lat, lon, [...kartState.rivals, ...sharedPeerVehicles])'));
+  // Nov 16 ~04:41 (Merlin — the spawn rule): the OTHER two roam
+  // entries ran the same dive with NO check, so a newcomer could
+  // land on top of a user or agent already driving there. Both
+  // now check the destination the same way before beginRoam.
+  t('arriveEarth checks the destination against rivals + peers',
+    page.includes('clearSpawnPoint(dest.lat, dest.lon, [...kartState.rivals, ...sharedPeerVehicles])'));
+  t('beginStreetDive checks the focus against rivals + peers',
+    page.includes('clearSpawnPoint(earthFocus.lat, earthFocus.lon, [...kartState.rivals, ...sharedPeerVehicles])'));
   t('page imports the spawn check + kart state',
     page.includes("from '@/lib/earth/kart'") && page.includes('clearSpawnPoint'));
 

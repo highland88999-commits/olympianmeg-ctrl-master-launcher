@@ -24,7 +24,6 @@ const DESTINATIONS = {
       { id: 'hawkins', label: 'Hawkins', desc: 'The Stranger Things world — hunt Demogorgons, face Vecna.' },
       { id: 'crocodile-swamp', label: 'Crocodile Swamp', desc: 'The swamp run — fast water, faster jaws.' },
       { id: 'monopoly', label: 'Monopoly', desc: 'Full Hasbro rules — vs AI, pass-and-play, or online.' },
-      { id: 'ares', label: 'ARES', desc: 'The threat monitor — Molly\'s watchtower.' },
       { id: 'dream-engine', label: 'Dream Engine', desc: 'Build and explore dream worlds.' },
     ],
   },

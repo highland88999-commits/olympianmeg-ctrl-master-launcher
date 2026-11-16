@@ -3,6 +3,7 @@ import { useRef, useMemo, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html, OrbitControls, Sparkles, useTexture } from '@react-three/drei';
+import { recordSoulArrival } from '../../../lib/land-of-the-dead/souls.js';
 
 const SAND_COLOR = "#c2b280";
 const TORCH_COLOR = "#ff8800";
@@ -100,6 +101,12 @@ export default function HamunaptraUniverseScene() {
             enemies[id].hp -= 50; // 2 shots to kill
             if (enemies[id].hp <= 0) {
                 enemies[id].active = false;
+                // The Land of the Dead (Merlin, Nov 16 ~04:17): a
+                // minion shot down arrives there too — additive only,
+                // the kill count and wave advance below are untouched.
+                // Guarded by `enemies[id].active` at the top of
+                // hitMinion, so this fires once per minion.
+                recordSoulArrival({ kind: 'monster', name: 'Minion', origin: 'skyscraper', diedAt: Date.now() });
                 setKills(prev => {
                     const newKills = prev + 1;
                     if (newKills === 20) setWave(2);

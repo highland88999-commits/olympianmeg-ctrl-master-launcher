@@ -129,7 +129,12 @@ export default function Jupiter2Page() {
         .jupiter2-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
           background: radial-gradient(120% 90% at 50% 0%, #3a2410 0%, #22100a 45%, #120806 100%); }
         .jupiter2 > *:not(.jupiter2-bg) { position: relative; z-index: 1; }
-        .jupiter2 header { padding: 18px 20px 10px; }
+        .jupiter2 header { padding: 18px 20px 10px; background: linear-gradient(rgba(18,8,6,0.82), rgba(18,8,6,0.88)), url(/images/jupiter-2/jupiter2-intro-banner.webp) center 30%/cover; }
+        /* Page-intro art (Merlin, Nov 16 — the J2 layout): one
+           true-to-place illustrated graphic for this surface, the
+           Swamp Run wrap — art under a dark scrim, the kicker +
+           title + sub read on top. No repeats: the creature panel
+           and the deck trade panel wear their own. */
         .jupiter2 .kicker { font-size: 11px; letter-spacing: 4px; color: ${ACCENT}; text-transform: uppercase; }
         .jupiter2 h1 { margin: 4px 0 2px; font-size: clamp(1.6rem, 5vw, 2.6rem); letter-spacing: 6px; font-weight: 800; }
         .jupiter2 .sub { color: #c99a78; font-size: 0.9rem; max-width: 60ch; }
@@ -199,7 +204,10 @@ export default function Jupiter2Page() {
             open (the panel owns the bottom of the stage). A press
             while riding is swallowed by the scene — and the scene's
             BOOST orb parks above this one, never on it, so the two
-            can never double-label the same corner again. Bottom-right,
+            can never double-label the same corner again. Mid-column
+            now (Merlin, Nov 16 — the J2 layout): FIRE sits below it
+            at bottom 12 and the BACKPACK orb above it at bottom 176,
+            all right-aligned at 12 px, 12 px gaps. Bottom-right,
             the Moon's button, Jupiter colours. */}
         {mode === 'walk' && !selected && (
           <OrbButton ariaLabel="Jump" size={76}
@@ -209,12 +217,23 @@ export default function Jupiter2Page() {
               // the moment the press becomes a drag.
               onDragStart: () => { jumpRef.current = false; },
             })}
-            style={dock.styleFor('jump', { right: 12, bottom: 12 })}>
+            style={dock.styleFor('jump', { right: 12, bottom: 88 })}>
             <span style={{ fontSize: 15 }}>JUMP</span>
           </OrbButton>
         )}
         {selected && (
-          <div className="panel" role="dialog" aria-label={selected.name}>
+          <div className="panel" role="dialog" aria-label={selected.name} style={{ padding: 0 }}>
+            {/* Creature art (Merlin, Nov 16 — the J2 layout): one
+                true-to-place illustrated graphic for this surface,
+                the Swamp Run wrap — art under a dark scrim, text
+                below it, no layout change. No repeats: the deck
+                trade panel and the page intro wear their own. */}
+            <div aria-hidden="true" style={{
+              height: 96, borderRadius: '10px 10px 0 0',
+              backgroundImage: 'linear-gradient(rgba(22,10,4,0.15), rgba(22,10,4,0.55)), url(/images/jupiter-2/jupiter2-creature-banner.webp)',
+              backgroundSize: 'cover', backgroundPosition: 'center 30%',
+            }} />
+            <div style={{ padding: '12px 16px 14px' }}>
             <h2>{selected.name}</h2>
             <div className="meta">{selected.niche} · {selected.stage} · {selected.activity}</div>
             <p>Diet: {selected.diet}</p>
@@ -223,6 +242,7 @@ export default function Jupiter2Page() {
               <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>✕</span>
               <OrbLabel>CLOSE</OrbLabel>
             </OrbButton>
+            </div>
           </div>
         )}
       </div>

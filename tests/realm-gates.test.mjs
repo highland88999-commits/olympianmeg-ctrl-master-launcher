@@ -13,7 +13,7 @@
 // look, not the same treatment, and the order for this pass says
 // exactly that — do NOT force rotation onto a gate that genuinely
 // cannot turn, leave it as-is and report it. So this suite pins the
-// finding: all 24 realm gates are documented exceptions, and it fails
+// finding: all 25 realm gates are documented exceptions, and it fails
 // loudly if any gate ever gains a turning part without the one speed.
 // The travel arches and descent portals are static too (same check).
 // Run: node tests/portal-gates.test.mjs (from the repo root).
@@ -173,9 +173,9 @@ test('the travel arches and descent portals are static too — no turning part a
   }
 });
 
-// --- 4. The exception list covers all 24 realms, by name ---
+// --- 4. The exception list covers all 25 realms, by name ---
 
-test('the documented exceptions cover all 24 realms, each with its reason', () => {
+test('the documented exceptions cover all 25 realms, each with its reason', () => {
   const named = Object.keys(GATE_NOTES).sort();
   assert.deepEqual(
     named,

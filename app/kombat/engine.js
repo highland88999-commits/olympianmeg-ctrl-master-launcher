@@ -21,6 +21,7 @@ import { temperamentFor, composeAiProfile, bloodlust } from '../../lib/kombat/te
 import { applyFloorClamp, solveFloorY } from '../../lib/kombat/floor.js';
 import { duelFraming } from '../../lib/kombat/framing.js';
 import { buildArena } from './arenas.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import {
   MAX_HEALTH, ROUND_TIME, ROUNDS_TO_WIN, FINISH_HIM_SECONDS,
   COMBO_WINDOW, BLOCK_REDUCTION, ARENA_HALF_WIDTH, MIN_SEPARATION,
@@ -659,6 +660,18 @@ export function createKombatEngine(canvas, config) {
     loser.wobble = false;
     setPoseState(loser, 'ko');
     setPoseState(winner, 'win');
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): a fatality is a
+    // death — the loser arrives there too, additive only. A KO alone
+    // is NOT a death (the loser staggers back up for FINISH HIM), so
+    // onKnockout is deliberately not wired. Guarded by fatalityDone
+    // + phase, so this fires once per match. The loser's own fighter
+    // dying is a user death; a CPU fighter is a creature.
+    recordSoulArrival({
+      kind: loser.isPlayer ? 'user' : 'creature',
+      name: loser.data.name,
+      origin: 'kombat',
+      diedAt: Date.now(),
+    });
     H('onFinishHim', false, 0, false);
     H('onFatality', winner.data.fatality.name, winner.data.fatality.description);
     sfx.fatality();

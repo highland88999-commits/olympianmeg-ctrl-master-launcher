@@ -35,6 +35,7 @@ import { FORGE_AETHER_DAILY_CAP, forgeRateText } from '@/lib/afterlife/forge';
 import { LAKE_RESPAWN, consumeLakeLanding } from '@/lib/ghost-rider/chain';
 import { FERRY_FARE_GOLD, ferryLanding } from '@/lib/afterlife/ferry';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { FloorDropFallOverlay, useFloorDrop } from '@/components/world/FloorDrop';
 
 const STICK_RADIUS = 60;
 
@@ -43,6 +44,7 @@ export default function HellPage() {
   const { travel, overlay: vortexOverlay } = useVortexTravel();
 
   const playerRef = useRef({ x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw });
+  const floorDrop = useFloorDrop({ origin: 'hell' });
   const inputRef = useRef({ fwd: 0, strafe: 0, run: false, lookDx: 0 });
   const keysRef = useRef(new Set());
   const dragRef = useRef({ active: false, lastX: 0 });
@@ -200,6 +202,13 @@ export default function HellPage() {
   const onAntiLife = useCallback(() => {
     travel(ANTI_LIFE_ROUTE, ANTI_LIFE_PORTAL_NAME);
   }, [travel]);
+  // FLOOR DROP (WS-C, Nov 16): stepping onto the floor disc drops the
+  // walker through the floor to the Land of the Dead. The Anti-Life
+  // guard pattern; the drop itself carries the origin, so the floor
+  // portal in the Land of the Dead returns the walker to this realm.
+  const onFloorDrop = useCallback(() => {
+    floorDrop.open();
+  }, [floorDrop]);
 
   const onRegion = useCallback((name) => {
     setRegion(name);
@@ -406,6 +415,7 @@ export default function HellPage() {
             inputRef={inputRef}
             onPortal={onPortal}
             onAntiLife={onAntiLife}
+            onFloorDrop={onFloorDrop}
             onRegion={onRegion}
             reduced={reduced}
             guiding={guiding}
@@ -533,6 +543,7 @@ export default function HellPage() {
         </OrbButton>
       )}
 
+      <FloorDropFallOverlay phase={floorDrop.phase} depth={floorDrop.depth} />
       {vortexOverlay}
     </main>
   );

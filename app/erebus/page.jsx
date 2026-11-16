@@ -818,6 +818,7 @@ export default function ErebusPage() {
   const [showJump, setShowJump] = useState(false);
   const [jumpQuery, setJumpQuery] = useState('');
   const [toast, setToast] = useState(null);
+  const [universeCardVisible, setUniverseCardVisible] = useState(true);
   const [scope, setScope] = useState('device:pending');
   const [progress, setProgress] = useState(() => blankProgress());
   const [ledger, setLedger] = useState(() => blankLedger());
@@ -878,6 +879,15 @@ export default function ErebusPage() {
   useEffect(() => {
     document.title = view === 'explorer' ? `${universe.name} — EREBUS` : TITLE;
   }, [view, universe]);
+
+  // Universe card (top-left) shows on arrival, fades after 5 s (Merlin,
+  // Nov 16 ~04:29) — EVERY universe in Erebus: the timer re-runs on each
+  // arrival (universeId change), so every universe gets its 5 s.
+  useEffect(() => {
+    setUniverseCardVisible(true);
+    const id = setTimeout(() => setUniverseCardVisible(false), 5000);
+    return () => clearTimeout(id);
+  }, [universeId]);
 
   useEffect(() => {
     try {
@@ -982,6 +992,16 @@ export default function ErebusPage() {
     setShowJump(false);
     setView('atlas');
   }, []);
+
+  // When the jump sheet closes, drop focus first (Merlin, Nov 16 ~04:29):
+  // the sheet's search field is unmounted on jump, and iOS Safari leaves
+  // its floating "Search" pill on screen when a focused search field is
+  // removed while focused. Blurring on close stops the pill appearing.
+  useEffect(() => {
+    if (!showJump && typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, [showJump]);
 
   // --- keyboard ------------------------------------------------------------------
   useEffect(() => {
@@ -1211,7 +1231,7 @@ export default function ErebusPage() {
 
       {/* minimal HUD */}
       <div className="absolute left-0 right-0 flex items-start justify-between gap-2 p-4 sm:p-5 pointer-events-none" style={{ top: 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))' }}>
-        <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-indigo-400/80 max-w-[62vw]">
+        <div className="bg-black/60 backdrop-blur-sm px-4 py-3 border-l-2 border-indigo-400/80 max-w-[62vw] transition-opacity duration-700" style={{ opacity: universeCardVisible ? 1 : 0 }}>
           <div className="text-[10px] sm:text-[11px] tracking-[0.3em] uppercase text-indigo-300/90">
             Universe {universe.id} / 140
           </div>
@@ -1247,16 +1267,12 @@ export default function ErebusPage() {
             <GridIcon size={16} />
             <OrbLabel>ATLAS</OrbLabel>
           </OrbButton>
+          {/* the ONE portal button — lives under ATLAS, same size (72), plain circle orb (Merlin, Nov 16 ~04:26) */}
+          <OrbButton accent="#67e8f9" size={72} onClick={openJump} ariaLabel="Portal — jump to another universe">
+            <PortalIcon size={18} />
+            <OrbLabel>PORTAL</OrbLabel>
+          </OrbButton>
         </div>
-      </div>
-
-      {/* the ONE portal button — centered, a plain circle orb now */}
-      <div className={`absolute left-0 right-0 flex justify-center pointer-events-none ${touchUI ? 'bottom-[47%]' : 'bottom-[calc(2rem+env(safe-area-inset-bottom))]'}`}>
-        <OrbButton accent="#67e8f9" size={72} onClick={openJump} ariaLabel="Portal — jump to another universe"
-          style={{ pointerEvents: 'auto' }}>
-          <PortalIcon size={18} />
-          <span style={{ fontSize: 9, letterSpacing: 1, lineHeight: 1 }}>PORTAL</span>
-        </OrbButton>
       </div>
 
       {/* collect toast */}
@@ -1279,7 +1295,6 @@ export default function ErebusPage() {
               onChange={(e) => setJumpQuery(e.target.value)}
               placeholder="Search by name or number…"
               aria-label="Search universes to jump to"
-              autoFocus
               className="mt-4 min-h-[44px] px-4 rounded-lg bg-zinc-950 border border-zinc-800 text-sm tracking-wide placeholder:text-zinc-600 focus:outline-none focus:border-cyan-400/70"
             />
             <div className="mt-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">

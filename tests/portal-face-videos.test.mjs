@@ -2,11 +2,12 @@
 // (Merlin, Nov 15 ~22:25): the faces of the portal cards in
 // components/PortalRoom.jsx wear VIDEO, muted and looping, over the
 // realm's illustrated graphic — which stays underneath as the
-// fallback. This batch: 9 video faces of 24 unique realms — 3
+// fallback. This batch: 9 video faces of 25 unique realms — 3
 // reused nether sky videos (hades/hell/helheim) + 6 new face videos
-// (elysium, heaven, valhalla, duat, naraka, tiangong). The other 15
+// (elysium, heaven, valhalla, duat, naraka, tiangong). The other 16
 // realms keep their static illustrated graphic, named here so the
-// next batch (6 per message) knows what is owed.
+// next batch (6 per message) knows what is owed. Land of the Dead
+// (Nov 16, 2026) joins the static set: no face video yet.
 // Run: node tests/portal-face-videos.test.mjs (from the repo root).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

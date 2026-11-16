@@ -197,13 +197,16 @@ test('Jupiter 2 uses the ONE shared mechanism — no second orb-dock copy anywhe
   assert.doesNotMatch(hook, /Math\.hypot\(dx, dy\) > /);
   assert.match(hook, /isOrbDockDrag\(/);
   assert.match(hook, /dragOrbDockTopLeft\(/);
-  // Every J2 control is docked; the fullscreen orb stays fixed
-  // top-right (the law puts it there — never dragged off its corner).
+  // Every J2 control is docked except the stick, which is FIXED
+  // bottom-left (Merlin, Nov 16 — the J2 layout): it steers, it
+  // never moves, it is not dock-owned.
   // (The scene's orbs use `dock`, the touch controls' prop is named
   // `orbDock` — the same hook instance either way.)
-  for (const id of ['jump', 'stick', 'boost', 'shoot', 'summon', 'dismount', 'trade']) {
+  for (const id of ['jump', 'boost', 'shoot', 'summon', 'dismount', 'trade']) {
     assert.match(j2page + j2scene, new RegExp(`(?:orbDock|dock)\\.bind\\('${id}'`));
   }
+  assert.doesNotMatch(j2page + j2scene, /(?:orbDock|dock)\.bind\('stick'/);
+  assert.doesNotMatch(j2scene, /styleFor\('stick'/);
   assert.match(j2page, /ariaLabel="Enter fullscreen"/);
   assert.doesNotMatch(j2page, /dock\.bind\('fullscreen'/);
   // No button container left holding J2's controls: the top-left
@@ -214,16 +217,20 @@ test('Jupiter 2 uses the ONE shared mechanism — no second orb-dock copy anywhe
   assert.match(j2scene, /dock\.styleFor\('summon', \{ left: 12, top: 12 \}\)/);
   assert.match(j2scene, /dock\.styleFor\('dismount', \{ left: 12, top: 76 \}\)/);
   assert.match(j2scene, /dock\.styleFor\('trade', \{ left: 12, top: riding \? 148 : 76 \}\)/);
-  assert.match(j2scene, /orbDock\.styleFor\('stick', \{ left: 16, bottom: 16 \}\)/);
-  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 16, bottom: 104 \}\)/);
+  // The stick is FIXED now, not dock-positioned (Merlin, Nov 16 —
+  // the J2 layout): a plain div at left 16, bottom 16, it steers,
+  // it never moves.
+  assert.match(j2scene, /position: 'absolute', left: 16, bottom: 16, zIndex: 6,/);
+  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 104, bottom: 88 \}\)/);
   assert.match(j2scene, /orbDock\.styleFor\('shoot', \{ right: 104, bottom: 12 \}\)/);
-  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 12 \}\)/);
+  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 88 \}\)/);
   // Drag-vs-tap: a drag stands the press action down (JUMP's queued
-  // jump, BOOST's held key, the stick's deflection) and the tap
-  // guard is checked before click actions fire.
+  // jump, BOOST's held key) and the tap guard is checked before
+  // click actions fire. The stick has no drag handler any more —
+  // it is fixed, not dock-dragged.
   assert.match(j2page, /onDragStart: \(\) => \{ jumpRef\.current = false; \}/);
   assert.match(j2scene, /onDragStart: \(\) => setKey\('boost', false\)/);
-  assert.match(j2scene, /onDragStart: \(\) => clearStick\(\)/);
+  assert.doesNotMatch(j2scene, /onDragStart: \(\) => clearStick\(\)/);
   assert.match(j2scene, /if \(orbDock\.tapGuard\(\)\) return; onShoot\(\)/);
   assert.match(j2scene, /if \(dock\.tapGuard\(\)\) return; summon\(\)/);
   assert.match(j2scene, /if \(dock\.tapGuard\(\)\) return; setTradeOpen\(true\)/);

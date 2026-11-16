@@ -20,6 +20,7 @@ import {
   dist,
 } from '../../lib/swamp-run/world.js';
 import { computeScore } from '../../lib/swamp-run/board.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 export const TUNING = {
   graceSeconds: 10,
@@ -493,6 +494,12 @@ function killPlayer(state, killer = 'croc') {
   const killerPos = killer === 'gator'
     ? { x: g.x, z: g.z, heading: g.heading }
     : { x: state.croc.x, z: state.croc.z, heading: state.croc.heading };
+  // The Land of the Dead (Merlin, Nov 16 ~04:17): being eaten
+  // arrives there too — additive only, the death record below is
+  // untouched. killPlayer is the single death path (both callers —
+  // gator and croc — route through it) and the step guards return
+  // once status is 'dead', so this fires once per run.
+  recordSoulArrival({ kind: 'user', origin: 'swamp-run', diedAt: Date.now() });
   state.death = {
     x: state.player.x,
     z: state.player.z,

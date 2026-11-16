@@ -41,6 +41,8 @@ import {
   stepPosition,
 } from '@/lib/nether-realm/world';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
+import { FloorDropDisc } from '@/components/world/FloorDrop';
+import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
@@ -1304,12 +1306,13 @@ function Statues({ statues }) {
 
 // --- first-person camera rig -------------------------------------------------
 
-export function CameraRig({playerRef, inputRef, onPortal, onLava, lavaPools, onRegion, reduced, statues, onAntiLife}) {
+export function CameraRig({playerRef, inputRef, onPortal, onLava, lavaPools, onRegion, reduced, statues, onAntiLife, onFloorDrop}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
   const lastAntiLifeRef = useRef(0);
   const antiLifeTravelingRef = useRef(false);
+  const floorDropGuardRef = useRef(createFloorDropGuard());
   const lastLavaRef = useRef(0);
   const lavaTravelingRef = useRef(false);
   const lastRegionRef = useRef('');
@@ -1407,6 +1410,15 @@ export function CameraRig({playerRef, inputRef, onPortal, onLava, lavaPools, onR
     } else {
       antiLifeTravelingRef.current = false;
     }
+    // FLOOR DROP (WS-C, Nov 16): the disc at the mirror spot (+70, 110) drops the
+    // walker through the floor to the Land of the Dead — the same
+    // once-per-entry guard as the arches and the Anti-Life disc, with
+    // its own guard state, so standing on the disc re-fires only
+    // after stepping back out. The origin rides along, so the floor
+    // portal in the Land of the Dead knows where to send the walker back.
+    if (onFloorDrop && floorDropGuardShouldFire(floorDropGuardRef.current, player.x, player.z, FLOOR_DROP_DISC_NETHER, now)) {
+      onFloorDrop();
+    }
 
     // Stepping into a lava pool drops the walker into the World
     // Engine (Merlin, 2026-11-13) — the same once-per-entry guard
@@ -1430,7 +1442,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onLava, lavaPools, onR
 
 // --- the whole scene ---------------------------------------------------------
 
-export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegion, reduced, medusa, statues, foes, headHeld, headState, firingAtMs, chainFx, onMedusaMove, onAntiLife}) {
+export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegion, reduced, medusa, statues, foes, headHeld, headState, firingAtMs, chainFx, onMedusaMove, onAntiLife, onFloorDrop}) {
   const world = useMemo(() => makeWorld(1337), []);
 
   // DAY / NIGHT STORM (Merlin, 2026-11-14): a strike sometimes sets a
@@ -1476,6 +1488,7 @@ export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegio
       <Tartarus pits={world.tartarusPits} shades={world.shades} reduced={reduced} />
       <PortalArches />
       <AntiLifePortalDisc />
+      <FloorDropDisc side="nether" reduced={reduced} />
       <DescentPortal />
       <Torches reduced={reduced} />
       <Embers reduced={reduced} />
@@ -1495,6 +1508,7 @@ export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegio
         inputRef={inputRef}
         onPortal={onPortal}
         onAntiLife={onAntiLife}
+        onFloorDrop={onFloorDrop}
         onLava={onLava}
         lavaPools={world.lavaPools}
         onRegion={onRegion}

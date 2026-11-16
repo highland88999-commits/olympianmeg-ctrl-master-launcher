@@ -7,6 +7,7 @@ import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, GAMEPAD_BUTTONS } from '../../lib/gamepad.js';
 import { hawkinsModel, HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
 import { instantiateHawkins, prefetchHawkins } from '../../lib/hawkins/loader.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 const EYE = 7;
 const TRACES_NEEDED = 5;
@@ -1021,6 +1022,10 @@ export function createEngine(canvas, hooks) {
   engine.killDemogorgon = function (d) {
     const E = engine;
     d.dead = 0.001; E.kills++;
+    // The Land of the Dead (Merlin, Nov 16 ~04:02): every death
+    // arrives there. The shooting loop only fires on live
+    // demogorgons (filter d => !d.dead), so this runs once each.
+    recordSoulArrival({ kind: 'demogorgon', name: 'Demogorgon', origin: 'hawkins', diedAt: Date.now() });
     E.hooks.onKill(E.kills);
     E.hooks.feed('DEMOGORGON DOWN — ' + E.kills);
     const flash = new THREE.PointLight(0xff2222, 6, 60);
@@ -1145,6 +1150,8 @@ export function createEngine(canvas, hooks) {
         if (toB.angleTo(dir) < Math.atan2(6, dist) + 0.05) {
           hit = true; b.dead = 0.001; E.kills++;
           E.hooks.onKill(E.kills); E.hooks.feed('DEMO-BAT DOWN');
+          // The Land of the Dead: the bat's death arrives there too.
+          recordSoulArrival({ kind: 'creature', name: 'Demo-bat', origin: 'hawkins', diedAt: Date.now() });
           E.hooks.hitmarker(false);
           E.spawnTracer(b.mesh.position.clone());
           E.spawnBlood(b.mesh.position.clone(), 0x661111);
@@ -1227,6 +1234,10 @@ export function createEngine(canvas, hooks) {
     // To die is to respawn in Hawkins. Death is a door.
     const E = engine, P = E.player;
     E.hooks.banner('TAKEN — YOU WAKE IN HAWKINS');
+    // The Land of the Dead (Merlin, Nov 16 ~04:02): the hunter's
+    // own death arrives there too — death is a door, and this is
+    // where it leads.
+    recordSoulArrival({ kind: 'user', origin: 'hawkins', diedAt: Date.now() });
     E.hooks.feed('death is a door. you walked back through.');
     P.pos.set(0, 0, 420); P.yaw = Math.PI; P.pitch = 0;
     P.health = P.maxHealth; P.ammo = P.magSize; P.reloading = false;

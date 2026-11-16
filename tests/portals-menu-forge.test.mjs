@@ -15,8 +15,8 @@ const page = readFileSync('app/page.jsx', 'utf8');
 const menu = readFileSync('components/SatelliteMenu.jsx', 'utf8');
 const search = readFileSync('lib/menu-search.js', 'utf8');
 
-test('registry untouched: still 215, no agent-forge', () => {
-  assert.equal(registryKeys.length, 215); // 181 at this test's writing; Hades seats: →198; nether-realms homes: →210 (Nov 12, 2026); Earth 4 seat: →211 (Nov 14, 2026); Moon + Sun Base seats: →213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: →215 (Nov 15, 2026); Ghost Rider seat: →216 (Nov 15, 2026); Weapons Forge seat removed: →215 (Nov 15, 2026). The point stands: agent-forge is NOT in the registry.
+test('registry untouched: still 214, no agent-forge', () => {
+  assert.equal(registryKeys.length, 214); // 181 at this test's writing; Hades seats: →198; nether-realms homes: →210 (Nov 12, 2026); Earth 4 seat: →211 (Nov 14, 2026); Moon + Sun Base seats: →213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: →215 (Nov 15, 2026); Ghost Rider seat: →216 (Nov 15, 2026); Weapons Forge seat removed: →215 (Nov 15, 2026); Land of the Dead seat added: 215→216 (Nov 16, 2026); ARES seat removed: 216→215 (Nov 16, 2026); Land of the Dead seat removed: 215→214 (Nov 16, 2026, floor drop only). The point stands: agent-forge is NOT in the registry.
   assert.equal(registryKeys.includes('agent-forge'), false);
 });
 

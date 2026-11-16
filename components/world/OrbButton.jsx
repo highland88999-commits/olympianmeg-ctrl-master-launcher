@@ -22,7 +22,10 @@
 // their meaning (label, damage, state word).
 //
 // Props: children (icon + optional short label, stacked), fn (the
-// button's function key — see ORB_FUNCTIONS below), ariaLabel
+// button's function key — see ORB_FUNCTIONS below), art (a custom
+// full-bleed face image, e.g. a vehicle face from the selection
+// menu — used instead of fn when the orb wears a picture of a
+// THING rather than a function), ariaLabel
 // (the full control name — required for icon-only orbs), title,
 // active (filled accent = the on state), disabled, size, accent
 // (border + text colour), bg, href (renders a link orb, e.g. Leave),
@@ -31,6 +34,7 @@
 export default function OrbButton({
   children,
   fn,
+  art,
   ariaLabel,
   title,
   active = false,
@@ -70,14 +74,24 @@ export default function OrbButton({
     textDecoration: 'none',
     // A faced orb positions its art against itself; the caller's
     // own position (absolute, when placed) still wins below.
-    ...(fn ? { position: 'relative' } : null),
+    ...((fn || art) ? { position: 'relative' } : null),
     ...style,
   };
   const label = ariaLabel || title || '';
   // fn: the button's function — its one shared graphic face (see
   // ORB_FUNCTIONS below). The face wears the art; the caller's
   // children keep their meaning (label, damage, state word).
-  const content = fn ? <OrbFace fn={fn} size={size}>{children}</OrbFace> : children;
+  // art: a custom full-bleed face (the vehicle-selection menu) —
+  // the same full-bleed wear as an icon-only fn orb, a missing
+  // file hiding itself so the caller's text shows through.
+  const content = fn ? <OrbFace fn={fn} size={size}>{children}</OrbFace>
+    : art ? (
+      <span aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: '50%', overflow: 'hidden', pointerEvents: 'none' }}>
+        <img src={art} alt="" aria-hidden="true" draggable={false}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+      </span>
+    ) : children;
   if (href) {
     return (
       <a href={href} aria-label={label} title={title || label} style={orbStyle} {...rest}>
@@ -129,7 +143,7 @@ export const ORB_FUNCTIONS = {
   // Combat.
   shoot: { label: 'SHOOT', art: '/images/shadow-realm/ui/tron-shoot.webp' },
   strike: { label: 'STRIKE', art: '/images/shadow-realm/ui/tron-strike.webp' },
-  fire: { label: 'FIRE', art: '/images/shadow-realm/ui/tron-fire.webp' },
+  fire: { label: 'FIRE', art: '/images/shadow-realm/ui/tron-reticle.webp' },
   weapon: { label: 'WEAPON', art: '/images/shadow-realm/ui/tron-weapon.webp' },
   'buy-weapon': { label: 'BOLT', art: '/images/shadow-realm/ui/tron-buy-weapon.webp' },
   'buy-shield': { label: 'SHIELD', art: '/images/shadow-realm/ui/tron-buy-shield.webp' },
@@ -158,6 +172,27 @@ export const ORB_FUNCTIONS = {
   visit: { label: 'VISIT', art: '/images/shadow-realm/ui/tron-visit.webp' },
   claim: { label: 'CLAIM', art: '/images/shadow-realm/ui/tron-claim.webp' },
   mission: { label: 'MISSION', art: '/images/shadow-realm/ui/tron-mission.webp' },
+  // Hollow Earth picks (Merlin, Nov 16 — the hunter-pick +
+  // missions-map orb rework): each hero, cluster and mission
+  // wears its own face, drawn by scripts/gen-hero-orb-art.py.
+  // The pick IS the orb — no words on it; the full name rides
+  // in the caller's aria-label.
+  'hero-monster-hunter': { label: 'KAEL', art: '/images/shadow-realm/ui/tron-hero-monster-hunter.webp' },
+  'hero-wizard': { label: 'PILGRIM', art: '/images/shadow-realm/ui/tron-hero-wizard.webp' },
+  'hero-ranger': { label: 'RANGER', art: '/images/shadow-realm/ui/tron-hero-ranger.webp' },
+  'hero-elf-archer': { label: 'ELF', art: '/images/shadow-realm/ui/tron-hero-elf-archer.webp' },
+  'hero-dwarf': { label: 'DWARF', art: '/images/shadow-realm/ui/tron-hero-dwarf.webp' },
+  'hero-halfling': { label: 'HALFLING', art: '/images/shadow-realm/ui/tron-hero-halfling.webp' },
+  'cluster-wilds': { label: 'WILDS', art: '/images/shadow-realm/ui/tron-cluster-wilds.webp' },
+  'cluster-stormlands': { label: 'STORMLANDS', art: '/images/shadow-realm/ui/tron-cluster-stormlands.webp' },
+  'cluster-dark-reaches': { label: 'REACHES', art: '/images/shadow-realm/ui/tron-cluster-dark-reaches.webp' },
+  'mission-ooze-crossing': { label: 'OOZE', art: '/images/shadow-realm/ui/tron-mission-ooze-crossing.webp' },
+  'mission-mire-hunt': { label: 'MIRE', art: '/images/shadow-realm/ui/tron-mission-mire-hunt.webp' },
+  'mission-pylon-run': { label: 'PYLON', art: '/images/shadow-realm/ui/tron-mission-pylon-run.webp' },
+  'mission-storm-hunt': { label: 'STORM', art: '/images/shadow-realm/ui/tron-mission-storm-hunt.webp' },
+  'mission-wreck-field': { label: 'WRECK', art: '/images/shadow-realm/ui/tron-mission-wreck-field.webp' },
+  'mission-gloom-hunt': { label: 'GLOOM', art: '/images/shadow-realm/ui/tron-mission-gloom-hunt.webp' },
+  'mission-throne-road': { label: 'THRONE', art: '/images/shadow-realm/ui/tron-mission-throne-road.webp' },
   tour: { label: 'TOUR', art: '/images/shadow-realm/ui/tron-tour.webp' },
   'tour-prev': { label: 'PREV', art: '/images/shadow-realm/ui/tron-tour-prev.webp' },
   'tour-next': { label: 'NEXT', art: '/images/shadow-realm/ui/tron-tour-next.webp' },

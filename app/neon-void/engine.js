@@ -8,6 +8,7 @@
 // for a few seconds YOU are the predator.
 
 import { generateMaze, MAX_LEVEL } from '../../lib/neon-void/levels.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 export const DIRS = {
   up: { x: 0, y: -1 },
@@ -421,10 +422,22 @@ function checkWraithCollisions(state) {
         state.combo++;
         addScore(state, pts);
         w.mode = 'eaten';
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): an eaten
+        // wraith arrives there too — additive only, the 'eaten' trip
+        // home (it revives at the door) is untouched. Guarded by
+        // `w.mode === 'home' || w.mode === 'eaten'` at the top of this
+        // loop, so this fires once per eating.
+        recordSoulArrival({ kind: 'monster', name: w.name, origin: 'neon-void', diedAt: Date.now() });
         emit(state, 'eatWraith', { points: pts, wraith: w.id });
       } else {
         state.status = 'dying';
         state.statusTimer = 1.2;
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): the player's
+        // death arrives there too — additive only, the die timer and
+        // the lives/respawn below are untouched. Guarded by
+        // `state.status === 'playing'` (stepGame returns early once
+        // the status leaves playing), so this fires once per death.
+        recordSoulArrival({ kind: 'user', origin: 'neon-void', diedAt: Date.now() });
         emit(state, 'death');
         return;
       }

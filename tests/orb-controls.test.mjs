@@ -37,6 +37,7 @@ const starwars = read('../app/star-wars/page.jsx');
 const hell = read('../app/hell/page.jsx');
 const valhalla = read('../app/valhalla/page.jsx');
 const erebus = read('../app/erebus/page.jsx');
+const core = read('../components/world/ControlsCore.jsx');
 
 test('OrbButton is a plain circle: 50% radius, no glow, no video, no missile-orb styling', () => {
   assert.match(orb, /borderRadius: '50%'/);
@@ -57,7 +58,7 @@ test('Jupiter 2 page has no raw rectangular buttons left; fullscreen lives top-r
   // JUMP is docked (the Hollow Earth mirror, Nov 16 ~02:35): free-
   // floating, draggable, its spot persisting per user — fullscreen
   // stays fixed top-right, never docked.
-  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 12 \}\)/);
+  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 88 \}\)/);
   assert.match(j2page, /dock\.bind\('jump'/);
   assert.doesNotMatch(j2page, /dock\.bind\('fullscreen'/);
 });
@@ -72,14 +73,20 @@ test('Jupiter 2 fullscreen top row cannot pile up: free-floating speeder orbs to
   assert.match(j2scene, /top: 12, left: 76, zIndex: 6,\n *width: 56, height: 56, borderRadius: '50%'/);
   assert.match(j2scene, /top: 76, left: '50%', transform: 'translateX\(-50%\)',\n *maxWidth: 'calc\(100% - 184px\)'/);
   assert.doesNotMatch(j2scene, /🛸 DISMISS SPEEDER|🛸 SUMMON SPEEDER/);
-  assert.match(j2scene, /<OrbLabel>\{riding \? 'DISMISS' : 'SUMMON'\}<\/OrbLabel>/);
+  assert.doesNotMatch(j2scene, /<OrbLabel>\{riding \? 'DISMISS' : 'SUMMON'\}<\/OrbLabel>/);
+  // SUMMON shows on foot only now (Merlin, Nov 16 — the J2 layout):
+  // hidden while riding, DISMOUNT is the way off. 8 px label, not
+  // OrbLabel's 9 px — SUMMON clipped to "SUMMOI" at 9 px on his phone.
+  assert.match(j2scene, /\{!riding && \(/);
+  assert.match(j2scene, /fontSize: 8, letterSpacing: 1, lineHeight: 1 \}\}>SUMMON<\/span>/);
 });
 
 test('JUMP and the speeder action button never share a corner: BOOST parks above JUMP', () => {
-  // JUMP orb: bottom 12, 76 tall — ends at bottom 88. BOOST: bottom 104.
-  // Both are docked now, defaulting to their old slots.
-  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 16, bottom: 104 \}\)/);
-  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 12 \}\)/);
+  // JUMP orb moved to bottom 88 (Merlin, Nov 16 — the J2 layout:
+  // BACKPACK above it, FIRE below it). BOOST moved with it: right
+  // 104, bottom 88 — directly above SHOOT, side by side with JUMP.
+  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 104, bottom: 88 \}\)/);
+  assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 88 \}\)/);
 });
 
 test('SHOOT orb has its own spot: left of JUMP, below BOOST, riding only, wired to the blaster', () => {
@@ -92,9 +99,11 @@ test('SHOOT orb has its own spot: left of JUMP, below BOOST, riding only, wired 
   assert.match(j2scene, /orbDock\.bind\('shoot'/);
   assert.match(j2scene, /\{riding && onShoot && \(/);
   assert.match(j2scene, /<OrbLabel>SHOOT<\/OrbLabel>/);
-  // Wired: the scene passes fireBlaster down as onShoot.
-  assert.match(j2scene, /<Jupiter2TouchControls inputRef=\{inputRef\} riding=\{riding\} onShoot=\{fireBlaster\} orbDock=\{dock\} \/>/);
-  assert.match(j2scene, /export function Jupiter2TouchControls\(\{ inputRef, riding, onShoot, orbDock \}\)/);
+  // Wired: the scene passes fireBlaster down as onShoot, fireOnFoot
+  // down as onFire (FIRE orb, walking mode), and panelOpen so the
+  // FIRE orb hides while a creature panel is open.
+  assert.match(j2scene, /<Jupiter2TouchControls inputRef=\{inputRef\} riding=\{riding\} onShoot=\{fireBlaster\} onFire=\{fireOnFoot\} panelOpen=\{!!selectedId\} orbDock=\{dock\} \/>/);
+  assert.match(j2scene, /export function Jupiter2TouchControls\(\{ inputRef, riding, onShoot, onFire, panelOpen, orbDock \}\)/);
 });
 
 test('Oblivion lever label cannot sit on the JUMP orb: raised and layered under the HUD', () => {
@@ -102,19 +111,38 @@ test('Oblivion lever label cannot sit on the JUMP orb: raised and layered under 
   assert.match(j2scene, /zIndexRange=\{\[2, 0\]\}/);
 });
 
-test('Mars 2 under-screen controls are orbs; JUMP stays a plain circle', () => {
+test('Mars 2 under-screen controls are orbs; JUMP comes from the universal core', () => {
   assert.doesNotMatch(mars2, /<button/);
-  assert.match(mars2, /<OrbButton ariaLabel="Jump" size=\{76\} accent="#e07840"/);
+  // Universal controls core (Merlin, Nov 16 ~03:49): the standalone
+  // 76 px JUMP orb moved into ControlsCore — docked, tron-jump
+  // face, 56 px — and the core owns the touch stick too (Mars 2 had
+  // none: WASD only). The page keeps the rover summon/dismount.
+  assert.match(mars2, /import ControlsCore from "@\/components\/world\/ControlsCore"/);
+  assert.match(mars2, /<ControlsCore/);
+  assert.match(mars2, /world="mars-2"/);
+  assert.match(mars2, /\(\) => \{ jumpRef\.current = true; \}/);
+  assert.doesNotMatch(mars2, /<OrbButton ariaLabel="Jump" size=\{76\}/);
   assert.match(mars2, /ariaLabel="Summon rover"/);
   assert.match(mars2, /ariaLabel="Dismount rover"/);
 });
 
 test('Earth 3 and Earth 4 fullscreen orbs sit top-right of the stage; HUD buttons are orbs', () => {
+  // Universal controls core (Merlin, Nov 16 ~03:49): the fullscreen
+  // orb and the JUMP orb moved out of these pages into ControlsCore —
+  // the top-right pin is asserted on the core itself, and each page
+  // passes its fullscreen state + jump handler in.
+  assert.match(core, /position: 'absolute', right: 14, top: 14, zIndex: 9/);
+  assert.match(core, /ariaLabel="Jump"/);
   for (const page of [earth3, earth4]) {
-    assert.match(page, /position: "absolute", right: 14, top: 14, zIndex: 9/);
+    assert.match(page, /import ControlsCore from "@\/components\/world\/ControlsCore"/);
+    assert.match(page, /<ControlsCore/);
+    assert.match(page, /fullscreen=\{fullscreen\} onToggleFullscreen=/);
+    assert.match(page, /onJump=\{mode === "walk" \? \(\) => worldRef\.current && worldRef\.current\.jump\(\) : undefined\}/);
     assert.doesNotMatch(page, /⛶ FULLSCREEN/);
-    assert.match(page, /ariaLabel="Jump"/);
     assert.match(page, /ariaLabel="Toggle fly"/);
+    // No bespoke joystick copy left, no standalone JUMP orb.
+    assert.doesNotMatch(page, /function Joystick\(/);
+    assert.doesNotMatch(page, /ariaLabel="Jump" onPointerDown/);
   }
   assert.match(earth3, /ariaLabel="Guided tour"/);
   assert.match(earth3, /ariaLabel="Previous stop"/);

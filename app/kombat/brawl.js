@@ -34,6 +34,7 @@ import {
   BRAWL_ROUND_TIME, BRAWL_MIN_SEPARATION, MULTI_KO_WINDOW,
   brawlWinsNeeded, brawlRoundWinner, multiKoLabel, pickFinishHimVictim,
 } from '../../lib/kombat/brawl-rules.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 const ACTIONABLE = new Set(['idle', 'walk']);
 const _floorBox = new THREE.Box3(); // shared floor-law measure
@@ -825,6 +826,17 @@ export function createBrawlEngine(canvas, config) {
     loser.wobble = false;
     setPoseState(loser, 'ko');
     setPoseState(winner, 'win');
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): a fatality is a
+    // death — the loser arrives there too, additive only (same law
+    // as the duel engine: a KO alone is not a death). Guarded by
+    // fatalityDone + phase, once per match. The loser's own fighter
+    // dying is a user death; a CPU fighter is a creature.
+    recordSoulArrival({
+      kind: loser.isPlayer ? 'user' : 'creature',
+      name: loser.data.name,
+      origin: 'kombat',
+      diedAt: Date.now(),
+    });
     H('onFinishHim', false, 0, false);
     H('onFatality', winner.data.fatality.name, winner.data.fatality.description);
     sfx.fatality();

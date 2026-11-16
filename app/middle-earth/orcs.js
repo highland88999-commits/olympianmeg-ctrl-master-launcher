@@ -34,6 +34,7 @@ export function mulberry32(seed) {
 
 import { ORC_WINDUP_S, ORC_ARM_REST, orcLimbAngles } from './figure-motion.js';
 import { ORC_SHARD_ITEM_ID, ORC_SHARD_ITEM_NAME, shardDropFor } from '../../lib/nether-realm/medusa.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 /* ---------------- numbers (the hunt's tuning) ---------------- */
 
@@ -374,7 +375,14 @@ export function stepHunter(hunter, dt) {
 export function hurtHunter(hunter, dmg) {
   if (!hunter.alive) return false;
   hunter.hp -= dmg;
-  if (hunter.hp <= 0) { hunter.hp = 0; hunter.alive = false; return true; }
+  if (hunter.hp <= 0) {
+    hunter.hp = 0; hunter.alive = false;
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): the hunter's
+    // death arrives there too — additive only, the revive flow
+    // (reviveHunter) is untouched.
+    recordSoulArrival({ kind: 'user', origin: 'middle-earth', diedAt: Date.now() });
+    return true;
+  }
   return false;
 }
 
@@ -445,6 +453,16 @@ export function damageOrc(orc, dmg, rng) {
   orc.hp = 0;
   orc.state = 'dead';
   orc.deathT = 0;
+  // The Land of the Dead (Merlin, Nov 16 ~04:17): every orc kill
+  // arrives there too — additive only, the loot roll and the pod
+  // respawn below are untouched. damageOrc is the single choke
+  // point (blade/bow route here only), so this fires once per orc.
+  recordSoulArrival({
+    kind: 'monster',
+    name: orc.kind === 'captain' ? 'Orc captain' : 'Orc warrior',
+    origin: 'middle-earth',
+    diedAt: Date.now(),
+  });
   return rollLoot(orc.kind, rng);
 }
 

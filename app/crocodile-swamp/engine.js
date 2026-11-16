@@ -15,6 +15,7 @@ import {
   threatConfig,
   mulberry32,
 } from '../../lib/crocodile-swamp/levels.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 export const PHASES = {
   paddling: 'paddling', // in the canoe, not yet caught
@@ -224,6 +225,11 @@ function stepCroc(state, dt, cfg) {
     moveToward(c, target, speed, dt);
     if (dist(c, p) < CATCH_DISTANCE) {
       state.status = 'gameover';
+      // The Land of the Dead (Merlin, Nov 16 ~04:17): being eaten
+      // arrives there too — additive only, the 'caught' event below
+      // is untouched. stepGame returns early once status is
+      // 'gameover', so this fires once per run.
+      recordSoulArrival({ kind: 'user', origin: 'crocodile-swamp', diedAt: Date.now() });
       emit(state, 'caught');
     }
   }

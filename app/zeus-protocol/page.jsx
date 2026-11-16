@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import {
   circleHit,
   clamp,
@@ -273,6 +274,11 @@ export default function ZeusProtocolPage() {
       explode(sx, sy, '#ffffff', 20);
       if (res === 'gameover') {
         G.playing = false;
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): the player's
+        // ship going down arrives there too — additive only, the
+        // high-score save below is untouched. G.playing = false stops
+        // the step loop, so this fires once per game over.
+        recordSoulArrival({ kind: 'user', origin: 'zeus-protocol', diedAt: Date.now() });
         if (G.state.score > G.state.highScore) {
           G.state.highScore = G.state.score;
           saveHighScore(G.state.highScore);
@@ -293,6 +299,13 @@ export default function ZeusProtocolPage() {
       G.enemies.splice(idx, 1);
       G.state.score += KILL_SCORE;
       G.state.kills += 1;
+      // The Land of the Dead (Merlin, Nov 16 ~04:17): every enemy
+      // kill arrives there too — additive only, the score/kills above
+      // are untouched. killEnemy is the single choke point (lasers,
+      // missiles and mines all resolve deaths here), so this fires
+      // once per kill. The invaders are unnamed in code, so no name
+      // is passed — the module falls back to 'Fallen monster'.
+      recordSoulArrival({ kind: 'monster', origin: 'zeus-protocol', diedAt: Date.now() });
       if (Math.random() < 0.1) spawnPowerup(e.x, e.y);
       if (G.state.kills >= killsToAdvance(G.state.level)) {
         advanceLevel(G.state);

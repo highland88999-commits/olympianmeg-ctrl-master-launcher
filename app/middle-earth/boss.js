@@ -31,6 +31,7 @@
  * and a named staff into the backpack.
  */
 import { attachFigureModel } from './characters.js';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 export const BOSS_POS = { x: -207, z: 168 }; // Orthanc court, before the tower
 export const BOSS_MAX_HP = 600;
@@ -123,6 +124,10 @@ export function damageBoss(boss, dmg) {
     boss.state = 'dead';
     boss.deathT = 0;
     boss.pending = [];
+    // The Land of the Dead (Merlin, Nov 16 ~04:17): Saruman's fall
+    // arrives there too — additive only, the campaign completion
+    // the page drives off the 'died' event is untouched.
+    recordSoulArrival({ kind: 'boss', name: 'Saruman', origin: 'middle-earth', diedAt: Date.now() });
     events.push({ type: 'died' });
     return events;
   }

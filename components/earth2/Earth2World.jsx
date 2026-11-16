@@ -67,6 +67,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { EARTH2_MODEL_BY_SLUG, modelDeliveryUrls, fetchEarth2ModelUrls } from '@/lib/earth2/models';
 import { supabase } from '@/lib/supabase';
 import { reportDecayPosition } from '@/lib/anti-life/lingering';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings, resolveScarabLegs } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
@@ -4974,6 +4975,11 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (drivingRef.current && typeof exitVehicle === 'function') exitVehicle();
         const name = predator.entry && predator.entry.name ? predator.entry.name : 'predator';
         noticeRef.current(`🦖 The ${name} caught you! You wake up at your home base.`);
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): being caught
+        // arrives there too — additive only, the home-base respawn
+        // below is untouched. killWalker is the single user-death
+        // path in Earth 2 (killPrey routes the walker here).
+        recordSoulArrival({ kind: 'user', origin: 'earth-2', diedAt: Date.now() });
         if (!cancelled) {
           setDeathFlash(true);
           setTimeout(() => { if (!cancelled) setDeathFlash(false); }, 1400);

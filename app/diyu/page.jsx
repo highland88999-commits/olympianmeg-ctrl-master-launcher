@@ -29,6 +29,7 @@ import {
 } from '@/lib/afterlife/souls';
 import { REBIRTH_DESTINATION } from '@/lib/afterlife/rebirth';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { FloorDropFallOverlay, useFloorDrop } from '@/components/world/FloorDrop';
 
 const STICK_RADIUS = 60;
 
@@ -37,6 +38,7 @@ export default function DiyuPage() {
   const { travel, overlay: vortexOverlay } = useVortexTravel();
 
   const playerRef = useRef({ x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw });
+  const floorDrop = useFloorDrop({ origin: 'diyu' });
   const inputRef = useRef({ fwd: 0, strafe: 0, run: false, lookDx: 0 });
   const keysRef = useRef(new Set());
   const dragRef = useRef({ active: false, lastX: 0 });
@@ -139,6 +141,13 @@ export default function DiyuPage() {
   const onAntiLife = useCallback(() => {
     travel(ANTI_LIFE_ROUTE, ANTI_LIFE_PORTAL_NAME);
   }, [travel]);
+  // FLOOR DROP (WS-C, Nov 16): stepping onto the floor disc drops the
+  // walker through the floor to the Land of the Dead. The Anti-Life
+  // guard pattern; the drop itself carries the origin, so the floor
+  // portal in the Land of the Dead returns the walker to this realm.
+  const onFloorDrop = useCallback(() => {
+    floorDrop.open();
+  }, [floorDrop]);
 
   const onRegion = useCallback((name) => {
     setRegion(name);
@@ -272,6 +281,7 @@ export default function DiyuPage() {
             inputRef={inputRef}
             onPortal={onPortal}
             onAntiLife={onAntiLife}
+            onFloorDrop={onFloorDrop}
             onRegion={onRegion}
             reduced={reduced}
           />
@@ -369,6 +379,7 @@ export default function DiyuPage() {
         </OrbButton>
       )}
 
+      <FloorDropFallOverlay phase={floorDrop.phase} depth={floorDrop.depth} />
       {vortexOverlay}
     </main>
   );

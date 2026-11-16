@@ -507,6 +507,293 @@ def s_info(d, c):
     L(d, [(128, 118), (128, 158)], c, 9)
 
 
+# --- vehicle faces (workstream E, Nov 16 ~03:49) -------------------------
+# One face per summonable vehicle: the same TRON disc frame, the
+# vehicle itself a bold side-profile silhouette styled after the
+# ACTUAL machine — class, stance and colour — nose to the right,
+# ground line at y=176, reads at 56 px. These are stylised
+# profiles, not renders of the GLBs: a wedge reads as a wedge, a
+# pickup as a pickup, a TRON bike as a light-cycle. Files land as
+# tron-vehicle-<name>.webp, never touching the function faces.
+BLUE = (59, 130, 246)
+SKY = (56, 189, 248)
+TEAL = (0, 255, 204)
+SILVER = (203, 213, 225)
+BROWN = (180, 140, 90)
+ICE = (147, 197, 253)
+PINK = (255, 150, 200)
+STEEL = (148, 163, 184)
+
+
+def _wheel(d, x, y, r, c):
+    d.ellipse([x - r, y - r, x + r, y + r], fill=(8, 10, 14, 255),
+              outline=c + (255,), width=4)
+    DOT(d, x, y, 4, c)
+
+
+def _window(d, pts, c):
+    d.polygon(pts, fill=(210, 235, 245, 255))
+
+
+def v_car(d, ring, body, kind):
+    """Cars / trucks / rovers / skiffs / flyers, nose right."""
+    ground = 176
+    d.line([(52, ground), (204, ground)], fill=ring + (140,), width=3)
+    if kind == "skiff":
+        F(d, [(64, 148), (88, 130), (168, 130), (192, 148), (176, 160), (80, 160)], body)
+        O(d, [96, 104, 120, 122], ring, 5)
+        O(d, [136, 104, 160, 122], ring, 5)
+        L(d, [(108, 122), (108, 130)], ring, 4)
+        L(d, [(148, 122), (148, 130)], ring, 4)
+        d.line([(70, 170), (186, 170)], fill=CYAN + (220,), width=4)
+        return
+    if kind == "flyer":
+        F(d, [(56, 152), (120, 128), (196, 140), (176, 158), (96, 160)], body)
+        F(d, [(110, 134), (150, 138), (128, 158)], ring)
+        d.line([(70, 170), (186, 170)], fill=ring + (160,), width=3)
+        return
+    bodies = {
+        "wedge": [(58, 160), (70, 138), (110, 128), (150, 126), (178, 132), (196, 146), (196, 158), (58, 160)],
+        "coupe": [(60, 158), (72, 140), (104, 130), (140, 128), (172, 136), (194, 148), (194, 158), (60, 158)],
+        "gt": [(56, 158), (70, 142), (108, 132), (150, 130), (180, 138), (198, 148), (198, 158), (56, 158)],
+        "muscle": [(58, 156), (64, 138), (100, 134), (140, 134), (176, 140), (196, 150), (196, 158), (58, 158)],
+        "pickup": [(58, 158), (58, 140), (96, 140), (108, 114), (150, 114), (168, 138), (196, 140), (196, 158)],
+        "rover": [(60, 152), (60, 128), (196, 128), (196, 152)],
+        "hauler": [(58, 152), (58, 118), (150, 118), (150, 152), (150, 128), (180, 128), (196, 142), (196, 152)],
+    }
+    F(d, bodies[kind], body)
+    if kind in ("wedge", "coupe", "gt", "muscle"):
+        _window(d, [(104, 136), (140, 134), (158, 142), (112, 144)], ring)
+    elif kind == "pickup":
+        _window(d, [(114, 118), (144, 118), (156, 134), (110, 134)], ring)
+    elif kind == "rover":
+        _window(d, [(72, 134), (110, 134), (110, 146), (72, 146)], ring)
+        _window(d, [(122, 134), (184, 134), (184, 146), (122, 146)], ring)
+    elif kind == "hauler":
+        _window(d, [(156, 132), (172, 132), (182, 140), (156, 140)], ring)
+    if kind == "muscle":
+        d.rectangle([108, 128, 140, 136], fill=body + (255,))
+    wheels = [84, 128, 172] if kind in ("rover", "hauler") else [92, 164]
+    for wx in wheels:
+        _wheel(d, wx, 160, 14, ring)
+
+
+def v_bike(d, ring, body):
+    d.line([(52, 176), (204, 176)], fill=ring + (140,), width=3)
+    _wheel(d, 88, 160, 15, ring)
+    _wheel(d, 168, 160, 15, ring)
+    # Diamond frame: rear wheel -> seat -> head tube -> front wheel,
+    # engine block low in the middle. No crossing tubes.
+    L(d, [(88, 160), (114, 122)], body, 7)
+    L(d, [(114, 122), (152, 118)], body, 7)
+    L(d, [(152, 118), (168, 160)], body, 7)
+    L(d, [(114, 122), (168, 160)], body, 6)
+    L(d, [(152, 118), (162, 104)], body, 6)
+    L(d, [(114, 122), (100, 116)], body, 6)
+    F(d, [(118, 138), (146, 136), (150, 152), (122, 154)], body)
+
+
+def v_tronbike(d, ring, body):
+    d.line([(52, 176), (204, 176)], fill=ring + (160,), width=3)
+    for wx in (86, 170):
+        d.ellipse([wx - 19, 141, wx + 19, 179], outline=ring + (255,), width=5)
+        d.ellipse([wx - 10, 150, wx + 10, 170], outline=body + (255,), width=3)
+    F(d, [(86, 152), (118, 128), (150, 126), (170, 148), (150, 160), (100, 162)], body)
+    L(d, [(118, 128), (140, 112)], body, 6)
+    d.line([(70, 170), (186, 170)], fill=ring + (200,), width=3)
+
+
+def v_speeder(d, ring, body):
+    F(d, [(58, 152), (76, 136), (180, 136), (198, 150), (190, 158), (66, 158)], body)
+    d.arc([108, 112, 152, 146], start=180, end=360, fill=ring + (255,), width=6)
+    L(d, [(76, 152), (180, 152)], ring, 3)
+    d.line([(66, 170), (190, 170)], fill=CYAN + (220,), width=4)
+    DOT(d, 192, 146, 4, ring)
+
+
+def v_podracer(d, ring, body):
+    for x0 in (66, 148):
+        d.rounded_rectangle([x0, 118, x0 + 42, 142], radius=10, fill=body + (255,))
+        d.ellipse([x0 + 30, 122, x0 + 44, 138], fill=ring + (255,))
+    L(d, [(108, 136), (128, 152)], ring, 4)
+    L(d, [(148, 136), (128, 152)], ring, 4)
+    d.ellipse([104, 148, 152, 170], fill=body + (255,))
+    d.ellipse([118, 152, 138, 166], fill=ring + (255,))
+
+
+def v_horse(d, ring, body, flame=False):
+    # Side profile, nose right: long barrel body, neck rising
+    # diagonally to a small HORIZONTAL head (muzzle to the right,
+    # one ear on top), four straight legs, tail at the rear.
+    d.ellipse([68, 124, 170, 154], fill=body + (255,))
+    L(d, [(148, 130), (170, 98)], body, 12)
+    d.ellipse([166, 90, 196, 108], fill=body + (255,))
+    F(d, [(170, 92), (176, 80), (180, 92)], body)
+    DOT(d, 188, 97, 3, BG)
+    for lx in (84, 106, 138, 158):
+        L(d, [(lx, 150), (lx, 176)], body, 7)
+    L(d, [(70, 134), (54, 152)], body, 6)
+    mane = ORANGE if flame else body
+    L(d, [(146, 128), (162, 98), (170, 94)], mane, 7)
+    if flame:
+        F(d, [(164, 90), (172, 76), (178, 90)], GOLD)
+    d.line([(52, 176), (204, 176)], fill=ring + (140,), width=3)
+
+
+def v_lizard(d, ring, body):
+    F(d, [(70, 142), (110, 126), (170, 128), (196, 140), (186, 152), (96, 154)], body)
+    F(d, [(70, 142), (48, 150), (66, 152)], body)
+    F(d, [(186, 132), (204, 126), (200, 142)], body)
+    DOT(d, 196, 132, 3, BG)
+    for lx in (96, 122, 150, 172):
+        L(d, [(lx, 150), (lx, 170)], body, 7)
+    for sx in (110, 130, 150):
+        F(d, [(sx, 128), (sx + 8, 108), (sx + 16, 128)], ICE)
+    d.line([(52, 176), (204, 176)], fill=ring + (140,), width=3)
+
+
+def v_vtol(d, ring, body):
+    d.ellipse([76, 128, 180, 158], fill=body + (255,))
+    F(d, [(176, 138), (200, 134), (200, 144), (176, 146)], body)
+    L(d, [(96, 128), (160, 128)], ring, 4)
+    L(d, [(72, 122), (184, 122)], ring, 4)
+    L(d, [(128, 128), (128, 112)], ring, 4)
+    d.ellipse([118, 104, 138, 120], fill=ring + (255,))
+    _wheel(d, 104, 164, 8, ring)
+    _wheel(d, 152, 164, 8, ring)
+
+
+def v_boat(d, ring, body):
+    F(d, [(60, 148), (196, 148), (180, 168), (76, 168)], body)
+    d.rectangle([104, 120, 152, 148], fill=body + (255,))
+    _window(d, [(112, 126), (144, 126), (144, 142), (112, 142)], ring)
+    L(d, [(128, 120), (128, 96)], ring, 4)
+    F(d, [(128, 96), (128, 112), (148, 112)], ring)
+    d.line([(52, 176), (204, 176)], fill=ring + (140,), width=3)
+
+
+def v_scarab(d, ring, body):
+    d.arc([72, 96, 184, 168], start=180, end=360, fill=body + (255,), width=26)
+    d.ellipse([72, 128, 184, 168], fill=body + (255,))
+    DOT(d, 176, 140, 5, ring)
+    for lx in (84, 108, 148, 172):
+        L(d, [(lx, 160), (lx - 6, 176)], ring, 5)
+    d.line([(52, 176), (204, 176)], fill=ring + (140,), width=3)
+
+
+def v_ship(d, ring, body):
+    F(d, [(64, 150), (192, 150), (176, 172), (80, 172)], body)
+    L(d, [(96, 150), (96, 88)], ring, 4)
+    L(d, [(128, 150), (128, 76)], ring, 4)
+    L(d, [(160, 150), (160, 96)], ring, 4)
+    F(d, [(96, 92), (96, 140), (124, 140)], body)
+    F(d, [(128, 80), (128, 140), (158, 140)], body)
+    F(d, [(160, 100), (160, 140), (182, 140)], body)
+    F(d, [(128, 76), (128, 88), (146, 82)], ring)
+    d.line([(52, 178), (204, 178)], fill=ring + (140,), width=3)
+
+
+def _vdraw(kind):
+    def draw(d, ring, body):
+        if kind in ("wedge", "coupe", "gt", "muscle", "pickup", "rover", "hauler", "skiff", "flyer"):
+            v_car(d, ring, body, kind)
+        elif kind == "bike":
+            v_bike(d, ring, body)
+        elif kind == "tronbike":
+            v_tronbike(d, ring, body)
+        elif kind == "speeder":
+            v_speeder(d, ring, body)
+        elif kind == "podracer":
+            v_podracer(d, ring, body)
+        elif kind == "horse":
+            v_horse(d, ring, body, flame=False)
+        elif kind == "embermane":
+            v_horse(d, ring, body, flame=True)
+        elif kind == "lizard":
+            v_lizard(d, ring, body)
+        elif kind == "vtol":
+            v_vtol(d, ring, body)
+        elif kind == "boat":
+            v_boat(d, ring, body)
+        elif kind == "scarab":
+            v_scarab(d, ring, body)
+        elif kind == "ship":
+            v_ship(d, ring, body)
+    return draw
+
+
+# name -> (ring colour, body colour, silhouette kind). Names are the
+# vehicle ids the menus pass (Earth 1 ids, Star Wars types, Shadow
+# Realm bike keys, Hollow Earth / Middle-earth mount ids, Earth 2
+# slugs, Argo fleet keys, Dutchman ship ids); files land as
+# tron-vehicle-<name>.webp.
+VEHICLE_FACES = {
+    # Earth 1 — the 19-car garage (lib/earth/vehicles.js).
+    "wedge-supercar": (GOLD, SILVER, "wedge"),
+    "blue-sports-car": (BLUE, BLUE, "coupe"),
+    "sports-car": (RED, RED, "coupe"),
+    "street-racer": (ORANGE, ORANGE, "coupe"),
+    "luxury-gt-1": (SILVER, SILVER, "gt"),
+    "luxury-gt-2": (VIOLET, VIOLET, "gt"),
+    "luxury-car": (WHITE, WHITE, "gt"),
+    "teardrop-coupe": (CYAN, CYAN, "coupe"),
+    "muscle-car": (RED, (150, 30, 30), "muscle"),
+    "lifted-pickup": (AMBER, AMBER, "pickup"),
+    "pickup-hd": (ORANGE, (120, 70, 30), "pickup"),
+    "cruiser-bike": (SILVER, SILVER, "bike"),
+    "sport-bike": (RED, RED, "bike"),
+    "rover": (CYAN, (90, 130, 90), "rover"),
+    "tatooine-rover": (AMBER, (150, 120, 70), "rover"),
+    "hauler": (ORANGE, ORANGE, "hauler"),
+    "skiff": (CYAN, CYAN, "skiff"),
+    "long-haul-rover": (VIOLET, VIOLET, "rover"),
+    "ghost-throttle": (WHITE, (60, 60, 80), "bike"),
+    # Star Wars — parked rides (app/star-wars/vehicles.js types).
+    "landspeeder": (CYAN, SILVER, "speeder"),
+    "podracer": (ORANGE, ORANGE, "podracer"),
+    # Shadow Realm — trim bikes (app/shadow-realm/schemes.js).
+    "wisp": (TEAL, TEAL, "tronbike"),
+    "comet": (SKY, SKY, "tronbike"),
+    "atlas": (VIOLET, VIOLET, "tronbike"),
+    # Hollow Earth mounts (app/hollow-earth/families.js) + the
+    # Middle-earth horse (app/middle-earth/data.js, one horse).
+    "embermane": (RED, (200, 80, 40), "embermane"),
+    "frostbite": (ICE, ICE, "lizard"),
+    "horse": (AMBER, BROWN, "horse"),
+    # Earth 2 — native fleet + boat (lib/earth2/vehicles.js).
+    "e2-rover": (GREEN, (90, 130, 90), "rover"),
+    "e2-speed-bike": (RED, RED, "bike"),
+    "e2-scarab": (GOLD, GOLD, "scarab"),
+    "e2-vtol": (CYAN, CYAN, "vtol"),
+    "e2-boat": (BLUE, BLUE, "boat"),
+    # Argo — fleet craft (components/argo/VehicleArchetypes.jsx).
+    "argo-skiff": (SKY, SKY, "skiff"),
+    "argo-cruiser": (SKY, SKY, "flyer"),
+    "argo-hauler": (AMBER, AMBER, "hauler"),
+    "argo-titan": (VIOLET, VIOLET, "flyer"),
+    "argo-dart": (GREEN, GREEN, "flyer"),
+    # Flying Dutchman — the Dutchman + legendary ships
+    # (app/flying-dutchman/voyage.js LEGENDARY_SHIPS).
+    "dutchman": (GREEN, (40, 90, 60), "ship"),
+    "queen-anne": (RED, (120, 40, 40), "ship"),
+    "mary-celeste": (WHITE, SILVER, "ship"),
+    "caleuche": (VIOLET, VIOLET, "ship"),
+    "palatine": (GOLD, GOLD, "ship"),
+    "lady-lovibond": (PINK, PINK, "ship"),
+    "widows-wake": (STEEL, STEEL, "ship"),
+}
+
+
+def render_vehicle(name, ring, body, kind):
+    img = frame(ring)
+    layer = _layer()
+    _vdraw(kind)(ImageDraw.Draw(layer), ring, body)
+    _glow(img, layer, 4)
+    path = os.path.join(OUT, "tron-vehicle-%s.webp" % name)
+    img.convert("RGB").save(path, "WEBP", quality=90)
+    return path
+
+
 # name -> (palette colour, symbol drawer). Names are the ORB_FUNCTIONS
 # keys in components/world/OrbButton.jsx; files land as tron-<name>.webp.
 SYMBOLS = {
@@ -590,3 +877,6 @@ if __name__ == "__main__":
     for name, (color, fn) in sorted(SYMBOLS.items()):
         print(render(name, color, fn))
     print("done: %d faces" % len(SYMBOLS))
+    for name, (ring, body, kind) in sorted(VEHICLE_FACES.items()):
+        print(render_vehicle(name, ring, body, kind))
+    print("done: %d vehicle faces" % len(VEHICLE_FACES))

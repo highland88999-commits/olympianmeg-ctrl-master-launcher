@@ -32,6 +32,7 @@ import { buildEnyoDressing } from '@/lib/enyo/cgi';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
 const TITLE = 'ENYO';
 const EYE = 1.65;
@@ -1062,6 +1063,11 @@ function createEngine(canvas, cfg, cb) {
         fx.death(); // central FX: descending tone + long rumble
         player.deaths += 1;
         player.respawnT = RESPAWN_DELAY;
+        // The Land of the Dead (Merlin, Nov 16 ~04:17): the player's
+        // death arrives there too — additive only, the respawn above
+        // is untouched. Guarded by `player.alive` at the top of this
+        // block, so this fires once per death.
+        recordSoulArrival({ kind: 'user', origin: 'enyo', diedAt: Date.now() });
         if (mode === 'tdm') redScore += 1;
         bot.kills += 1;
         cb.feed(`${bot.name} eliminated you`);

@@ -24,6 +24,7 @@ import Bots from './Bots';
 import RemoteBikes from './RemoteBikes';
 import EternalFlame from './flame';
 import { fx } from '@/lib/fx';
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import { REGEN_CHARGE_RATE, SURGE_SECS, BASELINE_THROTTLE, blendThrottle, slewLimit, STEER_SLEW_MAX } from '@/lib/bike-motion';
 import {
   Trail,
@@ -667,6 +668,12 @@ function killPlayer(s, ownerName, ctx) {
   s.diedAt = s.time;
   s.diedAtWall = Date.now(); // wall-clock for the PvP beacon
   s.deathOwner = ownerName || 'RIVAL';
+  // The Land of the Dead (Merlin, Nov 16 ~04:17): a trail death
+  // arrives there too — additive only, the dissolve + respawn below
+  // are untouched. Guarded by `s.dying > 0` above, so this fires
+  // once per death. (A flame-hit elimination without a trail death
+  // is covered at its own site below.)
+  recordSoulArrival({ kind: 'user', origin: 'shadow-realm', diedAt: Date.now() });
   s.speed = 0;
   s.kvx = 0;
   s.kvz = 0;
@@ -1190,6 +1197,14 @@ function Rig({ track, vehicle, scheme, skinKey, mode, laps, running, inputRef, p
           s.eliminated = true;
           s.kvx = 0;
           s.kvz = 0;
+          // The Land of the Dead (Merlin, Nov 16 ~04:17): eliminated
+          // by the flame — the rider's run ends with no respawn, so
+          // this IS the death. Additive only. Guarded by
+          // `!s.eliminated` on the enclosing bump-mode block and by
+          // `s.eliminated = true` here, so this fires once. (A trail
+          // death that eliminates instead is recorded in killPlayer,
+          // not here — the two paths never fire for one rider.)
+          recordSoulArrival({ kind: 'user', origin: 'shadow-realm', diedAt: Date.now() });
           try { onBumpEvent && onBumpEvent({ type: 'eliminated' }); } catch { /* noop */ }
         } else {
           const rp = respawnPose(loops.center, { x: s.x, z: s.z });

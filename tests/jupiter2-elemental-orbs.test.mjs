@@ -292,7 +292,9 @@ describe('scene wiring', () => {
     assert.match(sceneSrc, /if \(!sp\.summoned \|\| !sp\.mounted\) return \{ ok: false, reason: 'on-foot' \}/);
     assert.match(sceneSrc, /shootRef = null/);
     assert.match(sceneSrc, /if \(shootRef\) shootRef\.current = fireBlaster;/);
-    assert.match(sceneSrc, /else if \(k === 'f'\) fireBlaster\(\);/);
+    assert.match(sceneSrc, /else if \(k === 'f'\) fireWeapon\(\);/);
+    assert.match(sceneSrc, /const fireWeapon = \(\) => \{/);
+    assert.match(sceneSrc, /return \(sp\.summoned && sp\.mounted\) \? fireBlaster\(\) : fireOnFoot\(\);/);
   });
   it('no second SHOOT orb is created here — workstream 1 owns the orb', () => {
     assert.doesNotMatch(sceneSrc, /ariaLabel="Shoot"/);
@@ -301,7 +303,7 @@ describe('scene wiring', () => {
   it('the trade panel, TRADE orb and orb tally are mounted in the scene', () => {
     assert.match(sceneSrc, /aria-label="Deck trade — elemental orbs"/);
     assert.match(sceneSrc, /ariaLabel="Open the deck trade/);
-    assert.match(sceneSrc, /ORBS<\/span>/);
+    assert.match(sceneSrc, /<OrbLabel>ORBS<\/OrbLabel>/);
     assert.match(sceneSrc, /orbs=\{orbsUi\} blasterRef=\{blasterRef\}/);
   });
   it('dropped orbs and the blaster bolt render inside the canvas', () => {

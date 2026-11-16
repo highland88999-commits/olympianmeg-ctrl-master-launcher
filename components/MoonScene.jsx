@@ -341,8 +341,15 @@ function MoonRig({ moveRef, jumpRef, hudRef }) {
       // applies only its own delta (the anchor is re-set below),
       // so the turn never compounds. One handler serves touch
       // drag and desktop mouse drag alike.
+      // FINGER-FOLLOWS (Merlin, Nov 16, 2026): on THIS rig yaw+
+      // is look-right (sphereTangentBasis: yaw π/2 faces east,
+      // +X — the viewer's right when facing north), so drag
+      // right ADDS the turn. Pitch+ is look-up, so drag down
+      // (dy > 0) still SUBTRACTS — drag down looks down. The
+      // three.js rigs do it the other way (yaw+ is look-left
+      // there, so they subtract); do not "unify" the signs.
       const w = el.clientWidth || window.innerWidth || 1;
-      yawTarget.current -= lookTurnForDrag(e.clientX - d.x, w);
+      yawTarget.current += lookTurnForDrag(e.clientX - d.x, w);
       pitchTarget.current = Math.max(
         -MOON_LOOK_PITCH_MAX,
         Math.min(MOON_LOOK_PITCH_MAX, pitchTarget.current - lookTurnForDrag(e.clientY - d.y, w))

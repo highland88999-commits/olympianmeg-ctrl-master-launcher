@@ -72,7 +72,7 @@ test('sky URLs: Hades art lives at nether-realm, the rest by key', () => {
   assert.equal(skyUrlForRealm('hades'), '/art/realms/nether-realm-sky.jpg');
   assert.equal(skyUrlForRealm('helheim'), '/art/realms/helheim-sky.jpg');
   assert.equal(skyUrlForRealm('orun'), '/art/realms/orun-sky.jpg');
-  assert.equal(Object.keys(REALM_SKY_SLUGS).length, 13);
+  assert.equal(Object.keys(REALM_SKY_SLUGS).length, 14, '13 hell realms + land-of-the-dead (Nov 16, 2026)');
   assert.throws(() => skyUrlForRealm('no-such-realm'), /unknown realm key/);
 });
 

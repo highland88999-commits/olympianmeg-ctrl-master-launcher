@@ -19,6 +19,7 @@ import { useVortexTravel } from '@/components/VortexTravel';
 import { useRealmInfoFade } from '@/components/useRealmInfoFade';
 import { RealmLifeLine } from '@/components/RealmLifeLine';
 import OrbButton from '@/components/world/OrbButton';
+import { FloorDropFallOverlay, useFloorDrop } from '@/components/world/FloorDrop';
 import { NavScene } from './world3d';
 import { PORTALS, SPAWN } from '@/lib/nav/world';
 import { ANTI_LIFE_PORTAL_NAME, ANTI_LIFE_ROUTE } from '@/lib/afterlife/anti-life-portal';
@@ -30,6 +31,7 @@ export default function NavPage() {
   const { travel, overlay: vortexOverlay } = useVortexTravel();
 
   const playerRef = useRef({ x: SPAWN.x, z: SPAWN.z, yaw: SPAWN.yaw });
+  const floorDrop = useFloorDrop({ origin: 'nav' });
   const inputRef = useRef({ fwd: 0, strafe: 0, run: false, lookDx: 0 });
   const keysRef = useRef(new Set());
   const dragRef = useRef({ active: false, lastX: 0 });
@@ -113,6 +115,13 @@ export default function NavPage() {
   const onAntiLife = useCallback(() => {
     travel(ANTI_LIFE_ROUTE, ANTI_LIFE_PORTAL_NAME);
   }, [travel]);
+  // FLOOR DROP (WS-C, Nov 16): stepping onto the floor disc drops the
+  // walker through the floor to the Land of the Dead. The Anti-Life
+  // guard pattern; the drop itself carries the origin, so the floor
+  // portal in the Land of the Dead returns the walker to this realm.
+  const onFloorDrop = useCallback(() => {
+    floorDrop.open();
+  }, [floorDrop]);
 
   const onRegion = useCallback((name) => {
     setRegion(name);
@@ -213,6 +222,7 @@ export default function NavPage() {
             inputRef={inputRef}
             onPortal={onPortal}
             onAntiLife={onAntiLife}
+            onFloorDrop={onFloorDrop}
             onRegion={onRegion}
             reduced={reduced}
           />
@@ -290,6 +300,7 @@ export default function NavPage() {
         </OrbButton>
       )}
 
+      <FloorDropFallOverlay phase={floorDrop.phase} depth={floorDrop.depth} />
       {vortexOverlay}
     </main>
   );

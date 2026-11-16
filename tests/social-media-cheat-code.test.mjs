@@ -185,7 +185,7 @@ describe('master-portal seating + featured placement', () => {
     assert.equal(seat.pos, 'HERMES');
     assert.equal(seat.section, 'TOOLS');
     assert.equal(SATELLITES.filter((s) => s.route === '/social-media-cheat-code').length, 1);
-    assert.equal(SATELLITES.length, 215); // Request a Billboard seat: 178→179; Collapse Run seat: 179→180; Quidditch seat: 180→181; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026); Earth 4 seat: 210→211 (Nov 14, 2026); Moon + Sun Base seats: 211→213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 213→215 (Nov 15, 2026); Ghost Rider seat: 215→216 (Nov 15, 2026); Weapons Forge seat removed: 216→215 (Nov 15, 2026)
+    assert.equal(SATELLITES.length, 214); // Request a Billboard seat: 178→179; Collapse Run seat: 179→180; Quidditch seat: 180→181; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026); Earth 4 seat: 210→211 (Nov 14, 2026); Moon + Sun Base seats: 211→213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 213→215 (Nov 15, 2026); Ghost Rider seat: 215→216 (Nov 15, 2026); Weapons Forge seat removed: 216→215 (Nov 15, 2026); Land of the Dead seat added: 215→216 (Nov 16, 2026); ARES seat removed: 216→215 (Nov 16, 2026); Land of the Dead seat removed: 215→214 (Nov 16, 2026, floor drop only)
   });
 
   it('the HERMES god menu carries the room (so search + menu rows find it)', () => {
@@ -196,7 +196,7 @@ describe('master-portal seating + featured placement', () => {
   it('the Portal Room roster includes the room (registry − the room itself)', () => {
     const en = JSON.parse(read('lib/i18n/locales/en.json'));
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 214); // Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026)
+    assert.equal(roster.length, 213); // Request a Billboard seat: 177→178; Collapse Run seat: 178→179; Quidditch seat: 179→180; Omega 500 seat: 194→195 (the old 180 pin was stale); Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026, floor drop only)
     const seat = roster.find((p) => p.key === 'social-media-cheat-code');
     assert.ok(seat);
     assert.equal(seat.title, 'Social Media Cheat Code');

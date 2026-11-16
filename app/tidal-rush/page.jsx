@@ -227,8 +227,15 @@ export default function TidalRushPage() {
     const applyKeys = () => {
       const k = keysRef.current;
       let steer = 0;
-      if (k.has('left')) steer -= 1;
-      if (k.has('right')) steer += 1;
+      // Steering sign (Merlin, Nov 16, 2026 — joystick inversion):
+      // the engine's steer +1 is a LEFT turn (chase camera behind
+      // the ski looking along forward (sin, cos): heading += steer
+      // swings the nose toward +X, which is screen-left — and the
+      // AI steers through the same channel, so the engine stays
+      // untouched). The player's keys therefore feed in negated:
+      // ArrowRight / D is steer -1, ArrowLeft / A is steer +1.
+      if (k.has('left')) steer += 1;
+      if (k.has('right')) steer -= 1;
       inputRef.current.steer = steer;
       inputRef.current.boost = k.has('boost');
     };
@@ -370,7 +377,9 @@ export default function TidalRushPage() {
   const onPointerMove = (e) => {
     if (!swipeRef.current || e.pointerId !== swipeRef.current.id) return;
     const dx = e.clientX - swipeRef.current.x;
-    inputRef.current.steer = Math.max(-1, Math.min(1, dx / 70));
+    // Negated: drag right must steer right, and the engine's
+    // steer +1 is a left turn (see the keyboard note above).
+    inputRef.current.steer = Math.max(-1, Math.min(1, -dx / 70));
   };
   const onPointerUp = (e) => {
     if (swipeRef.current && e.pointerId === swipeRef.current.id) {
@@ -379,17 +388,20 @@ export default function TidalRushPage() {
     }
   };
 
+  // dir is the button's screen direction (-1 = ◀ left, +1 = ▶ right);
+  // the engine's steer +1 is a left turn, so the button feeds in
+  // negated (see the keyboard note above).
   const holdBtn = (dir) => ({
     onPointerDown: (e) => {
       e.preventDefault();
       soundRef.current.unlock();
-      inputRef.current.steer = dir;
+      inputRef.current.steer = -dir;
     },
     onPointerUp: () => {
       if (keysRef.current.size === 0) inputRef.current.steer = 0;
     },
     onPointerLeave: () => {
-      if (keysRef.current.size === 0 && inputRef.current.steer === dir) inputRef.current.steer = 0;
+      if (keysRef.current.size === 0 && inputRef.current.steer === -dir) inputRef.current.steer = 0;
     },
     onPointerCancel: () => {
       if (keysRef.current.size === 0) inputRef.current.steer = 0;

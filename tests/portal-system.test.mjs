@@ -109,7 +109,7 @@ test('every realm carries its own hue (a real hex, never blank)', () => {
   assert.equal(hueForRealm('nope'), '#7c3aed', 'unknown realm falls back to portal violet');
 });
 
-test('carousel counts: heaven 12 cards, nether 14, gun 24', () => {
+test('carousel counts: heaven 12 cards, nether 15, gun 25', () => {
   assert.equal(realmsForSide('heaven').length, 12);
   assert.equal(realmsForSide('nether').length, 14);
   assert.equal(realmsForSide('gun').length, 24);

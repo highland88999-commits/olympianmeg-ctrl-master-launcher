@@ -1486,13 +1486,21 @@ export default function DutchmanPage() {
 
       // Ashore: the joystick walks the walker (6 m/s, clamped to the
       // island). Movement is relative to where the walker faces.
+      // Strafe basis (Merlin, Nov 16, 2026 — joystick inversion): the
+      // chase camera sits BEHIND the walker (position w - f*16,
+      // lookAt w) looking along forward (sin h, cos h), so the
+      // screen-right is forward x up = (-cos h, +sin h) — NOT the
+      // standard (cos h, -sin h), which pairs with the NEGATED
+      // forward (-sin, -cos) and here walked stick-right to the
+      // screen-LEFT. The forward amount stays -jy: joyState.dy is
+      // raw screen dy (down-positive), so drag-up is forward.
       if (G.ashore && !G.paused && !G.over) {
         const w = G.ashore.walker;
         const isl = G.ashore.island;
         const jx = joyState.current.dx, jy = joyState.current.dy;
         if (jx !== 0 || jy !== 0) {
           const fx = Math.sin(w.heading), fz = Math.cos(w.heading);
-          const rx = Math.cos(w.heading), rz = -Math.sin(w.heading);
+          const rx = -Math.cos(w.heading), rz = Math.sin(w.heading);
           let mx = rx * jx + fx * -jy;
           let mz = rz * jx + fz * -jy;
           const ml = Math.hypot(mx, mz) || 1;

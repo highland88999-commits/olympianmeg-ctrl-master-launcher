@@ -35,6 +35,8 @@ import {
 import { useArchTextures } from '@/lib/portal/arch-graphics';
 import { useGoldArchMaterial } from '@/lib/portal/gold-texture';
 import { ANTI_LIFE_PORTAL, isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
+import { FloorDropDisc } from '@/components/world/FloorDrop';
+import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
@@ -704,12 +706,13 @@ function GuidedShade({ guiding, guidedPosRef, playerRef, reduced }) {
   );
 }
 
-export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, shades, guiding, guidedPosRef, deliveredIds, onFerryZone, onGuidable, onGuideBroken, onDelivered, onAntiLife}) {
+export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, shades, guiding, guidedPosRef, deliveredIds, onFerryZone, onGuidable, onGuideBroken, onDelivered, onAntiLife, onFloorDrop}) {
   const { camera } = useThree();
   const lastTravelRef = useRef(0);
   const travelingRef = useRef(false);
   const lastAntiLifeRef = useRef(0);
   const antiLifeTravelingRef = useRef(false);
+  const floorDropGuardRef = useRef(createFloorDropGuard());
   const lastRegionRef = useRef('');
   const lastFerryRef = useRef(null);
   const lastGuidableRef = useRef(null);
@@ -782,6 +785,15 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, sha
     } else {
       antiLifeTravelingRef.current = false;
     }
+    // FLOOR DROP (WS-C, Nov 16): the disc at the mirror spot (+70, 110) drops the
+    // walker through the floor to the Land of the Dead — the same
+    // once-per-entry guard as the arches and the Anti-Life disc, with
+    // its own guard state, so standing on the disc re-fires only
+    // after stepping back out. The origin rides along, so the floor
+    // portal in the Land of the Dead knows where to send the walker back.
+    if (onFloorDrop && floorDropGuardShouldFire(floorDropGuardRef.current, player.x, player.z, FLOOR_DROP_DISC_NETHER, now)) {
+      onFloorDrop();
+    }
 
     // THE FERRY (tranche 1): near the river, Charon can be called.
     // Reported on change only, like the region.
@@ -832,7 +844,7 @@ export function CameraRig({playerRef, inputRef, onPortal, onRegion, reduced, sha
 
 // --- the whole scene ---------------------------------------------------------
 
-export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, guiding, deliveredIds, forgeFlash, onFerryZone, onGuidable, onGuideBroken, onDelivered, onAntiLife}) {
+export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, guiding, deliveredIds, forgeFlash, onFerryZone, onGuidable, onGuideBroken, onDelivered, onAntiLife, onFloorDrop}) {
   const world = useMemo(() => makeWorld(1338), []);
 
   // The guided soul's live position, shared between the CameraRig
@@ -895,6 +907,7 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, gui
       <GuidedShade guiding={guiding} guidedPosRef={guidedPosRef} playerRef={playerRef} reduced={reduced} />
       <PortalArches />
       <AntiLifePortalDisc />
+      <FloorDropDisc side="nether" reduced={reduced} />
       <DescentPortal />
       <Torches reduced={reduced} />
       <Embers reduced={reduced} />
@@ -903,6 +916,7 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, gui
         inputRef={inputRef}
         onPortal={onPortal}
         onAntiLife={onAntiLife}
+        onFloorDrop={onFloorDrop}
         onRegion={onRegion}
         reduced={reduced}
         shades={world.shades}

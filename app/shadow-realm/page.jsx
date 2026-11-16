@@ -39,6 +39,8 @@ import {
 import { boostMeter } from '@/lib/shadow-realm/boost-meter';
 import { fx } from '@/lib/fx';
 import { useBikeMotion } from '@/lib/use-bike-motion';
+import VehicleSelectMenu from '@/components/world/VehicleSelectMenu';
+import { shadowRealmBikeOptions } from '@/lib/world/vehicle-select';
 import { useFullscreen } from '@/lib/use-fullscreen';
 import { supabase } from '@/lib/supabase';
 // Drop-2 netcode: PvP track matches + open-world presence.
@@ -1196,19 +1198,27 @@ function ShadowRealmInner() {
           {stage === 'garage' && (
             <>
               <div style={css.sectionLabel}>PICK YOUR TRIM BIKE</div>
-              {VEHICLES.map((v) => (
-                <div
-                  key={v.key}
-                  style={{ ...css.card, ...(v.key === vehicleKey ? css.cardSel : {}) }}
-                  onClick={() => { setVehicleKey(v.key); persist({ vehicleKey: v.key }); try { fx.tap(); } catch {} }}
-                >
-                  <div style={css.cardName}>{v.name}</div>
-                  <div style={css.cardDesc}>{v.desc}</div>
-                  <StatBar label="Top speed" value={v.maxSpeed / 60} />
-                  <StatBar label="Handling" value={v.turnRate / 2.6} />
-                  <StatBar label="Boost" value={(v.boostMult - 1) / 0.8} />
-                </div>
-              ))}
+              {/* VEHICLE SELECTION MENU (Merlin, Nov 16 ~03:49 —
+                  workstream E): the three trim bikes are picked
+                  with circle orbs, each wearing a graphic of THAT
+                  bike, no words on the orbs. The picked bike's
+                  name, desc and stat bars still show below the
+                  orbs (the detail line the cards used to carry);
+                  the light scheme and skins below are untouched. */}
+              <VehicleSelectMenu
+                embedded
+                showTitle={false}
+                options={shadowRealmBikeOptions(VEHICLES)}
+                selectedId={vehicleKey}
+                onSelect={(opt) => { setVehicleKey(opt.id); persist({ vehicleKey: opt.id }); try { fx.tap(); } catch {} }}
+              />
+              <div style={{ ...css.card, ...css.cardSel }}>
+                <div style={css.cardName}>{vehicle.name}</div>
+                <div style={css.cardDesc}>{vehicle.desc}</div>
+                <StatBar label="Top speed" value={vehicle.maxSpeed / 60} />
+                <StatBar label="Handling" value={vehicle.turnRate / 2.6} />
+                <StatBar label="Boost" value={(vehicle.boostMult - 1) / 0.8} />
+              </div>
               <div style={css.sectionLabel}>LIGHT SCHEME · ALL THREE FILMS</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {TRAIL_SCHEMES.map((s) => (

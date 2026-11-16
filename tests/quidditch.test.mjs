@@ -39,7 +39,12 @@ test('player steers with yaw input', () => {
   pastCountdown(g);
   const yaw0 = g.player.yaw;
   stepGame(g, 0.5, { yaw: 1 });
-  assert.ok(g.player.yaw > yaw0, 'yaw increased with right input');
+  // Right input (yaw +1: drag right, ArrowRight, D) turns RIGHT:
+  // the chase camera looks along (sin yaw, cos yaw), so a yaw
+  // increase would swing the nose screen-left — the engine
+  // therefore decreases yaw (Merlin, Nov 16, 2026 — joystick
+  // inversion fix; see tests/joystick-sign.test.mjs).
+  assert.ok(g.player.yaw < yaw0, 'yaw decreased with right input (turn right)');
 });
 
 test('player pitches with pitch input', () => {
@@ -177,7 +182,7 @@ test('stun wears off and control returns', () => {
   stepGame(g, 0.1, { yaw: 1 });
   stepGame(g, 0.1, { yaw: 1 });
   assert.ok(g.player.stunT <= 0, 'stun expired');
-  assert.ok(g.player.yaw > yaw0, 'steering works again');
+  assert.ok(g.player.yaw < yaw0, 'steering works again (right input turns right)');
 });
 
 test('ambient quaffle goals score +10 for a side', () => {

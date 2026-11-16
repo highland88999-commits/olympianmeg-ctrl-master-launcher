@@ -157,7 +157,14 @@ function stepPlayer(g, dt, input) {
 
   const yawIn = Math.max(-1, Math.min(1, input.yaw || 0));
   const pitchIn = Math.max(-1, Math.min(1, input.pitch || 0));
-  p.yaw += yawIn * TURN_RATE * dt;
+  // Steering sign (Merlin, Nov 16, 2026 — joystick inversion): the
+  // chase camera sits behind the broom looking along forward
+  // (sin yaw, cos yaw), so screen-right is forward x up =
+  // (-cos yaw, +sin yaw). A yaw INCREASE swings the nose toward
+  // +X, which is screen-LEFT — so a right input (yawIn +1: drag
+  // right, ArrowRight, D) must DECREASE yaw to turn right. The
+  // rival steers by wantYaw and never touches yawIn.
+  p.yaw -= yawIn * TURN_RATE * dt;
   p.pitch = Math.max(-1.1, Math.min(1.1, p.pitch + pitchIn * TURN_RATE * 0.8 * dt));
 
   const target = SEEKER_SPEED * (p.diveT > 0 ? DIVE_MULT : 1);

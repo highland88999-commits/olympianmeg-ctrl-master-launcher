@@ -38,6 +38,12 @@ import { createGame, setInput, stepGame } from '../app/swamp-run/engine.js';
 import { makeShip, stepShip } from '../app/flying-dutchman/engine.js';
 import { tangentFrame, headingVector } from '../lib/earth/roam.js';
 import { forward as netherForward, right as netherRight } from '../lib/nether-realm/world.js';
+import { createGame as createQuidditch, stepGame as stepQuidditch, COUNTDOWN_MS as QUIDDITCH_COUNTDOWN_MS } from '../app/quidditch/engine.js';
+import { createRace, stepRace } from '../app/tidal-rush/engine.js';
+import { createGame as createCollapse, stepGame as stepCollapse, COUNTDOWN_MS as COLLAPSE_COUNTDOWN_MS } from '../app/collapse-run/engine.js';
+import { createGame as createWeaver, updateGame as updateWeaver } from '../app/arachnid-weaver/game.js';
+import { updateRideSteering } from '../lib/argo-street.js';
+import { flightAxisMove, bikeAxisInput } from '../lib/flight-axis.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (p) => readFileSync(join(here, p), 'utf8');
@@ -494,4 +500,325 @@ test('Dream Engine + Enyo: joystick x is strafe, up is forward', () => {
   assert.ok(enyo.includes('iz += joy.dy;'), 'enyo: joy.dy is down-positive iz');
   assert.ok(enyo.includes('player.vel.x = (fx * -iz + rx * ix) * speed;'),
     'enyo: forward amount is -iz, so stick-up (dy -1) walks forward');
+});
+
+// ---------- Flying Dutchman ashore: strafe basis (FIXED, Wave 2) ----------
+
+test('Flying Dutchman ashore: stick right walks screen-right (FIXED)', () => {
+  // The chase camera sits BEHIND the walker (w - f*16, y 16,
+  // lookAt w) looking along forward (sin h, cos h), so the
+  // screen-right is forward x up = (-cos h, +sin h). The old
+  // basis (cos h, -sin h) paired with the NEGATED forward
+  // (-sin, -cos) and walked stick-right to the screen-LEFT.
+  // Proof against the real camera, not the variable names.
+  const src = read('../app/flying-dutchman/page.jsx');
+  assert.ok(src.includes('const rx = -Math.cos(w.heading), rz = Math.sin(w.heading);'),
+    'ashore strafe basis is (-cos h, +sin h)');
+  assert.ok(!src.includes('const rx = Math.cos(w.heading), rz = -Math.sin(w.heading);'),
+    'mirrored ashore basis is gone');
+  assert.ok(src.includes('s.dy = clamp(dy / (rect.height / 2), -1, 1);'),
+    'joyState.dy is raw screen dy (down-positive)');
+  for (const h of [0, Math.PI / 4, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+    cam.position.set(-Math.sin(h) * 16, 16, -Math.cos(h) * 16);
+    cam.lookAt(0, 2, 0);
+    cam.updateMatrixWorld();
+    const camRight = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const camFwd = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 2).negate();
+    const fixed = { x: -Math.cos(h), z: Math.sin(h) };
+    const old = { x: Math.cos(h), z: -Math.sin(h) };
+    const fwd = { x: Math.sin(h), z: Math.cos(h) };
+    assert.ok(fixed.x * camRight.x + fixed.z * camRight.z > 0.9,
+      `heading ${h.toFixed(2)}: fixed basis aligns with camera-right`);
+    assert.ok(old.x * camRight.x + old.z * camRight.z < -0.9,
+      `heading ${h.toFixed(2)}: old basis was the mirror (screen-left)`);
+    // Stick right (jx +1): mx/mz from the page's own step math.
+    const mx = fixed.x * 1 + fwd.x * 0, mz = fixed.z * 1 + fwd.z * 0;
+    assert.ok(mx * camRight.x + mz * camRight.z > 0,
+      `heading ${h.toFixed(2)}: stick right moves screen-right`);
+    // Stick up (jy -1, so -jy = +1): along forward, away from the camera.
+    const ux = fwd.x * 1, uz = fwd.z * 1;
+    assert.ok(ux * camFwd.x + uz * camFwd.z > 0,
+      `heading ${h.toFixed(2)}: stick up moves forward (up-screen)`);
+  }
+});
+
+// ---------- Quidditch seeker steering (FIXED, Wave 2) ----------
+
+test('Quidditch: drag right / D turns the broom right (FIXED)', () => {
+  // Chase camera behind the broom looking along (sin yaw, cos yaw);
+  // screen-right is (-cos, +sin), so a yaw increase swings the nose
+  // screen-LEFT. A right input (yawIn +1) must therefore DECREASE
+  // yaw. The rival steers by wantYaw and never touches yawIn.
+  const g = createQuidditch(7);
+  stepQuidditch(g, QUIDDITCH_COUNTDOWN_MS / 1000 + 0.1, {});
+  assert.equal(g.phase, 'playing');
+  const yaw0 = g.player.yaw;
+  const x0 = g.player.pos.x, z0 = g.player.pos.z;
+  stepQuidditch(g, 0.5, { yaw: 1 });
+  assert.ok(g.player.yaw < yaw0, 'yaw +1 decreases yaw (turn right)');
+  // The nose swung toward screen-right: at yaw ~0 the screen-right
+  // is -X, so the new forward must have a negative-X component
+  // relative to the old forward (0, +1 in xz).
+  const fw = { x: Math.sin(g.player.yaw), z: Math.cos(g.player.yaw) };
+  const right0 = { x: -Math.cos(yaw0), z: Math.sin(yaw0) };
+  assert.ok(fw.x * right0.x + fw.z * right0.z > 0,
+    'new forward has a screen-right component');
+  assert.ok(g.player.pos.x !== x0 || g.player.pos.z !== z0, 'broom moved');
+  const src = read('../app/quidditch/page.jsx');
+  assert.ok(src.includes("inputRef.current.yaw = Math.max(-1, Math.min(1, dx));"),
+    'drag right feeds yaw +1');
+  assert.ok(src.includes("if (k === 'arrowright' || k === 'd') inputRef.current.yaw = 1;"),
+    'ArrowRight / D feeds yaw +1');
+  const eng = read('../app/quidditch/engine.js');
+  assert.ok(eng.includes('p.yaw -= yawIn * TURN_RATE * dt;'),
+    'engine subtracts the yaw input');
+});
+
+// ---------- Tidal Rush player steering (FIXED, Wave 2) ----------
+
+test('Tidal Rush: drag right / D / ▶ steers right (FIXED)', () => {
+  // The engine's steer +1 is a LEFT turn (heading += steer swings
+  // the nose toward +X, screen-left under the chase camera that
+  // looks along (sin, cos)) — and the AI steers through that same
+  // channel, so the engine is untouched and the PLAYER input is
+  // negated at the page instead, exactly like Earth 2's drive.
+  const s = createRace({ racerCount: 4 });
+  for (let i = 0; i < Math.ceil(3.5 / (1 / 120)); i++) stepRace(s, 1 / 120, {});
+  assert.equal(s.phase, 'racing');
+  const h0 = s.racers[0].heading;
+  for (let i = 0; i < 60; i++) stepRace(s, 1 / 120, { steer: 1, boost: false });
+  assert.ok(s.racers[0].heading > h0, 'engine steer +1 increases heading (left)');
+  const src = read('../app/tidal-rush/page.jsx');
+  assert.ok(src.includes("if (k.has('left')) steer += 1;"),
+    'keyboard left feeds steer +1 (left turn)');
+  assert.ok(src.includes("if (k.has('right')) steer -= 1;"),
+    'keyboard right feeds steer -1 (right turn)');
+  assert.ok(src.includes('inputRef.current.steer = Math.max(-1, Math.min(1, -dx / 70));'),
+    'drag right feeds a negative steer (right turn)');
+  assert.ok(src.includes('inputRef.current.steer = -dir;'),
+    'hold buttons feed negated (▶ right = steer -1)');
+  assert.ok(src.includes('inputRef.current.steer === -dir'),
+    'hold-button release check matches the negated steer');
+});
+
+// ---------- Babel walk mode (verified correct, Wave 2 audit) ----------
+
+test('Babel walk: stick up walks forward, stick right strafes right', () => {
+  // The Babel stick reports dy DOWN-positive (dy = clientY - center),
+  // so WalkMode takes fwd = keys - joy.y and strafe = keys + joy.x
+  // into the standard stepWalker (forward (-sin, -cos), right
+  // (cos, -sin)) — drag up (joy.y -1) is forward, drag right is right.
+  const page = read('../app/babel/page.jsx');
+  assert.ok(page.includes('inputRef.current.joy = { x: dx / R, y: dy / R };'),
+    'babel stick reports raw dy (down-positive)');
+  const walk = read('../components/babel/WalkMode.jsx');
+  assert.ok(walk.includes('const fwd = (inp.keys.fwd ? 1 : 0) - (inp.keys.back ? 1 : 0) - inp.joy.y;'),
+    'walk fwd negates the down-positive joy.y');
+  assert.ok(walk.includes('const strafe = (inp.keys.right ? 1 : 0) - (inp.keys.left ? 1 : 0) + inp.joy.x;'),
+    'walk strafe carries +joy.x');
+  const lib = read('../lib/babel/walk.js');
+  assert.ok(lib.includes('let dx = -Math.sin(yaw) * input.fwd + Math.cos(yaw) * input.strafe;'),
+    'babel stepWalker uses the standard (-sin, cos) basis');
+});
+
+// ---------- World Nexus (verified correct, Wave 2 audit) ----------
+
+test('World Nexus: stick up walks forward, stick right strafes right', () => {
+  // The page stick reports onMove(dx/max, -dy/max) (y fwd-positive)
+  // into setMove(x, y); the scene adds joy.x to ix and joy.y to iz,
+  // W is iz +1, and movement is fx*nz + rx*nx with forward
+  // (-sin, -cos) and right (-fz, fx) = (cos, -sin).
+  const page = read('../app/world-nexus/page.jsx');
+  assert.ok(page.includes('onMove(dx / max, -dy / max);'),
+    'nexus stick reports y fwd-positive');
+  const scene = read('../app/world-nexus/scene.js');
+  assert.ok(scene.includes('ix += joy.x; iz += joy.y;'),
+    'nexus scene adds joy.x to strafe, joy.y to forward');
+  assert.ok(scene.includes("const rx = -fz, rz = fx;"),
+    'nexus right is (-fz, fx) = (cos, -sin)');
+});
+
+// ---------- Argo street rig (verified correct, Wave 2 audit) ----------
+
+test('Argo: stick right turns right in fly, walk and ride', () => {
+  // The stick writes strafe = dx (right +), thrust = -dy (up +).
+  // Fly/walk steer by yaw -= strafe: forward is (sin, cos), so a
+  // yaw decrease swings the nose toward -X, which is screen-right
+  // for the chase camera looking along (sin, cos). Ride steers the
+  // camera yaw the same way (camYaw -= strafe * rate).
+  const page = read('../app/argo/page.jsx');
+  assert.ok(page.includes('controlsRef.current.strafe = dx;'),
+    'argo stick strafe is +dx');
+  assert.ok(page.includes('controlsRef.current.thrust = -dy;'),
+    'argo stick thrust is -dy (up +)');
+  const scene = read('../components/argo/StreetScene.jsx');
+  assert.ok(scene.includes('r.yaw -= strafe * 1.6 * dt;'),
+    'argo fly steers yaw -= strafe');
+  assert.ok(scene.includes('r.yaw -= strafe * 1.9 * dt;'),
+    'argo walk steers yaw -= strafe');
+  const st0 = updateRideSteering({ yaw: 0, camYaw: 0 }, { strafe: 1, thrust: 1, lookDX: 0 }, 0.5);
+  assert.ok(st0.camYaw < 0, 'ride: strafe +1 decreases camYaw (nose toward screen-right)');
+  assert.ok(st0.yaw < 0, 'ride: bike heading chases the camera right');
+  const stL = updateRideSteering({ yaw: 0, camYaw: 0 }, { strafe: -1, thrust: 1, lookDX: 0 }, 0.5);
+  assert.ok(stL.camYaw > 0, 'ride: strafe -1 turns left');
+});
+
+// ---------- Arachnid Weaver (verified correct, Wave 2 audit) ----------
+
+test('Arachnid Weaver: stick right runs right, stick up runs up', () => {
+  // 2D canvas, y down: the stick reports raw dx/dy (right +,
+  // down +) and the keyboard agrees (W is dy -1, D is dx +1);
+  // the engine moves p.x += dx*speed, p.y += dy*speed, so
+  // stick-right is screen-right and stick-up is screen-up.
+  const g = createWeaver(7);
+  const x0 = g.player.x, y0 = g.player.y;
+  updateWeaver(g, { dx: 1, dy: 0 }, 0.2);
+  assert.ok(g.player.x > x0, 'stick right moves +x (screen-right)');
+  updateWeaver(g, { dx: 0, dy: -1 }, 0.2);
+  assert.ok(g.player.y < y0, 'stick up moves -y (screen-up)');
+  const src = read('../app/arachnid-weaver/page.jsx');
+  assert.ok(src.includes('if (k["w"] || k["arrowup"]) dy -= 1;'),
+    'keyboard W is dy -1, matching stick-up');
+  assert.ok(src.includes('if (k["d"] || k["arrowright"]) dx += 1;'),
+    'keyboard D is dx +1, matching stick-right');
+});
+
+// ---------- Hawkins (verified correct, Wave 2 audit) ----------
+
+test('Hawkins: stick up runs forward, stick right strafes right', () => {
+  // The touch stick writes _tx = dx/max (right +), _ty = dy/max
+  // (down +); movePlayer takes f2 = -_ty (up = forward) and
+  // s2 = _tx into the standard (-sin*f + cos*s, -cos*f - sin*s)
+  // basis — the same frame as stepWalker.
+  const src = read('../app/hawkins/engine.js');
+  assert.ok(src.includes('E.keys._tx = dx / max; E.keys._ty = dy / max;'),
+    'hawkins stick writes raw dx/dy (right +, down +)');
+  assert.ok(src.includes('const f2 = -E.keys._ty, s2 = E.keys._tx;'),
+    'hawkins takes f2 = -_ty, s2 = _tx');
+  assert.ok(src.includes('mx = (-sin * f2 + cos * s2); mz = (-cos * f2 - sin * s2);'),
+    'hawkins uses the standard basis');
+});
+
+// ---------- Skyscraper (verified correct, Wave 2 audit) ----------
+
+test('Skyscraper: stick up walks forward, stick right strafes right', () => {
+  // The floating stick records raw start/cur (down-positive dy);
+  // velocity.z += -normY (drag up = forward) and velocity.x +=
+  // normX (drag right = right), applied along vDir (-sin, -cos)
+  // and vRight (cos, -sin) — the camera's own frame.
+  const src = read('../app/skyscraper/components/NexusEngine.jsx');
+  assert.ok(src.includes('velocity.current.z += (-normY) * intensity * 0.1;'),
+    'skyscraper: -normY is forward velocity');
+  assert.ok(src.includes("velocity.current.x += normX * intensity * 0.1;"),
+    'skyscraper: +normX is right velocity');
+  assert.ok(src.includes('vDir.set(-Math.sin(eulerY), 0, -Math.cos(eulerY)).normalize();'),
+    'skyscraper forward is (-sin, -cos)');
+  assert.ok(src.includes('vRight.set(Math.cos(eulerY), 0, -Math.sin(eulerY)).normalize();'),
+    'skyscraper right is (cos, -sin)');
+  // Driving: bikeSteer -= normX, and the bike's forward is
+  // (0,0,-1) rotated by bikeSteer — a steer decrease swings the
+  // nose toward screen-right (see the report's derivation).
+  assert.ok(src.includes('bikeSteer.current -= normX * intensity * 0.04;'),
+    'skyscraper driving: drag right decreases bikeSteer (turn right)');
+});
+
+// ---------- GTA touch input (verified correct, Wave 2 audit) ----------
+
+test('GTA bindTouch: stick up is forward, stick right is strafe right', () => {
+  // bindTouch writes joyX = dx/R (right +) and joyY = -dy/R
+  // (up +); update() adds them to mx/my, where my +1 is forward
+  // (updatePlayer: moveY +1 drives -Z, away from the camera).
+  const src = read('../lib/gta/input.js');
+  assert.ok(src.includes('touch.joyX = dx / JOY_RADIUS;'),
+    'gta bindTouch joyX is +dx');
+  assert.ok(src.includes('touch.joyY = -dy / JOY_RADIUS; // up = forward'),
+    'gta bindTouch joyY is -dy (up +)');
+  assert.ok(src.includes('mx += t.joyX;'),
+    'gta update adds joyX to moveX');
+  assert.ok(src.includes('my += t.joyY;'),
+    'gta update adds joyY to moveY');
+});
+
+// ---------- Hub flight axis + supercar moveY (verified correct, Wave 2 audit) ----------
+
+test('Hub: stick up is forward/throttle, stick right is strafe/steer', () => {
+  // Hub channels carry moveY DOWN-positive (the page drag
+  // convention): flightAxisMove takes forward = -moveY and
+  // strafe = moveX; the bike takes throttle = -moveY and
+  // steer = +moveX; the supercar takes thrust = -moveY and
+  // turn = +moveX. The WalkJoystick feed flips y for exactly
+  // this reason (moveY = -y).
+  assert.deepEqual(flightAxisMove({ moveX: 1, moveY: -1, axis: 'horizontal' }),
+    { forward: 1, strafe: 1, climb: 0 },
+    'horizontal: stick up-right is forward +1, strafe +1');
+  assert.deepEqual(flightAxisMove({ moveX: 1, moveY: -1, axis: 'vertical' }),
+    { forward: 0, strafe: 1, climb: 1 },
+    'vertical: stick up-right is climb +1, strafe +1');
+  const bike = bikeAxisInput({ moveX: 1, moveY: -1, axis: 'horizontal' });
+  assert.ok(bike.throttle > 0 && bike.steer > 0, 'bike: stick up-right throttles and steers right');
+  const page = read('../app/page.jsx');
+  assert.ok(page.includes('controlsRef.current.moveY = -y;'),
+    'hub WalkJoystick feed flips y into down-positive moveY');
+  const car = read('../components/EarthSupercar.jsx');
+  assert.ok(car.includes('const thrust = -((c.moveY || 0) + ((c.keyS ? 1 : 0) - (c.keyW ? 1 : 0)));'),
+    'supercar thrust is -moveY (stick up = throttle)');
+});
+
+// ---------- Collapse Run (verified correct, Wave 2 audit) ----------
+
+test('Collapse Run: steer right runs screen-right', () => {
+  // The camera looks down -Z, so screen-right is +X; steer +1
+  // (touch the right half, ArrowRight, D) drives lateralVel
+  // positive and the runner's x = lateral moves +X.
+  const g = createCollapse(7);
+  stepCollapse(g, COLLAPSE_COUNTDOWN_MS / 1000 + 0.1, {});
+  assert.equal(g.phase, 'running');
+  const lat0 = g.lateral;
+  stepCollapse(g, 0.5, { steer: 1 });
+  assert.ok(g.lateral > lat0, 'steer +1 moves the runner +X (screen-right)');
+  stepCollapse(g, 0.5, { steer: -1 });
+  assert.ok(g.lateral < lat0 + 1, 'steer -1 moves the runner back left');
+  const src = read('../app/collapse-run/page.jsx');
+  assert.ok(src.includes("inputRef.current.steer = Math.max(-1, Math.min(1, (x / window.innerWidth) * 2 - 1)) * 1.4;"),
+    'collapse touch x maps right-half to steer +');
+});
+
+// ---------- Myriad walk rig (verified correct, Wave 2 audit) ----------
+
+test('Myriad walk rig: stick up walks forward, stick right strafes right', () => {
+  // The walk stick is the shared WalkJoystick (y fwd-positive);
+  // WalkRig feeds fwd = keys + joy.y and strafe = keys + joy.x
+  // straight into the shared stepWalker, which the suite already
+  // proves moves strafe +1 screen-right.
+  const rig = read('../components/myriad/MyriadExtras.jsx');
+  assert.ok(rig.includes('fwd: (keys.fwd || 0) + (joy.y || 0),'),
+    'myriad walk fwd carries +joy.y');
+  assert.ok(rig.includes('strafe: (keys.strafe || 0) + (joy.x || 0),'),
+    'myriad walk strafe carries +joy.x');
+  const page = read('../app/myriad/page.jsx');
+  assert.ok(page.includes('<WalkJoystick onMove={(x, y) => { walkJoyRef.current.x = x; walkJoyRef.current.y = y; }} />'),
+    'myriad walk stick is the shared WalkJoystick');
+});
+
+// ---------- Wave 1 open items: still as reported (not built here) ----------
+
+test('Wave 1 open items are still as reported (not built here)', () => {
+  // Mars 2 has NO joystick at all: the roverbar still says
+  // "stick / WASD to drive" but no stick is rendered and the
+  // rover keys object is keyboard-only. Building a Mars 2
+  // joystick is new function, not this workstream's fix.
+  const mars2 = read('../app/mars-2/page.jsx');
+  assert.ok(mars2.includes('stick / WASD to drive'),
+    'mars 2 roverbar still promises a stick');
+  assert.ok(!mars2.includes('WalkJoystick') && !mars2.includes('Joystick'),
+    'mars 2 still renders no joystick');
+  // Omega 500 keyboard A/D is still inverted on screen (A -> +1,
+  // D -> -1, while steer +1 is screen-right); the joystick was
+  // fixed in Wave 1 and stays fixed. The keyboard is a separate fix.
+  const omega = read('../lib/omega-500/input.js');
+  assert.ok(omega.includes('const steer = clamp((k.left ? 1 : 0) + (k.right ? -1 : 0) + (t.steer || 0), -1, 1);'),
+    'omega 500 keyboard A/D still maps left to +1');
+  assert.ok(omega.includes('return clamp(x, -1, 1);'),
+    'omega 500 joystick still maps straight through');
 });

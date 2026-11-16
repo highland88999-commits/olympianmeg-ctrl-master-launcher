@@ -61,10 +61,20 @@ import {
   applyBlasterHit, strikeWalkerWithShield, burnTickWithShield,
   loadProgress, saveProgress,
 } from '@/lib/jupiter2/elemental-orbs';
+import { recordSoulArrival } from '@/lib/land-of-the-dead/souls';
 import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND } from '@/lib/jupiter2/storm';
 import { buildSpeeder, buildOblivionLever, buildMountain } from '@/lib/jupiter2/meshes';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import { useOrbDock } from '@/components/world/useOrbDock';
+// The ONE backpack (Merlin, Nov 16 — the J2 layout): BackpackHud is
+// the shared mount Hollow Earth and Middle-earth wear — the BACKPACK
+// orb above JUMP opens this same pack, never a second one. The FIRE
+// orb fires the weapon this pack arms, read at strike time through
+// the store (useBackpack / equippedWeaponEntry), the Hollow
+// Earth / Middle-earth pattern.
+import BackpackHud from '@/components/backpack/BackpackHud';
+import { useBackpack } from '@/lib/backpack/store';
+import { equippedWeaponEntry, equippedDamageForSlot, weaponHand } from '@/lib/backpack/backpack';
 
 // JUPITER 2 — walkable storm surface (Merlin, Nov 15 ~01:11, spec Nov 10).
 // The user stands ON the cloud deck INSIDE the storm at street level:
@@ -83,8 +93,10 @@ const ACCENT = '#e8a35c';
 
 // Orb dock sizes (lib/world/orb-dock.js — the one shared mechanism,
 // also used by Hollow Earth): px side per draggable orb in this
-// scene — stick 104, boost/shoot/dismount 64, summon/trade 56.
-const J2_SCENE_ORB_SIZES = { stick: 104, boost: 64, shoot: 64, summon: 56, dismount: 64, trade: 56 };
+// scene — boost/shoot/fire 64, summon/trade 56, dismount 64. The
+// stick is NOT dock-owned any more (Merlin, Nov 16 — the J2 layout:
+// fixed bottom-left, never moves), so it has no entry here.
+const J2_SCENE_ORB_SIZES = { boost: 64, shoot: 64, fire: 64, summon: 56, dismount: 64, trade: 56 };
 
 // The Hawkins loader normalizes the demobat to its manifest height
 // (7 Hawkins units); Jupiter 2 stands it DEMOBAT_HEIGHT_M tall.
@@ -214,8 +226,19 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
       moved = true;
       // Each event applies only its own delta (the anchor is
       // re-set below), so the turn never compounds.
+      //
+      // DIRECTION, PROVEN FROM THE RIG (Merlin, Nov 16 — the camera
+      // turning was inverted on his phone): yaw+ turns RIGHT —
+      // sphereTangentBasis forward is (sin yaw, −cos yaw), so yaw+
+      // swings the view from −Z toward +X, the walker's right — so
+      // a drag right (dx > 0) must ADD to the yaw target. The old
+      // SUBTRACT turned the view left: grab-the-world. Pitch was
+      // already right and is untouched: pitch+ lifts the gaze
+      // (lookAt adds up·sin(pitch)), so a drag down (dy > 0) must
+      // SUBTRACT to look down. The gaze follows the finger on both
+      // axes now; the recenter below is untouched.
       const w = el.clientWidth || window.innerWidth || 1;
-      yawTarget.current -= lookTurnForDrag(e.clientX - anchor.x, w);
+      yawTarget.current += lookTurnForDrag(e.clientX - anchor.x, w);
       pitchTarget.current = Math.max(
         -LOOK_PITCH_MAX,
         Math.min(LOOK_PITCH_MAX, pitchTarget.current - lookTurnForDrag(e.clientY - anchor.y, w))
@@ -441,7 +464,7 @@ function FirstPerson({ inputRef, speederRef, walkerRef, walkerStateRef, onRideCh
 
 // Touch stick — the Mars pattern: writes into the same inputRef.keys
 // the keyboard fills, every key cleared on release/cancel/unmount.
-export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
+export function Jupiter2TouchControls({ inputRef, riding, onShoot, onFire, panelOpen, orbDock }) {
   const stickRef = useRef(null);
   const knobRef = useRef(null);
   const activeId = useRef(null);
@@ -456,10 +479,6 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
   };
   useEffect(() => () => { clearStick(); setKey('boost', false); }, []);
   const moveStick = (e) => {
-    // While the stick itself is being dragged to a new spot, the
-    // pointer is a dock drag, not a move — ignore it (onDragStart
-    // already recentred the stick below).
-    if (orbDock && orbDock.draggingRef.current) return;
     const el = stickRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -485,6 +504,10 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
     const raw = dx / max; // −1 (full left) .. +1 (full right)
     const mag = Math.abs(raw);
     const scaled = mag < 0.12 ? 0 : Math.min(1, (mag - 0.12) / 0.88);
+    // Push right steers right (verified against
+    // lib/jupiter2/speeder.js: steer is +1 = full left and it
+    // SUBTRACTS from the yaw, and yaw+ is right — so a right push
+    // must emit a negative steer). Do not flip this sign.
     if (inputRef.current) inputRef.current.steer = -scaled * Math.sign(raw);
   };
   const onDown = (e) => { activeId.current = e.pointerId; e.currentTarget.setPointerCapture(e.pointerId); moveStick(e); };
@@ -499,19 +522,18 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
   const boostHold = holdBtn('boost');
   return (
     <>
+      {/* The stick is FIXED bottom-left (Merlin, Nov 16 — the J2
+          layout): it steers, it never moves. The old dock drag is
+          gone — no bind, no styleFor, no recentre-on-drag — so a
+          thumb sliding off the stick can never park it somewhere
+          else. Bottom-left is the universal joystick spot. */}
       <div
         ref={stickRef} role="application" aria-label="Move"
-        {...orbDock.bind('stick', {
-          onPointerDown: onDown,
-          // A drag is not a move: recentre the stick the moment the
-          // press becomes a drag (moveStick ignores the pointer
-          // while the dock is dragging, see the guard there).
-          onDragStart: () => clearStick(),
-        })}
+        onPointerDown={onDown}
         onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
         onLostPointerCapture={onUp}
         style={{
-          ...orbDock.styleFor('stick', { left: 16, bottom: 16 }),
+          position: 'absolute', left: 16, bottom: 16, zIndex: 6,
           width: 104, height: 104, borderRadius: '50%',
           border: '1px solid rgba(232,163,92,0.55)', background: 'rgba(18,8,4,0.38)',
           touchAction: 'none',
@@ -524,12 +546,13 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
           pointerEvents: 'none',
         }} />
       </div>
-      {/* BOOST parks ABOVE the page's JUMP orb (bottom 104, the
-          JUMP orb ends at bottom 88) — the two shared one corner in
-          speeder mode and their labels printed on top of each other
-          (Merlin, Nov 16: "the shoot and jump buttons overlap" —
-          the pair in the video is JUMP over BOOST). Each gets its
-          own circle orb now, one label per orb, never overlapping. */}
+      {/* BOOST parks ABOVE the SHOOT orb (bottom 88, SHOOT ends at
+          bottom 76) in the riding column — it used to park above
+          JUMP, but JUMP moved up the column (Merlin, Nov 16 — the
+          J2 layout: FIRE below it, BACKPACK above it), and BOOST at
+          the old bottom 104 would sit on top of JUMP while riding.
+          JUMP and BOOST now sit side by side at bottom 88, each its
+          own circle orb, one label per orb, never overlapping. */}
       {riding && (
         <button type="button" aria-label="Boost"
           {...orbDock.bind('boost', {
@@ -542,7 +565,7 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
           onPointerCancel={boostHold.onPointerCancel}
           onLostPointerCapture={boostHold.onLostPointerCapture}
           style={{
-            ...orbDock.styleFor('boost', { right: 16, bottom: 104 }),
+            ...orbDock.styleFor('boost', { right: 104, bottom: 88 }),
             width: 64, height: 64, borderRadius: '50%',
             touchAction: 'none', border: '1px solid rgba(57,200,255,0.7)',
             background: 'rgba(10,20,30,0.5)', color: '#bfe9ff', fontSize: 12, letterSpacing: 1,
@@ -551,7 +574,7 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
       {/* SHOOT — the speeder blaster (Merlin, Nov 16 ~01:16). Its own
           plain circle orb, LEFT of the page's JUMP orb: JUMP spans
           right 12–88, SHOOT spans right 104–168 (16 px clear), and
-          below BOOST (bottom 104) — so it never overlaps either.
+          below BOOST (bottom 88) — so it never overlaps either.
           Riding only; on foot the blaster is inactive, so no orb.
           Tap to fire; the blaster's own cooldown paces repeat shots. */}
       {riding && onShoot && (
@@ -561,6 +584,23 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, orbDock }) {
           style={orbDock.styleFor('shoot', { right: 104, bottom: 12 })}>
           <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🎯</span>
           <OrbLabel>SHOOT</OrbLabel>
+        </OrbButton>
+      )}
+      {/* FIRE — the on-foot attack (Merlin, Nov 16 — the J2 layout):
+          walking mode only, UNDER the page's JUMP orb in the right
+          column (JUMP sits at bottom 88, FIRE at bottom 12, the
+          BACKPACK orb above JUMP at bottom 176). It fires the weapon
+          the user has equipped in their backpack. Riding uses SHOOT
+          (the speeder blaster) instead, so this orb never shows
+          while mounted — and it hides while a creature panel owns
+          the bottom of the stage, like JUMP. fn="fire" wears the
+          TRON reticle face (tron-reticle.webp). */}
+      {!riding && onFire && !panelOpen && (
+        <OrbButton size={64} fn="fire" onClick={() => { if (orbDock.tapGuard()) return; onFire(); }} ariaLabel="Fire your equipped weapon"
+          accent="#ff5f4d"
+          {...orbDock.bind('fire', {})}
+          style={orbDock.styleFor('fire', { right: 12, bottom: 12 })}>
+          <OrbLabel>FIRE</OrbLabel>
         </OrbButton>
       )}
     </>
@@ -1372,6 +1412,9 @@ export default function Jupiter2Scene({
   });
   const blasterRef = useRef({ tier: initialProgress.blasterTier, lastShotMs: null, lastShot: null });
   const [blasterUi, setBlasterUi] = useState({ tier: initialProgress.blasterTier });
+  // The on-foot FIRE cooldown (the blaster's own lastShotMs paces the
+  // speeder shot; the foot strike keeps its own clock).
+  const lastFootStrikeRef = useRef(0);
   // Live orbs on the deck: the ref is the truth in the tick, the
   // state is what SceneContent renders.
   const orbsRef = useRef([]);
@@ -1380,6 +1423,22 @@ export default function Jupiter2Scene({
   const [notice, setNotice] = useState(null);
   const noticeRef = useRef(null);
   const [tradeOpen, setTradeOpen] = useState(false);
+  // The backpack's equipped weapon, read at FIRE time (a ref so the
+  // key handler's closure never goes stale when the traveller equips
+  // mid-hunt — the Hollow Earth / Middle-earth pattern).
+  const pack = useBackpack();
+  const equippedRef = useRef(null);
+  useEffect(() => { equippedRef.current = equippedWeaponEntry(pack); }, [pack]);
+  // The control-instructions hint fades after 5 s (Merlin, Nov 16 —
+  // the J2 layout): it shows on entry and re-shows whenever the mode
+  // changes (walk ↔ speeder, walk ↔ orbit), then eases out. It does
+  // NOT re-show on respawn — the death banner already speaks there.
+  const [hintOn, setHintOn] = useState(true);
+  useEffect(() => {
+    setHintOn(true);
+    const t = setTimeout(() => setHintOn(false), 5000);
+    return () => clearTimeout(t);
+  }, [riding, mode]);
   // Orb dock (Merlin, Nov 16 ~02:35 — the Hollow Earth mirror): the
   // scene's orbs drag individually and persist per user under
   // `olympus:jupiter-2:orb-dock:v1` (lib/world/orb-dock.js, the one
@@ -1478,6 +1537,99 @@ export default function Jupiter2Scene({
     best.entry.hp = res.hp;
     best.entry.lastStriker = 'user';
     return { ok: true, hit: true, killed: res.killed, target: best.c.id };
+  };
+
+  // ── the on-foot attack (Merlin, Nov 16 — the J2 layout) ──
+  // FIRE = ATTACK: the FIRE orb (walking mode only) fires the weapon
+  // the user has equipped in their backpack — the same hand the
+  // backpack arms in Hollow Earth / Middle-earth, read at strike
+  // time so an equip mid-hunt takes effect at once. No weapon, or a
+  // weapon with no hand: the orb says so and does nothing. Spec
+  // mirrors Hollow Earth's weaponSpec (melee 2.4 m / wide arc /
+  // 0.45 s, ranged 40 m / narrow cone / 0.8 s); a rated weapon deals
+  // its rating, an unrated one the J2 native 20. The strike is the
+  // blaster's shape on foot: the nearest live monster inside the arc
+  // takes the damage straight onto its brain entry with lastStriker
+  // 'user' — so the brain tick records the kill and drops the
+  // elemental orb exactly like a blaster kill. The cyan bolt draws
+  // through blasterRef, the same line the speeder shot wears.
+  const fireOnFoot = () => {
+    const sp = speederRef.current;
+    if (sp.summoned && sp.mounted) return { ok: false, reason: 'riding' };
+    const now = Date.now();
+    const equipped = equippedRef.current;
+    const hand = equipped ? weaponHand(equipped) : null;
+    if (!equipped || !hand) {
+      showNotice('⚔ NO WEAPON EQUIPPED — OPEN THE BACKPACK');
+      return { ok: false, reason: 'no-weapon' };
+    }
+    const melee = hand === 'melee';
+    const dmg = equippedDamageForSlot(equipped, hand) ?? 20;
+    const range = melee ? 2.4 : 40;
+    const arcCos = Math.cos(melee ? 1.22 : 0.21);
+    const cooldownMs = melee ? 450 : 800;
+    if (now - lastFootStrikeRef.current < cooldownMs) return { ok: false, reason: 'cooldown' };
+    lastFootStrikeRef.current = now;
+    const feet = walkerStateRef.current.feet;
+    if (!feet) return { ok: false, reason: 'no-feet' };
+    // The walker's forward on the sphere, from the live yaw the rig
+    // writes every frame — the same basis the camera looks along.
+    const yaw = walkerRef.current.yaw || 0;
+    const basis = sphereTangentBasis(feet, yaw, PLANET_R);
+    const fwd = basis.forward;
+    const fwdLen = Math.hypot(fwd.x, fwd.y, fwd.z) || 1;
+    const fx = fwd.x / fwdLen;
+    const fy = fwd.y / fwdLen;
+    const fz = fwd.z / fwdLen;
+    // The bolt leaves from chest height above the deck, like the blaster's.
+    const gr = Math.hypot(feet.x, feet.y, feet.z) || 1;
+    const from = {
+      x: feet.x + (feet.x / gr) * 1.0,
+      y: feet.y + (feet.y / gr) * 1.0,
+      z: feet.z + (feet.z / gr) * 1.0,
+    };
+    let best = null;
+    const creatures = creaturesRef.current;
+    if (creatures) {
+      const all = [
+        ...creatures.monsters.map((c) => ({ ...c, map: 'monsters' })),
+        ...creatures.bats.map((c) => ({ ...c, map: 'bats' })),
+      ];
+      for (const c of all) {
+        const entry = (brainRef.current[c.map] || {})[c.id];
+        if (!entry || entry.dead || entry.hp <= 0) continue;
+        const p = c.group.position;
+        const dx = p.x - from.x;
+        const dy = p.y - from.y;
+        const dz = p.z - from.z;
+        const d = Math.hypot(dx, dy, dz);
+        if (d > range || d <= 0) continue;
+        const cos = (dx * fx + dy * fy + dz * fz) / d;
+        if (cos < arcCos) continue;
+        if (!best || d < best.d) best = { c, entry, d, p: { x: p.x, y: p.y, z: p.z } };
+      }
+    }
+    const to = best
+      ? best.p
+      : { x: from.x + fx * range, y: from.y + fy * range, z: from.z + fz * range };
+    blasterRef.current.lastShot = { from: { ...from }, to, atMs: now };
+    if (!best) return { ok: true, hit: false };
+    best.entry.hp -= dmg;
+    best.entry.lastStriker = 'user';
+    if (best.entry.hp <= 0) {
+      let name = best.c.kind;
+      try { name = lifeFor(best.c.kind, best.c.index, now).name; } catch { /* keep kind */ }
+      showNotice(`⚔ ${String(name).toUpperCase()} FALLS`);
+    }
+    return { ok: true, hit: true, killed: best.entry.hp <= 0, target: best.c.id };
+  };
+
+  // F fires whichever hand the user is in: the speeder blaster while
+  // riding, the equipped backpack weapon on foot (the FIRE orb calls
+  // fireOnFoot directly; the SHOOT orb calls fireBlaster directly).
+  const fireWeapon = () => {
+    const sp = speederRef.current;
+    return (sp.summoned && sp.mounted) ? fireBlaster() : fireOnFoot();
   };
 
   // ── the deck trade (Merlin, Nov 16 ~01:16) ──
@@ -1661,6 +1813,12 @@ export default function Jupiter2Scene({
         if (entry.hp <= 0 && !entry.kill) {
           const userKill = entry.lastStriker === 'user';
           entry.kill = { generation: life.generation, cause: userKill ? 'user-kill' : 'predation', diedAtMs: now, killerId: entry.lastStriker || null };
+          // The Land of the Dead (Merlin, Nov 16 ~04:02): every
+          // death arrives there — user-kill, predation and duel
+          // alike. This block runs once per generation's kill.
+          let soulName = c.kind;
+          try { soulName = lifeFor(c.kind, c.index, now).name; } catch { /* keep kind */ }
+          recordSoulArrival({ kind: c.kind === 'demobat' ? 'creature' : 'monster', name: soulName, origin: 'jupiter-2', diedAt: now });
           if (userKill) {
             const orb = createOrbDrop({ kind: c.kind, index: c.index, position: pos, nowMs: now });
             if (orb) {
@@ -1687,6 +1845,7 @@ export default function Jupiter2Scene({
         walkerStateRef.current.respawn = true;
         lastDeathAtRef.current = now;
         setLastDeathAt(now);
+        recordSoulArrival({ kind: 'user', origin: 'jupiter-2', diedAt: now });
       }
       if (lastDeathAtRef.current && now - lastDeathAtRef.current > 5000) {
         lastDeathAtRef.current = 0;
@@ -1766,15 +1925,15 @@ export default function Jupiter2Scene({
   };
 
   // B = summon/dismiss the speeder, E = dismount — Earth 1's keys.
-  // F = fire the speeder blaster (the SHOOT orb calls the same
-  // action through shootRef, below).
+  // F = fire: the speeder blaster while riding, the equipped backpack
+  // weapon on foot (fireWeapon dispatches on the mounted state).
   useEffect(() => {
     const down = (e) => {
       if (e.repeat) return;
       const k = e.key.toLowerCase();
       if (k === 'b') summon();
       else if (k === 'e' && speederRef.current.summoned) dismount();
-      else if (k === 'f') fireBlaster();
+      else if (k === 'f') fireWeapon();
     };
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
@@ -1824,7 +1983,8 @@ export default function Jupiter2Scene({
       {/* Hint — below the top row of orbs (top 76), wrapping inside
           a centred band that clears the left orb column and the
           top-right EXIT/FULLSCREEN orb, so it can never be cut off
-          behind a button again. */}
+          behind a button again. It fades after 5 s (see hintOn) and
+          re-shows on a mode change. */}
       {mode !== 'orbit' && (
         <div style={{
           position: 'absolute', top: 76, left: '50%', transform: 'translateX(-50%)',
@@ -1833,6 +1993,7 @@ export default function Jupiter2Scene({
           textShadow: '0 1px 4px #000',
           background: 'rgba(0,0,0,0.35)', padding: '6px 10px', borderRadius: 8,
           pointerEvents: 'none', zIndex: 5,
+          opacity: hintOn ? 1 : 0, transition: 'opacity 0.6s ease',
         }}>
           {riding ? 'SPEEDER · STICK/WASD STEER · SHIFT BOOST · F FIRE' : 'STICK/WASD MOVE · DRAG LOOK · SPACE JUMP · B SUMMON SPEEDER'}
         </div>
@@ -1878,7 +2039,7 @@ export default function Jupiter2Scene({
           {notice.text}
         </div>
       )}
-      {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} onShoot={fireBlaster} orbDock={dock} />}
+      {mode !== 'orbit' && <Jupiter2TouchControls inputRef={inputRef} riding={riding} onShoot={fireBlaster} onFire={fireOnFoot} panelOpen={!!selectedId} orbDock={dock} />}
       {/* speeder summon / dismount / deck trade — FREE-FLOATING orbs
           now (Merlin, Nov 16 ~02:35 — the Hollow Earth mirror): the
           top-left column container is GONE. Each orb drags on its
@@ -1886,19 +2047,33 @@ export default function Jupiter2Scene({
           and its spot persists per user; the defaults below are
           the column's old slots, measured, so nothing moves until
           the user drags it. The top-right corner still belongs to
-          the EXIT / FULLSCREEN orb alone. One label per orb. The
-          orb tally and the armed-lever orb are READOUTS (a plain
-          circle div / an action-less orb), not controls — they stay
-          fixed in their old slots. */}
+          the EXIT / FULLSCREEN orb alone. One label per orb.
+          Layout (Merlin, Nov 16 — the J2 layout): SUMMON shows on
+          foot only (hidden while riding — DISMOUNT is the way off);
+          the ORBS tally sits beside the HP orb at top-left and
+          opens the merchant; the armed-lever orb is a READOUT (an
+          action-less orb), fixed in its slot. Every default sits
+          fully on screen — see tests/jupiter2-layout.test.mjs. */}
       {mode !== 'orbit' && (
         <>
-          <OrbButton onClick={() => { if (dock.tapGuard()) return; summon(); }} ariaLabel={riding ? 'Dismiss speeder' : 'Summon speeder'}
-            accent={riding ? '#39c8ff' : ACCENT}
-            {...dock.bind('summon', {})}
-            style={dock.styleFor('summon', { left: 12, top: 12 })}>
-            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🛸</span>
-            <OrbLabel>{riding ? 'DISMISS' : 'SUMMON'}</OrbLabel>
-          </OrbButton>
+          {/* SUMMON shows on foot only (Merlin, Nov 16 — the J2
+              layout): while riding its state is DISMISS, and the orb
+              is hidden — DISMOUNT (below, unmoved) is the way off
+              the speeder. B still toggles summon/dismiss. The label
+              is 8 px, not OrbLabel's 9 px: on Merlin's phone the
+              6-letter word clipped to "SUMMOI" at the orb's right
+              edge (the DISMISS orb in his speeder video clips the
+              same way) — DISMOUNT's 8-letter label fits at 8 px in
+              this file's own precedent, so SUMMON wears it too. */}
+          {!riding && (
+            <OrbButton onClick={() => { if (dock.tapGuard()) return; summon(); }} ariaLabel="Summon speeder"
+              accent={ACCENT}
+              {...dock.bind('summon', {})}
+              style={dock.styleFor('summon', { left: 12, top: 12 })}>
+              <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🛸</span>
+              <span style={{ fontSize: 8, letterSpacing: 1, lineHeight: 1 }}>SUMMON</span>
+            </OrbButton>
+          )}
           {riding && (
             <OrbButton size={64} onClick={() => { if (dock.tapGuard()) return; dismount(); }} ariaLabel="Dismount speeder"
               {...dock.bind('dismount', {})}
@@ -1916,25 +2091,40 @@ export default function Jupiter2Scene({
             <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬡</span>
             <OrbLabel>TRADE</OrbLabel>
           </OrbButton>
-          <div title={`Elemental orbs — storm ${walletUi.storm} · dragon ${walletUi.dragon} · demobat ${walletUi.demobat}`} style={{
-            position: 'absolute', left: 12, top: riding ? 212 : 140, zIndex: 6,
-            width: 56, height: 56, borderRadius: '50%',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            color: '#ffe3cc', fontSize: 12, fontWeight: 700, lineHeight: 1.2,
-            background: 'rgba(0,0,0,0.5)', border: '2px solid #e8a35c',
-            pointerEvents: 'none',
-          }}>
-            <span>⬡ {totalOrbs(walletUi)}</span>
-            <span style={{ fontSize: 8, letterSpacing: 1 }}>ORBS</span>
-          </div>
+          {/* The orb tally — beside the HP orb at top-left (Merlin,
+              Nov 16 — the J2 layout), not down the column: HP spans
+              left 76–132, this one 140–196, both at top 12. A control
+              now, not a readout: tapping it opens the merchant (the
+              deck trade panel) for upgrades. TRADE stays in the
+              column below. Fixed here, never dock-owned. */}
+          <OrbButton size={56} onClick={() => setTradeOpen(true)}
+            ariaLabel={`Elemental orbs, ${totalOrbs(walletUi)} — open the deck trade`}
+            title={`Elemental orbs — storm ${walletUi.storm} · dragon ${walletUi.dragon} · demobat ${walletUi.demobat}`}
+            style={{ position: 'absolute', left: 140, top: 12, zIndex: 6 }}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>⬡ {totalOrbs(walletUi)}</span>
+            <OrbLabel>ORBS</OrbLabel>
+          </OrbButton>
           {leverUi.phase === 'armed' && (
             <OrbButton ariaLabel={`Oblivion armed${leverUi.countdown ? `, ${leverUi.countdown}` : ''}`} accent="#22ff66"
-              style={{ position: 'absolute', left: 12, top: riding ? 276 : 204, zIndex: 6 }}>
+              style={{ position: 'absolute', left: 12, top: riding ? 212 : 140, zIndex: 6 }}>
               <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⚡</span>
               <span style={{ fontSize: 8, letterSpacing: 0.5, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%' }}>
                 {leverUi.countdown || 'ARMED'}
               </span>
             </OrbButton>
+          )}
+          {/* Backpack — the ONE pack (Merlin, Nov 16 — the J2 layout):
+              BackpackHud, the same mount Hollow Earth and
+              Middle-earth wear (combatApplies: the FIRE orb fires the
+              weapon this pack arms). Its own circle is the BACKPACK
+              orb, home above JUMP in the right column (JUMP bottom
+              88 + 76 + 12 gap = bottom 176); draggable from there,
+              its spot persists per user. Hidden while a creature
+              panel owns the bottom of the stage, like JUMP. */}
+          {!selectedId && (
+            <div style={{ position: 'absolute', right: 12, bottom: 176, zIndex: 10 }}>
+              <BackpackHud realm="jupiter-2" realmLabel="Jupiter 2" combatApplies docked />
+            </div>
           )}
         </>
       )}
@@ -1997,8 +2187,19 @@ export default function Jupiter2Scene({
               fits a phone frame without scrolling. */}
           <div style={{
             maxWidth: 440, width: '100%', maxHeight: 'calc(100% - 32px)', overflowY: 'auto',
-            background: '#160a04', border: '2px solid #e8a35c', borderRadius: 12, padding: 14,
+            background: '#160a04', border: '2px solid #e8a35c', borderRadius: 12, padding: 0,
           }}>
+            {/* Deck-trade art (Merlin, Nov 16 — the J2 layout): one
+                true-to-place illustrated graphic for this surface,
+                the Swamp Run wrap — art under a dark scrim, text
+                below it, no layout change. No repeats: the creature
+                panel and the page intro wear their own. */}
+            <div aria-hidden="true" style={{
+              height: 110, borderRadius: '12px 12px 0 0',
+              backgroundImage: 'linear-gradient(rgba(22,10,4,0.15), rgba(22,10,4,0.55)), url(/images/jupiter-2/jupiter2-trade-banner.webp)',
+              backgroundSize: 'cover', backgroundPosition: 'center 38%',
+            }} />
+            <div style={{ padding: '12px 14px 14px' }}>
             <h2 style={{ margin: '0 0 4px', color: '#e8a35c', letterSpacing: 2, fontSize: 18 }}>⬡ DECK TRADE</h2>
             <p style={{ margin: '0 0 10px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
               Storm {walletUi.storm} · Dragon {walletUi.dragon} · Demobat {walletUi.demobat} — total {totalOrbs(walletUi)} orbs.
@@ -2070,6 +2271,7 @@ export default function Jupiter2Scene({
               }}>
               CLOSE
             </button>
+            </div>
           </div>
         </div>
       )}

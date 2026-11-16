@@ -3,6 +3,8 @@
 // This module is fully unit-testable: createLevel() + step() are deterministic
 // given explicit dimensions and input.
 
+import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
+
 export const GIRDER_COUNT = 4;
 export const TOP_LEVEL = GIRDER_COUNT - 1;
 
@@ -247,6 +249,11 @@ function checkBarrelHits(state) {
     ) {
       state.status = 'dying';
       state.dieTimer = 1.2;
+      // The Land of the Dead (Merlin, Nov 16 ~04:17): the hero's death
+      // arrives there too — additive only, the die timer and the
+      // lives/respawn below are untouched. Guarded by
+      // `state.status === 'playing'`, so this fires once per death.
+      recordSoulArrival({ kind: 'user', origin: 'dk-hero', diedAt: Date.now() });
       state.events.push('died');
       return;
     }

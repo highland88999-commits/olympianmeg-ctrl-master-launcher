@@ -21,6 +21,7 @@ import { START_PLACE, formatLatLon } from "../../lib/earth4/geography.js";
  */
 
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
+import ControlsCore from "@/components/world/ControlsCore";
 
 const ACCENT = "#7ddf9a";
 
@@ -48,51 +49,6 @@ const IC = {
   pin: <><path d="M12 21s-7-5.5-7-11a7 7 0 0 1 14 0c0 5.5-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></>,
   eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></>,
 };
-
-function Joystick({ onMove }) {
-  const baseRef = useRef(null);
-  const knobRef = useRef(null);
-  const activeRef = useRef(null);
-
-  const setKnob = (dx, dy) => {
-    if (knobRef.current) knobRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
-  };
-
-  const handle = useCallback((e) => {
-    const base = baseRef.current;
-    if (!base || activeRef.current === null) return;
-    const r = base.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    let dx = e.clientX - cx, dy = e.clientY - cy;
-    const max = r.width / 2 - 14;
-    const len = Math.hypot(dx, dy);
-    if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
-    setKnob(dx, dy);
-    onMove(dx / max, -dy / max);
-  }, [onMove]);
-
-  return (
-    <div
-      ref={baseRef}
-      className="e4-stick"
-      onPointerDown={(e) => {
-        activeRef.current = e.pointerId;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        handle(e);
-      }}
-      onPointerMove={(e) => { if (activeRef.current === e.pointerId) handle(e); }}
-      onPointerUp={(e) => {
-        if (activeRef.current === e.pointerId) {
-          activeRef.current = null; setKnob(0, 0); onMove(0, 0);
-        }
-      }}
-      onPointerCancel={() => { activeRef.current = null; setKnob(0, 0); onMove(0, 0); }}
-      aria-label="Move"
-    >
-      <div ref={knobRef} className="e4-knob" />
-    </div>
-  );
-}
 
 export default function Earth4Page() {
   const canvasRef = useRef(null);
@@ -259,8 +215,6 @@ export default function Earth4Page() {
         .e4-fail { position: absolute; inset: 0; z-index: 6; display: flex; align-items: center; justify-content: center; padding: 24px; text-align: center; color: #c9b8a6; font-size: 0.9rem; }
         .e4-hud { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
         .e4-hud > * { pointer-events: auto; }
-        .e4-stick { position: absolute; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); width: 124px; height: 124px; border-radius: 50%; background: rgba(10,30,20,0.55); border: 1px solid rgba(125,223,154,0.45); touch-action: none; }
-        .e4-knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(125,223,154,0.85); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
         .e4-btns { position: absolute; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; align-items: flex-end; }
         .e4-btnrow { display: flex; gap: 10px; }
         .e4 button { min-height: 56px; min-width: 56px; padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(125,223,154,0.5); background: rgba(8,26,17,0.82); color: #eef7ee; font-size: 0.75rem; letter-spacing: 1.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
@@ -292,21 +246,27 @@ export default function Earth4Page() {
 
       <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <canvas ref={canvasRef} aria-label="Earth 4 3D world" />
-        {/* FULLSCREEN orb — the maximize button sits at the very top
-            right OF the game screen (Merlin, Nov 16 — standing law),
-            in both states: FULL to enter, EXIT to leave. */}
-        <OrbButton ariaLabel={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-          accent={ACCENT}
-          onClick={() => setFullscreen(!fullscreen)}
-          style={{ position: "absolute", right: 14, top: 14, zIndex: 9 }}>
-          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>⛶</span>
-          <OrbLabel>{fullscreen ? "EXIT" : "FULL"}</OrbLabel>
-        </OrbButton>
+        {/* FULLSCREEN orb lives in the core (top-right of the game
+            screen, the standing law) — see ControlsCore below. */}
         {!booted && !failed && <div className="e4-boot">Reading the real Earth…</div>}
         {failed && <div className="e4-fail">3D could not start on this device. Earth 4 needs WebGL.</div>}
 
         <div className="e4-hud">
-          <Joystick onMove={onMove} />
+          {/* Universal controls core (Merlin, Nov 16 ~03:49): the
+              fixed joystick bottom-left, the docked JUMP orb (walk
+              mode only), the 5 s hint pill, the fullscreen orb
+              top-right. The column parks above the FLY row
+              (columnBottom 80), so nothing overlaps. Earth 4 has no
+              backpack, no weapon and no merchant, so those core
+              slots stay off — nothing invented. FLY / ascend /
+              descend stay world-specific below. */}
+          <ControlsCore world="earth-4" accent={ACCENT}
+            onMove={onMove}
+            onJump={mode === "walk" ? () => worldRef.current && worldRef.current.jump() : undefined}
+            hint="Drag to look · stick to move · FLY to soar"
+            fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen(!fullscreen)}
+            columnBottom={80}
+          />
 
           <div className="e4-btns">
             {mode === "fly" && (
@@ -322,11 +282,6 @@ export default function Earth4Page() {
               </div>
             )}
             <div className="e4-btnrow">
-              {mode === "walk" && (
-                <OrbButton accent={ACCENT} ariaLabel="Jump" onPointerDown={() => worldRef.current && worldRef.current.jump()}>
-                  <Glyph>{IC.jump}</Glyph><OrbLabel>JUMP</OrbLabel>
-                </OrbButton>
-              )}
               <OrbButton accent={ACCENT} active={mode === "fly"} onClick={toggleFly} ariaLabel="Toggle fly">
                 <Glyph>{mode === "fly" ? IC.walk : IC.fly}</Glyph><OrbLabel>{mode === "fly" ? "WALK" : "FLY"}</OrbLabel>
               </OrbButton>
