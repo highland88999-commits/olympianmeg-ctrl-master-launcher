@@ -349,3 +349,45 @@ describe('moon phone fixes (Merlin, Nov 15, 2026 — from his /moon video)', () 
     assert.ok(moonSceneSrc.includes("key={poleTex ? 'pole-photo' : 'pole-plain'}"), 'the pole remounts the same way — its map had the same latent bug');
   });
 });
+
+// ── Moon round 2 (Merlin, Nov 15, 2026 — from his /moon video) ─────
+// Roam the whole Moon: the walker was never clamped in physics, but
+// the far side was bare grey — rocks + pebbles now cover the whole
+// sphere. And the camera: drag-to-look was 0.004 rad/px with no
+// damping, so a small drag whipped the view around; now 0.0015
+// rad/px eased toward a drag target, same for touch and mouse.
+
+describe('moon round 2 — roam the whole Moon, gentle camera', () => {
+  it('the drag-to-look is gentle: low sensitivity, damped, no old value left', () => {
+    assert.ok(!moonSceneSrc.includes('0.004'), 'the old twitchy 0.004 rad/px is gone from the scene');
+    assert.ok(moonSceneSrc.includes('MOON_LOOK_SENSITIVITY'), 'the rig uses the look sensitivity constant');
+    assert.ok(moonSceneSrc.includes('MOON_LOOK_PITCH_MAX'), 'the pitch clamp is the named constant');
+    assert.ok(moonSceneSrc.includes('dampLookAngle,'), 'the ease helper is imported from lib/moon');
+    assert.ok(moonSceneSrc.includes('yawTarget'), 'the drag sets a yaw target');
+    assert.ok(moonSceneSrc.includes('pitchTarget'), 'the drag sets a pitch target');
+    assert.ok(moonSceneSrc.includes('dampLookAngle(yaw.current, yawTarget.current'), 'the yaw eases toward its target each frame');
+    assert.ok(moonSceneSrc.includes('dampLookAngle(pitch.current, pitchTarget.current'), 'the pitch eases toward its target each frame');
+  });
+
+  it('rocks and pebbles cover the whole Moon in the scene', () => {
+    assert.ok(moonSceneSrc.includes('globalRockPlacements'), 'the scene imports the global rock scatter');
+    assert.ok(moonSceneSrc.includes('globalPebblePlacements'), 'the scene imports the global pebble scatter');
+    assert.ok(moonSceneSrc.includes('useMemo(globalRockPlacements, [])'), 'the global rocks are memoised like the pad rocks');
+    assert.ok(moonSceneSrc.includes('globalRocks.map'), 'the global rocks render');
+    assert.ok(moonSceneSrc.includes('globalPebbles.map'), 'the global pebbles render');
+    assert.ok(moonSceneSrc.includes("material={i % 2 ? rockMatB : rockMatA}"), 'the global scatter uses the shared rock material');
+  });
+
+  it('the walker is never reset or clamped — moonLandingState runs once, at spawn', () => {
+    const inits = moonSceneSrc.split('moonLandingState()').length - 1;
+    assert.equal(inits, 1, 'the walker state is created once (spawn) and never re-created mid-walk');
+    assert.ok(!moonSceneSrc.includes('walker.current = moonLandingState'), 'nothing re-spawns the walker');
+  });
+
+  it('the landing-site scatter still comes from lib/moon, unchanged', () => {
+    assert.ok(moonSceneSrc.includes('rockPlacements'), 'the pad rocks come from lib/moon');
+    assert.ok(moonSceneSrc.includes('pebblePlacements'), 'the pad pebbles come from lib/moon');
+    assert.ok(!moonSceneSrc.includes('function rockPlacements()'), 'the placement functions moved out of the scene');
+    assert.ok(!moonSceneSrc.includes('function pebblePlacements()'), 'the pebble function moved out of the scene too');
+  });
+});

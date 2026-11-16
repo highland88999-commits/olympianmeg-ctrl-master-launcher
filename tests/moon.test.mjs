@@ -30,6 +30,17 @@ import {
   moonLandingState,
   stepMoonWalker,
   moonEarthAngularDiameterDeg,
+  MOON_LOOK_SENSITIVITY,
+  MOON_LOOK_DAMPING_RATE,
+  MOON_LOOK_PITCH_MAX,
+  MOON_GLOBAL_ROCK_COUNT,
+  MOON_GLOBAL_PEBBLE_COUNT,
+  MOON_GLOBAL_EXCLUDE_RAD,
+  dampLookAngle,
+  rockPlacements,
+  pebblePlacements,
+  globalRockPlacements,
+  globalPebblePlacements,
 } from '../lib/moon.js';
 import {
   MOON_RADIUS,
@@ -220,4 +231,95 @@ test('tangent basis is orthonormal and the route constant is /moon', () => {
   assert.ok(approx(b.forward.z, -1, 1e-9), 'yaw 0 faces north (-Z)');
   const bEast = moonTangentBasis(feet, Math.PI / 2);
   assert.ok(approx(bEast.forward.x, 1, 1e-9), 'yaw π/2 faces east (+X)');
+});
+
+// --- 6. Roam the whole Moon (Merlin, Nov 15, 2026) ---
+
+test('the walker is not clamped — it can roam the whole Moon, far side included', () => {
+  // There is no position clamp, no turn-back wall and no reset in
+  // the step: 44 s of walking + jumping covers a full lap of path
+  // (circumference 87.965 m) and the walker reaches the far
+  // hemisphere — the far side is open ground, not a fence.
+  const basis = (s, yaw = 0) => moonTangentBasis(s.feet, yaw);
+  let s = moonLandingState();
+  const start = { ...s.feet };
+  let walked = 0;
+  let prev = { ...s.feet };
+  let maxAng = 0;
+  let minR = Infinity;
+  for (let i = 0; i < 2640; i++) {
+    const b = basis(s);
+    // Jump every 4 s too — roaming means jumping around the Moon, not just walking it.
+    s = stepMoonWalker(s, { fwd: 1, strafe: 0, jump: i % 240 === 0, forward: b.forward, right: b.right }, 1 / 60);
+    minR = Math.min(minR, vlen(s.feet));
+    walked += Math.acos(Math.min(1, vdot(norm(prev), norm(s.feet)))) * MOON_RADIUS;
+    prev = { ...s.feet };
+    maxAng = Math.max(maxAng, Math.acos(Math.min(1, vdot(norm(s.feet), norm(start)))));
+  }
+  assert.ok(walked >= 90, `44 s of roaming covers a full lap of path (got ${walked.toFixed(1)} m)`);
+  assert.ok(maxAng > Math.PI / 2, `the walker reaches the far hemisphere (max ${(maxAng * 180 / Math.PI).toFixed(1)}° from spawn)`);
+  assert.ok(minR >= MOON_RADIUS - 1e-9, 'never below the surface — no falling through');
+  assert.equal(s.grounded, true, 'the roam ends grounded');
+  function norm(p) {
+    const r = vlen(p) || 1;
+    return { x: p.x / r, y: p.y / r, z: p.z / r };
+  }
+});
+
+// --- 7. Gentle camera (Merlin, Nov 15, 2026) ---
+
+test('drag-to-look is gentle: low sensitivity, damped toward the target', () => {
+  // Was 0.004 rad/px with no damping — a small thumb drag whipped
+  // the view around. Now 0.0015 rad/px with an exponential ease.
+  assert.equal(MOON_LOOK_SENSITIVITY, 0.0015, 'look sensitivity is 0.0015 rad/px');
+  assert.ok(MOON_LOOK_SENSITIVITY < 0.004, 'gentler than the old 0.004');
+  assert.equal(MOON_LOOK_PITCH_MAX, 1.2, 'pitch clamp is still ±1.2 rad');
+  assert.equal(MOON_LOOK_DAMPING_RATE, 10, 'damping rate is 10/s');
+  // The ease: after 0.1 s at rate 10 the angle is 1−e^−1 ≈ 63% of
+  // the way to the target; after 0.5 s it is 99% there.
+  assert.ok(approx(dampLookAngle(0, 1, 0.1), 1 - Math.exp(-1), 1e-9), '0.1 s covers 63% of the gap');
+  assert.ok(approx(dampLookAngle(0, 1, 0.5), 1 - Math.exp(-5), 1e-9), '0.5 s covers 99% of the gap');
+  assert.equal(dampLookAngle(0.7, 0.7, 0.1), 0.7, 'no gap, no movement');
+  assert.equal(dampLookAngle(0.7, 1.5, 0), 0.7, 'dt 0 returns current exactly');
+  assert.ok(approx(dampLookAngle(-1, 1, 10), 1, 1e-9), 'a long dt lands on the target');
+});
+
+// --- 8. The whole Moon has ground features (Merlin, Nov 15, 2026) ---
+
+test('rocks and pebbles cover the whole Moon — the far side is not bare', () => {
+  // The landing-site scatter is untouched (same seeds, same counts,
+  // same ranges — the pad looks identical).
+  const rocks = rockPlacements();
+  assert.equal(rocks.length, 16, '16 rocks at the pad');
+  for (const rock of rocks) {
+    assert.ok(approx(vlen(rock.pos), MOON_RADIUS - rock.size * 0.3, 1e-9), 'pad rock sits on the surface');
+    const ang = Math.acos(Math.min(1, rock.pos.y / vlen(rock.pos)));
+    assert.ok(ang <= 0.57 + 1e-9, 'pad rocks stay within 0.57 rad of the pad');
+  }
+  const pebbles = pebblePlacements();
+  assert.equal(pebbles.length, 8, '8 pebbles at the pad');
+  // The global scatter fills the rest of the sphere: on the
+  // surface, deterministic, nothing near the pad (it has its own),
+  // and rocks in the far hemisphere — roaming has ground features
+  // everywhere, not just at the landing site.
+  const gRocks = globalRockPlacements();
+  assert.equal(gRocks.length, MOON_GLOBAL_ROCK_COUNT, `${MOON_GLOBAL_ROCK_COUNT} rocks across the Moon`);
+  assert.deepEqual(gRocks, globalRockPlacements(), 'the global scatter is deterministic');
+  let farRocks = 0;
+  for (const rock of gRocks) {
+    assert.ok(approx(vlen(rock.pos), MOON_RADIUS - rock.size * 0.3, 1e-9), 'global rock sits on the surface');
+    assert.ok(rock.size >= 0.3 && rock.size <= 1.2, 'global rock size in range');
+    const ang = Math.acos(Math.min(1, rock.pos.y / vlen(rock.pos)));
+    assert.ok(ang >= MOON_GLOBAL_EXCLUDE_RAD - 1e-9, 'no global rock lands on the pad');
+    if (ang > Math.PI / 2) farRocks += 1;
+  }
+  assert.ok(farRocks > 0, `rocks reach the far hemisphere (${farRocks} past 90° from the pad)`);
+  const gPebbles = globalPebblePlacements();
+  assert.equal(gPebbles.length, MOON_GLOBAL_PEBBLE_COUNT, `${MOON_GLOBAL_PEBBLE_COUNT} pebbles across the Moon`);
+  assert.deepEqual(gPebbles, globalPebblePlacements(), 'the global pebbles are deterministic');
+  for (const peb of gPebbles) {
+    assert.ok(approx(vlen(peb.pos), MOON_RADIUS - peb.size * 0.3, 1e-9), 'global pebble sits on the surface');
+    const ang = Math.acos(Math.min(1, peb.pos.y / vlen(peb.pos)));
+    assert.ok(ang >= MOON_GLOBAL_EXCLUDE_RAD - 1e-9, 'no global pebble lands on the pad');
+  }
 });

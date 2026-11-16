@@ -31,6 +31,13 @@ import {
   MOON_OLYMPUS_LABEL_SIZE,
   MOON_FLAG_CLOTH,
   MOON_DUST_FIELD,
+  MOON_LOOK_SENSITIVITY,
+  MOON_LOOK_PITCH_MAX,
+  dampLookAngle,
+  rockPlacements,
+  pebblePlacements,
+  globalRockPlacements,
+  globalPebblePlacements,
   moonLandingState,
   moonTangentBasis,
   stepMoonWalker,
@@ -250,65 +257,10 @@ function MoonCgiMotion({ dust, flagGeo }) {
   return null;
 }
 
-// Deterministic rocks near the landing site (seeded — same every load).
-function rockPlacements() {
-  let seed = 20261113;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  const up = { x: 0, y: 1, z: 0 };
-  const rocks = [];
-  for (let i = 0; i < 16; i++) {
-    const az = rnd() * Math.PI * 2;
-    const ang = 0.12 + rnd() * 0.45; // 0.12–0.57 rad from the pad (~1.7–8 m away)
-    // Direction = landing up rotated by ang around a horizontal axis at azimuth az.
-    const axis = { x: Math.cos(az), y: 0, z: Math.sin(az) };
-    // Rodrigues: dir = up·cos(ang) + (axis × up)·sin(ang) (axis ⊥ up).
-    const cross = { x: axis.y * up.z - axis.z * up.y, y: axis.z * up.x - axis.x * up.z, z: axis.x * up.y - axis.y * up.x };
-    const dir = {
-      x: up.x * Math.cos(ang) + cross.x * Math.sin(ang),
-      y: up.y * Math.cos(ang) + cross.y * Math.sin(ang),
-      z: up.z * Math.cos(ang) + cross.z * Math.sin(ang),
-    };
-    const size = 0.3 + rnd() * 0.9;
-    rocks.push({
-      pos: { x: dir.x * (MOON_RADIUS - size * 0.3), y: dir.y * (MOON_RADIUS - size * 0.3), z: dir.z * (MOON_RADIUS - size * 0.3) },
-      size,
-      rot: rnd() * Math.PI * 2,
-    });
-  }
-  return rocks;
-}
-
-// Small pebbles scattered on and around the pad (seeded — same every load).
-function pebblePlacements() {
-  let seed = 20261114;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  const up = { x: 0, y: 1, z: 0 };
-  const pebbles = [];
-  for (let i = 0; i < 8; i++) {
-    const az = rnd() * Math.PI * 2;
-    const ang = 0.04 + rnd() * 0.18; // 0.04–0.22 rad from the pad (~0.6–3 m away)
-    const axis = { x: Math.cos(az), y: 0, z: Math.sin(az) };
-    const cross = { x: axis.y * up.z - axis.z * up.y, y: axis.z * up.x - axis.x * up.z, z: axis.x * up.y - axis.y * up.x };
-    const dir = {
-      x: up.x * Math.cos(ang) + cross.x * Math.sin(ang),
-      y: up.y * Math.cos(ang) + cross.y * Math.sin(ang),
-      z: up.z * Math.cos(ang) + cross.z * Math.sin(ang),
-    };
-    const size = 0.05 + rnd() * 0.11;
-    pebbles.push({
-      pos: { x: dir.x * (MOON_RADIUS - size * 0.3), y: dir.y * (MOON_RADIUS - size * 0.3), z: dir.z * (MOON_RADIUS - size * 0.3) },
-      size,
-      rot: rnd() * Math.PI * 2,
-    });
-  }
-  return pebbles;
-}
+// Rock + pebble placements live in lib/moon.js now (Nov 15, 2026) —
+// pure + seeded, so node tests pin them; the scene imports them
+// and the landing site looks identical. The global scatter below
+// is new: rocks across the WHOLE sphere, not just the pad.
 
 const FLAG_OFFSET_M = 2.6; // flag stands 2.6 m north of the pad centre
 // The flag sits 2.6 m north of the pole, where the surface normal
@@ -322,6 +274,13 @@ function MoonRig({ moveRef, jumpRef, hudRef }) {
   // up (pitch 0.35 ≈ 20°) — Earth hangs 26° up ahead on arrival.
   const yaw = useRef(0);
   const pitch = useRef(0.35);
+  // Gentle look (Merlin, Nov 15, 2026): the drag sets a TARGET
+  // and the frame loop eases the camera toward it — the old code
+  // wrote the angle straight from the drag, so a small thumb
+  // drag whipped the view around. Targets start at the arrival
+  // angles, so the first frame is exactly the old arrival view.
+  const yawTarget = useRef(0);
+  const pitchTarget = useRef(0.35);
   const walker = useRef(moonLandingState());
   const keys = useRef(new Set());
   const dragging = useRef(null);
@@ -352,8 +311,16 @@ function MoonRig({ moveRef, jumpRef, hudRef }) {
     const onMove = (e) => {
       const d = dragging.current;
       if (!d) return;
-      yaw.current -= (e.clientX - d.x) * 0.004;
-      pitch.current = Math.max(-1.2, Math.min(1.2, pitch.current - (e.clientY - d.y) * 0.004));
+      // The drag moves the look TARGET, not the angle — the frame
+      // loop eases the camera toward it (see useFrame below).
+      // Sensitivity is MOON_LOOK_SENSITIVITY (0.0015 rad/px, down
+      // from the old value that whipped the view); one handler serves
+      // touch drag and desktop mouse drag alike.
+      yawTarget.current -= (e.clientX - d.x) * MOON_LOOK_SENSITIVITY;
+      pitchTarget.current = Math.max(
+        -MOON_LOOK_PITCH_MAX,
+        Math.min(MOON_LOOK_PITCH_MAX, pitchTarget.current - (e.clientY - d.y) * MOON_LOOK_SENSITIVITY)
+      );
       dragging.current = { x: e.clientX, y: e.clientY };
     };
     const onUp = () => {
@@ -391,11 +358,18 @@ function MoonRig({ moveRef, jumpRef, hudRef }) {
       jumpQueued.current = true;
       jumpRef.current = false;
     }
+    // Gentle look (Merlin, Nov 15, 2026): ease the camera toward
+    // the drag target instead of snapping to it — the view follows
+    // the thumb instead of whipping after it. The walker step's
+    // 0.05 s clamp bounds the ease step too.
+    const dtC = Math.min(delta, 0.05);
+    yaw.current = dampLookAngle(yaw.current, yawTarget.current, dtC);
+    pitch.current = dampLookAngle(pitch.current, pitchTarget.current, dtC);
     const { up, forward, right } = moonTangentBasis(walker.current.feet, yaw.current);
     walker.current = stepMoonWalker(
       walker.current,
       { fwd, strafe, jump: jumpQueued.current, forward, right },
-      Math.min(delta, 0.05)
+      dtC
     );
     jumpQueued.current = false;
     const { feet } = walker.current;
@@ -434,6 +408,12 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
   const poleTex = usePhotoTexture(GOLD_TEXTURE_URL, setupPoleGoldTexture);
   const rocks = useMemo(rockPlacements, []);
   const pebbles = useMemo(pebblePlacements, []);
+  // Rocks + pebbles across the WHOLE Moon (Merlin, Nov 15, 2026 —
+  // "jump around the entire moon"): the far side was bare grey, so
+  // roaming felt like nowhere. The pad keeps its own rocks above;
+  // these fill the rest of the sphere, seeded, same every load.
+  const globalRocks = useMemo(globalRockPlacements, []);
+  const globalPebbles = useMemo(globalPebblePlacements, []);
   const dust = useMemo(() => makeDustField(MOON_DUST_FIELD), []);
   const flagGeo = useMemo(
     () => new THREE.PlaneGeometry(MOON_FLAG_CLOTH.width, MOON_FLAG_CLOTH.height, MOON_FLAG_CLOTH.segmentsX, MOON_FLAG_CLOTH.segmentsY),
@@ -568,6 +548,21 @@ export default function MoonScene({ moveRef, jumpRef, hudRef, onEarthClick }) {
       {/* Pebbles on the ground around the landing site. */}
       {pebbles.map((pebble, i) => (
         <mesh key={`peb-${i}`} position={[pebble.pos.x, pebble.pos.y, pebble.pos.z]} rotation={[0, pebble.rot, 0]} material={i % 2 ? rockMatB : rockMatA}>
+          <dodecahedronGeometry args={[pebble.size, 0]} />
+        </mesh>
+      ))}
+
+      {/* Rocks + pebbles across the WHOLE Moon (Merlin, Nov 15,
+          2026): the walker can roam the full sphere — the ground
+          has features everywhere now, not just at the pad. Same
+          shared rock material as the landing-site scatter. */}
+      {globalRocks.map((rock, i) => (
+        <mesh key={`grock-${i}`} position={[rock.pos.x, rock.pos.y, rock.pos.z]} rotation={[0, rock.rot, 0]} material={i % 2 ? rockMatB : rockMatA}>
+          <dodecahedronGeometry args={[rock.size, 0]} />
+        </mesh>
+      ))}
+      {globalPebbles.map((pebble, i) => (
+        <mesh key={`gpeb-${i}`} position={[pebble.pos.x, pebble.pos.y, pebble.pos.z]} rotation={[0, pebble.rot, 0]} material={i % 2 ? rockMatB : rockMatA}>
           <dodecahedronGeometry args={[pebble.size, 0]} />
         </mesh>
       ))}
