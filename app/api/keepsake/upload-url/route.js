@@ -15,7 +15,7 @@ import { getUserFromRequest } from '@/lib/economy/auth';
 import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
 
-export const BUCKET = 'keepsake-globes';
+const BUCKET = 'keepsake-globes';
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const MAX_BYTES = 12 * 1024 * 1024;
 const EXT_BY_TYPE = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };

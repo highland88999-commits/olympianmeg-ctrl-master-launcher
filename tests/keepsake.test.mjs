@@ -67,11 +67,12 @@ describe('keepsake registry (dual-registry rule)', () => {
     assert.equal(seat.section, 'SANCTUM');
   });
 
-  it('is one more portal awaiting its video (147 wired of 214)', () => {
+  it('has its portal video wired (153 wired of 214)', () => {
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
     const waiting = roster.filter((p) => !PORTAL_VIDEO_KEYS.includes(p.key));
-    assert.equal(waiting.length, 67);
-    assert.ok(waiting.some((p) => p.key === 'keepsake'), 'keepsake awaits its portal video');
+    assert.equal(waiting.length, 61);
+    assert.ok(PORTAL_VIDEO_KEYS.includes('keepsake'), 'keepsake video is wired');
+    assert.ok(!waiting.some((p) => p.key === 'keepsake'), 'keepsake no longer waits');
   });
 });
 
