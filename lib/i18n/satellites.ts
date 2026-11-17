@@ -42,6 +42,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "hive", route: "/hive", pos: "DIONYSUS", section: "GAMES", constellation: "ZEUS" },
   { key: "zeus-v-hades", route: "/zeus-v-hades", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "artemis", route: "/artemis", pos: "ARTEMIS", section: "SANCTUM", constellation: "ARTEMIS" },
+  { key: "keepsake", route: "/keepsake", pos: "ARTEMIS", section: "SANCTUM", constellation: "ARTEMIS" },
   { key: "pearl", route: "/pearl", pos: "APOLLO", section: "GAMES", constellation: "ZEUS" },
   { key: "tools", route: "/tools", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },
   { key: "forge", route: "/forge", pos: "HEPHAESTUS", section: "TOOLS", constellation: "ARES" },

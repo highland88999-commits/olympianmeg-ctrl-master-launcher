@@ -5,7 +5,7 @@
 // ONE portal menu (the 2D Portal Room is gone; this sheet carries
 // its top video, its ALL + section categories, and its extras):
 // - the shared roster derivation (lib/portal-roster.js): the real
-//   registry yields exactly the merged menu's 213, deduped by route,
+//   registry yields exactly the merged menu's 214, deduped by route,
 //   title/subtitle fallbacks honored
 // - wall paging (42 per wall; GAMES' 53 -> 2 pages), section hues,
 //   the shared section/search filtering and grouping
@@ -51,8 +51,8 @@ const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 213 portals from the real registry — the merged menu count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card); Portal Room seat removed from the registry: 214→213, Nov 16, 2026 (portal menu merge — the roster stays 213 because the room was already skipped by the builder))', () => {
-    assert.equal(enRoster().length, 213);
+  it('yields exactly 214 portals from the real registry — the merged menu count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card); Portal Room seat removed from the registry: 214→213, Nov 16, 2026 (portal menu merge — the roster stays 213 because the room was already skipped by the builder; Keepsake seat: 213→214, Nov 17, 2026))', () => {
+    assert.equal(enRoster().length, 214);
   });
 
   it('skips the Portal Room itself', () => {
@@ -146,7 +146,7 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 213); // Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026); Portal Room seat removed from the registry (Nov 16, 2026, portal menu merge) — roster stays 213, the room was already skipped
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 214); // Keepsake seat: 213→214, Nov 17, 2026; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026); Portal Room seat removed from the registry (Nov 16, 2026, portal menu merge) — roster stays 213, the room was already skipped
     assert.deepEqual(groupBySection([]), []);
   });
 });
@@ -304,7 +304,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('roster portals without a video on disk resolve as still waiting', () => {
     const waiting = enRoster().filter((p) => !onDisk.includes(p.key));
-    assert.equal(waiting.length, 66, 'sixty-six roster portals still await their video (batch 14: 147 wired of 213)');
+    assert.equal(waiting.length, 67, 'sixty-seven roster portals still await their video (batch 14: 147 wired of 214; Keepsake seat added Nov 17, 2026)');
     for (const p of waiting.slice(0, 12)) {
       assert.equal(portalHasVideo(p.key), false, `${p.key} has no video yet`);
     }

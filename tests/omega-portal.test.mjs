@@ -11,7 +11,7 @@
 //   god menu, and from all 34 locales — no satellite points at a room
 //   that no longer exists
 // - roster: the merged menu's program list (registry deduped by route)
-//   is 212 portals
+//   is 214 portals
 // - wiring: the gate is kept but unmounted in hub space (retired
 //   2026-10-31); the live entry is the Earth chooser's Omega
 //   street-light, which rides the tube to OMEGA_ROUTE; the
@@ -132,7 +132,7 @@ describe('registration — the room is gone from every registry', () => {
     }
   });
 
-  it('the merged roster (deduped by route) is 213 portals', () => {
+  it('the merged roster (deduped by route) is 214 portals', () => {
     const seen = new Set();
     let count = 0;
     for (const e of entries) {
@@ -140,7 +140,7 @@ describe('registration — the room is gone from every registry', () => {
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 213);
+    assert.equal(count, 214); // Keepsake seat: 213→214, Nov 17, 2026
   });
 
   it('the old /portal-room route redirects to the hall deep link', () => {

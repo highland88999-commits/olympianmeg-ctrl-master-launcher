@@ -497,7 +497,7 @@ describe('portal seating', () => {
     assert.equal(seat.pos, 'ARES');
     assert.equal(seat.section, 'GAMES');
     assert.equal(SATELLITES.filter((s) => s.route === '/dodgeball').length, 1);
-    assert.equal(SATELLITES.length, 215); // registry has grown since the 179-seat count; dodgeball's own seat is what matters here; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026); Earth 4 seat: 210→211 (Nov 14, 2026); Moon + Sun Base seats: 211→213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 213→215 (Nov 15, 2026); Ghost Rider seat: 215→216 (Nov 15, 2026); Weapons Forge seat removed: 216→215 (Nov 15, 2026); Land of the Dead seat added: 215→216 (Nov 16, 2026); ARES seat removed: 216→215 (Nov 16, 2026)
+    assert.equal(SATELLITES.length, 214); // registry has grown since the 179-seat count; dodgeball's own seat is what matters here; Omega 500 seat: 195→196; Hades seats: 196→198; nether-realms homes: 198→210 (Nov 12, 2026); Earth 4 seat: 210→211 (Nov 14, 2026); Moon + Sun Base seats: 211→213 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 213→215 (Nov 15, 2026); Ghost Rider seat: 215→216 (Nov 15, 2026); Weapons Forge seat removed: 216→215 (Nov 15, 2026); Land of the Dead seat added: 215→216 (Nov 16, 2026); ARES seat removed: 216→215 (Nov 16, 2026); Land of the Dead seat removed: 215→214 (Nov 16, 2026, floor drop only); Portal Room seat removed: 214→213 (Nov 16, 2026, portal menu merge); Keepsake seat: 213→214, Nov 17, 2026
   });
 
   it('the ARES god menu claims dodgeball and the en locale titles it', async () => {
