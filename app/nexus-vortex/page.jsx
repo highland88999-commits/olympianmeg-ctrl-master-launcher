@@ -80,6 +80,16 @@ export default function NexusVortexPage() {
 
   const beginFlight = useCallback((dest) => {
     if (!dest) return;
+    // iOS Safari "Search" pill (Merlin, Nov 16): the pick-phase search
+    // field unmounts when the flight starts, and Safari leaves its
+    // floating "Search" pill on screen when a focused search field is
+    // removed while focused — the same mechanism as the Erebus jump
+    // sheet (app/erebus/page.jsx) and the Earth 1 menu (app/page.jsx).
+    // Blur first so the pill never strands. Both flight paths
+    // (a destination tap, Surprise me) funnel through here.
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setDestination(dest);
     setQuery('');
     skinsRef.current = pickVortexWraps(skinsRef.current);

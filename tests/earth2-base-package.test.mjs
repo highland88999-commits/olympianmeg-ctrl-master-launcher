@@ -52,7 +52,7 @@ import {
   loadFailureList,
   loadFailureCount,
 } from '../lib/earth2/load-failures.js';
-import { publishColliders, checkCollision } from '../lib/earth/collision.js';
+import { DISPLAY_M_PER_DEGREE, publishColliders, checkCollision } from '../lib/earth/collision.js';
 
 const PUBLIC_BUCKET_PREFIX = 'https://pjslctbyigtapvblbjao.supabase.co/storage/v1/object/public/earth-models/';
 
@@ -104,13 +104,19 @@ describe('PART 1 — trees and rocks walk-through (Earth 2 only)', () => {
   });
 
   it('Earth 1 collision is untouched: trees and rocks still block there', () => {
+    // Fixture spacing is DISPLAY metres now (lib/earth/collision.js
+    // measures in display metres since the 2026-11-16 fix): the
+    // rock sits 10 display m north of the tree, so the two are
+    // distinct spots — the old 0.0001° spacing was 13.7 real m
+    // apart but only 0.007 display m, i.e. the same spot.
+    const rockLat = 53.5 + 10 / DISPLAY_M_PER_DEGREE;
     publishColliders([
       { lat: 53.5, lon: -113.5, radiusM: 2, id: 'test-tree-1', category: 'vegetation', name: 'Test tree' },
-      { lat: 53.5001, lon: -113.5001, radiusM: 2, id: 'test-rock-1', category: 'terrain', name: 'Test rock' },
+      { lat: rockLat, lon: -113.5, radiusM: 2, id: 'test-rock-1', category: 'terrain', name: 'Test rock' },
     ]);
     const hitTree = checkCollision(53.5, -113.5);
     assert.ok(hitTree && hitTree.id === 'test-tree-1');
-    const hitRock = checkCollision(53.5001, -113.5001);
+    const hitRock = checkCollision(rockLat, -113.5);
     assert.ok(hitRock && hitRock.id === 'test-rock-1');
     assert.equal(checkCollision(53.6, -113.6), null);
   });

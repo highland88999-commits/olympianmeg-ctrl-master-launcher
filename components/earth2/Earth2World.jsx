@@ -610,6 +610,85 @@ function E2Panel({ layout, onMove, onToggle, panelClass = '', headerClass = '', 
   );
 }
 
+// ── E2 SPEEDOMETER (pure, tested) — BEGIN ──
+// SWEEP ITEM 7 (Merlin, 2026-11-16): the HUD needle used to read
+// the commanded speed straight out of the drive step
+// (|stepped.speed|, every 10th frame, × 3.6) — instantaneous,
+// unclamped, unsmoothed, so it jumped with every throttle tap and
+// could read past the machine's top speed. It now reads the way
+// Earth 1 does (lib/earth/kart.js stepDisplaySpeed, read as
+// reference only — NOT imported: Earth 1's module works in lat/lon
+// and does not fit here): ground speed from the REAL displacement
+// between polls, clamped to the machine's top speed, smoothed.
+// Earth 2 drives on plane metres (x/z), so the displacement is
+// plain hypot — no haversine. The teleport guard matters here: a
+// parcel-scale flip, a garage clamp, or a respawn-at-home jump
+// moves x/z a long way in one poll, and that must HOLD the needle,
+// never read as top speed.
+const E2_SPEEDO_SMOOTH_TAU_MS = 400;
+const E2_SPEEDO_MAX_SLEW_KMH_PER_S = 500;
+const E2_SPEEDO_SNAP_KMH = 1;
+const E2_SPEEDO_TELEPORT_TOLERANCE = 1.02;
+
+/** Ground speed from real displacement: plane metres between two
+ *  fixes over dtMs, in km/h. 0 when dtMs is not positive or any
+ *  coordinate is not finite — a missing fix is no movement, never
+ *  a spike. */
+function e2DisplacementSpeedKmh(prevX, prevZ, x, z, dtMs) {
+  if (!(dtMs > 0)) return 0;
+  if (![prevX, prevZ, x, z].every((n) => Number.isFinite(n))) return 0;
+  return (Math.hypot(x - prevX, z - prevZ) / (dtMs / 1000)) * 3.6;
+}
+
+/** One smoothing step toward a clamped target: exponential
+ *  approach (tau E2_SPEEDO_SMOOTH_TAU_MS) plus a slew cap
+ *  (E2_SPEEDO_MAX_SLEW_KMH_PER_S), so the needle sweeps instead
+ *  of jumping. rawKmh is clamped to [0, topKmh] first — the
+ *  needle never exceeds the craft's top speed; a non-positive
+ *  or non-finite topKmh means no cap. A non-positive dtMs holds
+ *  the previous reading; within E2_SPEEDO_SNAP_KMH it snaps. */
+function e2SmoothSpeedKmh(prevKmh, rawKmh, dtMs, topKmh, opts = {}) {
+  const tauMs = opts.tauMs ?? E2_SPEEDO_SMOOTH_TAU_MS;
+  const maxSlew = opts.maxSlewKmhPerS ?? E2_SPEEDO_MAX_SLEW_KMH_PER_S;
+  const snapKmh = opts.snapKmh ?? E2_SPEEDO_SNAP_KMH;
+  const cap = Number.isFinite(topKmh) && topKmh > 0 ? topKmh : Infinity;
+  const prev = Math.max(0, Math.min(cap, Number.isFinite(prevKmh) ? prevKmh : 0));
+  const raw = Math.max(0, Math.min(cap, Number.isFinite(rawKmh) ? rawKmh : 0));
+  if (!(dtMs > 0)) return prev;
+  if (Math.abs(raw - prev) < snapKmh) return raw;
+  const alpha = 1 - Math.exp(-dtMs / tauMs);
+  let next = prev + (raw - prev) * alpha;
+  const maxStep = maxSlew * (dtMs / 1000);
+  next = prev + Math.max(-maxStep, Math.min(maxStep, next - prev));
+  return next;
+}
+
+/** One poll's display-speed state. prev is { kmh, x, z } (or null
+ *  before the first fix); measurement is { x, z }. Returns the new
+ *  state: the needle from the real displacement since the last
+ *  fix, clamped + smoothed. A step faster than the top
+ *  (× E2_SPEEDO_TELEPORT_TOLERANCE) is a teleport, a parcel-scale
+ *  flip, or a respawn jump — the baseline moves to the new fix
+ *  but the needle HOLDS, so a jump never reads as top speed for a
+ *  poll. A bad measurement holds the previous state; the first
+ *  fix baselines the needle at 0 (spawn speed is 0). */
+function e2StepDisplaySpeed(prev, measurement, dtMs, topKmh) {
+  const x = measurement ? measurement.x : NaN;
+  const z = measurement ? measurement.z : NaN;
+  if (!Number.isFinite(x) || !Number.isFinite(z)) {
+    return prev || { kmh: 0, x: 0, z: 0 };
+  }
+  if (!prev || !Number.isFinite(prev.x) || !Number.isFinite(prev.z)) {
+    return { kmh: 0, x, z };
+  }
+  const raw = e2DisplacementSpeedKmh(prev.x, prev.z, x, z, dtMs);
+  if (topKmh > 0 && raw > topKmh * E2_SPEEDO_TELEPORT_TOLERANCE) {
+    return { kmh: Number.isFinite(prev.kmh) ? prev.kmh : 0, x, z };
+  }
+  return { kmh: e2SmoothSpeedKmh(prev.kmh, raw, dtMs, topKmh), x, z };
+}
+// ── E2 SPEEDOMETER (pure, tested) — END ──
+
 export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLoaded = false, bloodSacs, onBloodSac, onOpenExchange, onFossilExchange, greetSignal, onParcelChange, onSanctuaryEntry, onExit, buildUser, ownersByParcel, claims, builds, onBuildChange, buildRequest, gunplayUnlocked = true, vehiclePlacement = null, onVehiclePlaced = null } = {}) {
   const mountRef = useRef(null);
   const labelsRef = useRef(null);
@@ -1173,6 +1252,12 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
   const [nearVehicle, setNearVehicle] = useState(null);
   const [driving, setDriving] = useState(null);
   const [driveInfo, setDriveInfo] = useState({ speed: 0, alt: 0, integrity: 100 });
+  // Speedometer state (sweep item 7): the last poll's fix
+  // { kmh, x, z, atS } — the needle is stepped from real
+  // displacement, never from the commanded speed. Reset on board
+  // / step-out so a fresh drive baselines at 0 instead of
+  // inheriting the last machine's needle.
+  const speedoRef = useRef(null);
   // Drive camera mode for the HUD toggle (mirrors driveCamRef).
   const [driveCam, setDriveCam] = useState('third');
   // Flight orbs (Merlin, 2026-11-02): the Climb/Settle controls are
@@ -3938,6 +4023,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         if (!cancelled) {
           setDriving(id);
           setDriveInfo({ speed: 0, alt: st.alt || 0, integrity: st.integrity ?? 100 });
+          speedoRef.current = null; // fresh drive baselines the needle at 0
           setNearVehicle(null);
         }
         nearVehicleRef.current = null;
@@ -4016,6 +4102,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           }
         }
         drivingRef.current = null;
+        speedoRef.current = null;
         saveVehicleStates(vehicleStatesRef.current);
         if (!cancelled) setDriving(null);
         noticeRef.current(spec && spec.water
@@ -4340,6 +4427,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         walker.z = settled.z;
         walker.yaw = (st.heading || 0) + Math.PI;
         drivingRef.current = null;
+        speedoRef.current = null;
         if (!cancelled) setDriving(null);
         saveVehicleStates(vehicleStatesRef.current);
         const kind = st.lastDamage && st.lastDamage.kind;
@@ -8390,7 +8478,29 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
             camera.rotation.set(walker.pitch, walker.yaw, 0);
           }
           if (frameNo % 10 === 0 && !cancelled) {
-            setDriveInfo({ speed: Math.abs(stepped.speed || 0), alt: stepped.alt || 0, integrity: stepped.integrity ?? 100 });
+            // SPEEDOMETER (sweep item 7): ground speed from the real
+            // displacement since the last poll — never the commanded
+            // |stepped.speed|, which jumps with every throttle tap
+            // and can read past the top. dtMs is the real time
+            // between polls (clock.elapsedTime, seconds); the
+            // teleport guard inside holds the needle across a
+            // parcel-scale flip / garage clamp / respawn jump.
+            // driveInfo.speed stays m/s — the HUD multiplies by 3.6.
+            const topKmh = Number.isFinite(dSpec.maxSpeed) && dSpec.maxSpeed > 0
+              ? dSpec.maxSpeed * 3.6
+              : Infinity;
+            const prevSpeedo = speedoRef.current;
+            const dtMs = prevSpeedo && Number.isFinite(prevSpeedo.atS)
+              ? Math.max(0, (t - prevSpeedo.atS) * 1000)
+              : 0;
+            const nextSpeedo = e2StepDisplaySpeed(
+              prevSpeedo,
+              { x: stepped.x, z: stepped.z },
+              dtMs,
+              topKmh,
+            );
+            speedoRef.current = { ...nextSpeedo, atS: t };
+            setDriveInfo({ speed: nextSpeedo.kmh / 3.6, alt: stepped.alt || 0, integrity: stepped.integrity ?? 100 });
           }
           if (frameNo % 120 === 0) saveVehicleStates(vehicleStatesRef.current);
           drivePhaseB(dState, stepped, dSpec, drivingId, t);

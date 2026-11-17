@@ -878,3 +878,103 @@ describe('parcel vehicles (Merlin, 2026-10-31)', () => {
     assert.ok(scene.includes('Tap your parcel to park'), 'the placement banner exists');
   });
 });
+
+describe('speedometer — displacement-based, clamped, smoothed (sweep item 7)', () => {
+  const scene = read('components/earth2/Earth2World.jsx');
+  // The helpers are pure module-level functions in the scene file
+  // (Earth 2 drives on plane metres, so they live there, not in
+  // Earth 1's lat/lon module). Extract the marked block and run
+  // it — no renderer, no imports.
+  const begin = '// ── E2 SPEEDOMETER (pure, tested) — BEGIN ──';
+  const end = '// ── E2 SPEEDOMETER (pure, tested) — END ──';
+  const block = scene.slice(scene.indexOf(begin) + begin.length, scene.indexOf(end));
+  const {
+    e2DisplacementSpeedKmh,
+    e2SmoothSpeedKmh,
+    e2StepDisplaySpeed,
+    E2_SPEEDO_SMOOTH_TAU_MS,
+    E2_SPEEDO_MAX_SLEW_KMH_PER_S,
+    E2_SPEEDO_SNAP_KMH,
+    E2_SPEEDO_TELEPORT_TOLERANCE,
+  } = new Function(`${block}\nreturn { e2DisplacementSpeedKmh, e2SmoothSpeedKmh, e2StepDisplaySpeed, E2_SPEEDO_SMOOTH_TAU_MS, E2_SPEEDO_MAX_SLEW_KMH_PER_S, E2_SPEEDO_SNAP_KMH, E2_SPEEDO_TELEPORT_TOLERANCE };`)();
+
+  const near = (actual, expected, tol = 0.5) => assert.ok(
+    Math.abs(actual - expected) <= tol, `expected ${actual} ≈ ${expected} (±${tol})`,
+  );
+
+  it('pins the tuning numbers (same as Earth 1)', () => {
+    assert.equal(E2_SPEEDO_SMOOTH_TAU_MS, 400);
+    assert.equal(E2_SPEEDO_MAX_SLEW_KMH_PER_S, 500);
+    assert.equal(E2_SPEEDO_SNAP_KMH, 1);
+    assert.equal(E2_SPEEDO_TELEPORT_TOLERANCE, 1.02);
+  });
+
+  it('the HUD no longer reads the commanded speed', () => {
+    assert.ok(!scene.includes('setDriveInfo({ speed: Math.abs(stepped.speed'),
+      'the raw |stepped.speed| feed is gone');
+    assert.ok(scene.includes('e2StepDisplaySpeed('), 'the poll steps the display speed');
+    assert.ok(scene.includes('speedoRef'), 'the poll keeps its fix in a ref');
+  });
+
+  it('displacement speed: 10 m in 1 s is 36 km/h', () => {
+    near(e2DisplacementSpeedKmh(0, 0, 10, 0, 1000), 36, 0.01);
+    near(e2DisplacementSpeedKmh(0, 0, 0, -10, 1000), 36, 0.01);
+    assert.equal(e2DisplacementSpeedKmh(0, 0, 10, 0, 0), 0);
+    assert.equal(e2DisplacementSpeedKmh(0, 0, NaN, 0, 1000), 0);
+    assert.equal(e2DisplacementSpeedKmh(10, 20, 10, 20, 250), 0);
+  });
+
+  it('smoothing clamps to the top and caps the slew', () => {
+    // VTOL top is 34 m/s = 122.4 km/h; a 9999 raw reading clamps
+    // to it, then tau-400 ms smoothing shapes the step.
+    near(e2SmoothSpeedKmh(0, 9999, 250, 122.4), 122.4 * (1 - Math.exp(-250 / 400)), 0.01);
+    near(e2SmoothSpeedKmh(0, 9999, 250, 1601), 125, 0.01);
+    near(e2SmoothSpeedKmh(375, 29, 250, 1601), 250, 0.01);
+  });
+
+  it('needle snaps inside 1 km/h, holds with no elapsed time, floors at 0', () => {
+    assert.equal(e2SmoothSpeedKmh(100, 100.5, 250, 1601), 100.5);
+    assert.equal(e2SmoothSpeedKmh(375, 0, 0, 1601), 375);
+    assert.equal(e2SmoothSpeedKmh(0, -50, 250, 1601), 0);
+  });
+
+  it('one poll: first fix baselines at 0, driving reads displacement', () => {
+    const first = e2StepDisplaySpeed(null, { x: 0, z: 0 }, 250, 122.4);
+    assert.deepEqual(first, { kmh: 0, x: 0, z: 0 });
+    // 10 m in 1 s = 36 km/h raw; tau-400 ms from 0 reaches ~33.0.
+    const driving = e2StepDisplaySpeed({ kmh: 0, x: 0, z: 0 }, { x: 10, z: 0 }, 1000, 122.4);
+    near(driving.kmh, 36 * (1 - Math.exp(-1000 / 400)), 0.5);
+    assert.equal(driving.x, 10);
+  });
+
+  it('a teleport / parcel-scale jump holds the needle and moves the baseline', () => {
+    const jumped = e2StepDisplaySpeed({ kmh: 100, x: 0, z: 0 }, { x: 400, z: 0 }, 250, 122.4);
+    assert.equal(jumped.kmh, 100, 'a 5760 km/h step never reads as top speed');
+    assert.equal(jumped.x, 400, 'the baseline still moves to the new fix');
+  });
+
+  it('a bad measurement holds the previous state', () => {
+    const bad = e2StepDisplaySpeed({ kmh: 50, x: 0, z: 0 }, { x: NaN, z: 0 }, 250, 122.4);
+    assert.deepEqual(bad, { kmh: 50, x: 0, z: 0 });
+  });
+
+  it('a stopped machine eases back to 0 instead of dropping', () => {
+    const stuck = e2StepDisplaySpeed({ kmh: 50, x: 10, z: 20 }, { x: 10, z: 20 }, 250, 122.4);
+    near(stuck.kmh, 50 * Math.exp(-250 / 400), 0.5);
+    assert.ok(stuck.kmh > 0 && stuck.kmh < 50, 'decays, never jumps');
+  });
+
+  it('the needle never exceeds the machine top over many polls', () => {
+    // 8 m per 250 ms poll = 32 m/s = 115.2 km/h raw — a sustained
+    // near-top run in the VTOL (top 34 m/s). A faster step would
+    // trip the teleport guard instead, which is the guard working.
+    let prev = null;
+    let v = 0;
+    for (let i = 0; i < 20; i++) {
+      prev = e2StepDisplaySpeed(prev, { x: i * 8, z: 0 }, 250, 122.4);
+      v = prev.kmh;
+    }
+    assert.ok(v <= 122.4, `needle ${v} stays at or under the VTOL top 122.4`);
+    assert.ok(v > 100, `needle ${v} still climbs toward a sustained top-speed run`);
+  });
+});

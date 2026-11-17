@@ -27,6 +27,9 @@ import {
   PAD_GRID_LAT_MAX,
   PAD_NOTICE_TEXT,
   haversineM,
+  haversineDisplayM,
+  DISPLAY_M_PER_DEGREE,
+  HAVERSINE_M_PER_DISPLAY_M,
   padIdForGrid,
   buildPads,
   allBoostPads,
@@ -77,36 +80,51 @@ function eq(name, a, b) {
   const all = allBoostPads();
   eq('15 × 10 grid = 150 pads', all.length, 150);
   eq('allBoostPads is memoized', allBoostPads(), all);
-  // The grid is sparse (bands 9° apart, slots 36° apart), so a
-  // pad's own neighbourhood holds just itself at render range.
+  // The grid is sparse in degrees (bands 9° apart, slots 36°
+  // apart) but the render range is 1500 DISPLAY metres — a band
+  // is 540 display m away, so a pad's own neighbourhood holds
+  // its neighbours too. (The old real-metre read of the same
+  // 1500 was 0.81 display m, so nothing ever rendered.)
   const near = padsNear(all[0].lat, all[0].lon, PAD_RENDER_M);
   t('a pad renders near itself', near.length >= 1);
-  // Above the top band (75° + 3° jitter) there is nothing.
-  const far = padsNear(85, 0, PAD_RENDER_M);
+  t('render range reaches the next band (540 display m away)', near.length > 1);
+  // Above the top band (75° + 3° jitter) there is nothing within
+  // 100 display m — the nearest pad sits 7° (420 display m) off.
+  const far = padsNear(85, 0, 100);
   eq('no pads beyond the grid', far.length, 0);
 }
 
-// --- haversine sanity ---
+// --- haversine sanity: real metres stay real, display metres are display ---
 {
   eq('haversine of a point to itself is 0', haversineM(10, 20, 10, 20), 0);
   const deg = haversineM(0, 0, 1, 0);
   t('one degree of latitude is ~111 km', deg > 110000 && deg < 112000);
+  // Display metres: the unit the car drives in (the kart.js split).
+  eq('haversineDisplayM of a point to itself is 0', haversineDisplayM(10, 20, 10, 20), 0);
+  const dispDeg = haversineDisplayM(0, 0, 1, 0);
+  t('one degree of latitude is ~60 display m', dispDeg > 59 && dispDeg < 61);
+  t('DISPLAY_M_PER_DEGREE is ~60', DISPLAY_M_PER_DEGREE > 59 && DISPLAY_M_PER_DEGREE < 61);
+  t('display/real split is ~1855x', HAVERSINE_M_PER_DISPLAY_M > 1850 && HAVERSINE_M_PER_DISPLAY_M < 1860);
 }
 
 // --- Segment sweep: the fast driver cannot jump over a pad ---
+// (Display metres now: 1° = 60 display m, so 6 display m = 0.1°,
+// 10 display m = 0.1667°, 20 display m ≈ 0.35° of latitude.)
 {
   const pad = { id: 'fx-test:pad-0', lat: 53.95, lon: -113.11 };
-  // 9 m steps straight through the pad (boost speed, one frame).
-  t('9 m frame steps through the pad still trigger',
-    segmentHitsPad(53.95, -113.1102, 53.95, -113.1098, pad));
-  t('a parallel pass 20 m away misses',
-    !segmentHitsPad(53.9502, -113.1102, 53.9502, -113.1098, pad));
+  // 20 m step straight through the pad, landing 10 m either
+  // side — outside the 6 m trigger at both ends, so only the
+  // sweep can catch it (a point check would miss both ends).
+  t('20 m frame step through the pad still triggers',
+    segmentHitsPad(53.95 - 0.1667, -113.11, 53.95 + 0.1667, -113.11, pad));
+  t('a parallel pass 21 m away misses',
+    !segmentHitsPad(53.95 + 0.35, -113.11 - 0.075, 53.95 + 0.35, -113.11 + 0.075, pad));
   t('standing on the pad (zero-length segment) hits',
     segmentHitsPad(53.95, -113.11, 53.95, -113.11, pad));
-  t('standing 20 m away misses',
-    !segmentHitsPad(53.9502, -113.11, 53.9502, -113.11, pad));
+  t('standing 21 m away misses',
+    !segmentHitsPad(53.95 + 0.35, -113.11, 53.95 + 0.35, -113.11, pad));
   t('a pass just inside the 6 m trigger radius hits',
-    segmentHitsPad(53.95005, -113.1102, 53.95005, -113.1098, pad));
+    segmentHitsPad(53.95 + 0.08, -113.11 - 0.075, 53.95 + 0.08, -113.11 + 0.075, pad));
 }
 
 // --- Trigger / cooldown / boost / notice ---
@@ -165,12 +183,35 @@ function eq(name, a, b) {
   const jump = checkBoostPads(state2, { lat: other.lat, lon: other.lon, driving: true, nowMs: 600100, pads });
   // The jump lands exactly on the far pad, so it triggers for
   // being ON the pad — not for the sweep. Prove the sweep is dead
-  // by jumping to a point 20 m off the far pad instead.
+  // by jumping to a point 21 display m off the far pad instead.
   const state3 = createBoostPadState();
   checkBoostPads(state3, { lat: 53.95, lon: -113.11, driving: true, nowMs: 700000, pads });
-  const offPad = checkBoostPads(state3, { lat: other.lat + 0.0002, lon: other.lon, driving: true, nowMs: 700100, pads });
-  eq('teleport landing 20 m off a pad → no trigger', offPad.triggered, null);
+  const offPad = checkBoostPads(state3, { lat: other.lat + 0.35, lon: other.lon, driving: true, nowMs: 700100, pads });
+  eq('teleport landing 21 display m off a pad → no trigger', offPad.triggered, null);
   void jump;
+}
+
+// --- Drive-through: the sweep, not the point, triggers ---
+// (The old real-metre code tripped the teleport guard every frame,
+// so the sweep degenerated to a point check against a 0.0032
+// display m radius — a driver passing either side of a pad never
+// triggered. In display metres the frame path sweeps.)
+{
+  const state = createBoostPadState();
+  const pads = buildPads();
+  const pad = pads[2];
+  const now = 200000;
+  // 20 display m step (0.3333°) straight through the pad, landing
+  // 10 display m either side — outside the 6 m trigger at both
+  // ends, so only the sweep can catch it.
+  checkBoostPads(state, { lat: pad.lat - 0.1667, lon: pad.lon, driving: true, nowMs: now, pads });
+  const through = checkBoostPads(state, { lat: pad.lat + 0.1667, lon: pad.lon, driving: true, nowMs: now + 16, pads });
+  eq('20 display m step through the pad triggers (sweep, not point)', through.triggered?.id, pad.id);
+  // A parallel pass 21 display m off the pad does not.
+  const state2 = createBoostPadState();
+  checkBoostPads(state2, { lat: pad.lat + 0.35, lon: pad.lon - 0.075, driving: true, nowMs: now, pads });
+  const past = checkBoostPads(state2, { lat: pad.lat + 0.35, lon: pad.lon + 0.075, driving: true, nowMs: now + 16, pads });
+  eq('parallel pass 21 display m off → no trigger', past.triggered, null);
 }
 
 // --- Roster tuning untouched: pads multiply, never rewrite ---
@@ -185,13 +226,13 @@ function eq(name, a, b) {
   eq('PAD_BOOST_MULT is 1.5', PAD_BOOST_MULT, 1.5);
   eq('cooldown is 20 s', PAD_COOLDOWN_MS, 20000);
   eq('boost lasts 4 s', PAD_BOOST_MS, 4000);
-  eq('trigger radius is 6 m', PAD_TRIGGER_RADIUS_M, 6);
+  eq('trigger radius is 6 display m', PAD_TRIGGER_RADIUS_M, 6);
 }
 
 // --- Wiring pins (source-level: the drive loops read the pad) ---
 {
   const car = readFileSync('components/EarthSupercar.jsx', 'utf8');
-  t('supercar imports the pad boost reader', car.includes("readPadBoost } from '@/lib/earth/boost-pads'"));
+  t('supercar imports the pad boost reader', car.includes('readPadBoost') && car.includes("from '@/lib/earth/boost-pads'"));
   t('supercar forces boost while a pad boost is active', car.includes('|| pad.active'));
   t('supercar multiplies its own boostMult by the pad mult', car.includes('boostMult: tuning.boostMult * pad.mult'));
   t('supercar roster tuning numbers loosened (Merlin, 2026-11-15)',
@@ -203,7 +244,7 @@ function eq(name, a, b) {
   t('NexusEarth mounts the pad component', nexus.includes('<EarthBoostPads />'));
   t('pads mount on the same street gate as the vehicles', nexus.includes("{effectiveLayer === 'terrain' && roaming && <EarthBoostPads />}"));
   const consoleSrc = readFileSync('components/EarthConsole.jsx', 'utf8');
-  t('console polls the pad notice', consoleSrc.includes('readBoostNotice(performance.now())'));
+  t('console polls the pad notice', consoleSrc.includes('readBoostNotice(nowMs)'));
   t('console renders the BOOST flash', consoleSrc.includes('boostFlash'));
   const pads = readFileSync('components/EarthBoostPads.jsx', 'utf8');
   t('pad component checks the mounted driver each frame', pads.includes('checkBoostPads(padBoostState'));
@@ -213,6 +254,13 @@ function eq(name, a, b) {
   const lib = readFileSync('lib/earth/boost-pads.js', 'utf8');
   t('pad lib is pure: no THREE import', !lib.includes("from 'three'"));
   t('pad lib is pure: no window/document', !lib.includes('window.') && !lib.includes('document.'));
+  t('pad lib measures near-pads in display metres', lib.includes('haversineDisplayM(lat, lon, p.lat, p.lon)'));
+  t('pad sweep converts degrees at display scale', lib.includes('DISPLAY_M_PER_DEGREE'));
+  t('pad teleport guard measures display metres', lib.includes('haversineDisplayM(prevLat, prevLon, lat, lon)'));
+  t('pad lib keeps haversineM real (kart divides it down)', lib.includes('return haversineM(lat1, lon1, lat2, lon2) / HAVERSINE_M_PER_DISPLAY_M'));
+  t('pad disc radius is display metres × UPM', pads.includes('PAD_VISUAL_RADIUS_M * UPM'));
+  t('pad ring radii are display metres × UPM', pads.includes('(PAD_VISUAL_RADIUS_M - 0.45) * UPM'));
+  t('pad chevron is display metres × UPM', pads.includes('1.6 * UPM'));
   resetPadBoostStateForTests();
   eq('reset clears the notice', readBoostNotice(0), '');
 }

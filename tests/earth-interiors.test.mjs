@@ -21,10 +21,13 @@ import {
   getInteriors,
   interiorById,
   interiorAt,
+  interiorLocal,
   doorSectorOk,
   liftPadAt,
   floorAltM,
-  latLonFromOffsets,
+  latLonFromDisplayOffsets,
+  DISPLAY_M_PER_DEGREE,
+  haversineDisplayM,
 } from '../lib/earth/interiors.js';
 import { buildColliders, moveWithCollision } from '../lib/earth/collision.js';
 import { allAetherPlacements } from '../lib/earth/aether.js';
@@ -116,9 +119,14 @@ test('aether placements are deterministic, unique, and INSIDE buildings only', (
     assert.ok(d < spec.radiusM - spec.wallM,
       `${a.id} must sit inside the room free zone (d=${d.toFixed(2)}, free=${(spec.radiusM - spec.wallM).toFixed(2)})`);
     assert.ok(a.floor >= 0 && a.floor < spec.floors, `${a.id} floor exists`);
-    // and its lat/lon really is inside the construct's footprint:
-    const hit = interiorAt(a.lat, a.lon);
-    assert.ok(hit && hit.spec.id === spec.id, `${a.id} lat/lon resolves inside ${spec.id}`);
+    // and its lat/lon really is inside the construct's footprint.
+    // (Checked against the OWNING spec's disc, not interiorAt's
+    // nearest-wins pick: the four farmstead interiors overlap in
+    // display metres — centres ~1 display m apart, radii 4.5–6 —
+    // so a point inside one is often nearer another's centre.)
+    const ownD = interiorLocal(spec, a.lat, a.lon).d;
+    assert.ok(ownD < spec.radiusM,
+      `${a.id} lat/lon resolves inside ${spec.id} (d=${ownD.toFixed(2)}, R=${spec.radiusM})`);
   }
   assert.ok(classes.size >= 8, `aether spread across classes (got ${classes.size})`);
 });
@@ -145,10 +153,14 @@ test('staged interiors publish no colliders (no invisible walls)', () => {
 
 /** Fair walk: step from the walker's ACTUAL position toward a
  *  target on the same bearing line, ≤ stepM per moveWithCollision
- *  call — the discipline the real roam loop uses. */
+ *  call — the discipline the real roam loop uses. Distances are
+ *  DISPLAY metres (the unit the car/walker step in: 1° ≈ 60
+ *  display m on the 55-unit globe) — the old 111,320 m/° built
+ *  points in real metres, a world the live loop never steps in,
+ *  which is how the 1,855× interior mismatch hid from this test. */
 function fairWalk(spec, bearingDeg, startD, targetD, stepM = 0.3) {
-  const mPerDegLat = 111320;
-  const mPerDegLon = 111320 * Math.cos((spec.lat * Math.PI) / 180);
+  const mPerDegLat = DISPLAY_M_PER_DEGREE;
+  const mPerDegLon = DISPLAY_M_PER_DEGREE * Math.cos((spec.lat * Math.PI) / 180);
   const rad = (bearingDeg * Math.PI) / 180;
   const point = (d) => ({
     lat: spec.lat + (Math.cos(rad) * d) / mPerDegLat,
@@ -183,8 +195,13 @@ for (const id of ['e023-prairie-farmhouse', 'e065-lighthouse', 'e021-red-gambrel
     const R = spec.radiusM;
     const inward = fairWalk(spec, spec.doorBearingDeg, R + 6, 0.4);
     assert.equal(inward.blocked, 0, `entry must be unobstructed (blocked ${inward.blocked}/${inward.moves})`);
-    const insideHit = interiorAt(inward.lat, inward.lon);
-    assert.ok(insideHit && insideHit.spec.id === id, 'walker ends inside');
+    // Inside the TARGET's disc (interiorLocal, not interiorAt's
+    // nearest-wins: the farmstead discs overlap in display
+    // metres, so a point inside the barn can be nearer the
+    // farmhouse centre — see the aether test note).
+    const inwardD = interiorLocal(spec, inward.lat, inward.lon).d;
+    assert.ok(inwardD < R, `walker ends inside (d=${inwardD.toFixed(2)}, R=${R})`);
+    assert.ok(interiorAt(inward.lat, inward.lon), 'walker ends inside some interior');
     const outward = fairWalk(spec, spec.doorBearingDeg, 0.4, R + 6);
     assert.equal(outward.blocked, 0, `exit must be unobstructed (blocked ${outward.blocked}/${outward.moves})`);
     assert.equal(interiorAt(outward.lat, outward.lon), null, 'walker ends outside');
@@ -203,10 +220,42 @@ for (const id of ['e023-prairie-farmhouse', 'e065-lighthouse', 'e021-red-gambrel
 test('doorSectorOk: true at the door, false at the walls', () => {
   const house = interiorById('e023-prairie-farmhouse');
   const R = house.radiusM;
-  const atDoor = latLonFromOffsets(house.lat, house.lon, 0, -(R - 0.1)); // door faces south (180°)
+  const atDoor = latLonFromDisplayOffsets(house.lat, house.lon, 0, -(R - 0.1)); // door faces south (180°)
   assert.equal(doorSectorOk(house, atDoor.lat, atDoor.lon, 0.5), true);
-  const atWall = latLonFromOffsets(house.lat, house.lon, R - 0.1, 0);
+  const atWall = latLonFromDisplayOffsets(house.lat, house.lon, R - 0.1, 0);
   assert.equal(doorSectorOk(house, atWall.lat, atWall.lon, 0.5), false);
+});
+
+// ---------- display-metre regression (Earth 1 fix round, item 6) ----------
+//
+// The 1,855× split: interiorLocal used to measure with the
+// real-Earth haversine (111,320 m/°) against radiusM — the
+// rendered half-width in DISPLAY metres (1° ≈ 60 display m on
+// the 55-unit globe, the unit the car/walker step in). A walker
+// 1 display m from a farmhouse centre then read d ≈ 1,855 m
+// against a 4.5 m radius, so interiorAt could never fire. These
+// pins fail on the old real-metre measurement and pass on the
+// display layer.
+test('display-metre regression: interiorAt fires at display-metre range', () => {
+  const house = interiorById('e023-prairie-farmhouse');
+  const R = house.radiusM; // 4.5 (scaleM 9 / 2)
+  assert.equal(R, 4.5, `farmhouse radius ${R}`);
+  assert.ok(Math.abs(haversineDisplayM(0, 0, 1, 0) - DISPLAY_M_PER_DEGREE) < 0.1,
+    `1° of lat is ~${DISPLAY_M_PER_DEGREE.toFixed(2)} display m (got ${haversineDisplayM(0, 0, 1, 0).toFixed(2)})`);
+  // 1 display m from the farmhouse centre: inside its disc.
+  const oneOut = latLonFromDisplayOffsets(house.lat, house.lon, 0, 1);
+  const local = interiorLocal(house, oneOut.lat, oneOut.lon);
+  assert.ok(Math.abs(local.d - 1) < 0.05, `interiorLocal d reads display metres (got ${local.d})`);
+  assert.ok(local.d < R, 'walker 1 display m out is inside the farmhouse disc');
+  // Exact-id interiorAt pins use the lighthouse, not the
+  // farmhouse: the four farmstead discs overlap in display
+  // metres, so nearest-wins there can return a neighbour.
+  const light = interiorById('e065-lighthouse');
+  const lightIn = latLonFromDisplayOffsets(light.lat, light.lon, 0, 1);
+  const lightHit = interiorAt(lightIn.lat, lightIn.lon);
+  assert.ok(lightHit && lightHit.spec.id === light.id, 'walker 1 display m out is inside the lighthouse');
+  const lightOut = latLonFromDisplayOffsets(light.lat, light.lon, 0, light.radiusM + 6);
+  assert.equal(interiorAt(lightOut.lat, lightOut.lon), null, 'walker R+6 display m out is outside');
 });
 
 // ---------- animation ----------

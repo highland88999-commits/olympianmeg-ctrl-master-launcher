@@ -856,16 +856,16 @@ export function buildZone(THREE, planetDef, T, opts) {
         const fg = new R.Group();
         fg.name = 'exhaust-flame';
         fg.userData.keepVisible = true;
-        const outerGeo = new R.ConeGeometry(0.38, 1.7, 10);
-        outerGeo.translate(0, 0.85, 0);
+        const outerGeo = new R.ConeGeometry(0.20, 1.4, 10);
+        outerGeo.translate(0, 0.7, 0);
         const outer = new R.Mesh(outerGeo, new R.MeshBasicMaterial({
           color: 0x2a7bff, transparent: true, opacity: 0.75,
           blending: R.AdditiveBlending, depthWrite: false, fog: false,
         }));
         outer.rotation.x = Math.PI / 2;
         outer.position.set(0, 0.95, 2.4);
-        const innerGeo = new R.ConeGeometry(0.2, 1.1, 10);
-        innerGeo.translate(0, 0.55, 0);
+        const innerGeo = new R.ConeGeometry(0.11, 0.9, 10);
+        innerGeo.translate(0, 0.45, 0);
         const inner = new R.Mesh(innerGeo, new R.MeshBasicMaterial({
           color: 0xbfe6ff, transparent: true, opacity: 0.9,
           blending: R.AdditiveBlending, depthWrite: false, fog: false,

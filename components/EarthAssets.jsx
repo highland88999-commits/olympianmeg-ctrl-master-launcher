@@ -12,6 +12,7 @@ import {
 } from '@/lib/earth/placements';
 import { globalPlacementsFor } from '@/lib/earth/global-scatter';
 import { loadHeightData, surfaceRadiusOrBase } from '@/lib/earth/heightmap';
+import { TERRAIN_RADIUS } from '@/lib/terrain';
 import { publishColliders } from '@/lib/earth/collision';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 import {
@@ -476,7 +477,29 @@ function AssetAnimDriver() {
 //   whichever interior is occupied/approached, tinted by class.
 // - aether: shards idle-spin; walking into one (same floor)
 //   collects it with the standard pickup feedback (fx.coin).
+//   The collect radius is DISPLAY metres — the unit the walker
+//   steps in (lib/earth/roam.js: ROAM_MAX_SPEED is hub units/s
+//   over the 55-unit globe, 1° ≈ 60 display m) — so the
+//   distance is measured with haversineDisplayM below, the
+//   kart.js display-metre pattern: haversineM (real Earth,
+//   6,371,000 m) reads a display-metre step 1,855× too large,
+//   and the old check (1.6 haversine-m = 0.0009 display m)
+//   never fired — one walking frame covers ~0.23 display m,
+//   266× the old radius, so the walker stepped over every
+//   shard. 1.6 display m is a normal arm's-reach pickup.
 const AETHER_COLLECT_RADIUS_M = 1.6;
+
+/** Display metres per degree of lat/lon on the 55-unit globe
+ *  (same formula as lib/earth/kart.js). */
+const DISPLAY_M_PER_DEGREE = ((2 * Math.PI * TERRAIN_RADIUS) / 360) / DISPLAY_UNITS_PER_METRE;
+/** Real (haversine) metres per display metre — the 1,855× split. */
+const HAVERSINE_M_PER_DISPLAY_M = 111320 / DISPLAY_M_PER_DEGREE;
+/** Great-circle distance between two lat/lon points, in DISPLAY
+ *  metres — the unit the walker steps in. haversineM (real
+ *  Earth) scaled by the display/real circumference ratio. */
+function haversineDisplayM(lat1, lon1, lat2, lon2) {
+  return haversineM(lat1, lon1, lat2, lon2) / HAVERSINE_M_PER_DISPLAY_M;
+}
 const PAD_DWELL_S = 0.7;
 
 function InteriorsDriver() {
@@ -560,7 +583,7 @@ function InteriorsDriver() {
         for (const a of spec.aether) {
           if (a.floor !== interiorState.floor) continue;
           if (isAetherCollected(a.id)) continue;
-          if (haversineM(roamState.lat, roamState.lon, a.lat, a.lon) < AETHER_COLLECT_RADIUS_M) {
+          if (haversineDisplayM(roamState.lat, roamState.lon, a.lat, a.lon) < AETHER_COLLECT_RADIUS_M) {
             if (collectAether(a.id)) {
               const mesh = room.aetherMeshes.get(a.id);
               if (mesh) mesh.visible = false;

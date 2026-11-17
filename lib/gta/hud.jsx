@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 
 export function WantedStars({ stars }) {
   return (
@@ -103,14 +103,101 @@ export function Minimap({ player, vehicles, cops, missionMarker, worldSize = 400
   );
 }
 
-export function Speedometer({ speedKmh }) {
+// ---------------------------------------------------------------------------
+// Speedometer: clamped + smoothed (2026-11-16 — sweep item 9).
+// ROOT CAUSE (verified in code, not assumed): all three GTA pages fed raw
+// |hud.vehicle.speed| × 3.6 straight into the readout every animation
+// frame (Mega City page.jsx:175, Truman page.jsx:113, Babel
+// page-gta.jsx:138), and the old Speedometer rendered Math.round of
+// whatever it was handed — no clamp, no smoothing. Same wild-needle
+// problem Earth 1 had (lib/earth/kart.js): the number jumped with every
+// physics tick — hard-crash speed scrubs (vehicle.js: v.speed *= 0.4),
+// coast drag, and the commanded-vs-actual gap — and could read past
+// any vehicle's top on a post-collision recompute.
+// The fix lives here, in the one shared component, so all three pages
+// get it with no call-site change. Numbers mirror Earth 1's needle
+// (SPEEDO_SMOOTH_TAU_MS / SPEEDO_MAX_SLEW_KMH_PER_S / SPEEDO_SNAP_KMH).
+// NOTE: hud.vehicle carries only { speed } — the scenes emit no type
+// (gta-scene.js: `vehicle: player.inVehicle ? { speed } : null`), so a
+// per-vehicle top is not available at the call sites without touching
+// the scene files. The clamp therefore uses the fleet top — sports,
+// 48 m/s = 172.8 km/h, the fastest of the four GTA types (sedan 115.2,
+// taxi 122.4, truck 86.4). A caller that knows the vehicle type may
+// pass its own topKmh.
+// ---------------------------------------------------------------------------
+
+/** Fleet top speed, km/h — sports maxSpeed 48 m/s × 3.6. */
+export const GTA_SPEEDO_TOP_KMH = 48 * 3.6; // 172.8
+/** Needle smoothing time constant, milliseconds. */
+export const GTA_SPEEDO_SMOOTH_TAU_MS = 400;
+/** Fastest the needle may travel, km/h per second — a full brake from
+ *  the fleet top sweeps down in well under a second, never in one frame. */
+export const GTA_SPEEDO_MAX_SLEW_KMH_PER_S = 500;
+/** Within this of the target the needle snaps to it, km/h. */
+export const GTA_SPEEDO_SNAP_KMH = 1;
+
+/** One smoothing step toward a clamped target: exponential approach
+ *  (tau GTA_SPEEDO_SMOOTH_TAU_MS) plus a slew cap
+ *  (GTA_SPEEDO_MAX_SLEW_KMH_PER_S), so the needle sweeps instead of
+ *  jumping. rawKmh is clamped to [0, topKmh] first — the needle never
+ *  exceeds the top speed; a non-positive or non-finite topKmh falls
+ *  back to the fleet top. A non-positive dtMs holds the previous
+ *  reading; within GTA_SPEEDO_SNAP_KMH it snaps. Pure — pinned in
+ *  tests/gta-speedometer.test.mjs. */
+export function smoothSpeedoKmh(prevKmh, rawKmh, dtMs, topKmh = GTA_SPEEDO_TOP_KMH) {
+  const top = Number.isFinite(topKmh) && topKmh > 0 ? topKmh : GTA_SPEEDO_TOP_KMH;
+  const prev = Math.max(0, Math.min(top, Number.isFinite(prevKmh) ? prevKmh : 0));
+  const raw = Math.max(0, Math.min(top, Number.isFinite(rawKmh) ? rawKmh : 0));
+  if (!(dtMs > 0)) return prev;
+  if (Math.abs(raw - prev) < GTA_SPEEDO_SNAP_KMH) return raw;
+  const alpha = 1 - Math.exp(-dtMs / GTA_SPEEDO_SMOOTH_TAU_MS);
+  let next = prev + (raw - prev) * alpha;
+  const maxStep = GTA_SPEEDO_MAX_SLEW_KMH_PER_S * (dtMs / 1000);
+  next = prev + Math.max(-maxStep, Math.min(maxStep, next - prev));
+  return next;
+}
+
+export function Speedometer({ speedKmh, topKmh = GTA_SPEEDO_TOP_KMH }) {
+  // Needle state: the displayed value sweeps toward the clamped target
+  // on a requestAnimationFrame loop, so it moves smoothly even though
+  // the parent re-renders (and re-feeds the raw speed) every frame.
+  const [display, setDisplay] = useState(0);
+  const displayRef = useRef(0);
+  const targetRef = useRef(0);
+  const lastTsRef = useRef(null);
+  const top = Number.isFinite(topKmh) && topKmh > 0 ? topKmh : GTA_SPEEDO_TOP_KMH;
+  targetRef.current = Number.isFinite(speedKmh)
+    ? Math.max(0, Math.min(top, speedKmh))
+    : 0;
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = (ts) => {
+      const last = lastTsRef.current;
+      lastTsRef.current = ts;
+      if (last != null) {
+        // Cap dt so a tab switch / long pause never lets the needle
+        // jump the whole dial in one step.
+        const dtMs = Math.min(250, Math.max(0, ts - last));
+        const next = smoothSpeedoKmh(displayRef.current, targetRef.current, dtMs, top);
+        if (next !== displayRef.current) {
+          displayRef.current = next;
+          setDisplay(next);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [top]);
+
   return (
     <div style={{
       fontSize: 28, fontWeight: 800, color: '#fff',
       fontVariantNumeric: 'tabular-nums',
       textShadow: '0 2px 8px rgba(0,0,0,0.8)',
     }}>
-      {Math.round(speedKmh)}
+      {Math.round(display)}
       <span style={{ fontSize: 13, fontWeight: 400, color: 'rgba(255,255,255,0.6)', marginLeft: 4 }}>km/h</span>
     </div>
   );

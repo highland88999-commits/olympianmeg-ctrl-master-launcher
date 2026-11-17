@@ -138,20 +138,24 @@ function BoostPadMesh({ pad }) {
   return (
     <group position={position} quaternion={quaternion}>
       {/* The pad itself: a glowing disc lying flat on the street,
-          wearing the boost-pad wrap video as its texture. */}
+          wearing the boost-pad wrap video as its texture. Sizes
+          are display metres × UPM (the house convention — cf.
+          components/EarthKart.jsx): the raw constants are NOT
+          world units (a 4-unit disc would be 250 display m
+          across). */}
       <mesh ref={discRef} rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
-        <circleGeometry args={[PAD_VISUAL_RADIUS_M, 32]} />
+        <circleGeometry args={[PAD_VISUAL_RADIUS_M * UPM, 32]} />
         <meshBasicMaterial map={videoTex || undefined} color="#00ffcc" transparent opacity={0.5} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
       {/* Outer ring — the pad's edge, visible from far off. */}
-      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]} renderOrder={3}>
-        <ringGeometry args={[PAD_VISUAL_RADIUS_M - 0.45, PAD_VISUAL_RADIUS_M, 32]} />
+      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02 * UPM, 0]} renderOrder={3}>
+        <ringGeometry args={[(PAD_VISUAL_RADIUS_M - 0.45) * UPM, PAD_VISUAL_RADIUS_M * UPM, 32]} />
         <meshBasicMaterial color="#00ffcc" transparent opacity={0.95} side={THREE.DoubleSide} depthWrite={false} />
       </mesh>
       {/* Chevron: a flat triangle pointing down the street (the
           pad's seeded bearing) — the "this way, faster" mark. */}
-      <mesh ref={chevRef} position={[0, 0.05, 0]} renderOrder={3}>
-        <coneGeometry args={[1.6, 0.25, 3]} />
+      <mesh ref={chevRef} position={[0, 0.05 * UPM, 0]} renderOrder={3}>
+        <coneGeometry args={[1.6 * UPM, 0.25 * UPM, 3]} />
         <meshBasicMaterial color="#00ffcc" transparent opacity={0.95} depthWrite={false} />
       </mesh>
     </group>

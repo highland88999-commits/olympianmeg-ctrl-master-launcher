@@ -16,7 +16,7 @@ import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { thuleWindAt, makeSandField, updateSandField, windCompass } from '@/lib/mars2/weather';
 import {
   ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
-  summonRover, updateRover, dismountRover, roverSpeedKmh,
+  summonRover, updateRover, dismountRover, roverSpeedKmh, smoothRoverSpeedKmh,
 } from '@/lib/mars2/rovers';
 // The shared planet walker (Merlin, Nov 15, 2026 — the same
 // gravity logic on every planet): Mars 2's walk runs on it now —
@@ -523,6 +523,7 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const lastTelemetry = useRef(0);
+  const lastSpeedKmh = useRef(0);
   const jumpQueued = useRef(false);
   const vyRef = useRef(0);
   const groundedRef = useRef(true);
@@ -611,11 +612,21 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
       yawRef.current = rover.heading;
       const now = state.clock.elapsedTime;
       if (now - lastTelemetry.current > 0.25) {
+        // Clamped + smoothed needle (lib/mars2/rovers.js): the raw
+        // converter alone would jump with every 0.25 s poll and
+        // cliff-dive on the rim shed, so the HUD reads the
+        // smoothed value, stepped over the real poll interval.
+        const dtMs = (now - lastTelemetry.current) * 1000;
         lastTelemetry.current = now;
-        if (onRoverChange) onRoverChange({ active: true, speedKmh: roverSpeedKmh(Math.abs(rover.speed)) });
+        const nextKmh = smoothRoverSpeedKmh(lastSpeedKmh.current, roverSpeedKmh(Math.abs(rover.speed)), dtMs);
+        lastSpeedKmh.current = nextKmh;
+        if (onRoverChange) onRoverChange({ active: true, speedKmh: nextKmh });
       }
       return;
     }
+    // Not driving: the needle rests at 0, so a fresh summon
+    // starts from 0 instead of smoothing down from a stale speed.
+    lastSpeedKmh.current = 0;
     // Walk (also the fallback if drive was asked for with no rover).
     const fwd = (k.fwd ? 1 : 0) - (k.back ? 1 : 0);
     const strafe = (k.right ? 1 : 0) - (k.left ? 1 : 0);

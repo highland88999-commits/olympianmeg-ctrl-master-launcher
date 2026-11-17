@@ -25,8 +25,10 @@ import {
 import {
   ROVER_NAME, ROVER_ID, WALK_SPEED_MPS, ROVER_TOP_SPEED_MPS,
   ROVER_REVERSE_SPEED_MPS, ROVER_WHEEL_COUNT, ROVER_SUMMON_AHEAD_M,
+  ROVER_TOP_SPEED_KMH, ROVER_SPEEDO_SMOOTH_TAU_MS,
+  ROVER_SPEEDO_MAX_SLEW_KMH_PER_S,
   createRover, summonRover, updateRover, dismountRover,
-  isRoverDriving, roverSpeedKmh, forwardOf, rightOf,
+  isRoverDriving, roverSpeedKmh, smoothRoverSpeedKmh, forwardOf, rightOf,
 } from '../lib/mars2/rovers.js';
 import {
   HARDWARE_KINDS, HARDWARE_TEXTURE_SIZE, hardwareMaps,
@@ -156,6 +158,51 @@ describe('mars-2 rover: summon, drive, dismount', () => {
     assert.ok(scene.includes('WHEEL_SPOTS'));
     assert.ok(scene.includes('camera mast') || scene.includes('mast'));
     assert.ok(scene.includes('high-gain') || scene.includes('dish'));
+  });
+});
+
+describe('mars-2 rover speedometer: clamped + smoothed (Nov 16, 2026)', () => {
+  it('the top speed is 43.2 km/h and the converter never exceeds it', () => {
+    assert.equal(ROVER_TOP_SPEED_KMH, 43.2);
+    assert.equal(roverSpeedKmh(ROVER_TOP_SPEED_MPS), 43.2);
+    assert.equal(roverSpeedKmh(20), 43.2, 'over-top input clamps to the top');
+    assert.equal(roverSpeedKmh(-20), -43.2, 'over-top reverse clamps to the top');
+    assert.equal(roverSpeedKmh(0), 0);
+  });
+  it('a non-finite input reads 0, never NaN', () => {
+    assert.equal(roverSpeedKmh(NaN), 0);
+    assert.equal(roverSpeedKmh(Infinity), 0);
+    assert.equal(roverSpeedKmh(-Infinity), 0);
+  });
+  it('smoothing eases toward the target with tau 400 ms (Earth 1 needle)', () => {
+    assert.equal(ROVER_SPEEDO_SMOOTH_TAU_MS, 400);
+    // One tau from 0 toward top: 63.2% of the way there.
+    const oneTau = smoothRoverSpeedKmh(0, ROVER_TOP_SPEED_KMH, 400);
+    assert.ok(Math.abs(oneTau - ROVER_TOP_SPEED_KMH * (1 - Math.exp(-1))) < 0.01, `one tau reads ${oneTau}`);
+    // A 0.25 s telemetry poll from 0 moves ~20 km/h, not the full 43.2.
+    const onePoll = smoothRoverSpeedKmh(0, ROVER_TOP_SPEED_KMH, 250);
+    assert.ok(onePoll > 15 && onePoll < 25, `one poll reads ${onePoll}`);
+    // Within 1 km/h of the target it snaps.
+    assert.equal(smoothRoverSpeedKmh(42.5, ROVER_TOP_SPEED_KMH, 250), ROVER_TOP_SPEED_KMH);
+  });
+  it('the slew cap binds on cliffs: a 100 km/h/s override caps the step', () => {
+    const capped = smoothRoverSpeedKmh(0, ROVER_TOP_SPEED_KMH, 1000, { maxSlewKmhPerS: 10 });
+    assert.equal(capped, 10, 'one second at 10 km/h/s moves at most 10 km/h');
+    const rimShed = smoothRoverSpeedKmh(ROVER_TOP_SPEED_KMH, 0, 250, { maxSlewKmhPerS: 100 });
+    assert.ok(rimShed >= ROVER_TOP_SPEED_KMH - 25, `rim shed sweeps, not cliffs: ${rimShed}`);
+  });
+  it('smoothing clamps its output and holds on a bad step', () => {
+    assert.ok(smoothRoverSpeedKmh(0, 999, 1000) <= ROVER_TOP_SPEED_KMH, 'raw above top still caps');
+    assert.equal(smoothRoverSpeedKmh(20, ROVER_TOP_SPEED_KMH, 0), 20, 'dt 0 holds');
+    assert.equal(smoothRoverSpeedKmh(20, ROVER_TOP_SPEED_KMH, -50), 20, 'negative dt holds');
+    assert.ok(smoothRoverSpeedKmh(20, NaN, 400) < 20, 'non-finite raw eases toward 0');
+    assert.ok(smoothRoverSpeedKmh(NaN, ROVER_TOP_SPEED_KMH, 400) >= 0, 'non-finite prev starts at 0');
+  });
+  it('the scene feeds the HUD through the smoother, resetting off-drive', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('smoothRoverSpeedKmh'), 'scene imports the smoother');
+    assert.ok(scene.includes('lastSpeedKmh'), 'scene keeps the previous needle value');
+    assert.ok(!scene.includes('speedKmh: roverSpeedKmh(Math.abs(rover.speed))'), 'no raw converter call reaches the HUD');
   });
 });
 
