@@ -185,7 +185,13 @@ check('D1: the globe NEVER stands down inside NexusEarth (no deep-micro conditio
   assert.ok(!nexusSrc.includes('deepMicro'), 'no deep-micro state remains');
   assert.ok(!nexusSrc.includes('DEEP_MICRO_SCALE'), 'no deep-micro threshold remains');
   assert.ok(!nexusSrc.includes('microMode'), 'no micro-mode state remains');
-  assert.match(nexusSrc, /effectiveLayer === 'terrain' && <ProceduralEarthGlobe/);
+  // STALE PIN, fixed 2026-11-16: the Earth 1 rework wrapped the
+  // globe in a visibility group (hidden only at street level),
+  // so the old `&& <ProceduralEarthGlobe` literal no longer
+  // matches — the gate is still `effectiveLayer === 'terrain'`,
+  // with the globe inside it. The intent (no deep-micro
+  // stand-down) is unchanged.
+  assert.match(nexusSrc, /effectiveLayer === 'terrain' && \(\n[\s\S]*?<ProceduralEarthGlobe/);
 });
 
 check('D2: SwimControls are gone from BOTH console branches (water removed)', () => {
@@ -213,12 +219,39 @@ check('D3: the micro disc is GONE from StreetGroundPatch (quantum removed)', () 
   assert.match(patchSrc, /export function StreetFillLight/);
 });
 
+check('D7: the street has a real light rig — the car is not a black silhouette (Merlin, 2026-11-16)', () => {
+  // The 60 s video: the Lambo rendered as a pure black blob in
+  // every frame while the menu preview showed it fine. Root
+  // cause: the street scene had effectively no light for a
+  // standard material — the SunBackground sun directional
+  // unmounts at street level, the hub ambient is 0.4 × dark
+  // #222233, and the StreetFillLight lantern is 0.0009 over
+  // ~25 m. The material was already tamed (metalness 0 at load).
+  assert.match(nexusSrc, /<ambientLight ref=\{streetAmbientRef\}/);
+  assert.match(nexusSrc, /<directionalLight/);
+  assert.match(nexusSrc, /ref=\{streetSunRef\}/);
+  // The rig mounts only while roaming, outside the spin group
+  // so the sun never spins with the ground.
+  assert.match(nexusSrc, /\{roaming && \(\s*<>([\s\S]*?)<\/>\s*\)\}/);
+  assert.ok(nexusSrc.indexOf('<ambientLight ref={streetAmbientRef}') < nexusSrc.indexOf('<group ref={spinRef}>'),
+    'the street lights sit outside the spin group');
+  // The sun directional rides the REAL sun (same vector as the
+  // sky dome) and both lights scale with the sun's height.
+  assert.match(nexusSrc, /streetSunRef\.current\.position\.set\(v\.x \* 300, v\.y \* 300, v\.z \* 300\)/);
+  assert.match(nexusSrc, /streetSunRef\.current\.intensity = 0\.25 \+ 1\.75 \* dayF/);
+  assert.match(nexusSrc, /streetAmbientRef\.current\.intensity = 0\.15 \+ 0\.55 \* dayF/);
+});
+
 check('D6: the HUD is corner clusters, not a centered card (vehicles only, 2026-11-15)', () => {
   assert.ok(!consoleSrc.includes('-translate-x-1/2 -translate-y-1/2'),
     'the transform-centered wrapper is gone');
   // Top card: absolute corner cluster; drive cluster: fixed layer.
   assert.match(consoleSrc, /absolute right-4 top-4 z-\[80\]/);
-  assert.match(consoleSrc, /fixed z-\[70\] ui-element flex flex-col items-start gap-1\.5 pointer-events-none/);
+  // STALE PIN, fixed 2026-11-16: the Nov 16 ~04:41 layout order
+  // moved the speedo to bottom-CENTRE, so the drive cluster is
+  // items-center now, not items-start. The intent (corner
+  // clusters, not a centered card) is unchanged.
+  assert.match(consoleSrc, /fixed z-\[70\] ui-element flex flex-col items-center gap-1\.5 pointer-events-none/);
 });
 
 // ------------------------------------------------------------ E. veil is gone (water removed 2026-10-26)

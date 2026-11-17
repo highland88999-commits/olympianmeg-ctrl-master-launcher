@@ -24,6 +24,7 @@ import {
   ORB_FLOAT_M,
   ORB_BOB_M,
   EXPLODE_MS,
+  INVULN_MS,
   INTEGRITY_MAX,
   KART_SERVER_POLL_MS,
   kartState,
@@ -61,7 +62,7 @@ import {
 // damage, and the flip-3x-explode-respawn sequence.
 //
 // One orb = exactly one missile (Merlin). Orbs are a virtual
-// seeded grid (lib/earth/kart.js — 259,200, ~30 display m apart);
+// seeded grid (lib/earth/kart.js — 10,368, ~150 display m apart);
 // only the orbs near the driver get meshes. The missile a
 // torpedo wears is the scratched-metal wrap of the orb it came
 // from (the orb's own colour video). The explosion is a real
@@ -480,7 +481,11 @@ export default function EarthKart() {
               startHit(kartState.playerHit, { lat: e.lat ?? carState.lat, lon: e.lon ?? carState.lon, nowMs });
               setKartNotice('💥 TORPEDO HIT!', nowMs);
             }
-          } else if (e.kind === 'collision' && typeof e.damage === 'number') {
+          } else if (e.kind === 'collision' && typeof e.damage === 'number'
+            && nowMs >= kartState.invulnUntilMs) {
+            // A shielded driver (fresh spawn or respawn) takes no
+            // peer collision damage either — same shield as the
+            // local bumper path (lib/earth/kart.js).
             kartState.integrity = Math.max(0, kartState.integrity - e.damage);
             if (kartState.integrity <= 0 && kartState.playerHit.phase === 'none') {
               startHit(kartState.playerHit, { lat: e.lat ?? carState.lat, lon: e.lon ?? carState.lon, nowMs });
@@ -522,6 +527,15 @@ export default function EarthKart() {
       });
       kartState.rivals = built;
       setRivals(built);
+      // SPAWN SHIELD (Merlin, 2026-11-16 — 15 s of immunity
+      // after spawning): the first mounted frame IS the spawn,
+      // and no invulnerability existed here before — only the
+      // respawn path granted one — so a rival could torpedo the
+      // driver within seconds of spawning. The shield covers
+      // torpedo hits, bumper damage, and rivals hold their fire
+      // while it is up (lib/earth/kart.js).
+      kartState.invulnUntilMs = nowMs + INVULN_MS;
+      setKartNotice('🛡️ Shield up — 15 s', nowMs);
     }
 
     // Orb collection (player): drive through -> +1 missile.
@@ -779,6 +793,7 @@ export function fireFromHud() {
     ...kartState.rivals.map((r) => ({
       kind: 'rival', id: r.id, lat: r.lat, lon: r.lon,
       speedMps: Math.abs(r.speed || 0) * 3,
+      invulnUntilMs: r.invulnUntilMs || 0,
     })),
     ...sharedPeerVehicles.map((p) => ({
       kind: 'peer', id: p.id, lat: p.lat, lon: p.lon, speedMps: p.speedMps || 0,

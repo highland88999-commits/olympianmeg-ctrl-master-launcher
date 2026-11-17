@@ -62,6 +62,8 @@ const SHELL_CAMERA_MIN_DIST = 57.5;
 export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
   const skyMatRef = useRef(null); // street-level day-sky dome shader material
+  const streetSunRef = useRef(null); // street sun directional (black-car fix, below)
+  const streetAmbientRef = useRef(null); // street ambient (black-car fix, below)
   // 'terrain' = procedural 3D globe (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
@@ -98,12 +100,28 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   useEffect(() => {
     requestDayNightPlace();
     const updateSun = () => {
-      const mat = skyMatRef.current;
-      if (!mat || !mat.uniforms || !mat.uniforms.sunDirection) return;
       try {
         const place = getDayNightPlace();
         const v = sunVector(Date.now(), place.lat, place.lon);
-        mat.uniforms.sunDirection.value.set(v.x, v.y, v.z);
+        const mat = skyMatRef.current;
+        if (mat && mat.uniforms && mat.uniforms.sunDirection) {
+          mat.uniforms.sunDirection.value.set(v.x, v.y, v.z);
+        }
+        // STREET LIGHT RIG (Merlin, 2026-11-16 — the black car):
+        // the sun directional rides the REAL sun (the same vector
+        // as the sky dome) and both street lights scale with the
+        // sun's height, so the car is sunlit by day and dim at
+        // night instead of black at all hours. The position is
+        // local to this group (Earth centre), so the sun sits
+        // 300 units out along the real sun direction.
+        const dayF = Math.max(0, Math.min(1, (v.y + 0.05) / 0.3));
+        if (streetSunRef.current) {
+          streetSunRef.current.position.set(v.x * 300, v.y * 300, v.z * 300);
+          streetSunRef.current.intensity = 0.25 + 1.75 * dayF;
+        }
+        if (streetAmbientRef.current) {
+          streetAmbientRef.current.intensity = 0.15 + 0.55 * dayF;
+        }
       } catch {}
     };
     updateSun();
@@ -146,6 +164,37 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
 
   return (
     <group position={[0, -30, -80]}>
+      {/* STREET LIGHT RIG (Merlin, 2026-11-16 — the black car):
+          the Lambo rendered as a pure black silhouette in-world
+          while the menu preview (ambient 2.0 + key 2.2 + fill 1.0)
+          showed it fine. Root cause, verified: the street scene
+          had effectively NO light for a standard material — the
+          SunBackground sun directional (0.85) unmounts at street
+          level, the hub ambient is 0.4 × dark #222233 (~0.06
+          effective), and the StreetFillLight lantern is 0.0009
+          over ~25 m. The ground video is emissive and the orbs
+          are unlit, so everything else read bright while the one
+          lit object — the car — read black. The material is NOT
+          the cause: the Tripo GLB loads metalness 1 / roughness 1
+          by glTF default, but tameTripoMaterials already tames it
+          to metalness 0 at load (and the preview proves it). This
+          rig mounts only while roaming, outside the spin group so
+          the sun never spins with the ground; the 1 s sun effect
+          above drives both intensities from the real sun height.
+          No shadows — illumination only. Covers all 19 cars plus
+          rivals and peers: they share this scene and this light. */}
+      {roaming && (
+        <>
+          <ambientLight ref={streetAmbientRef} intensity={0.7} />
+          <directionalLight
+            ref={streetSunRef}
+            position={[0, 300, 0]}
+            intensity={2.0}
+            color="#fff5e6"
+            target-position={[0, -30, -80]}
+          />
+        </>
+      )}
       <group ref={spinRef}>
         <group visible={!roaming}>
           <GoogleEarthTiles

@@ -3,7 +3,7 @@
 // flip-3x-explode, respawn-in-vehicle, bumper-car collisions
 // (hidden integrity meter), AI rivals, click-to-spawn math.
 //
-// Pins: 259,200 orbs (one per 0.5° cell, virtual + deterministic);
+// Pins: 10,368 orbs (one per 2.5° cell, virtual + deterministic);
 // one orb = exactly one missile; the missile wears its orb's colour
 // (its colour's VIDEO wrap — 6 colours, a rocket in the centre of
 // each video); the orb body is 1.4 m across, clearly smaller than
@@ -30,6 +30,8 @@ import { fileURLToPath } from 'node:url';
 import {
   ORB_COUNT,
   ORB_CELL_DEG,
+  ORB_LAT_BANDS,
+  ORB_LON_SLOTS,
   ORB_RADIUS_M,
   ORB_FLOAT_M,
   ORB_BOB_M,
@@ -122,20 +124,21 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 
 // --- Orbs: count, virtual + deterministic, one per cell ---
 {
-  eq('orb count is 259,200 (360 × 720 cells)', ORB_COUNT, 259200);
-  eq('orb cells are 0.5° (~30 display m at the equator)', ORB_CELL_DEG, 0.5);
+  eq('orb count is 10,368 (72 × 144 cells)', ORB_COUNT, 10368);
+  eq('orb grid is 72 lat bands × 144 lon slots', ORB_LAT_BANDS * ORB_LON_SLOTS, ORB_COUNT);
+  eq('orb cells are 2.5° (~150 display m at the equator)', ORB_CELL_DEG, 2.5);
   t('one degree is ~60 display m on the 55-unit globe', Math.abs(DISPLAY_M_PER_DEGREE - 60) < 0.01);
   t('haversineDisplayM: 1° of latitude is ~60 display m', Math.abs(haversineDisplayM(0, 0, 1, 0) - 60) < 0.5);
   eq('beam renders within 200 display m', ORB_BEAM_RENDER_M, 200);
   eq('sphere horizon is 150 display m', ORB_RENDER_M, 150);
   eq('render set caps at 48 nearest orbs', ORB_RENDER_MAX, 48);
-  const a = orbForCell(107, 133);
-  const b = orbForCell(107, 133);
+  const a = orbForCell(40, 60);
+  const b = orbForCell(40, 60);
   t('same cell → identical orb', JSON.stringify(a) === JSON.stringify(b));
-  const c = orbForCell(107, 134);
+  const c = orbForCell(40, 61);
   t('neighbour cell → a different orb', c.lat !== a.lat || c.lon !== a.lon || c.color !== a.color);
-  t('orb lat sits inside its cell', a.lat >= -90 + 107 * 0.5 && a.lat < -90 + 108 * 0.5);
-  t('orb lon sits inside its cell', a.lon >= -180 + 133 * 0.5 && a.lon < -180 + 134 * 0.5);
+  t('orb lat sits inside its cell', a.lat >= -90 + 40 * 2.5 && a.lat < -90 + 41 * 2.5);
+  t('orb lon sits inside its cell', a.lon >= -180 + 60 * 2.5 && a.lon < -180 + 61 * 2.5);
   t('orb colour is one of the 6 video colours', ORB_COLORS.includes(a.color));
   eq('6 orb colours (the six most distinct scratched metals)',
     ORB_COLORS.length, 6);
@@ -144,11 +147,21 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   t('bright-gold, silver and deep-gold stay in the floor loop only',
     !ORB_COLORS.includes('bright-gold') && !ORB_COLORS.includes('silver') && !ORB_COLORS.includes('deep-gold'));
   eq('orb cell lookup round-trips', orbCellFor(a.lat, a.lon).key, a.cellKey);
-  const nearList = orbsNear(53.5462, -113.4912, 60);
-  t('orbsNear finds orbs within 60 display m', nearList.length >= 1 && nearList.length <= 30);
-  for (const o of nearList) {
+  // SPARSITY (Merlin, 2026-11-16 — the 60 s video: x6 at a
+  // standstill, x12 within seconds): the old 0.5° grid put an
+  // orb every ~30 m, so the driver sat inside a fence of beams.
+  // At 150 m spacing the fence is gone — a handful of beams at
+  // most, each marking one real, distant orb.
+  const near60 = orbsNear(53.5462, -113.4912, 60);
+  t('no orb fence: at most 3 orbs within 60 display m', near60.length <= 3);
+  for (const o of near60) {
     t('every returned orb is within range', haversineDisplayM(53.5462, -113.4912, o.lat, o.lon) <= 60);
   }
+  const near200 = orbsNear(53.5462, -113.4912, 200);
+  t('a handful of orbs within beam range (1–25)', near200.length >= 1 && near200.length <= 25);
+  const near2000 = orbsNear(53.5462, -113.4912, 2000);
+  t('the planet stays stocked: ~1,050 orbs within 2 km at Redwater',
+    near2000.length >= 800 && near2000.length <= 1300);
   // The render set: nearest first, capped, every orb a prespawned
   // grid orb (cell round-trips) — nothing anchored to a car.
   const renderSet = nearestOrbs(53.5462, -113.4912, ORB_BEAM_RENDER_M, ORB_RENDER_MAX);
@@ -162,6 +175,25 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
     renderSet.every((o) => haversineDisplayM(53.5462, -113.4912, o.lat, o.lon) <= ORB_BEAM_RENDER_M));
   // The trigger and the beam are unchanged by the resize.
   eq('orb trigger radius stays 6 m', ORB_TRIGGER_RADIUS_M, 6);
+  // RARITY: a 1500 m straight drive (the old grid collected ~20
+  // on the same run) now collects a handful at most — finding
+  // one is a hunt, not a certainty.
+  {
+    const st = createKartState();
+    let pLat = 53.5;
+    let pLon = -113.5;
+    let found = 0;
+    for (let i = 0; i < 150; i++) {
+      const nLon = pLon + 10 / 60; // 10 display m east per step
+      const r = collectOrbs(st, {
+        lat: pLat, lon: nLon, prevLat: pLat, prevLon: pLon, driving: true, nowMs: 1000 + i * 100,
+      }, (o) => collectPlayerMissile(st, o));
+      found += r.collected.length;
+      pLon = nLon;
+    }
+    t(`a 1500 m straight drive collects at most 6 orbs (found ${found})`, found <= 6);
+    resetKartStateForTests();
+  }
 }
 
 // --- Orb size: clearly smaller than the smallest vehicle ---
@@ -178,7 +210,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 // --- One orb = exactly one missile; re-arm after 60 s ---
 {
   const state = createKartState();
-  const orb = orbForCell(107, 133);
+  const orb = orbForCell(40, 60);
   // Drive a short segment straight through the orb.
   const dLat = 3 / 60; // 3 display m each side of the orb
   const drive = (nowMs) => collectOrbs(state, {
@@ -229,8 +261,8 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 {
   // Find a purple cell (one of the 6 video colours).
   let purpleOrb = null;
-  for (let i = 0; i < 200 && !purpleOrb; i++) {
-    const o = orbForCell(100 + i, 200 + i);
+  for (let i = 0; i < 70 && !purpleOrb; i++) {
+    const o = orbForCell(i, 20 + i);
     if (o.color === 'purple') purpleOrb = o;
   }
   t('a purple orb exists in the virtual set', !!purpleOrb);
@@ -394,7 +426,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   eq('respawn keeps the blast lon', r.lon, 20);
   eq('respawn speed is 0', r.speed, 0);
   eq('respawn restores integrity to 100', r.integrity, INTEGRITY_MAX);
-  eq('respawn is invulnerable for 3 s', r.invulnUntilMs, 8000 + INVULN_MS);
+  eq('respawn is invulnerable for 15 s', r.invulnUntilMs, 8000 + INVULN_MS);
   // An invulnerable vehicle is passed through, never hit.
   setKartClientId('test-driver');
   const state = createKartState();
@@ -408,6 +440,80 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
     if (evs.some((e) => e.type === 'hit')) anyHit = true;
   }
   t('an invulnerable vehicle is never hit', !anyHit);
+  resetKartStateForTests();
+  setKartClientId(null);
+}
+
+// --- 15 s spawn immunity (Merlin, 2026-11-16 — the 60 s video:
+// torpedoed at 0 km/h within seconds of spawning, twice) ---
+{
+  eq('the immunity window is 15 s', INVULN_MS, 15000);
+  // respawnFor grants the full window (pinned by name above too).
+  const r = respawnFor(10, 20, 8000);
+  eq('respawn grants exactly 15 s of immunity', r.invulnUntilMs - 8000, 15000);
+
+  // A shielded vehicle is never a lock: nearestTarget skips it
+  // when nowMs is passed, and falls back to the next vehicle.
+  setKartClientId('test-driver');
+  const player = { kind: 'player', id: 'test-driver', lat: 0, lon: 0, yawDeg: 0, speedMps: 0 };
+  const shielded = { kind: 'rival', id: 'rival-shield', lat: 100 / 60, lon: 0, speedMps: 0, invulnUntilMs: 999999 };
+  const open = { kind: 'rival', id: 'rival-open', lat: 300 / 60, lon: 0, speedMps: 0 };
+  const lock = nearestTarget({ lat: 0, lon: 0, vehicles: [player, shielded, open], excludeKind: 'player', excludeId: 'test-driver', nowMs: 1000 });
+  eq('a shielded vehicle is never the lock', lock.id, 'rival-open');
+  // Without nowMs (old callers) the shield is invisible — the
+  // lock still lands on the closer vehicle.
+  const legacy = nearestTarget({ lat: 0, lon: 0, vehicles: [player, shielded, open], excludeKind: 'player', excludeId: 'test-driver' });
+  eq('without nowMs the old lock rule stands', legacy.id, 'rival-shield');
+
+  // A torpedo already flying at a target that gains a shield
+  // drops the lock and flies straight — it never shadows the
+  // driver waiting for the shield to drop, and never hits them.
+  const state = createKartState();
+  state.missiles = 1;
+  const target = { kind: 'rival', id: 'rival-mark', lat: 100 / 60, lon: 0, speedMps: 0 };
+  const torp = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, target] });
+  eq('lock starts on the target', torp.targetId, 'rival-mark');
+  target.invulnUntilMs = 999999; // shield goes up mid-flight
+  stepTorpedoes(state, { dt: 0.05, nowMs: 1100, vehicles: [player, target] });
+  eq('the lock drops the moment the shield goes up', torp.targetId, null);
+  let shieldHit = false;
+  for (let i = 0; i < 20; i++) {
+    const evs = stepTorpedoes(state, { dt: 0.05, nowMs: 1100 + i * 50, vehicles: [player, target] });
+    if (evs.some((e) => e.type === 'hit')) shieldHit = true;
+  }
+  t('a shielded vehicle is never hit mid-flight', !shieldHit);
+  resetKartStateForTests();
+
+  // Rivals hold their fire while the player is shielded.
+  const state2 = createKartState();
+  state2.rivals = buildRivals({ playerLat: 0, playerLon: 0, playerCraftId: 'wedge-supercar' });
+  const near = state2.rivals[0];
+  near.lat = 200 / 60; // 200 display m north — inside the 500 m fire range
+  near.lon = 0;
+  near.missiles = 3; // at cap, so a collected orb cannot change the count
+  near.lastFireMs = 0; // cooldown long past at nowMs 10000
+  const shieldedPlayer = { lat: 0, lon: 0, speedMps: 0, invulnUntilMs: 999999 };
+  const held = stepRivals(state2, { dt: 0.1, nowMs: 10000, player: shieldedPlayer });
+  eq('a rival holds fire on a shielded player', held.fired.length, 0);
+  eq('the held missiles stay banked', near.missiles, 3);
+  const openPlayer = { lat: 0, lon: 0, speedMps: 0, invulnUntilMs: 0 };
+  const loosed = stepRivals(state2, { dt: 0.1, nowMs: 10000, player: openPlayer });
+  eq('the same rival fires once the shield is down', loosed.fired.length, 1);
+  resetKartStateForTests();
+
+  // Bumper damage is gated by the shield too.
+  const state3 = createKartState();
+  state3.rivals = [{ id: 'rival-c', integrity: INTEGRITY_MAX }];
+  state3.invulnUntilMs = 999999;
+  const a = { kind: 'player', id: 'driver' };
+  const b = { kind: 'rival', id: 'rival-c' };
+  const blocked = applyCollisionDamage(state3, { a, b, relSpeedMps: 50, nowMs: 1000 });
+  eq('a shielded player takes no bumper damage', blocked.length, 0);
+  eq('shielded integrity stays 100', state3.integrity, 100);
+  state3.invulnUntilMs = 0;
+  const landed = applyCollisionDamage(state3, { a, b, relSpeedMps: 50, nowMs: 1000 });
+  eq('the same contact lands once the shield is down', landed.length, 2);
+  eq('unshielded integrity drops to 85', state3.integrity, 85);
   resetKartStateForTests();
   setKartClientId(null);
 }
@@ -645,7 +751,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
     haversineDisplayM(blast.lat, blast.lon, 10 + 5 / 60, 20) >= 25 - 0.01);
   eq('respawn still restores integrity', blast.integrity, INTEGRITY_MAX);
   eq('respawn still stops the vehicle', blast.speed, 0);
-  eq('respawn still grants 3 s invulnerability', blast.invulnUntilMs, 8000 + INVULN_MS);
+  eq('respawn still grants 15 s invulnerability', blast.invulnUntilMs, 8000 + INVULN_MS);
   const clearBlast = respawnFor(10, 20, 8000, [{ lat: 11, lon: 20 }]);
   t('clear blast spot stands exactly', clearBlast.lat === 10 && clearBlast.lon === 20);
   const noOthers = respawnFor(10, 20, 8000);
