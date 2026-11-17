@@ -16,6 +16,12 @@
 // collision damage numbers + pair cooldown; 5 deterministic rivals;
 // globe-click round-trip.
 //
+// ALL distances are DISPLAY metres — the unit the car drives in
+// (1° of lat/lon ≈ 60 display m on the 55-unit globe); see the
+// display-scale block at the top of lib/earth/kart.js. Fixtures
+// that used to read degrees as real metres (0.001° ≈ 111 m) now
+// read them as display metres (x° = x × 60 display m).
+//
 // Run: node tests/earth1-kart.test.mjs (from the repo root).
 import assert from 'node:assert';
 import { existsSync } from 'node:fs';
@@ -29,6 +35,12 @@ import {
   ORB_BOB_M,
   ORB_TRIGGER_RADIUS_M,
   ORB_REARM_MS,
+  ORB_BEAM_RENDER_M,
+  ORB_RENDER_M,
+  ORB_RENDER_MAX,
+  DISPLAY_M_PER_DEGREE,
+  haversineDisplayM,
+  nearestOrbs,
   ORB_COLORS,
   orbForCell,
   orbCellFor,
@@ -74,8 +86,14 @@ import {
   vehicleGapM,
   separateFrom,
   separateVehicles,
+  SPEEDO_SMOOTH_TAU_MS,
+  SPEEDO_MAX_SLEW_KMH_PER_S,
+  SPEEDO_SNAP_KMH,
+  SPEEDO_TELEPORT_TOLERANCE,
+  displacementSpeedKmh,
+  smoothSpeedKmh,
+  stepDisplaySpeed,
 } from '../lib/earth/kart.js';
-import { haversineM } from '../lib/earth/boost-pads.js';
 import { getVehicle, VEHICLES } from '../lib/earth/vehicles.js';
 import { ORB_VIDEO_URLS } from '../lib/earth/ground-video.js';
 import { latLonToVec3 } from '../lib/geo.js';
@@ -105,7 +123,12 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 // --- Orbs: count, virtual + deterministic, one per cell ---
 {
   eq('orb count is 259,200 (360 × 720 cells)', ORB_COUNT, 259200);
-  eq('orb cells are 0.5° (~55 km at the equator)', ORB_CELL_DEG, 0.5);
+  eq('orb cells are 0.5° (~30 display m at the equator)', ORB_CELL_DEG, 0.5);
+  t('one degree is ~60 display m on the 55-unit globe', Math.abs(DISPLAY_M_PER_DEGREE - 60) < 0.01);
+  t('haversineDisplayM: 1° of latitude is ~60 display m', Math.abs(haversineDisplayM(0, 0, 1, 0) - 60) < 0.5);
+  eq('beam renders within 200 display m', ORB_BEAM_RENDER_M, 200);
+  eq('sphere horizon is 150 display m', ORB_RENDER_M, 150);
+  eq('render set caps at 48 nearest orbs', ORB_RENDER_MAX, 48);
   const a = orbForCell(107, 133);
   const b = orbForCell(107, 133);
   t('same cell → identical orb', JSON.stringify(a) === JSON.stringify(b));
@@ -121,11 +144,22 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   t('bright-gold, silver and deep-gold stay in the floor loop only',
     !ORB_COLORS.includes('bright-gold') && !ORB_COLORS.includes('silver') && !ORB_COLORS.includes('deep-gold'));
   eq('orb cell lookup round-trips', orbCellFor(a.lat, a.lon).key, a.cellKey);
-  const nearList = orbsNear(53.5462, -113.4912, 60000);
-  t('orbsNear finds orbs within 60 km', nearList.length >= 1 && nearList.length <= 12);
+  const nearList = orbsNear(53.5462, -113.4912, 60);
+  t('orbsNear finds orbs within 60 display m', nearList.length >= 1 && nearList.length <= 30);
   for (const o of nearList) {
-    t('every returned orb is within range', haversineM(53.5462, -113.4912, o.lat, o.lon) <= 60000);
+    t('every returned orb is within range', haversineDisplayM(53.5462, -113.4912, o.lat, o.lon) <= 60);
   }
+  // The render set: nearest first, capped, every orb a prespawned
+  // grid orb (cell round-trips) — nothing anchored to a car.
+  const renderSet = nearestOrbs(53.5462, -113.4912, ORB_BEAM_RENDER_M, ORB_RENDER_MAX);
+  t('render set caps at ORB_RENDER_MAX', renderSet.length <= ORB_RENDER_MAX);
+  t('render set is nearest first', renderSet.every((o, i) => i === 0
+    || haversineDisplayM(53.5462, -113.4912, renderSet[i - 1].lat, renderSet[i - 1].lon)
+    <= haversineDisplayM(53.5462, -113.4912, o.lat, o.lon) + 1e-9));
+  t('every rendered orb is a prespawned grid orb (cell round-trips)',
+    renderSet.every((o) => orbCellFor(o.lat, o.lon).key === o.cellKey));
+  t('every rendered orb is within beam range',
+    renderSet.every((o) => haversineDisplayM(53.5462, -113.4912, o.lat, o.lon) <= ORB_BEAM_RENDER_M));
   // The trigger and the beam are unchanged by the resize.
   eq('orb trigger radius stays 6 m', ORB_TRIGGER_RADIUS_M, 6);
 }
@@ -146,7 +180,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const state = createKartState();
   const orb = orbForCell(107, 133);
   // Drive a short segment straight through the orb.
-  const dLat = 0.00005; // ~5.5 m
+  const dLat = 3 / 60; // 3 display m each side of the orb
   const drive = (nowMs) => collectOrbs(state, {
     lat: orb.lat + dLat, lon: orb.lon,
     prevLat: orb.lat - dLat, prevLon: orb.lon,
@@ -175,11 +209,20 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   // A parallel pass 20 m away misses.
   const state3 = createKartState();
   const miss = collectOrbs(state3, {
-    lat: orb.lat + 0.0002, lon: orb.lon + 0.0002,
-    prevLat: orb.lat - 0.0002, prevLon: orb.lon + 0.0002,
+    lat: orb.lat + 20 / 60, lon: orb.lon + 20 / 60,
+    prevLat: orb.lat - 20 / 60, prevLon: orb.lon + 20 / 60,
     driving: true, nowMs: 1000,
   }, (o) => collectPlayerMissile(state3, o));
   eq('a pass 20 m off the orb misses', miss.collected.length, 0);
+  // A pass 10 display m off the orb misses too (trigger is 6 m):
+  // the drive runs east-west, offset 10 display m north of the orb.
+  const state4 = createKartState();
+  const nearMiss = collectOrbs(state4, {
+    lat: orb.lat + 10 / 60, lon: orb.lon + 10 / 60,
+    prevLat: orb.lat + 10 / 60, prevLon: orb.lon - 10 / 60,
+    driving: true, nowMs: 1000,
+  }, (o) => collectPlayerMissile(state4, o));
+  eq('a pass 10 m off the orb misses (trigger is 6 m)', nearMiss.collected.length, 0);
 }
 
 // --- Missile wears its orb's colour — the orb's VIDEO wrap ---
@@ -222,8 +265,8 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   // A rival BEHIND the driver (100 m south) and one AHEAD (300 m north).
   // The old forward-cone rule would have locked the one ahead; the
   // heat-seeker locks whoever is closest to the missile — behind wins.
-  const behind = { kind: 'rival', id: 'rival-behind', lat: -0.0009, lon: 0, speedMps: 50 };
-  const ahead = { kind: 'rival', id: 'rival-ahead', lat: 0.0027, lon: 0, speedMps: 50 };
+  const behind = { kind: 'rival', id: 'rival-behind', lat: -100 / 60, lon: 0, speedMps: 50 };
+  const ahead = { kind: 'rival', id: 'rival-ahead', lat: 300 / 60, lon: 0, speedMps: 50 };
   const lock = nearestTarget({ lat: 0, lon: 0, vehicles: [player, behind, ahead], excludeKind: 'player', excludeId: 'test-driver' });
   eq('lock is the closest vehicle, even behind the driver', lock.id, 'rival-behind');
   const torp = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, behind, ahead] });
@@ -239,7 +282,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   });
   eq('a peer at the launch point locks (owner never does)', sameSpot.id, 'peer-near');
   // Nothing in range → no lock, straight flight, fizzle at 600 m.
-  const far = { kind: 'rival', id: 'rival-far', lat: 0.01, lon: 0, speedMps: 50 }; // ~1113 m
+  const far = { kind: 'rival', id: 'rival-far', lat: 1200 / 60, lon: 0, speedMps: 50 }; // 1200 display m
   const noLock = nearestTarget({ lat: 0, lon: 0, vehicles: [player, far], excludeKind: 'player', excludeId: 'test-driver' });
   eq('nothing within 600 m → no lock', noLock, null);
   const state2 = createKartState();
@@ -264,20 +307,20 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const state = createKartState();
   state.missiles = 1;
   const player = { kind: 'player', id: 'test-driver', lat: 0, lon: 0, yawDeg: 0, speedMps: 0 };
-  const a = { kind: 'rival', id: 'rival-a', lat: 0.0027, lon: 0, speedMps: 0 }; // 300 m north
-  const b = { kind: 'rival', id: 'rival-b', lat: 0, lon: 0.0036, speedMps: 0 }; // 400 m east
+  const a = { kind: 'rival', id: 'rival-a', lat: 300 / 60, lon: 0, speedMps: 0 }; // 300 display m north
+  const b = { kind: 'rival', id: 'rival-b', lat: 0, lon: 400 / 60, speedMps: 0 }; // 400 display m east
   const torp = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, a, b] });
   eq('initial lock is the closer rival', torp.targetId, 'rival-a');
   // Fly a few frames toward A (300 m/s → ~5 m/frame).
   for (let i = 0; i < 10; i++) {
     stepTorpedoes(state, { dt: 0.016, nowMs: 1000 + i * 16, vehicles: [player, a, b] });
   }
-  t('torpedo has moved north toward A', torp.lat > 0.0003);
+  t('torpedo has moved north toward A', torp.lat > 4 / 60);
   eq('lock is still A before anyone crosses closer', torp.targetId, 'rival-a');
   // B crosses in close — 40 m east of the missile's current spot,
   // while A is still ~250 m away.
   b.lat = torp.lat;
-  b.lon = torp.lon + 0.00036; // ~40 m east at the equator
+  b.lon = torp.lon + 40 / 60; // 40 display m east at the equator
   stepTorpedoes(state, { dt: 0.016, nowMs: 2000, vehicles: [player, a, b] });
   eq('a closer passer-by STEALS the lock mid-flight', torp.targetId, 'rival-b');
   eq('the stolen lock carries the new kind too', torp.targetKind, 'rival');
@@ -292,15 +335,15 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const player = { kind: 'player', id: 'test-driver', lat: 0, lon: 0, yawDeg: 0, speedMps: 0 };
   eq('Fire at 0 missiles returns null', fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player] }), null);
   state.missiles = 2;
-  const slow = { kind: 'rival', id: 'rival-slow', lat: 0.001, lon: 0, speedMps: 100 };
+  const slow = { kind: 'rival', id: 'rival-slow', lat: 100 / 60, lon: 0, speedMps: 100 };
   const t1 = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, slow] });
   eq('one tap spends exactly one missile', state.missiles, 1);
   eq('slow target → floor speed 300 m/s', t1.speedMps, TORPEDO_MIN_SPEED_MPS);
-  const fast = { kind: 'rival', id: 'rival-fast', lat: 0.001, lon: 0, speedMps: 400 };
+  const fast = { kind: 'rival', id: 'rival-fast', lat: 100 / 60, lon: 0, speedMps: 400 };
   const t2 = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, fast] });
   eq('fast target → 1.3× target speed', t2.speedMps, 400 * TORPEDO_SPEED_FACTOR);
   // A rival's torpedo locks the player when only the player is known.
-  const rival = { id: 'rival-x', lat: 0.001, lon: 0, yawDeg: 180, missiles: 1, missileColors: ['cyan'], lastOrbColor: 'cyan' };
+  const rival = { id: 'rival-x', lat: 100 / 60, lon: 0, yawDeg: 180, missiles: 1, missileColors: ['cyan'], lastOrbColor: 'cyan' };
   const rt = fireRivalTorpedo(state, rival, { nowMs: 1000, player: { lat: 0, lon: 0, speedMps: 0 } });
   eq('rival torpedo targets the player', rt.targetKind, 'player');
   eq('rival torpedo wears its orb colour', rt.color, 'cyan');
@@ -314,7 +357,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const state = createKartState();
   state.missiles = 1;
   const player = { kind: 'player', id: 'test-driver', lat: 0, lon: 0, yawDeg: 0, speedMps: 0 };
-  const target = { kind: 'rival', id: 'rival-hit', lat: 0.0009, lon: 0, speedMps: 0 }; // 100 m north
+  const target = { kind: 'rival', id: 'rival-hit', lat: 100 / 60, lon: 0, speedMps: 0 }; // 100 display m north
   fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, target] });
   let hit = null;
   for (let i = 0; i < 50 && !hit; i++) {
@@ -324,7 +367,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   t('the torpedo reaches and hits its target', !!hit);
   eq('hit names the target kind', hit.targetKind, 'rival');
   eq('hit names the target id', hit.targetId, 'rival-hit');
-  t('hit lands at the target', near(hit.lat, target.lat, 0.0001) && near(hit.lon, target.lon, 0.0001));
+  t('hit lands at the target (within the 8 m hit radius)', near(hit.lat, target.lat, 8 / 60 + 0.01) && near(hit.lon, target.lon, 8 / 60 + 0.01));
   eq('the torpedo is gone after the hit', state.torpedoes.length, 0);
   resetKartStateForTests();
   setKartClientId(null);
@@ -357,7 +400,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const state = createKartState();
   state.missiles = 1;
   const player = { kind: 'player', id: 'test-driver', lat: 0, lon: 0, yawDeg: 0, speedMps: 0 };
-  const ghost = { kind: 'rival', id: 'rival-ghost', lat: 0.0001, lon: 0, speedMps: 0, invulnUntilMs: 999999 };
+  const ghost = { kind: 'rival', id: 'rival-ghost', lat: 100 / 60, lon: 0, speedMps: 0, invulnUntilMs: 999999 };
   fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, ghost] });
   let anyHit = false;
   for (let i = 0; i < 20; i++) {
@@ -417,7 +460,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const ids = new Set(r1.map((r) => r.id));
   eq('rival ids are unique', ids.size, 5);
   for (const r of r1) {
-    const d = haversineM(53.5, -113.5, r.lat, r.lon);
+    const d = haversineDisplayM(53.5, -113.5, r.lat, r.lon);
     t(`rival ${r.id} spawns 800–1500 m out (${Math.round(d)} m)`, d >= 800 && d <= 1500);
     t(`rival ${r.id} holds 0 missiles at spawn`, r.missiles === 0);
     eq(`rival ${r.id} starts at full integrity`, r.integrity, INTEGRITY_MAX);
@@ -444,12 +487,12 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const mk = () => buildRivals({ playerLat: 53.5, playerLon: -113.5, playerCraftId: 'wedge-supercar' });
   const rivals = mk();
   for (const r of rivals) {
-    const d = haversineM(53.5, -113.5, r.lat, r.lon);
+    const d = haversineDisplayM(53.5, -113.5, r.lat, r.lon);
     t(`rival ${r.id} spawns >= 25 m from the player (${Math.round(d)} m)`, d >= SPAWN_MIN_SEPARATION_M);
   }
   for (let i = 0; i < rivals.length; i++) {
     for (let j = i + 1; j < rivals.length; j++) {
-      const d = haversineM(rivals[i].lat, rivals[i].lon, rivals[j].lat, rivals[j].lon);
+      const d = haversineDisplayM(rivals[i].lat, rivals[i].lon, rivals[j].lat, rivals[j].lon);
       t(`rivals ${rivals[i].id} / ${rivals[j].id} spawn >= 25 m apart (${Math.round(d)} m)`,
         d >= SPAWN_MIN_SEPARATION_M);
     }
@@ -459,9 +502,9 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
     const rs = buildRivals({ playerLat: 0, playerLon: 0, playerCraftId: 'wedge-supercar', seed });
     let ok = true;
     for (let i = 0; i < rs.length; i++) {
-      if (haversineM(0, 0, rs[i].lat, rs[i].lon) < SPAWN_MIN_SEPARATION_M) ok = false;
+      if (haversineDisplayM(0, 0, rs[i].lat, rs[i].lon) < SPAWN_MIN_SEPARATION_M) ok = false;
       for (let j = i + 1; j < rs.length; j++) {
-        if (haversineM(rs[i].lat, rs[i].lon, rs[j].lat, rs[j].lon) < SPAWN_MIN_SEPARATION_M) ok = false;
+        if (haversineDisplayM(rs[i].lat, rs[i].lon, rs[j].lat, rs[j].lon) < SPAWN_MIN_SEPARATION_M) ok = false;
       }
     }
     t(`seed ${seed}: all rivals >= 25 m apart and >= 25 m from the player`, ok);
@@ -469,13 +512,13 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   // spawnPointClearOf unit checks (the pure helper buildRivals uses).
   t('clear point passes', spawnPointClearOf(0, 0, [{ lat: 1, lon: 1 }]) === true);
   t('point 10 m from another fails',
-    spawnPointClearOf(0, 0, [{ lat: 0.00009, lon: 0 }]) === false);
+    spawnPointClearOf(0, 0, [{ lat: 10 / 60, lon: 0 }]) === false);
   t('point 30 m from another passes (minimum is 25)',
-    spawnPointClearOf(0, 0, [{ lat: 30 / 111320, lon: 0 }]) === true);
+    spawnPointClearOf(0, 0, [{ lat: 30 / 60, lon: 0 }]) === true);
   t('empty others list passes', spawnPointClearOf(0, 0, []) === true);
   t('custom minimum respected',
-    spawnPointClearOf(0, 0, [{ lat: 0.0004, lon: 0 }], 50) === false
-    && spawnPointClearOf(0, 0, [{ lat: 0.0004, lon: 0 }], 40) === true);
+    spawnPointClearOf(0, 0, [{ lat: 45 / 60, lon: 0 }], 50) === false
+    && spawnPointClearOf(0, 0, [{ lat: 45 / 60, lon: 0 }], 40) === true);
 }
 
 // --- Globe click: world point → lat/lon round-trip ---
@@ -512,29 +555,29 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 
   // separateFrom: overlapping pair → b lands exactly at the gap.
   const a = { lat: 53.5, lon: -113.5 };
-  const close = { lat: 53.5 + 3 / 111320, lon: -113.5 }; // 3 m north
+  const close = { lat: 53.5 + 3 / 60, lon: -113.5 }; // 3 display m north
   const pushed = separateFrom(a, close, 4.6, 4.6);
-  const pushedD = haversineM(a.lat, a.lon, pushed.lat, pushed.lon);
+  const pushedD = haversineDisplayM(a.lat, a.lon, pushed.lat, pushed.lon);
   t('separateFrom pushes b to exactly the gap', Math.abs(pushedD - 5.6) < 0.01);
-  const far = { lat: 53.5 + 30 / 111320, lon: -113.5 };
+  const far = { lat: 53.5 + 30 / 60, lon: -113.5 }; // 30 display m north, past the gap
   const kept = separateFrom(a, far, 4.6, 4.6);
   t('separateFrom leaves a clear pair untouched', kept.lat === far.lat && kept.lon === far.lon);
   const same = separateFrom(a, { lat: 53.5, lon: -113.5 }, 4.6, 4.6);
-  const sameD = haversineM(a.lat, a.lon, same.lat, same.lon);
+  const sameD = haversineDisplayM(a.lat, a.lon, same.lat, same.lon);
   t('separateFrom pushes a coincident pair apart to the gap', Math.abs(sameD - 5.6) < 0.01);
 
   // separateVehicles: the player (fixed) never moves; a rival
   // inside the gap is pushed out; rival pairs separate too.
   const player = { lat: 53.5, lon: -113.5, fixed: true };
-  const rival = { lat: 53.5 + 2 / 111320, lon: -113.5, craftId: 'sports-car' };
-  const rival2 = { lat: 53.5 + 2.5 / 111320, lon: -113.5 + 2 / 111320, craftId: 'sports-car' };
+  const rival = { lat: 53.5 + 2 / 60, lon: -113.5, craftId: 'sports-car' }; // 2 display m north
+  const rival2 = { lat: 53.5 + 2.5 / 60, lon: -113.5 + 2 / 60, craftId: 'sports-car' };
   const lenOf = (v) => (v.fixed ? 4.6 : (getVehicle(v.craftId) || {}).lengthM || 4.6);
   const moved = separateVehicles([player, rival, rival2], lenOf);
   t('separateVehicles moves the overlapping rivals', moved > 0);
   t('player never moves (fixed — the camera anchor)',
     player.lat === 53.5 && player.lon === -113.5);
   for (const [x, y, name] of [[player, rival, 'player/rival'], [player, rival2, 'player/rival2'], [rival, rival2, 'rival/rival2']]) {
-    const d = haversineM(x.lat, x.lon, y.lat, y.lon);
+    const d = haversineDisplayM(x.lat, x.lon, y.lat, y.lon);
     t(`${name} end >= gap apart (${d.toFixed(2)} m)`, d >= vehicleGapM(lenOf(x), lenOf(y)) - 0.01);
   }
   // A pair of fixed vehicles is left alone (the caller must not
@@ -545,7 +588,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   // A clear set moves nothing.
   const clearSet = [
     { lat: 53.5, lon: -113.5, fixed: true },
-    { lat: 53.5 + 30 / 111320, lon: -113.5, craftId: 'sports-car' },
+    { lat: 53.5 + 30 / 60, lon: -113.5, craftId: 'sports-car' }, // 30 display m out
   ];
   eq('a clear set moves nothing', separateVehicles(clearSet, lenOf), 0);
 
@@ -568,7 +611,7 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
       if (p.lat !== 53.5 || p.lon !== -113.5) playerMoved = true;
       for (const r of state.rivals) {
         const gap = vehicleGapM(4.6, (getVehicle(r.craftId) || {}).lengthM || 4.6);
-        worstClearance = Math.min(worstClearance, haversineM(p.lat, p.lon, r.lat, r.lon) - gap);
+        worstClearance = Math.min(worstClearance, haversineDisplayM(p.lat, p.lon, r.lat, r.lon) - gap);
       }
     }
     t(`seed ${seed}: 15 s of rival driving, none ever inside its gap (worst clearance ${worstClearance.toFixed(2)} m)`,
@@ -584,12 +627,12 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   const rivals = buildRivals({ playerLat: tap.lat, playerLon: tap.lon, playerCraftId: 'wedge-supercar' });
   const keptTap = clearSpawnPoint(tap.lat, tap.lon, rivals);
   t('a clear tap stands exactly as tapped', keptTap.lat === tap.lat && keptTap.lon === tap.lon);
-  const occupied = [{ lat: tap.lat + 10 / 111320, lon: tap.lon }]; // 10 m away
+  const occupied = [{ lat: tap.lat + 10 / 60, lon: tap.lon }]; // 10 display m away
   const movedTap = clearSpawnPoint(tap.lat, tap.lon, occupied);
-  const movedTapD = haversineM(movedTap.lat, movedTap.lon, occupied[0].lat, occupied[0].lon);
+  const movedTapD = haversineDisplayM(movedTap.lat, movedTap.lon, occupied[0].lat, occupied[0].lon);
   t('an occupied tap walks to >= 25 m from the vehicle', movedTapD >= 25 - 0.01);
   t('the walked tap stays near the tap (<= 100 m)',
-    haversineM(movedTap.lat, movedTap.lon, tap.lat, tap.lon) <= 100.01);
+    haversineDisplayM(movedTap.lat, movedTap.lon, tap.lat, tap.lon) <= 100.01);
   const again = clearSpawnPoint(tap.lat, tap.lon, occupied);
   t('clearSpawnPoint is deterministic', again.lat === movedTap.lat && again.lon === movedTap.lon);
   const emptyTap = clearSpawnPoint(tap.lat, tap.lon, []);
@@ -597,9 +640,9 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
 
   // respawnFor / advanceHit with others: a clear blast spot
   // stands exactly; an occupied one walks 25 m clear.
-  const blast = respawnFor(10, 20, 8000, [{ lat: 10 + 5 / 111320, lon: 20 }]);
+  const blast = respawnFor(10, 20, 8000, [{ lat: 10 + 5 / 60, lon: 20 }]);
   t('occupied blast spot walks >= 25 m clear',
-    haversineM(blast.lat, blast.lon, 10 + 5 / 111320, 20) >= 25 - 0.01);
+    haversineDisplayM(blast.lat, blast.lon, 10 + 5 / 60, 20) >= 25 - 0.01);
   eq('respawn still restores integrity', blast.integrity, INTEGRITY_MAX);
   eq('respawn still stops the vehicle', blast.speed, 0);
   eq('respawn still grants 3 s invulnerability', blast.invulnUntilMs, 8000 + INVULN_MS);
@@ -609,16 +652,83 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   t('no others → the blast spot stands exactly', noOthers.lat === 10 && noOthers.lon === 20);
   const hit = createHit();
   startHit(hit, { lat: 10, lon: 20, nowMs: 1000 });
-  advanceHit(hit, 1000 + FLIP_MS, [{ lat: 10 + 5 / 111320, lon: 20 }]);
-  const adv = advanceHit(hit, 1000 + FLIP_MS + EXPLODE_MS, [{ lat: 10 + 5 / 111320, lon: 20 }]);
+  advanceHit(hit, 1000 + FLIP_MS, [{ lat: 10 + 5 / 60, lon: 20 }]);
+  const adv = advanceHit(hit, 1000 + FLIP_MS + EXPLODE_MS, [{ lat: 10 + 5 / 60, lon: 20 }]);
   t('advanceHit respawn walks off an occupied blast spot',
-    adv.respawn && haversineM(adv.respawn.lat, adv.respawn.lon, 10 + 5 / 111320, 20) >= 25 - 0.01);
+    adv.respawn && haversineDisplayM(adv.respawn.lat, adv.respawn.lon, 10 + 5 / 60, 20) >= 25 - 0.01);
   const hit2 = createHit();
   startHit(hit2, { lat: 10, lon: 20, nowMs: 1000 });
   advanceHit(hit2, 1000 + FLIP_MS);
   const adv2 = advanceHit(hit2, 1000 + FLIP_MS + EXPLODE_MS);
   t('advanceHit without others respawns at the blast spot exactly',
     adv2.respawn && adv2.respawn.lat === 10 && adv2.respawn.lon === 20);
+}
+
+// --- Speedometer: actual movement, clamped + smoothed (item 4,
+// Merlin's 55.9 s Muscle Car video, 2026-11-16) ---
+{
+  eq('needle time constant is 400 ms', SPEEDO_SMOOTH_TAU_MS, 400);
+  eq('needle slew cap is 500 km/h per second', SPEEDO_MAX_SLEW_KMH_PER_S, 500);
+  eq('needle snap band is 1 km/h', SPEEDO_SNAP_KMH, 1);
+  eq('teleport tolerance is 1.02× top speed', SPEEDO_TELEPORT_TOLERANCE, 1.02);
+
+  // Displacement: 100 display m in 1 s is 360 km/h. The needle
+  // measures movement, not the commanded speed — and in display
+  // metres, the unit the car actually drives in (1 deg = 60
+  // display m on the 55-unit globe).
+  t('displacement speed: 100 display m in 1 s reads 360 km/h',
+    near(displacementSpeedKmh(0, 0, 100 / 60, 0, 1000), 360, 0.5));
+  eq('displacement speed is 0 with no elapsed time',
+    displacementSpeedKmh(0, 0, 0.001, 0, 0), 0);
+  eq('displacement speed is 0 with a bad fix',
+    displacementSpeedKmh(0, 0, NaN, 0, 1000), 0);
+  eq('displacement speed is 0 standing still',
+    displacementSpeedKmh(10, 20, 10, 20, 250), 0);
+
+  // Clamp + slew: a raw 9999 km/h against a 1601 top never
+  // shows above the top — and never jumps more than 125 km/h
+  // in one 250 ms poll (500 km/h per second).
+  t('smoothed speed never exceeds the top speed',
+    near(smoothSpeedKmh(0, 9999, 250, 1601), 125, 0.01));
+  // The video's cliff, 375 → 29 in one poll, becomes 375 → 250:
+  // the needle sweeps down instead of cliff-diving.
+  t('a 375 → 29 raw step moves the needle to 250, not 29',
+    near(smoothSpeedKmh(375, 29, 250, 1601), 250, 0.01));
+  eq('needle snaps inside 1 km/h', smoothSpeedKmh(100, 100.5, 250, 1601), 100.5);
+  eq('needle holds with no elapsed time', smoothSpeedKmh(375, 0, 0, 1601), 375);
+  eq('negative raw speed reads 0', smoothSpeedKmh(0, -50, 250, 1601), 0);
+  let v = 0;
+  for (let i = 0; i < 20; i++) v = smoothSpeedKmh(v, 500, 250, 1601);
+  t('needle converges on a held speed', near(v, 500, 1));
+
+  // One poll's state: first fix baselines at 0 (spawn speed is 0).
+  const first = stepDisplaySpeed(null, { lat: 0, lon: 0 }, 250, 1601);
+  t('first fix baselines the needle at 0',
+    first.kmh === 0 && first.lat === 0 && first.lon === 0);
+  // Steady driving: 100 display m in 1 s → raw 360, smoothed
+  // from 0 with tau 400 ms → 330.4 (slew cap 500 does not bind).
+  // This is the stuck-at-0 regression pin: the old haversineM
+  // read this step 1,855x high, tripped the teleport guard every
+  // poll, and the needle HELD at 0 while driving.
+  const driving = stepDisplaySpeed({ kmh: 0, lat: 0, lon: 0 }, { lat: 100 / 60, lon: 0 }, 1000, 1601);
+  t('steady driving reads the real displacement speed (not stuck at 0)',
+    near(driving.kmh, 330.4, 1) && driving.lat === 100 / 60);
+  // Teleport / respawn jump: 1112 display m in 250 ms is
+  // 16012 km/h — far past the top — so the baseline moves but
+  // the needle HOLDS at 100 instead of reading top speed for a
+  // poll.
+  const jumped = stepDisplaySpeed({ kmh: 100, lat: 0, lon: 0 }, { lat: 1112 / 60, lon: 0 }, 250, 1601);
+  t('a teleport jump re-baselines but holds the needle',
+    jumped.kmh === 100 && jumped.lat === 1112 / 60);
+  // Against a wall (or in a fall — the fix does not move): no
+  // displacement, so the needle decays from 375 toward 0
+  // instead of reading the commanded speed.
+  const stuck = stepDisplaySpeed({ kmh: 375, lat: 10, lon: 20 }, { lat: 10, lon: 20 }, 250, 1601);
+  t('no displacement decays the needle (wall / fall)',
+    near(stuck.kmh, 250, 0.01));
+  // A bad fix holds the previous state.
+  const bad = stepDisplaySpeed({ kmh: 50, lat: 0, lon: 0 }, { lat: NaN, lon: 0 }, 250, 1601);
+  t('a bad fix holds the previous state', bad.kmh === 50 && bad.lat === 0);
 }
 
 console.log(`earth1-kart: ${passed} passed, ${failed} failed`);

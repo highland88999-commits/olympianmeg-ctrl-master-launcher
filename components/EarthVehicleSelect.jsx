@@ -49,6 +49,7 @@ import {
 } from '@/lib/earth/vehicle-model';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import VehicleSelectMenu from '@/components/world/VehicleSelectMenu';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import { earthVehicleOptions } from '@/lib/world/vehicle-select';
 
 // The preview box is ~2 hub units across at the camera's depth,
@@ -99,46 +100,89 @@ function PreviewTurntable({ model, fitScale = 1 }) {
 function VehiclePreview({ craftId }) {
   const [model, setModel] = useState(() => getVehicleModel(craftId));
   const [failed, setFailed] = useState(false);
+  // Sticky preview (Merlin, 2026-11-16 — Earth 1 video: every
+  // swipe blanked to "Loading…" for 1–2 s while the next GLB
+  // downloaded). The last shown model stays on the turntable
+  // until the new one arrives — a swipe never blanks the box.
+  // The loading line survives as a small chip over the old car,
+  // and as the full box only when nothing has shown yet.
+  const prevModelRef = useRef(model);
   useEffect(() => {
-    setModel(getVehicleModel(craftId));
+    const cached = getVehicleModel(craftId);
+    setModel(cached);
     setFailed(false);
+    if (cached) {
+      prevModelRef.current = cached;
+      return undefined;
+    }
     // ensureVehicleModel caches null on failure (never a crash)
     // — a settled load with no model is the honest failure.
+    let alive = true;
     void ensureVehicleModel(craftId).then(() => {
-      if (!getVehicleModel(craftId)) setFailed(true);
+      if (alive && !getVehicleModel(craftId)) setFailed(true);
     });
     const unsub = subscribeVehicleModel(({ id, model: m }) => {
-      if (id === craftId) setModel(m);
+      if (id === craftId && m) {
+        prevModelRef.current = m;
+        setModel(m);
+      }
     });
-    return unsub;
+    return () => {
+      alive = false;
+      unsub();
+    };
   }, [craftId]);
   const craft = getVehicle(craftId);
-  if (failed) {
+  // The model on screen: this craft's, or the last one shown
+  // while the next still downloads. Nothing to show yet on the
+  // very first load — the honest loading line stands alone.
+  const shown = model || prevModelRef.current;
+  if (failed && !shown) {
     return (
       <div className="flex h-48 w-full items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 text-center text-[11px] text-zinc-400">
         Model failed to load — pick another vehicle.
       </div>
     );
   }
-  if (!model) {
+  if (!shown) {
     return (
       <div className="flex h-48 w-full items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900/60 text-[11px] text-zinc-500 animate-pulse">
         Loading {craft ? craft.name : 'vehicle'}…
       </div>
     );
   }
+  const loadingNext = !model && !failed;
+  const failedNext = !model && failed;
   return (
-    <div className="h-48 w-full overflow-hidden rounded-lg border border-cyan-500/30 bg-zinc-900/60">
-      {/* The preview Canvas carries its own minimal lights
-          (ambient + one directional), confined to this box —
-          it never touches the globe scene's lighting. The
-          camera sits 6 units out (was 9): the ~2-unit fitted
-          model fills ~40% of the frame instead of ~1%. */}
+    <div className="relative h-48 w-full overflow-hidden rounded-lg border border-cyan-500/30" style={{ background: 'linear-gradient(180deg, #4a4f5c 0%, #262932 100%)' }}>
+      {/* Preview lighting (Merlin, 2026-11-16 — Earth 1 video:
+          black cars were nearly invisible against the black box:
+          one dim key light + a near-black background). Brighter
+          ambient, a second fill light from the opposite side, a
+          lighter box and a floor disc under the car, so black
+          paint reads against the box. The camera stays pulled in
+          at [0, 1.2, 6] (round 2 pin) — the ~2-unit fitted model
+          still fills the frame. */}
       <Canvas camera={{ position: [0, 1.2, 6], fov: 45 }} dpr={[1, 2]}>
-        <ambientLight intensity={0.9} />
-        <directionalLight position={[5, 8, 5]} intensity={1.4} />
-        <PreviewTurntable model={model} fitScale={previewFitScale(craft)} />
+        <ambientLight intensity={2.0} />
+        <directionalLight position={[5, 8, 5]} intensity={2.2} />
+        <directionalLight position={[-6, 3, -5]} intensity={1.0} />
+        <mesh rotation-x={-Math.PI / 2} position-y={0}>
+          <circleGeometry args={[1.7, 48]} />
+          <meshBasicMaterial color="#2e323c" />
+        </mesh>
+        <PreviewTurntable model={shown} fitScale={previewFitScale(craft)} />
       </Canvas>
+      {loadingNext && (
+        <div className="absolute left-2 top-2 z-10 rounded-full border border-cyan-500/40 bg-zinc-950/85 px-2.5 py-1 text-[10px] text-zinc-300 animate-pulse">
+          Loading {craft ? craft.name : 'vehicle'}…
+        </div>
+      )}
+      {failedNext && (
+        <div className="absolute left-2 top-2 z-10 rounded-full border border-red-500/40 bg-zinc-950/85 px-2.5 py-1 text-[10px] text-zinc-300">
+          Model failed to load — pick another vehicle.
+        </div>
+      )}
     </div>
   );
 }
@@ -148,6 +192,36 @@ export default function EarthVehicleSelect({ onSelect, onCancel, onPickModeChang
   const [selected, setSelected] = useState(DEFAULT_CRAFT_ID);
   const [step, setStep] = useState('select');
   const craft = getVehicle(selected);
+
+  // Background preload (Merlin, 2026-11-16 — Earth 1 video: every
+  // swipe waited 1–2 s on a cold GLB download). The neighbours of
+  // the current pick load on every selection change, and a slow
+  // sequential sweep walks the rest of the roster once — one GLB
+  // at a time, so the phone never juggles 19 parallel downloads.
+  // The loader caches per session, so the street drive reuses
+  // every model warmed here.
+  useEffect(() => {
+    const idx = vehicles.findIndex((v) => v.id === selected);
+    [vehicles[idx], vehicles[idx + 1], vehicles[idx - 1]].forEach((v) => {
+      if (v) void ensureVehicleModel(v.id);
+    });
+  }, [selected, vehicles]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      for (const v of vehicles) {
+        if (cancelled) return;
+        try {
+          await ensureVehicleModel(v.id);
+        } catch {
+          /* a failed model stays absent; the sweep walks on */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [vehicles]);
 
   const enterPick = () => {
     onSelect(selected);
@@ -175,19 +249,19 @@ export default function EarthVehicleSelect({ onSelect, onCancel, onPickModeChang
           <div className="mt-1 text-[11px] text-zinc-400">
             {craft ? `${craft.emoji} ${craft.name}` : 'Your vehicle'} — you spawn where you tap, already driving.
           </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              onClick={backToSelect}
-              className="flex-1 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-cyan-500/50 hover:text-white transition-all"
-            >
-              ← Back to vehicles
-            </button>
-            <button
-              onClick={cancel}
-              className="flex-1 py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-red-500/50 hover:text-white transition-all"
-            >
-              ✕ Cancel
-            </button>
+          {/* Circle Orb Controls Law (Merlin, Nov 16 — standing):
+              the spawn sheet's two controls are plain circular
+              OrbButton orbs, never rectangles. BACK wears no
+              function face (it returns to the vehicle list, not
+              the hub); CANCEL wears the shared close face. */}
+          <div className="mt-3 flex items-start justify-center gap-6">
+            <OrbButton ariaLabel="Back to vehicles" title="Back to vehicles" onClick={backToSelect}>
+              <span aria-hidden="true" className="text-xl leading-none">←</span>
+              <OrbLabel>BACK</OrbLabel>
+            </OrbButton>
+            <OrbButton fn="close" ariaLabel="Cancel — back to hub" title="Cancel" onClick={cancel}>
+              <OrbLabel>CLOSE</OrbLabel>
+            </OrbButton>
           </div>
         </div>
       </div>
@@ -237,9 +311,18 @@ export default function EarthVehicleSelect({ onSelect, onCancel, onPickModeChang
             selector: the list rows this replaced were the old
             rectangular picker. */}
         <div className="flex min-h-0 flex-col overflow-y-auto custom-scrollbar pt-3">
+          {/* columns={4} (overlap audit, Merlin Nov 16): the
+              menu's default 5 columns need 5×56 + 4×10 = 320 px,
+              but this sheet's panel inner width is 292 px at 390
+              wide (352 sheet − 32 padding − 28 panel padding)
+              and 271 px at 360 — the 5th column was clipped 14 px
+              at 390 and ~35 px at 360 by the sheet's own scroller.
+              4 columns need 254 px and fit both widths; the 19
+              orbs still scroll vertically inside the same box. */}
           <VehicleSelectMenu
             embedded
             showTitle={false}
+            columns={4}
             options={earthVehicleOptions(vehicles)}
             selectedId={selected}
             onSelect={(opt) => setSelected(opt.id)}

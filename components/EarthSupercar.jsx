@@ -8,8 +8,8 @@ import { surfaceRadiusOrBase } from '@/lib/earth/heightmap';
 import { DISPLAY_UNITS_PER_METRE } from '@/lib/earth/placements';
 import { roamState, tangentFrame, headingVector, forwardOnlyStep } from '@/lib/earth/roam';
 import { carState } from '@/lib/earth/parachute';
-import { getVehicle, resolveCraftId, boostTopSpeed } from '@/lib/earth/vehicles';
-import { readPadBoost } from '@/lib/earth/boost-pads';
+import { getVehicle, resolveCraftId, boostTopSpeed, clampFlightSpeed } from '@/lib/earth/vehicles';
+import { readPadBoost, PAD_BOOST_MULT } from '@/lib/earth/boost-pads';
 import { getVehicleModel, subscribeVehicleModel, ensureVehicleModel } from '@/lib/earth/vehicle-model';
 import { buildJetFlame, animateJetFlame } from '@/lib/earth/jet-flame';
 import { moveWithCollision } from '@/lib/earth/collision';
@@ -216,7 +216,7 @@ export default function EarthSupercar({ controls }) {
       // throttle the car rolls down at 10/s instead of halting
       // dead the instant the stick is released.
       const next = stepFlight(f, { thrust, turn, pitch: 0, boost, brake }, dt, { ...effTuning, coastRate: 10 });
-      carState.speed = next.speed;
+      carState.speed = clampFlightSpeed(next.speed, craft, pad.active ? PAD_BOOST_MULT : 1);
       carState.yawDeg = ((next.yaw * 180) / Math.PI) % 360;
 
       // Great-circle step along the heading (same stepping as

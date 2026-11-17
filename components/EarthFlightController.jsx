@@ -316,7 +316,7 @@ export default function EarthFlightController({
     if ((launchState === 'diving_to_street' || launchState === 'earth_roam') && getInteriorAltM() <= 0.05) {
       const camPos = camera.position;
       // Earth center in world space
-      const ex = 0, ey = -60, ez = -120;
+      const ex = 0, ey = -30, ez = -80;
       const dx = camPos.x - ex, dy = camPos.y - ey, dz = camPos.z - ez;
       const distFromCenter = Math.hypot(dx, dy, dz) || 1;
       // Minimum distance: the terrain surface UNDER THE CAMERA +

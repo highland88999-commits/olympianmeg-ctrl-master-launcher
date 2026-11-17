@@ -30,17 +30,21 @@
 // "🚀 TORPEDO!", "💥 BOOM!", lib/earth/kart.js) share one
 // centre pill each — both polled on the same beat.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import { formatCoords } from '@/lib/geo';
 import EarthViewToggle from '@/components/EarthViewToggle';
-import { readBoostNotice } from '@/lib/earth/boost-pads';
+import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { readBoostNotice, readPadBoost, PAD_BOOST_MULT } from '@/lib/earth/boost-pads';
+import { carState } from '@/lib/earth/parachute';
+import { getVehicle, resolveCraftId, topSpeedKmh } from '@/lib/earth/vehicles';
 import { planetSeedFor } from '@/lib/planets/planet-seeds';
 import {
   kartHud,
   readKartNotice,
-  fireFromHud,
+  stepDisplaySpeed,
 } from '@/lib/earth/kart';
+import { fireFromHud } from '@/components/EarthKart';
 
 const MIN_KEY = 'earth-console-minimized';
 
@@ -60,6 +64,18 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
   const [hud, setHud] = useState({ speedKmh: 0, boostActive: false, missiles: 0, hitPhase: 'none' });
   const [boostFlash, setBoostFlash] = useState('');
   const [kartNotice, setKartNotice] = useState('');
+  // The needle is driven by ACTUAL movement (lib/earth/kart.js
+  // stepDisplaySpeed): displacement between polls, clamped to
+  // the craft's top speed and smoothed — it reads 0 against a
+  // wall or in a fall (the car isn't moving), never spikes on a
+  // teleport/respawn jump, and sweeps instead of cliff-diving
+  // hundreds of km/h between polls. kartHud.speedKmh (the raw
+  // commanded speed, written by EarthSupercar) is no longer the
+  // needle. displaySpeedRef holds the smoother's state between
+  // polls ({ kmh, lat, lon } | null); lastPollRef the previous
+  // poll's clock, so the rate is measured, never assumed.
+  const displaySpeedRef = useRef(null);
+  const lastPollRef = useRef(0);
   const [minimized, setMinimized] = useState(() => {
     try { return localStorage.getItem(MIN_KEY) === '1'; } catch { return false; }
   });
@@ -71,9 +87,26 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
 
   useEffect(() => {
     const id = setInterval(() => {
+      const nowMs = performance.now();
+      const dtMs = lastPollRef.current ? nowMs - lastPollRef.current : 250;
+      lastPollRef.current = nowMs;
+      // The needle's cap follows the craft the driver is in —
+      // a pad boost legitimately raises it for 4 s (PAD_BOOST_MULT),
+      // so the cap rises with it instead of pinning under a real
+      // pad boost.
+      const craft = getVehicle(resolveCraftId(carState.craftId));
+      const pad = readPadBoost(nowMs);
+      const topKmh = craft ? topSpeedKmh(craft, pad.active ? PAD_BOOST_MULT : 1) : 0;
+      displaySpeedRef.current = stepDisplaySpeed(
+        displaySpeedRef.current,
+        { lat: carState.lat, lon: carState.lon },
+        dtMs,
+        topKmh,
+      );
+      const shownKmh = Math.round(displaySpeedRef.current ? displaySpeedRef.current.kmh : 0);
       setHud((prev) => {
         const next = {
-          speedKmh: Math.round(kartHud.speedKmh || 0),
+          speedKmh: shownKmh,
           boostActive: !!kartHud.boostActive,
           missiles: kartHud.missiles || 0,
           hitPhase: kartHud.hitPhase || 'none',
@@ -84,11 +117,11 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
           && prev.hitPhase === next.hitPhase ? prev : next;
       });
       setBoostFlash((prev) => {
-        const next = readBoostNotice(performance.now());
+        const next = readBoostNotice(nowMs);
         return prev === next ? prev : next;
       });
       setKartNotice((prev) => {
-        const next = readKartNotice(performance.now());
+        const next = readKartNotice(nowMs);
         return prev === next ? prev : next;
       });
     }, 250);
@@ -161,30 +194,58 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
               mapping system (Merlin, 2026-11-15: the map goes
               away completely) — no pill, no percentage, no
               tracking. */}
-          {atStreet && (
-            <button
-              onClick={onAscend}
-              className="mt-2 w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-cyan-500/50 hover:text-white transition-all"
+          {/* Circle Orb Controls Law (Merlin, Nov 16 — standing):
+              the console's three controls are plain circular
+              OrbButton orbs, never rectangles — the same treatment
+              as the 3RD PERSON / RESET CAMERA orbs in
+              EarthViewToggle and the spawn-sheet BACK / CANCEL
+              orbs. Each wears its shared function face where one
+              fits: OVERLOOK ascends to the elevated view, DRIVE
+              descends to street level, RETURN wears the orbit
+              face. The full wording rides in aria-label + title;
+              the short word rides inside the orb (size 64 so
+              OVERLOOK fits — 56 clips it). Handlers and
+              destinations are unchanged — only the shape changes.
+              The FLIGHT AXIS pill and the 🚀 missile-count pill
+              are ORDERED as pills and live elsewhere — untouched. */}
+          <div className="mt-3 flex items-start justify-center gap-4">
+            {atStreet && (
+              <OrbButton
+                fn="ascend"
+                size={64}
+                accent="#00f2ff"
+                ariaLabel="Overlook"
+                title="Overlook"
+                onClick={onAscend}
+              >
+                <OrbLabel>OVERLOOK</OrbLabel>
+              </OrbButton>
+            )}
+            {atSurface && (
+              <OrbButton
+                fn="descend"
+                size={64}
+                accent="#00f2ff"
+                ariaLabel="Drive"
+                title="Drive"
+                onClick={onStreet}
+                disabled={busy || !focus}
+              >
+                <OrbLabel>DRIVE</OrbLabel>
+              </OrbButton>
+            )}
+            <OrbButton
+              fn="orbit"
+              size={64}
+              accent="#00f2ff"
+              ariaLabel={t('earth.returnToOrbit')}
+              title={t('earth.returnToOrbit')}
+              onClick={onReturn}
+              disabled={busy}
             >
-              ⤒ Overlook
-            </button>
-          )}
-          {atSurface && (
-            <button
-              onClick={onStreet}
-              disabled={busy || !focus}
-              className="mt-2 w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-cyan-200 border border-cyan-600/60 bg-cyan-950/50 rounded hover:border-cyan-400 hover:text-white transition-all disabled:opacity-50"
-            >
-              ⤓ Drive
-            </button>
-          )}
-          <button
-            onClick={onReturn}
-            disabled={busy}
-            className="mt-2 w-full py-2 text-[10px] font-bold tracking-[0.2em] uppercase text-zinc-300 border border-zinc-700 rounded hover:border-cyan-500/50 hover:text-white transition-all disabled:opacity-50"
-          >
-            ← {t('earth.returnToOrbit')}
-          </button>
+              <OrbLabel>ORBIT</OrbLabel>
+            </OrbButton>
+          </div>
         </div>
       )}
 
@@ -202,7 +263,7 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
             className="fixed z-[70] ui-element flex flex-col items-center gap-1.5 pointer-events-none"
             style={{ left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
           >
-            <div className="rounded-xl border border-cyan-500/40 bg-zinc-950/80 px-4 py-2 backdrop-blur-md">
+            <div className="rounded-xl border border-cyan-500/40 bg-zinc-950/80 px-3 py-2 backdrop-blur-md">
               <div className="text-2xl font-black tabular-nums text-white leading-none">
                 {hud.speedKmh}
                 <span className="text-xs font-bold text-zinc-400 ml-1">km/h</span>
@@ -246,13 +307,25 @@ export default function EarthConsole({ focus, phase, onReturn, onStreet, onAscen
       )}
 
       {/* Notices — kart notices take the pill over the pad flash
-          while either is live. */}
+          while either is live. Fixed at 218 px from the top, NOT
+          22%: the expanded console card reaches ~206 px down at
+          its tallest (focus + seed + busy lines), so 22% (186 px
+          at 844 tall, 163 px at 740) put the pill ON the card's
+          orb row — 25 px of overlap on the small phone. 218 px
+          clears the card by 12 px at both heights and still sits
+          above the minimized globe tab (top 32%) and clear of the
+          docked camera column (x 318+, the pill is centred). */}
       {notice !== '' && (
-        <div aria-live="polite" className="fixed left-1/2 top-[22%] z-[85] -translate-x-1/2 rounded-full border border-cyan-300/70 bg-cyan-950/80 px-5 py-2 text-sm font-black tracking-[0.25em] text-cyan-100 shadow-[0_0_30px_rgba(0,255,204,0.5)] ui-element pointer-events-none">
+        <div aria-live="polite" className="fixed left-1/2 top-[218px] z-[85] -translate-x-1/2 rounded-full border border-cyan-300/70 bg-cyan-950/80 px-5 py-2 text-sm font-black tracking-[0.25em] text-cyan-100 shadow-[0_0_30px_rgba(0,255,204,0.5)] ui-element pointer-events-none">
           {notice}
         </div>
       )}
-      <EarthViewToggle phase={phase} />
+      {/* The camera column docks BELOW the expanded card (overlap
+          audit, Merlin Nov 16): while the card is up it owns the
+          top-right corner, so the column stands down to 224 px;
+          minimized, the globe tab owns top 32% and the column
+          rides back up to 3.25rem. */}
+      <EarthViewToggle phase={phase} dockedBelow={!minimized} />
     </>
   );
 }

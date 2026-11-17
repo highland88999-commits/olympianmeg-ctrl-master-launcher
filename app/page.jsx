@@ -705,6 +705,24 @@ function NexusHub() {
     }
   }, []);
 
+  // iOS Safari "Search" pill (Merlin, 2026-11-16 — Earth 1 video):
+  // the program menu's search field (components/SatelliteMenu.jsx,
+  // inputMode="search") unmounts when the menu collapses, and iOS
+  // Safari leaves its floating "Search" pill on screen when a
+  // focused search field is removed while focused — the same
+  // mechanism as the Erebus jump sheet (app/erebus/page.jsx).
+  // Blur on close so the pill never strands. There is no autoFocus
+  // input in the Earth 1 flow to remove (the vehicle sheet, the
+  // Earth chooser and the landing modal carry no search field at
+  // all): the menu search is tap-focused, and this blur is the fix
+  // for it — it covers every menu-close path in one place (the
+  // collapse button, a launch, a tile, the tube landing).
+  useEffect(() => {
+    if (!isMenuExpanded && typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, [isMenuExpanded]);
+
   useEffect(() => {
     // Text entry on the hub (the bug report form, Muse chat, search
     // boxes) owns the keyboard while it has focus: the hub's WASD
@@ -1069,8 +1087,13 @@ function NexusHub() {
           Shown in hub_freeroam and on_bike — the two states where the
           axis drives movement (freeroam flight + mounted bike flight).
           In vertical mode tilt steering is the primary climb/descend
-          input; in horizontal mode tilt steers nothing. */}
-      {(user || cloudOffline) && (appState === 'hub_freeroam' || appState === 'on_bike') && (
+          input; in horizontal mode tilt steers nothing.
+          Hidden while the Earth 1 vehicle sheet is open (Merlin,
+          2026-11-16 — Earth 1 video: the pill overlapped the bottom
+          of the sheet; the Omega layout rule allows no overlap,
+          ever — the sheet is a full-screen overlay, so the pill
+          simply stands down until it closes). */}
+      {(user || cloudOffline) && (appState === 'hub_freeroam' || appState === 'on_bike') && !showEarthVehicleSelect && (
         <button
           type="button"
           onClick={toggleFlightAxis}
@@ -1123,12 +1146,19 @@ function NexusHub() {
           bottom of the screen; the FIRE cluster now rides at
           18px on the RIGHT, where the stick used to be. */}
       {(user || cloudOffline) && appState === 'earth_roam' && (
+        // 104 px stick, not 112 (overlap audit, Merlin Nov 16):
+        // at 360 wide a 112 px stick ends at x 130 while a
+        // 3-digit speedo starts at ~x 126 — a ~4 px overlap at
+        // 100+ km/h. 104 ends at x 122; the speedo's px-3
+        // (EarthConsole) starts at ~x 130: 8 px clear at both
+        // phone widths. Positions unchanged: stick bottom-left,
+        // speedo bottom-centre, FIRE bottom-right.
         <div
           className="absolute z-[70] ui-element pointer-events-auto"
           style={{ left: 'calc(env(safe-area-inset-left, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 18px)' }}
         >
           <WalkJoystick
-            size={112}
+            size={104}
             onMove={(x, y) => {
               // WalkJoystick reports y fwd-positive (up); the
               // hub channels carry moveY down-positive (the
@@ -1141,12 +1171,23 @@ function NexusHub() {
         </div>
       )}
 
-      {/* First-entry Earth movement hint (video QA V2-2). */}
+      {/* First-entry Earth movement hint (video QA V2-2).
+          Bottom-anchored, NOT top-centre (overlap audit, Merlin
+          Nov 16): at top-5 the 71-character nowrap pill measured
+          ~420 px wide — wider than a 390 px phone, running off
+          both screen edges, with its middle hidden behind the
+          console card (card x 102–374, y 16–188; pill y 20–51).
+          It now rides 140 px up from the bottom edge — 18 px
+          clear of the joystick top and 14 px clear of the FIRE
+          column top at both phone heights — wraps to two lines
+          inside 92vw, and keeps its copy, tap-to-dismiss and 8 s
+          auto-dismiss. */}
       {(user || cloudOffline) && appState === 'earth_roam' && earthMoveHint && (
         <button
           type="button"
           onClick={dismissEarthMoveHint}
-          className="absolute top-5 left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg whitespace-nowrap"
+          className="absolute left-1/2 -translate-x-1/2 z-[70] ui-element pointer-events-auto rounded-full border border-cyan-500/40 bg-zinc-950/90 px-4 py-2 text-[11px] text-zinc-100 shadow-lg max-w-[92vw] text-center"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 140px)' }}
         >
           Bottom-left stick steers · drag the right side to look · tap to dismiss
         </button>
@@ -1196,8 +1237,14 @@ function NexusHub() {
 
       {/* Character picker now lives inside EarthConsole menu (not floating) */}
 
-      {(user || cloudOffline) && appState === 'hub_freeroam' && (
-        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-40 pointer-events-none" style={chromeHiddenStyle}>
+      {/* Hub tap hint — rides ABOVE the FLIGHT AXIS pill (overlap
+          audit, Merlin Nov 16): both were bottom-centred at ~18–
+          20 px, so the pill (y ~790–826) sat square on the hint
+          (y ~794–824). The hint now sits 63 px up (pill top +
+          12 px gap) and stands down while the vehicle sheet is
+          open, like the pill itself. */}
+      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && (
+        <div className="absolute left-1/2 -translate-x-1/2 z-40 pointer-events-none" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 63px)', ...chromeHiddenStyle }}>
           <div className="text-[10px] tracking-[0.25em] uppercase text-cyan-300/70 bg-black/40 px-4 py-2 rounded-full border border-cyan-500/20">
             {t('earth.tapHint')}
           </div>
@@ -1305,7 +1352,14 @@ function NexusHub() {
           role="dialog"
           aria-label="Choose your Earth"
         >
-          <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm">
+          {/* The card scrolls instead of running off the screen
+              (overlap audit, Merlin Nov 16): the four button
+              descs wrap to two lines at phone width, so the card
+              measures ~712 px tall — past the 692 px available
+              at 360×740 — and without a cap it ran ~10 px off
+              the top and bottom edges. At 390×844 it still fits
+              untouched; the cap only bites on the small phone. */}
+          <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm max-h-[calc(100dvh-3rem)] overflow-y-auto">
             <div className="mb-1 text-2xl font-extrabold text-white">Choose your Earth</div>
             <div className="mb-5 text-sm text-slate-300">Four worlds. One tap.</div>
             <button

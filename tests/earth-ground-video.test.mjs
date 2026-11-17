@@ -15,6 +15,7 @@
 // tests/earth-metal-tiles.test.mjs.
 //
 // Run: node tests/earth-ground-video.test.mjs (from the repo root).
+import { readFileSync } from 'node:fs';
 import {
   GROUND_LOOP_COLORS,
   GROUND_LOOP_VIDEO_URL,
@@ -110,6 +111,15 @@ t('orb video texture is null without a document', getOrbVideoTexture('magenta') 
 t('orb video texture is null for an unknown colour', getOrbVideoTexture('pink') === null);
 t('feather alpha map is null without a document', getGroundFeatherAlphaMap() === null);
 t('rocket texture is null without a document', getOrbRocketTexture() === null);
+{
+  // The 🚀 emoji is drawn nose-up-right (~45°) in the system
+  // emoji font, so the orb sprite read as a tilted rocket
+  // (Earth 1 video, Nov 16). The canvas drawing counter-
+  // rotates it so the rocket points straight up.
+  const src = readFileSync(new URL('../lib/earth/ground-video.js', import.meta.url), 'utf8');
+  t('rocket emoji is counter-rotated to point straight up',
+    src.includes('rotate(-Math.PI / 4)') && src.includes("fillText('🚀'"));
+}
 t('env map is null without a renderer', getGroundEnvMap(null) === null);
 t('onGroundVideoReady returns an unsubscribe without a document',
   typeof onGroundVideoReady(() => {}) === 'function');

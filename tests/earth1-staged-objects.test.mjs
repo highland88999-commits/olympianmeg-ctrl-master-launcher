@@ -74,6 +74,20 @@ test('RedwaterFarmstead renders only the 4 farm clones, visual-only', () => {
   assert.ok(!src.includes('e049-eiffel-tower'), 'farmstead must not render other assets');
 });
 
+test('RedwaterFarmstead spreads the clones in display metres, clear of the spawn (2026-11-16 video)', () => {
+  // The farm offsets are display metres on the 55-unit street
+  // globe (≈60 per degree), never real-Earth metres-per-degree:
+  // the real figure (111,320) put all four clones within
+  // 0.0007 units of each other — one interpenetrating pile at
+  // the spawn with the camera starting inside it. The display
+  // figure puts them 130–200 display metres apart (nearest:
+  // the silo, ~178 display metres from the spawn) with every
+  // pairwise separation clear of the two footprints.
+  const src = read('components/earth/RedwaterFarmstead.jsx');
+  assert.ok(!src.includes('/ 111320'), 'farmstead must not convert offsets with real-Earth metres-per-degree');
+  assert.ok(src.includes('DISPLAY_M_PER_DEGREE'), 'farmstead offsets use the street display scale');
+});
+
 test('staged inventory record exists with the full object list', () => {
   // The inventory lives in the workspace, not the repo, so this
   // test pins the contract shape against the staged-objects

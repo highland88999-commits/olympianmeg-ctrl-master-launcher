@@ -6,6 +6,7 @@ import {
   displayPlacement,
   DISPLAY_UNITS_PER_METRE,
 } from '@/lib/earth/placements';
+import { TERRAIN_RADIUS } from '@/lib/terrain';
 import { loadHeightData } from '@/lib/earth/heightmap';
 import { tameTripoMaterials } from '@/lib/characters/tame-materials';
 
@@ -41,10 +42,30 @@ const REDWATER_FARM_OFFSETS = {
 };
 const FARM_IDS = Object.keys(REDWATER_FARM_OFFSETS);
 
+// The farm offsets are DISPLAY metres (2026-11-16, Earth 1
+// spawn video): the street world is the 55-unit globe with
+// DISPLAY_UNITS_PER_METRE per display metre, so one degree of
+// arc is (2π×55/360) units ≈ 0.96 units ≈ 60 display metres —
+// NOT 111,320 real metres. Converting the 130–200 m offsets
+// with the real-Earth figure put all four buildings within
+// 0.0007 units of each other (their footprints are 0.08–0.26
+// units), so the barn, silo, farmhouse and windmill rendered
+// as one interpenetrating black pile with flat magenta/cyan
+// faces at the spawn, and the camera started inside it. With
+// the display scale the four buildings stand 130–200 display
+// metres apart as a real farm, every one of them clear of the
+// spawn point (nearest: the silo, ~176 display metres out).
+const DISPLAY_M_PER_DEGREE =
+  ((2 * Math.PI * TERRAIN_RADIUS) / 360) / DISPLAY_UNITS_PER_METRE;
+
 function offsetLatLon(lat, lon, eastM, northM) {
   return {
-    lat: lat + northM / 111320,
-    lon: lon + eastM / (111320 * Math.max(0.2, Math.cos((lat * Math.PI) / 180))),
+    lat: lat + northM / DISPLAY_M_PER_DEGREE,
+    lon:
+      lon +
+      eastM /
+        (DISPLAY_M_PER_DEGREE *
+          Math.max(0.2, Math.cos((lat * Math.PI) / 180))),
   };
 }
 

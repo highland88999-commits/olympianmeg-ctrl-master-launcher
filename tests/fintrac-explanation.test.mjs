@@ -206,9 +206,10 @@ describe('onboarding wizard: five steps, traffic light first', () => {
     assert.match(f, /rounded-3xl bg-zinc-950"/);
     assert.equal(f.includes('bg-zinc-950/95'), false);
   });
-  it('step 1: 3rd person shows the character in front, 1st person does not', () => {
+  it('step 1: the yellow light shows the character (portrait + name) in both perspectives', () => {
     const f = src('components/FintracExplanation.jsx');
-    assert.match(f, /perspective === '3rd' && character/);
+    assert.match(f, /src=\{character\.preview\}/);
+    assert.match(f, /character \? character\.name : 'Character'/);
   });
   it('all five frames render the same size card', () => {
     const f = src('components/FintracExplanation.jsx');

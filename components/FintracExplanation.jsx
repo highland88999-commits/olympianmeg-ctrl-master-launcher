@@ -295,7 +295,7 @@ function LandingSetupFrame({ onContinue }) {
   const preview = CHARACTERS.find((c) => c.id === previewId) || character || null;
 
   const lightBase =
-    'ui-element pointer-events-auto flex h-20 w-20 items-center justify-center rounded-full border-4 transition-all active:scale-95';
+    'ui-element pointer-events-auto flex h-16 w-16 items-center justify-center rounded-full border-4 transition-all active:scale-95 sm:h-20 sm:w-20';
 
   return (
     <div className="relative flex flex-col items-center">
@@ -309,7 +309,7 @@ function LandingSetupFrame({ onContinue }) {
       <div
         role="group"
         aria-label="Landing setup"
-        className="mt-5 flex flex-col items-center gap-4 rounded-[2rem] border border-zinc-700 bg-zinc-950/70 px-6 py-5"
+        className="mt-4 flex flex-col items-center gap-3 rounded-[2rem] border border-zinc-700 bg-zinc-950/70 px-5 py-4 sm:px-6 sm:py-5"
       >
         <div className="flex flex-col items-center gap-1">
           <button
@@ -368,23 +368,12 @@ function LandingSetupFrame({ onContinue }) {
         </div>
       </div>
 
-      {/* 3rd person: your character stands in front of you, below the
-          light — compact so the whole frame fits the card (Merlin,
-          2026-10-29). 1st person: through their eyes, nothing shown. */}
-      {perspective === '3rd' && character && (
-        <div className="mt-4 flex flex-col items-center">
-          <img
-            src={character.preview}
-            alt={character.name}
-            draggable={false}
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-            className="h-20 w-20 rounded-2xl border border-amber-400/40 object-cover"
-          />
-          <span className="mt-1 text-center text-[10px] font-black uppercase tracking-widest text-amber-200">
-            {character.name}
-          </span>
-        </div>
-      )}
+      {/* No separate 3rd-person preview below the light (Merlin,
+          2026-11-16, item 10): it duplicated the yellow light —
+          same portrait, same name — and its ~112 px pushed the
+          green Continue circle below the fold on a phone, where it
+          read as half-hidden behind the NEXT button. The yellow
+          light already shows the character in 1st and 3rd person. */}
 
       {/* Character picker: preview above, the roster grid below —
           sized to land inside the card (Merlin, 2026-10-29). */}

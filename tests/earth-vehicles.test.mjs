@@ -111,6 +111,12 @@ check('the jet flame module builds Earth-axis flames (exhaust at -Z)', () => {
   assert.ok(src.includes('animateJetFlame'), 'animateJetFlame export');
   assert.ok(src.includes('0x2a7bff'), 'outer cone keeps the speeder blue');
   assert.ok(src.includes('0xbfe6ff'), 'inner cone keeps the pale core');
+  // Slim cones (2026-11-16, Earth 1 video): the old fat cones
+  // (0.38 / 0.20 radius) pointed straight at the chase camera
+  // and read as a big blue map pin bobbing behind the car.
+  assert.ok(src.includes('ConeGeometry(0.2 * UPM, 1.4 * UPM'), 'outer cone is slim');
+  assert.ok(src.includes('ConeGeometry(0.11 * UPM, 0.9 * UPM'), 'inner cone is slim');
+  assert.ok(!src.includes('ConeGeometry(0.38 * UPM'), 'fat outer cone is gone');
 });
 
 check('the gold ring is gone from the Earth 1 vehicle component', () => {
