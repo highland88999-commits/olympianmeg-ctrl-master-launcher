@@ -1,5 +1,6 @@
 // app/api/ui-state/route.js — per-account UI state (Muse FAB position,
-// Concourse Orb position + pinned tiles, backpack circle position, …).
+// Concourse Orb position + pinned tiles, backpack circle position,
+// orb-dock spots per world, portal progress, …).
 //   GET  /api/ui-state -> { ok: true, preferences }
 //   POST /api/ui-state { preferences: { muse_fab: { x, y } } } -> { ok: true, preferences }
 //
@@ -19,12 +20,33 @@ import { sanitizeUiSettings } from '@/lib/ui-settings';
 import { sanitizeBackpackRecord } from '@/lib/backpack/backpack';
 import { sanitizeEarthMappedHex } from '@/lib/earth/mapping-progress';
 import { sanitizeCheatCodeChecks } from '@/lib/social-media-cheat-code/tracking';
+import { sanitizeOrbDockMap } from '@/lib/world/orb-dock';
 import { REGISTRY_TABLE, mergeRegistryHex } from '@/lib/earth/global-registry';
 
 function pickMuseFab(prefs) {
   if (!prefs || typeof prefs !== 'object') return null;
   const v = prefs.muse_fab;
   return v && typeof v === 'object' ? { x: v.x, y: v.y } : null;
+}
+
+// Portal progress, mirrored from lib/portal/progress.js
+// (sanitizePortalProgress) — the route CANNOT import that module:
+// it imports useSyncExternalStore, which a server route may not
+// pull in (next build fails). Keep the two in step: { v: 1,
+// netherVisits, totalPortals, gunGranted }; counts coerce to
+// integers >= 0, gunGranted is strictly boolean, a non-object
+// coerces to the empty record. Tests pin both copies.
+function sanitizePortalProgressPatch(raw) {
+  const out = { v: 1, netherVisits: 0, totalPortals: 0, gunGranted: false };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  const num0 = (v) => {
+    const n = Math.floor(Number(v));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+  out.netherVisits = num0(raw.netherVisits);
+  out.totalPortals = num0(raw.totalPortals);
+  out.gunGranted = raw.gunGranted === true;
+  return out;
 }
 
 export const GET = noCache(
@@ -182,6 +204,47 @@ export const POST = noCache(
         return NextResponse.json({ error: 'cheat_code_checks must be an object of platform -> piece checks.' }, { status: 400 });
       }
       patch.cheat_code_checks = sane;
+    }
+    if ('portal-progress' in prefs) {
+      // Portal progress (Merlin, Nov 17 ~14:00, sync order): the
+      // traveller's count toward the Portal Gun at 10 — { v,
+      // netherVisits, totalPortals, gunGranted }. Sanitized by the
+      // mirrored sanitizePortalProgressPatch above (the canonical
+      // function lives in lib/portal/progress.js, which this route
+      // cannot import). A non-object coerces to the empty
+      // record — the record is always valid by construction, so
+      // this never 400s.
+      patch['portal-progress'] = sanitizePortalProgressPatch(prefs['portal-progress']);
+    }
+    // Orb-dock spots (Merlin, Nov 17 ~14:00, sync order): one key
+    // per world, the client's orbDockUiStateKeyFor naming (see
+    // lib/world/orb-dock.js). Hollow Earth stores ONE spot {x, y}
+    // (its cluster); Jupiter 2 / Middle-earth store one spot PER
+    // ORB — a map { orbId: {x, y} }. Future worlds add one entry
+    // here (and only here). Unknown world keys are ignored,
+    // never stored. A non-object is rejected with a 400, like
+    // the other keys; a map's malformed entries are dropped,
+    // never stored (the concourse_pins rule).
+    const ORB_DOCK_UI_STATE_KEYS = {
+      hollow_earth_orb_dock: 'single',
+      jupiter2_orb_dock: 'map',
+      middleearth_orb_dock: 'map',
+    };
+    for (const [key, shape] of Object.entries(ORB_DOCK_UI_STATE_KEYS)) {
+      if (!(key in prefs)) continue;
+      const raw = prefs[key];
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return NextResponse.json({ error: `${key} must be an object of positions.` }, { status: 400 });
+      }
+      if (shape === 'single') {
+        const sane = sanitizeFractions(raw);
+        if (!sane) {
+          return NextResponse.json({ error: `${key} must be { x, y } with 0..1 numbers.` }, { status: 400 });
+        }
+        patch[key] = sane;
+      } else {
+        patch[key] = sanitizeOrbDockMap(raw);
+      }
     }
     if ('landing_perspective' in prefs) {
       // Onboarding landing setup (Merlin, 2026-10-29): the camera
