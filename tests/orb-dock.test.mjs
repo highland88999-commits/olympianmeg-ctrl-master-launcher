@@ -17,6 +17,7 @@ import {
   clampOrbDockPx, dragOrbDockTopLeft,
   orbDockStorageKeyFor, orbDockUiStateKeyFor,
   sanitizeOrbDockMap, loadOrbDockMap, saveOrbDockMap, resolveOrbDockMap,
+  orbDockFracRect, rectsOverlap, pushRectOutOfExclusions, pruneOrbDockMap,
 } from '../lib/world/orb-dock.js';
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -266,4 +267,90 @@ test('Middle-earth uses the ONE shared mechanism — no second orb-dock copy any
   assert.doesNotMatch(me, /dock\.bind\('strike'\)/);
   assert.doesNotMatch(me, /dock\.bind\('jump'\)/);
   assert.doesNotMatch(me, /dock\.bind\('sprint'\)/);
+});
+
+// ── Exclusions (Merlin, Nov 16 — J2 overlap fix) ─────────────────────
+// A draggable orb must never park on top of another control. On
+// Jupiter 2, SUMMON and DISMOUNT were both found parked on the
+// backpack's fixed home slot (right 12, bottom 176), each sitting
+// on the backpack circle. The exclusion rect carries the clearance,
+// so the checks below use gap 0.
+
+test('orbDockFracRect + rectsOverlap: fractions map to stage px rects', () => {
+  const r = orbDockFracRect({ x: 1, y: 1 }, 390, 844, 64);
+  assert.deepEqual(r, { x: 390 - 64, y: 844 - 64, w: 64, h: 64 });
+  assert.equal(rectsOverlap({ x: 0, y: 0, w: 10, h: 10 }, { x: 9, y: 9, w: 10, h: 10 }), true);
+  assert.equal(rectsOverlap({ x: 0, y: 0, w: 10, h: 10 }, { x: 10, y: 0, w: 10, h: 10 }), false);
+  assert.equal(rectsOverlap({ x: 0, y: 0, w: 10, h: 10 }, { x: 10, y: 0, w: 10, h: 10 }, 1), true);
+  assert.equal(rectsOverlap({ x: 0, y: 0, w: 10, h: 10 }, { x: 20, y: 0, w: 10, h: 10 }), false);
+});
+
+test('pushRectOutOfExclusions: smallest shift, then clamped on screen', () => {
+  const ex = [{ x: 100, y: 100, w: 60, h: 60 }];
+  // Dead centre of the exclusion: the shifts are left -76, right
+  // +40, up -76, down +40 — right wins the tie (first among equal
+  // minima). Assert the outcome, not the direction: the rect ends
+  // clear of the exclusion, fully on screen.
+  const pushed = pushRectOutOfExclusions({ x: 120, y: 120, w: 56, h: 56 }, ex, 390, 844);
+  assert.equal(rectsOverlap({ x: pushed.x, y: pushed.y, w: 56, h: 56 }, ex[0]), false);
+  assert.ok(pushed.x >= 8 && pushed.x <= 390 - 56 - 8);
+  assert.ok(pushed.y >= 8 && pushed.y <= 844 - 56 - 8);
+  // Just inside the left edge: pushed left, the smallest shift.
+  const left = pushRectOutOfExclusions({ x: 90, y: 110, w: 56, h: 56 }, ex, 390, 844);
+  assert.equal(left.x, 100 - 56, `must slide left of the exclusion, got x=${left.x}`);
+  assert.equal(left.y, 110, 'the other axis is untouched');
+  // No exclusion: the rect is returned, clamped on screen only.
+  const free = pushRectOutOfExclusions({ x: 500, y: 900, w: 56, h: 56 }, ex, 390, 844);
+  assert.deepEqual(free, { x: 390 - 56 - 8, y: 844 - 56 - 8 });
+  // A rect already clear is untouched.
+  const clear = pushRectOutOfExclusions({ x: 12, y: 12, w: 56, h: 56 }, ex, 390, 844);
+  assert.deepEqual(clear, { x: 12, y: 12 });
+});
+
+test('pruneOrbDockMap: spots covering an exclusion are dropped, the rest stand', () => {
+  // The backpack home on a 390 x 844 stage, badge + clearance
+  // included (lib/jupiter2/hud-layout.js): x 314, y 600, 76 x 76.
+  const ex = [{ x: 390 - 76, y: 844 - 244, w: 76, h: 76 }];
+  const sizes = { summon: 56, dismount: 64, trade: 56, jump: 76 };
+  // SUMMON parked on the backpack home; DISMOUNT parked on it too;
+  // TRADE at its own top-left home; JUMP at its bottom-right home.
+  const map = {
+    summon: { x: (390 - 68) / (390 - 56), y: (844 - 232) / (844 - 56) },
+    dismount: { x: (390 - 68) / (390 - 64), y: (844 - 232) / (844 - 64) },
+    trade: { x: 12 / (390 - 56), y: 76 / (844 - 56) },
+    jump: { x: (390 - 88) / (390 - 76), y: (844 - 164) / (844 - 76) },
+  };
+  const pruned = pruneOrbDockMap(map, ex, 390, 844, sizes);
+  assert.deepEqual(Object.keys(pruned).sort(), ['jump', 'trade'], 'only the two parked on the backpack are dropped');
+  assert.deepEqual(pruned.trade, map.trade, 'a good spot is kept byte-for-byte');
+  assert.deepEqual(pruned.jump, map.jump, 'JUMP home clears the exclusion by 4 px and stands');
+  // The input map is never mutated.
+  assert.equal(Object.keys(map).length, 4);
+  // No exclusions: the map stands as-is.
+  assert.deepEqual(pruneOrbDockMap(map, [], 390, 844, sizes), map);
+  // A corrupt entry is dropped by sanitize, not trusted.
+  assert.deepEqual(pruneOrbDockMap({ summon: { x: 2, y: 0.5 } }, ex, 390, 844, sizes), {});
+});
+
+test('useOrbDock enforces exclusions: render guard, prune effect, drag slide', () => {
+  const hook = read('../components/world/useOrbDock.js');
+  // The hook takes the options and keeps them in refs for the drag
+  // closures, so a resize never leaves a drag reading stale props.
+  assert.match(hook, /export function useOrbDock\(world, sizes = \{\}, options = \{\}\)/);
+  assert.match(hook, /stageSizeRef = useRef\(options\.stageSize \|\| null\)/);
+  assert.match(hook, /exclusionsRef = useRef\(options\.exclusions \|\| null\)/);
+  // Render guard: a stored spot covering an exclusion falls back
+  // to the caller's CSS home slot.
+  assert.match(hook, /orbDockFracRect\(frac, stageSize\.w, stageSize\.h, s\)/);
+  assert.match(hook, /exclusions\.some\(\(ex\) => rectsOverlap\(rect, ex, 0\)\)/);
+  // Prune effect: drops stored spots that cover an exclusion and
+  // persists the cleaned map.
+  assert.match(hook, /pruneOrbDockMap\(mapRef\.current, exclusions, stageSize\.w, stageSize\.h, sizesRef\.current\)/);
+  // Live drag: the orb slides along the exclusion instead of
+  // parking on it.
+  assert.match(hook, /pushRectOutOfExclusions\(\{ x: tl\.x, y: tl\.y, w: s, h: s \}, excl, vw, vh\)/);
+  // Callers that pass no options keep today's behaviour exactly:
+  // the guard, the prune and the slide all no-op without them.
+  assert.match(hook, /if \(stageSize && exclusions && exclusions\.length > 0\)/);
+  assert.match(hook, /const excl = exclusionsRef\.current;/);
 });

@@ -17,8 +17,11 @@ import {
   createSpeederState, summonSpeeder, stepSpeeder,
 } from '../lib/jupiter2/speeder.js';
 import {
-  dragOrbDockTopLeft, orbDockPxToFrac,
+  dragOrbDockTopLeft, orbDockPxToFrac, orbDockFracRect, rectsOverlap, pruneOrbDockMap,
 } from '../lib/world/orb-dock.js';
+import {
+  backpackHomeRect, backpackHomeExclusionRect,
+} from '../lib/jupiter2/hud-layout.js';
 import {
   equippedWeaponEntry, equippedDamageForSlot, weaponHand,
 } from '../lib/backpack/backpack.js';
@@ -310,5 +313,119 @@ describe('menu graphics — one per surface, no repeats', () => {
     assert.ok(!scene.includes('jupiter2-intro-banner.webp'));
     assert.ok(!scene.includes('jupiter2-creature-banner.webp'));
     assert.ok(!page.includes('jupiter2-trade-banner.webp'));
+  });
+});
+
+describe('control buttons never overlap (Merlin, Nov 16 — J2 overlap fix)', () => {
+  // The videos: SUMMON (foot) and DISMOUNT (speeder) were both
+  // parked on the backpack's fixed home slot, each sitting on top
+  // of the backpack circle; the backpack itself was at the right
+  // edge, and the Safari "Search" pill sat on the HP orb. The
+  // defaults were already clean — the overlaps came from dragged,
+  // persisted spots the dock knew nothing about. The dock now
+  // carries the backpack home as an exclusion (lib/jupiter2/
+  // hud-layout.js): no dock orb may park on it, a stored spot
+  // already covering it is repaired to its home, and a live drag
+  // slides along its edge.
+  const phone = { w: 390, h: 844 };
+  const small = { w: 320, h: 320 };
+
+  it('the exclusion is the backpack home + badge + 8 px clearance', () => {
+    assert.deepEqual(backpackHomeRect(390, 844), { x: 390 - 68, y: 844 - 232, w: 56, h: 56 });
+    assert.deepEqual(backpackHomeExclusionRect(390, 844), { x: 390 - 76, y: 844 - 244, w: 76, h: 76 });
+    assert.deepEqual(backpackHomeExclusionRect(320, 320), { x: 320 - 76, y: 320 - 244, w: 76, h: 76 });
+    // The backpack's own circle sits inside its exclusion (the
+    // exclusion is the backpack's box, not someone else's).
+    const home = backpackHomeRect(390, 844);
+    const ex = backpackHomeExclusionRect(390, 844);
+    assert.ok(home.x >= ex.x && home.y >= ex.y && home.x + home.w <= ex.x + ex.w && home.y + home.h <= ex.y + ex.h);
+  });
+
+  it('no default J2 orb home overlaps the backpack exclusion', () => {
+    for (const { w: vw, h: vh } of [phone, small]) {
+      const ex = backpackHomeExclusionRect(vw, vh);
+      const homes = [
+        ['summon', 12, 12, 56, 56],
+        ['dismount', 12, 76, 64, 64],
+        ['trade (walk)', 12, 76, 56, 56],
+        ['trade (ride)', 12, 148, 56, 56],
+        ['shoot', vw - 104 - 64, vh - 12 - 64, 64, 64],
+        ['boost', vw - 104 - 64, vh - 88 - 64, 64, 64],
+        ['fire', vw - 12 - 64, vh - 12 - 64, 64, 64],
+        ['jump', vw - 12 - 76, vh - 88 - 76, 76, 76],
+        ['orbs', 140, 12, 56, 56],
+        ['hp', 76, 12, 56, 56],
+        ['exit', vw - 12 - 56, 12, 56, 56],
+        ['armed (walk)', 12, 140, 56, 56],
+        ['armed (ride)', 12, 212, 56, 56],
+        ['stick', 16, vh - 16 - 104, 104, 104],
+      ];
+      for (const [name, x, y, w, h] of homes) {
+        assert.ok(
+          !rectsOverlap({ x, y, w, h }, ex, 0),
+          `${name} must not cover the backpack exclusion on a ${vw}x${vh} stage`,
+        );
+      }
+      // Tightest gap in the whole layout: JUMP's home clears the
+      // exclusion by exactly 4 px (JUMP top vh-164, exclusion
+      // bottom vh-168). If the clearance ever grows, this pin
+      // must move with it — JUMP's home is not pruned.
+      const jump = { x: vw - 12 - 76, y: vh - 88 - 76, w: 76, h: 76 };
+      assert.equal(jump.y - (ex.y + ex.h), 4, 'JUMP clears the exclusion by 4 px');
+    }
+  });
+
+  it("the videos' exact failure, replayed: parked SUMMON + DISMOUNT are repaired", () => {
+    const ex = [backpackHomeExclusionRect(phone.w, phone.h)];
+    const sizes = { summon: 56, dismount: 64, trade: 56, jump: 76 };
+    // SUMMON and DISMOUNT parked exactly on the backpack circle
+    // (the spots in Merlin's videos); TRADE and JUMP at home.
+    const map = {
+      summon: { x: (390 - 68) / (390 - 56), y: (844 - 232) / (844 - 56) },
+      dismount: { x: (390 - 68) / (390 - 64), y: (844 - 232) / (844 - 64) },
+      trade: { x: 12 / (390 - 56), y: 76 / (844 - 56) },
+      jump: { x: (390 - 88) / (390 - 76), y: (844 - 164) / (844 - 76) },
+    };
+    const pruned = pruneOrbDockMap(map, ex, phone.w, phone.h, sizes);
+    assert.deepEqual(Object.keys(pruned).sort(), ['jump', 'trade']);
+  });
+
+  it('both dock instances carry the exclusion (scene + page)', () => {
+    assert.ok(page.includes("import { backpackHomeExclusionRect } from \"@/lib/jupiter2/hud-layout\";"));
+    assert.ok(page.includes('new ResizeObserver(apply)'), 'the page measures the stage');
+    assert.ok(page.includes('const exclusions = useMemo('));
+    assert.ok(page.includes("useOrbDock('jupiter-2', J2_PAGE_ORB_SIZES, { stageSize, exclusions })"));
+    assert.ok(page.includes('stageSize={stageSize}'));
+    assert.ok(page.includes('exclusions={exclusions}'));
+    assert.ok(scene.includes('stageSize = null, exclusions = null'));
+    assert.ok(scene.includes("useOrbDock('jupiter-2', J2_SCENE_ORB_SIZES, { stageSize, exclusions })"));
+  });
+
+  it('the lever label is one constant size and hides up close — never over a control', () => {
+    // The old distanceFactor={50} scaled the label by distance:
+    // gigantic and clipped at the lever (it filled the screen,
+    // running behind the top UI), unreadably small from the deck.
+    // The pin targets the prop itself — the comments above keep
+    // the word as the reason it was removed.
+    assert.ok(!scene.includes('distanceFactor={'), 'no distance-scaled label prop may remain');
+    assert.ok(scene.includes('{labelFar && ('), 'the label renders only when far');
+    assert.ok(scene.includes('state.camera.position.distanceTo(labelAnchor) > 25'));
+    assert.ok(scene.includes('const labelAnchor = useMemo(() => new THREE.Vector3('));
+    assert.ok(scene.includes('mouthPoint.x + mouthUp.x * 8'));
+    // Still under the HUD (zIndexRange [2, 0] vs the orbs' 5–10),
+    // still pointer-transparent, still the same wording.
+    assert.ok(scene.includes('zIndexRange={[2, 0]}'));
+    assert.ok(scene.includes("⚡ OBLIVION LEVER"));
+  });
+
+  it('the Safari Search pill is blurred away on entry to J2', () => {
+    // J2 carries no search field of its own (the pill strands
+    // from the hub menu's field unmounting during navigation and
+    // lands on the HP orb), so the page blurs on mount — the same
+    // blur the hub and Erebus run when their search fields close.
+    assert.ok(!page.includes('inputMode="search"'), 'no search field on the J2 page');
+    assert.ok(!scene.includes('inputMode="search"'), 'no search field in the J2 scene');
+    assert.ok(page.includes('document.activeElement.blur();'));
+    assert.ok(page.includes('iOS Safari "Search" pill'));
   });
 });

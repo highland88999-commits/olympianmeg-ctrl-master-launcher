@@ -1221,6 +1221,21 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
     const r = Math.hypot(mouthPoint.x, mouthPoint.y, mouthPoint.z) || 1;
     return { x: mouthPoint.x / r, y: mouthPoint.y / r, z: mouthPoint.z / r };
   }, [mouthPoint]);
+  // The lever label's anchor (8 m above the cave mouth) and its
+  // close-range fade (Merlin, Nov 16 — J2 overlap fix): the label
+  // used to wear a distanceFactor of 50, which scales it by distance
+  // — gigantic and clipped when close (it filled the whole screen
+  // at the lever, running behind the top UI), unreadably small far
+  // away. It now renders at one constant readable size, and hides
+  // inside 25 m — at the lever the green beacon and the lever
+  // itself say what it is, and the sign can never sit on top of a
+  // control. The flip is a state change only when the camera
+  // crosses the threshold, never per frame.
+  const labelAnchor = useMemo(() => new THREE.Vector3(
+    mouthPoint.x + mouthUp.x * 8, mouthPoint.y + mouthUp.y * 8, mouthPoint.z + mouthUp.z * 8,
+  ), [mouthPoint, mouthUp]);
+  const [labelFar, setLabelFar] = useState(true);
+  const labelFarRef = useRef(true);
   const mountainPoint = useMemo(() => groundPointAt(dirAt(MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH)), []);
   const mountainQuat = useMemo(() => {
     const up = new THREE.Vector3(mountainPoint.x, mountainPoint.y, mountainPoint.z).normalize();
@@ -1258,7 +1273,7 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
   });
   // Speeder mesh follows its state (on the sphere now, radius
   // eased so a cliff drop reads as a fall); lever arm tilts when pulled.
-  useFrame(() => {
+  useFrame((state) => {
     const sp = speederRef.current;
     speederGroup.visible = sp.summoned;
     if (sp.summoned) {
@@ -1305,6 +1320,14 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
     // The beacon breathes so it reads through the rain.
     const t = Date.now() / 1000;
     leverGroup.userData.beaconMat.opacity = 0.13 + 0.06 * Math.sin(t * 1.8);
+    // The lever label hides up close (see labelAnchor above): the
+    // sign is for finding the cave from the deck, not for standing
+    // at the lever — inside 25 m it would sit on top of the HUD.
+    const far = state.camera.position.distanceTo(labelAnchor) > 25;
+    if (far !== labelFarRef.current) {
+      labelFarRef.current = far;
+      setLabelFar(far);
+    }
   });
 
   return (
@@ -1344,9 +1367,17 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
         onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
         onPointerOut={() => { document.body.style.cursor = ''; }}
       />
-      <Html position={[mouthPoint.x + mouthUp.x * 8, mouthPoint.y + mouthUp.y * 8, mouthPoint.z + mouthUp.z * 8]} center distanceFactor={50} zIndexRange={[2, 0]} style={{ pointerEvents: 'none' }}>
-        <div style={{ fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap', color: LEVER_GREEN, textShadow: '0 1px 6px #000', fontWeight: 700 }}>⚡ OBLIVION LEVER</div>
-      </Html>
+      {/* The lever label — one constant readable size, never scaled
+          by distance (the old distanceFactor of 50 blew it up to
+          full-screen at the lever and shrank it to nothing from
+          the deck), and hidden inside 25 m (see the useFrame
+          above), so it can never run behind or over a control.
+          zIndexRange keeps it under the HUD orbs either way. */}
+      {labelFar && (
+        <Html position={[mouthPoint.x + mouthUp.x * 8, mouthPoint.y + mouthUp.y * 8, mouthPoint.z + mouthUp.z * 8]} center zIndexRange={[2, 0]} style={{ pointerEvents: 'none' }}>
+          <div style={{ fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap', color: LEVER_GREEN, textShadow: '0 1px 6px #000', fontWeight: 700 }}>⚡ OBLIVION LEVER</div>
+        </Html>
+      )}
 
       {mode === 'orbit' && (
         <OrbitControls makeDefault enableDamping dampingFactor={0.08}
@@ -1366,6 +1397,7 @@ export function Jupiter2RealmContent(props) {
 
 export default function Jupiter2Scene({
   timeOfDay = 0.32, mode = 'walk', inputRef, onSelect, selectedId, jumpRef, shootRef = null,
+  stageSize = null, exclusions = null,
 }) {
   const [ready, setReady] = useState(false);
   const speederRef = useRef(createSpeederState());
@@ -1445,8 +1477,12 @@ export default function Jupiter2Scene({
   // shared mechanism — Hollow Earth uses the same module). The page
   // owns the JUMP orb's instance; the ids are disjoint, and every
   // save merges against a fresh storage read, so neither instance
-  // can clobber the other's newer save.
-  const dock = useOrbDock('jupiter-2', J2_SCENE_ORB_SIZES);
+  // can clobber the other's newer save. The page measures the stage
+  // and passes the backpack's fixed home slot as an exclusion
+  // (lib/jupiter2/hud-layout.js): no dock orb may park on the
+  // backpack, and a stored spot already covering it is repaired
+  // back to its home (Merlin, Nov 16 — J2 overlap fix).
+  const dock = useOrbDock('jupiter-2', J2_SCENE_ORB_SIZES, { stageSize, exclusions });
 
   // Show a short centred notice for 3 s (the tick clears it).
   const showNotice = (text) => {

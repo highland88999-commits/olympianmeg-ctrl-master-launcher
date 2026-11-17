@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { timeOfDay01, getDayNightPlace, requestDayNightPlace } from "@/lib/day-night";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute, IcBolt, IcCloudRain } from "@/app/artemis-ui/icons";
@@ -10,6 +10,7 @@ import { prefetchHawkins } from "@/lib/hawkins/loader";
 import { preloadGlb } from "@/app/hollow-earth/model-loader";
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
 import { useOrbDock } from "@/components/world/useOrbDock";
+import { backpackHomeExclusionRect } from "@/lib/jupiter2/hud-layout";
 
 // R3F scene loads client-side only (WebGL).
 const Jupiter2Scene = dynamic(() => import("@/components/jupiter2/Jupiter2Scene"), {
@@ -91,7 +92,39 @@ export default function Jupiter2Page() {
   // `olympus:jupiter-2:orb-dock:v1` (lib/world/orb-dock.js). The
   // fullscreen orb stays fixed top-right — the law puts it there,
   // and a draggable maximize would drift off its corner.
-  const dock = useOrbDock('jupiter-2', J2_PAGE_ORB_SIZES);
+  // The stage is measured (ResizeObserver) so the dock knows the
+  // backpack's fixed home slot as an exclusion (lib/jupiter2/
+  // hud-layout.js): a dragged JUMP can never park on the backpack,
+  // and a stored spot already covering it is repaired back to its
+  // home. The scene's dock instance gets the same measurement.
+  const stageRef = useRef(null);
+  const [stageSize, setStageSize] = useState(null);
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return undefined;
+    const apply = () => setStageSize({ w: el.clientWidth, h: el.clientHeight });
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const exclusions = useMemo(
+    () => (stageSize ? [backpackHomeExclusionRect(stageSize.w, stageSize.h)] : null),
+    [stageSize],
+  );
+  const dock = useOrbDock('jupiter-2', J2_PAGE_ORB_SIZES, { stageSize, exclusions });
+
+  // iOS Safari "Search" pill (Merlin, Nov 16 — J2 videos): the pill
+  // strands when a focused search field (the hub menu's) unmounts
+  // during navigation to this page, and it lands on top of the HP
+  // orb. Jupiter 2 carries no search field of its own, so blur on
+  // entry — the same blur the hub (app/page.jsx) and Erebus
+  // (app/erebus/page.jsx) run when their search fields close.
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -171,7 +204,7 @@ export default function Jupiter2Page() {
         <div className="sub">Inside the storm — you stand on the cloud deck at street level, wind and driving rain around you, lightning cracking overhead. Summon your speeder, watch the lightning monsters on the deck and the demobats above, and follow the green beacon to the oblivion lever.</div>
       </header>
 
-      <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
+      <div ref={stageRef} className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <Jupiter2Scene
           timeOfDay={time}
           mode={mode}
@@ -179,6 +212,8 @@ export default function Jupiter2Page() {
           onSelect={select}
           selectedId={selected ? selected.id : null}
           jumpRef={jumpRef}
+          stageSize={stageSize}
+          exclusions={exclusions}
         />
         {/* FULLSCREEN orb — the maximize button sits at the very top
             right OF the game screen (Merlin, Nov 16 — standing law),

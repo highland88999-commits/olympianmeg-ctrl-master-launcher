@@ -57,12 +57,26 @@ import {
   loadOrbDockMap, saveOrbDockMap, resolveOrbDockMap,
   orbDockPxToFrac, dragOrbDockTopLeft,
   isOrbDockDrag, orbDockStorageKeyFor, orbDockUiStateKeyFor,
+  orbDockFracRect, rectsOverlap, pushRectOutOfExclusions, pruneOrbDockMap,
 } from '@/lib/world/orb-dock';
 
 /** px side of an orb by id when the caller passes no size (orbs are square). */
 const DEFAULT_ORB_SIDE_PX = 56;
 
-export function useOrbDock(world, sizes = {}) {
+// Exclusions (Merlin, Nov 16 — J2 overlap fix): stage-px rects a
+// dock orb may never cover, e.g. another control's fixed home slot.
+// The caller passes them in `options` alongside the stage size they
+// were measured against — { stageSize: {w, h} | null, exclusions:
+// [{x, y, w, h}] | null }. Callers that pass none keep today's
+// behaviour exactly: the dock never knew about other controls, and
+// a dragged orb could park on top of one (Jupiter 2's SUMMON and
+// DISMOUNT were both found sitting on the backpack's home slot).
+// Enforcement is threefold: the rendered spot falls back to its CSS
+// home when the stored spot would cover an exclusion; a prune
+// effect drops such stored spots (a bad saved position is
+// corrected, not kept); and a live drag slides along an exclusion's
+// edge instead of parking on it.
+export function useOrbDock(world, sizes = {}, options = {}) {
   const storageKey = orbDockStorageKeyFor(world);
   const uiStateKey = orbDockUiStateKeyFor(world);
   const [map, setMap] = useState(() => loadOrbDockMap(undefined, storageKey));
@@ -70,6 +84,12 @@ export function useOrbDock(world, sizes = {}) {
   mapRef.current = map;
   const sizesRef = useRef(sizes);
   sizesRef.current = sizes;
+  // Latest stage size + exclusions, for the drag closures (which
+  // must never read a stale render's props).
+  const stageSizeRef = useRef(options.stageSize || null);
+  stageSizeRef.current = options.stageSize || null;
+  const exclusionsRef = useRef(options.exclusions || null);
+  exclusionsRef.current = options.exclusions || null;
   const draggingRef = useRef(null); // orb id mid-drag, or null
   const suppressUntilRef = useRef(0); // Date.now() ms — clicks before this are a drag's
   const saveTimerRef = useRef(null);
@@ -117,9 +137,18 @@ export function useOrbDock(world, sizes = {}) {
         const data = await res.json().catch(() => null);
         const server = resolveOrbDockMap({ server: data && data.preferences ? data.preferences[uiStateKey] : null });
         if (!cancelled && Object.keys(server).length > 0) {
-          mapRef.current = server;
-          setMap(server);
-          saveOrbDockMap(server, undefined, storageKey);
+          // The account copy wins — but a stored spot covering an
+          // exclusion is still a bad spot, so it is pruned here
+          // too (the prune effect above re-runs on the next
+          // measurement either way).
+          const stageSize = stageSizeRef.current;
+          const exclusions = exclusionsRef.current;
+          const clean = stageSize && exclusions && exclusions.length > 0
+            ? pruneOrbDockMap(server, exclusions, stageSize.w, stageSize.h, sizesRef.current)
+            : server;
+          mapRef.current = clean;
+          setMap(clean);
+          saveOrbDockMap(clean, undefined, storageKey);
         }
       } catch { /* offline — the device copy stands */ }
     })();
@@ -133,13 +162,43 @@ export function useOrbDock(world, sizes = {}) {
   // True while the click after a drag is still a drag's click, not a tap.
   const tapGuard = useCallback(() => Date.now() < suppressUntilRef.current, []);
 
+  // Prune stored spots that cover an exclusion (a bad saved position
+  // is corrected — the orb falls back to its CSS home). Runs when the
+  // stage is first measured and whenever the exclusions change, and
+  // after the account copy hydrates. Never loops: it only fires on
+  // [stageSize, exclusions] change, and it only writes when a spot
+  // was actually dropped.
+  useEffect(() => {
+    const stageSize = options.stageSize;
+    const exclusions = options.exclusions;
+    if (!stageSize || !exclusions || exclusions.length === 0) return undefined;
+    const pruned = pruneOrbDockMap(mapRef.current, exclusions, stageSize.w, stageSize.h, sizesRef.current);
+    if (Object.keys(pruned).length !== Object.keys(mapRef.current).length) {
+      mapRef.current = pruned;
+      setMap(pruned);
+      persist(pruned);
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options.stageSize, options.exclusions]);
+
   // The rendered spot for one orb: a stored spot as left/top calc()
   // fractions (scales with the stage, no measuring), else the
-  // caller's CSS home slot (today's layout).
+  // caller's CSS home slot (today's layout). A stored spot that
+  // would cover an exclusion never renders there — it falls back
+  // to the home slot instead, even before the prune effect runs.
   const styleFor = useCallback((id, defaults) => {
     const frac = map[id];
     if (!frac) return { position: 'absolute', ...defaults, zIndex: 6, cursor: 'grab' };
     const s = sideFor(id);
+    const stageSize = stageSizeRef.current;
+    const exclusions = exclusionsRef.current;
+    if (stageSize && exclusions && exclusions.length > 0) {
+      const rect = orbDockFracRect(frac, stageSize.w, stageSize.h, s);
+      if (exclusions.some((ex) => rectsOverlap(rect, ex, 0))) {
+        return { position: 'absolute', ...defaults, zIndex: 6, cursor: 'grab' };
+      }
+    }
     return {
       position: 'absolute',
       left: `calc(${frac.x} * (100% - ${s}px))`,
@@ -196,10 +255,17 @@ export function useOrbDock(world, sizes = {}) {
           { x: ev.clientX, y: ev.clientY },
           vw, vh, s, s,
         );
-        info.x = tl.x;
-        info.y = tl.y;
-        el.style.left = `${tl.x}px`;
-        el.style.top = `${tl.y}px`;
+        // An exclusion (another control's fixed slot) slides the orb
+        // along its edge instead of letting it park on top: the
+        // dropped spot is already valid, so it always persists.
+        const excl = exclusionsRef.current;
+        const spot = excl && excl.length > 0
+          ? pushRectOutOfExclusions({ x: tl.x, y: tl.y, w: s, h: s }, excl, vw, vh)
+          : tl;
+        info.x = spot.x;
+        info.y = spot.y;
+        el.style.left = `${spot.x}px`;
+        el.style.top = `${spot.y}px`;
       };
       const onUp = (ev) => {
         if (ev.pointerId !== info.pointerId) return;
