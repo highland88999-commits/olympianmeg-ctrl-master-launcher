@@ -73,10 +73,25 @@ export default function KeepsakeViewPage() {
     );
   }
 
+  // Media type: the media_type column first, the palette fallback
+  // second (the save route stashes it there on a pre-migration DB).
+  const mediaType = globe.media_type
+    || (globe.palette && globe.palette.mediaType)
+    || 'image';
+  const palette = {
+    ...(globe.palette || {}),
+    mediaType,
+    durationSec: globe.duration_sec != null
+      ? globe.duration_sec
+      : (globe.palette && globe.palette.durationSec) || null,
+  };
+
   return (
     <KeepsakeGlobe
       mode="view"
       initialImageSrc={globe.image_url}
+      initialMediaType={mediaType}
+      initialPalette={palette}
       initialTitle={globe.title || 'Keepsake'}
       initialPlaque={globe.plaque || 'Keepsake'}
     />

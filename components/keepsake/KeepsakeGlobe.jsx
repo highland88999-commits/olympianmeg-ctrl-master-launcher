@@ -14,8 +14,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { createKeepsakeScene, loadImage } from '@/lib/keepsake/scene';
+import { createKeepsakeScene, loadImage, loadVideo } from '@/lib/keepsake/scene';
 import { SAMPLES, DEFAULT_SAMPLE, sampleByKey } from '@/lib/keepsake/samples';
+import { ZOOM_T_DEFAULT } from '@/lib/keepsake/camera';
+
+// ROUND 2 (Nov 17, 2026): videos up to 2 minutes are keepsakes too.
+// 500 MB covers a 2-minute phone clip at 1080p (and most 4K HEVC
+// clips); the PUT goes straight to Supabase, never through Vercel.
+const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+const VIDEO_MAX_SECONDS = 120;
+const IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 
 const ORB = {
   width: 56,
@@ -34,6 +43,13 @@ const ORB = {
   userSelect: 'none',
   WebkitUserSelect: 'none',
   padding: 0,
+};
+
+const SMALL_ORB = {
+  ...ORB,
+  width: 44,
+  height: 44,
+  fontSize: 19,
 };
 
 function downscaleToBlob(img, maxW = 1280) {
@@ -57,6 +73,8 @@ function downscaleToBlob(img, maxW = 1280) {
 export default function KeepsakeGlobe({
   mode = 'create',
   initialImageSrc,
+  initialMediaType,
+  initialPalette,
   initialTitle = 'Keepsake',
   initialPlaque = 'Keepsake',
 }) {
@@ -71,9 +89,21 @@ export default function KeepsakeGlobe({
   const swipePointer = useRef(null);
   const swipeLast = useRef({ x: 0, y: 0 });
   const lastShakeAt = useRef(0);
+  const pickedFileRef = useRef(null);
+  const pickedUrlRef = useRef(null);
 
+  // The viewer reads media_type first, then the palette fallback —
+  // the save route stashes it in the palette when the video columns
+  // have not migrated yet, so an old database never breaks the view.
+  const resolvedMediaType =
+    initialMediaType || (initialPalette && initialPalette.mediaType) || 'image';
   const [imageSrc, setImageSrc] = useState(initialImageSrc || sampleByKey(DEFAULT_SAMPLE).src);
+  const [mediaType, setMediaType] = useState(resolvedMediaType === 'video' ? 'video' : 'image');
   const [imgEl, setImgEl] = useState(null);
+  const [videoEl, setVideoEl] = useState(null);
+  const [durationSec, setDurationSec] = useState(
+    initialPalette && Number.isFinite(initialPalette.durationSec) ? initialPalette.durationSec : null,
+  );
   const [sampleKey, setSampleKey] = useState(isView ? null : DEFAULT_SAMPLE);
   const [title, setTitle] = useState(initialTitle);
   const [plaque, setPlaque] = useState(initialPlaque);
@@ -84,6 +114,8 @@ export default function KeepsakeGlobe({
   const [saving, setSaving] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('exterior');
+  const [zoom, setZoom] = useState(Math.round(ZOOM_T_DEFAULT * 100));
 
   const showNotice = useCallback((text) => {
     setNotice(text);
@@ -103,14 +135,44 @@ export default function KeepsakeGlobe({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- image loading -------------------------------------------------------
+  // --- media loading (photo or video) --------------------------------------
   useEffect(() => {
     let alive = true;
+    let vid = null;
     setLoading(true);
+    if (mediaType === 'video') {
+      loadVideo(imageSrc)
+        .then((v) => {
+          if (!alive) {
+            v.pause();
+            return;
+          }
+          vid = v;
+          setVideoEl(v);
+          setImgEl(null);
+          sceneRef.current?.setVideo(v, imageSrc);
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!alive) return;
+          setLoading(false);
+          showNotice('That video could not be opened — showing the Cabin scene instead.');
+          pickedFileRef.current = null;
+          setDurationSec(null);
+          setMediaType('image');
+          setSampleKey(DEFAULT_SAMPLE);
+          setImageSrc(sampleByKey(DEFAULT_SAMPLE).src);
+        });
+      return () => {
+        alive = false;
+        if (vid) vid.pause();
+      };
+    }
     loadImage(imageSrc)
       .then((img) => {
         if (!alive) return;
         setImgEl(img);
+        setVideoEl(null);
         sceneRef.current?.setImage(img, imageSrc);
         setLoading(false);
       })
@@ -127,7 +189,7 @@ export default function KeepsakeGlobe({
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageSrc]);
+  }, [imageSrc, mediaType]);
 
   // --- plaque ---------------------------------------------------------------
   useEffect(() => {
@@ -139,6 +201,16 @@ export default function KeepsakeGlobe({
   useEffect(() => {
     sceneRef.current?.setSnowfall(snowfall);
   }, [snowfall]);
+
+  // --- interior / exterior view ---------------------------------------------
+  useEffect(() => {
+    sceneRef.current?.setView(view);
+  }, [view]);
+
+  // --- zoom slider: exterior drives orbit radius, interior drives FOV -------
+  useEffect(() => {
+    sceneRef.current?.setZoom(zoom / 100);
+  }, [zoom]);
 
   // --- device-motion shake ----------------------------------------------------
   useEffect(() => {
@@ -216,20 +288,66 @@ export default function KeepsakeGlobe({
   };
 
   // --- upload ------------------------------------------------------------------
+  const revokePickedUrl = useCallback(() => {
+    if (pickedUrlRef.current) {
+      URL.revokeObjectURL(pickedUrlRef.current);
+      pickedUrlRef.current = null;
+    }
+  }, []);
+
+  // Videos are checked BEFORE upload: the duration comes from the
+  // picked file itself (a video element reads its metadata), and
+  // anything over 2 minutes is refused with a plain notice.
   const onPickFile = (e) => {
     const file = e.target.files && e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    if (!file.type || !file.type.startsWith('image/')) {
-      showNotice('That is not a photo — please pick an image.');
+    if (file.type && VIDEO_TYPES.has(file.type)) {
+      if (file.size > VIDEO_MAX_BYTES) {
+        showNotice('That video is over 500 MB — please pick a smaller one.');
+        return;
+      }
+      const url = URL.createObjectURL(file);
+      const probe = document.createElement('video');
+      probe.preload = 'metadata';
+      probe.onloadedmetadata = () => {
+        const secs = probe.duration;
+        if (Number.isFinite(secs) && secs > VIDEO_MAX_SECONDS) {
+          URL.revokeObjectURL(url);
+          showNotice('That video is over 2 minutes — please pick a shorter one.');
+          return;
+        }
+        revokePickedUrl();
+        pickedUrlRef.current = url;
+        pickedFileRef.current = file;
+        setDurationSec(Number.isFinite(secs) ? Math.round(secs * 10) / 10 : null);
+        setSampleKey(null);
+        setVideoEl(null);
+        setMediaType('video');
+        setImageSrc(url);
+      };
+      probe.onerror = () => {
+        URL.revokeObjectURL(url);
+        showNotice('That video could not be read.');
+      };
+      probe.src = url;
       return;
     }
-    if (file.size > 12 * 1024 * 1024) {
+    if (!file.type || !file.type.startsWith('image/')) {
+      showNotice('That is not a photo or video — please pick an image, or a video (MP4, WebM or MOV).');
+      return;
+    }
+    if (file.size > IMAGE_MAX_BYTES) {
       showNotice('That photo is over 12 MB — please pick a smaller one.');
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
+      revokePickedUrl();
+      pickedFileRef.current = null;
+      setDurationSec(null);
+      setVideoEl(null);
+      setMediaType('image');
       setSampleKey(null);
       setImageSrc(String(reader.result));
     };
@@ -238,6 +356,11 @@ export default function KeepsakeGlobe({
   };
 
   const pickSample = (key) => {
+    revokePickedUrl();
+    pickedFileRef.current = null;
+    setDurationSec(null);
+    setVideoEl(null);
+    setMediaType('image');
     setSampleKey(key);
     setImageSrc(sampleByKey(key).src);
   };
@@ -264,8 +387,8 @@ export default function KeepsakeGlobe({
   // --- save & share (Supabase; create mode only) --------------------------------
   const saveAndShare = useCallback(async () => {
     if (saving) return;
-    if (!imgEl) {
-      showNotice('Choose or upload a photo first.');
+    if (mediaType === 'video' ? !videoEl : !imgEl) {
+      showNotice(mediaType === 'video' ? 'Choose or upload a video first.' : 'Choose or upload a photo first.');
       return;
     }
     setSaving(true);
@@ -276,20 +399,35 @@ export default function KeepsakeGlobe({
         showNotice('Sign in to save your keepsake.');
         return;
       }
-      const blob = await downscaleToBlob(imgEl);
+      // Video keepsakes PUT the original file — never downscaled, never
+      // re-encoded. Photos still go through the downscale as before.
+      let uploadBody;
+      let uploadType;
+      let uploadLabel;
+      if (mediaType === 'video') {
+        const file = pickedFileRef.current;
+        if (!file) throw new Error('That video is no longer available — please pick it again.');
+        uploadBody = file;
+        uploadType = file.type;
+        uploadLabel = 'The video did not upload.';
+      } else {
+        uploadBody = await downscaleToBlob(imgEl);
+        uploadType = 'image/jpeg';
+        uploadLabel = 'The photo did not upload.';
+      }
       const upRes = await fetch('/api/keepsake/upload-url', {
         method: 'POST',
         headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ contentType: 'image/jpeg', sizeBytes: blob.size }),
+        body: JSON.stringify({ contentType: uploadType, sizeBytes: uploadBody.size }),
       });
       const upJson = await upRes.json().catch(() => ({}));
       if (!upRes.ok) throw new Error(upJson.error || 'The upload could not start.');
       const put = await fetch(upJson.uploadUrl, {
         method: 'PUT',
-        body: blob,
-        headers: { 'Content-Type': 'image/jpeg' },
+        body: uploadBody,
+        headers: { 'Content-Type': uploadType },
       });
-      if (!put.ok) throw new Error('The photo did not upload.');
+      if (!put.ok) throw new Error(uploadLabel);
       const saveRes = await fetch('/api/keepsake', {
         method: 'POST',
         headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
@@ -299,6 +437,8 @@ export default function KeepsakeGlobe({
           title: title || 'Keepsake',
           plaque: plaque || 'Keepsake',
           palette: sceneRef.current?.getPalette?.() || null,
+          mediaType,
+          durationSec: mediaType === 'video' ? durationSec : null,
         }),
       });
       const saveJson = await saveRes.json().catch(() => ({}));
@@ -311,7 +451,7 @@ export default function KeepsakeGlobe({
     } finally {
       setSaving(false);
     }
-  }, [saving, imgEl, title, plaque, showNotice]);
+  }, [saving, imgEl, videoEl, mediaType, durationSec, title, plaque, showNotice]);
 
   const copyShare = useCallback(async () => {
     if (!shareUrl) return;
@@ -459,6 +599,7 @@ export default function KeepsakeGlobe({
         <div
           style={{
             position: 'absolute', right: 16, bottom: 164, zIndex: 6, width: 'min(320px, calc(100vw - 32px))',
+            boxSizing: 'border-box',
             borderRadius: 24, background: 'rgba(12, 10, 5, 0.92)', border: '1px solid rgba(201, 162, 77, 0.65)',
             padding: '14px 14px 16px', boxShadow: '0 10px 32px rgba(0,0,0,0.6)',
             maxHeight: '62vh', overflowY: 'auto',
@@ -473,9 +614,9 @@ export default function KeepsakeGlobe({
 
           {!isView && (
             <>
-              <div style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.75)', marginBottom: 6 }}>Photo</div>
+              <div style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.75)', marginBottom: 6 }}>Photo or video</div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-                <button type="button" aria-label="Upload a photo" title="Upload a photo" onClick={() => fileRef.current?.click()} style={ORB}>
+                <button type="button" aria-label="Upload a photo or video" title="Upload a photo or video" onClick={() => fileRef.current?.click()} style={ORB}>
                   📷
                 </button>
                 {SAMPLES.map((s) => (
@@ -497,7 +638,7 @@ export default function KeepsakeGlobe({
                     {s.label}
                   </button>
                 ))}
-                <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onPickFile} />
+                <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={onPickFile} />
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -527,9 +668,45 @@ export default function KeepsakeGlobe({
             </>
           )}
 
+          {/* View — outside the globe (default) or inside it, walking
+              around the photo wrapped the whole circle. Circle orbs,
+              like every other control here. */}
+          <div style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.75)', marginBottom: 6 }}>View</div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              aria-label="Exterior view — outside the globe"
+              title="Outside the globe"
+              onClick={() => setView('exterior')}
+              style={{
+                ...ORB,
+                border: view === 'exterior' ? '2px solid #f0d493' : ORB.border,
+                background: view === 'exterior' ? 'rgba(201, 162, 77, 0.35)' : ORB.background,
+              }}
+            >
+              🌐
+            </button>
+            <button
+              type="button"
+              aria-label="Interior view — inside the globe"
+              title="Inside the globe"
+              onClick={() => setView('interior')}
+              style={{
+                ...ORB,
+                border: view === 'interior' ? '2px solid #f0d493' : ORB.border,
+                background: view === 'interior' ? 'rgba(201, 162, 77, 0.35)' : ORB.background,
+              }}
+            >
+              🌀
+            </button>
+            <span style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.8)' }}>
+              {view === 'interior' ? 'Inside the globe' : 'Outside the globe'}
+            </span>
+          </div>
+
           <div style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.75)', marginBottom: 6 }}>Snow &amp; motion</div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-            <button type="button" aria-label="Shake the snow" title="Shake" onClick={() => sceneRef.current?.shake(1)} style={ORB}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+            <button type="button" aria-label="Shake the snow" title="Shake" onClick={() => sceneRef.current?.shake(1)} style={SMALL_ORB}>
               ❄
             </button>
             <button
@@ -537,17 +714,33 @@ export default function KeepsakeGlobe({
               aria-label="Enable phone shake"
               title={motionOn ? 'Phone shake on' : 'Enable phone shake'}
               onClick={enableMotion}
-              style={{ ...ORB, border: motionOn ? '2px solid #f0d493' : ORB.border, opacity: motionOn ? 1 : 0.75 }}
+              style={{ ...SMALL_ORB, border: motionOn ? '2px solid #f0d493' : SMALL_ORB.border, opacity: motionOn ? 1 : 0.75 }}
             >
               📳
             </button>
-            <button type="button" aria-label="Less snow" title="Less snow" onClick={() => setSnowfall((v) => Math.max(0, v - 1))} style={ORB}>
+            <button type="button" aria-label="Less snow" title="Less snow" onClick={() => setSnowfall((v) => Math.max(0, v - 1))} style={SMALL_ORB}>
               −
             </button>
-            <button type="button" aria-label="More snow" title="More snow" onClick={() => setSnowfall((v) => Math.min(2, v + 1))} style={ORB}>
+            <button type="button" aria-label="More snow" title="More snow" onClick={() => setSnowfall((v) => Math.min(2, v + 1))} style={SMALL_ORB}>
               +
             </button>
             <span style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.8)' }}>{snowfallLabel}</span>
+          </div>
+
+          {/* Zoom — a slider, not a button: outside it pulls the orbit
+              camera in and out, inside it opens and closes the view. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <span style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.8)', flex: '0 0 auto' }}>Zoom out</span>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              aria-label="Zoom out or in"
+              style={{ flex: 1, minWidth: 0, accentColor: '#c9a24d' }}
+            />
+            <span style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.8)', flex: '0 0 auto' }}>Zoom in</span>
           </div>
 
           <div style={{ fontSize: 13, color: 'rgba(245, 239, 224, 0.75)', marginBottom: 6 }}>Keep &amp; share</div>
@@ -600,11 +793,15 @@ export default function KeepsakeGlobe({
         </div>
       )}
 
-      {/* honest footer — the world beyond the photo is a reconstruction */}
+      {/* honest footer — the world beyond the photo is a reconstruction.
+          It lives in the clear strip between the joystick (bottom-left,
+          120px wide at left:16) and the gold orb (bottom-right, 76px at
+          right:16), so it never runs under either control at any phone
+          width. Wording kept exactly. */}
       <div
         style={{
-          position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', zIndex: 3,
-          width: 'max-content', maxWidth: '92vw', textAlign: 'center', fontSize: 11, lineHeight: 1.4,
+          position: 'absolute', bottom: 8, left: 140, right: 96, zIndex: 3,
+          textAlign: 'center', fontSize: 10.5, lineHeight: 1.35,
           color: 'rgba(245, 239, 224, 0.55)', pointerEvents: 'none', fontFamily: 'system-ui, sans-serif',
         }}
       >

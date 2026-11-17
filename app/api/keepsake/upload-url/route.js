@@ -16,9 +16,21 @@ import { getServiceClient } from '@/lib/economy/supabase';
 import { apiGuard } from '@/lib/api-guard';
 
 const BUCKET = 'keepsake-globes';
-const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const MAX_BYTES = 12 * 1024 * 1024;
-const EXT_BY_TYPE = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+// Photos stay at 12 MB. Videos up to 2 minutes go to 500 MB — a
+// 2-minute phone clip at 1080p (and most 4K HEVC clips) fits; the PUT
+// goes straight to Supabase, never through Vercel.
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+const IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+const VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+const EXT_BY_TYPE = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+};
 
 export const POST = apiGuard(async function POST(req) {
   const auth = await getUserFromRequest(req);
@@ -27,11 +39,17 @@ export const POST = apiGuard(async function POST(req) {
   const body = await req.json().catch(() => null);
   const contentType = body && body.contentType;
   const sizeBytes = body && body.sizeBytes;
-  if (!ALLOWED_TYPES.has(contentType)) {
-    return NextResponse.json({ error: 'Only JPEG, PNG or WebP photos can be kept.' }, { status: 400 });
+  const isImage = IMAGE_TYPES.has(contentType);
+  const isVideo = VIDEO_TYPES.has(contentType);
+  if (!isImage && !isVideo) {
+    return NextResponse.json({ error: 'Only JPEG, PNG or WebP photos, or MP4, WebM or MOV videos, can be kept.' }, { status: 400 });
   }
-  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_BYTES) {
-    return NextResponse.json({ error: 'That photo is too large (12 MB limit).' }, { status: 400 });
+  const maxBytes = isVideo ? VIDEO_MAX_BYTES : IMAGE_MAX_BYTES;
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > maxBytes) {
+    return NextResponse.json(
+      { error: isVideo ? 'That video is too large (500 MB limit).' : 'That photo is too large (12 MB limit).' },
+      { status: 400 },
+    );
   }
 
   const admin = await getServiceClient();

@@ -22,14 +22,33 @@ export const GET = apiGuard(async function GET(_req, ctx) {
 
   let row;
   try {
-    const res = await supabase
+    // Video columns (media_type, duration_sec) arrive with
+    // supabase/keepsake-video.sql. On a pre-migration database the
+    // select fails with 42703 — retry without them; the viewer then
+    // reads the media type from palette.mediaType instead.
+    const withVideo = await supabase
       .from('keepsake_globes')
-      .select('id, title, plaque, image_url, palette, created_at')
+      .select('id, title, plaque, image_url, palette, media_type, duration_sec, created_at')
       .eq('id', globeId)
       .eq('is_public', true)
       .maybeSingle();
-    if (res.error) throw res.error;
-    row = res.data;
+    if (withVideo.error) {
+      const code = String(withVideo.error.code || '');
+      if (code === '42703' || /column .* does not exist|undefined_column/i.test(withVideo.error.message || '')) {
+        const plain = await supabase
+          .from('keepsake_globes')
+          .select('id, title, plaque, image_url, palette, created_at')
+          .eq('id', globeId)
+          .eq('is_public', true)
+          .maybeSingle();
+        if (plain.error) throw plain.error;
+        row = plain.data;
+      } else {
+        throw withVideo.error;
+      }
+    } else {
+      row = withVideo.data;
+    }
   } catch (err) {
     const msg = String(err?.message || err);
     if (/relation .* does not exist|table .* does not exist|keepsake_globes/i.test(msg)) {

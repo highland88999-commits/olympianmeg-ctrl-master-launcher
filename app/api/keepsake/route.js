@@ -35,6 +35,17 @@ export const POST = apiGuard(async function POST(req) {
   const admin = await getServiceClient();
   if (!admin) return NextResponse.json({ error: 'Keepsake saving is not connected yet.' }, { status: 503 });
 
+  // Video columns (media_type, duration_sec) arrive with
+  // supabase/keepsake-video.sql. The push may land before the SQL is
+  // run: on Postgres 42703 (undefined column) the insert retries
+  // WITHOUT them and stashes both values in the palette JSONB instead,
+  // so a video keepsake never 500s on a pre-migration database. The
+  // viewer reads media_type first, palette.mediaType second.
+  const mediaType = body.mediaType === 'video' ? 'video' : 'image';
+  const durationSec = Number.isFinite(Number(body.durationSec)) && Number(body.durationSec) > 0
+    ? Number(body.durationSec)
+    : null;
+  const palette = body.palette && typeof body.palette === 'object' ? body.palette : {};
   const row = {
     owner_id: auth.user.id,
     owner_email: auth.user.email || null,
@@ -42,8 +53,10 @@ export const POST = apiGuard(async function POST(req) {
     plaque: cleanText(body.plaque, 40, 'Keepsake'),
     image_path: path,
     image_url: imageUrl,
-    palette: body.palette && typeof body.palette === 'object' ? body.palette : {},
+    palette,
     is_public: true,
+    media_type: mediaType,
+    duration_sec: durationSec,
   };
 
   let inserted;
@@ -52,20 +65,33 @@ export const POST = apiGuard(async function POST(req) {
     if (res.error) throw res.error;
     inserted = res.data;
   } catch (err) {
+    const code = String(err?.code || '');
     const msg = String(err?.message || err);
-    if (/relation .* does not exist|table .* does not exist|keepsake_globes/i.test(msg)) {
-      return NextResponse.json(
-        { error: 'Keepsake saving is not set up yet (run supabase/keepsake.sql).' },
-        { status: 503 },
-      );
+    if (code === '42703' || /column .* does not exist|undefined_column/i.test(msg)) {
+      // Pre-migration database: retry without the video columns,
+      // stashing the media type + duration in the palette JSONB.
+      const fallbackRow = { ...row };
+      delete fallbackRow.media_type;
+      delete fallbackRow.duration_sec;
+      fallbackRow.palette = { ...palette, mediaType, durationSec };
+      const retry = await admin.from('keepsake_globes').insert(fallbackRow).select('id').single();
+      if (retry.error) throw retry.error;
+      inserted = retry.data;
+    } else {
+      if (/relation .* does not exist|table .* does not exist|keepsake_globes/i.test(msg)) {
+        return NextResponse.json(
+          { error: 'Keepsake saving is not set up yet (run supabase/keepsake.sql).' },
+          { status: 503 },
+        );
+      }
+      if (/invalid api key/i.test(msg)) {
+        return NextResponse.json(
+          { error: 'Keepsake saving is not connected yet.' },
+          { status: 503 },
+        );
+      }
+      throw err;
     }
-    if (/invalid api key/i.test(msg)) {
-      return NextResponse.json(
-        { error: 'Keepsake saving is not connected yet.' },
-        { status: 503 },
-      );
-    }
-    throw err;
   }
 
   return NextResponse.json({ ok: true, id: inserted.id, url: `/keepsake/view/${inserted.id}` });
