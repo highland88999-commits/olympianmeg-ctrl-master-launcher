@@ -293,7 +293,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 183, 'one hundred and eighty-three portal videos wired (batch 20: meaning-of-life, rem, the-afterlife, styx, hygieia, store generated)');
+    assert.equal(onDisk.length, 189, 'one hundred and eighty-nine portal videos wired (batch 21: geometry-engine, publisher-studio, renewal-plan, languages, journal, compass generated)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {
@@ -304,7 +304,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('roster portals without a video on disk resolve as still waiting', () => {
     const waiting = enRoster().filter((p) => !onDisk.includes(p.key));
-    assert.equal(waiting.length, 31, 'thirty-one roster portals still await their video (batch 20: 183 wired of 214; Keepsake seat added Nov 17, 2026)');
+    assert.equal(waiting.length, 25, 'twenty-five roster portals still await their video (batch 21: 189 wired of 214; Keepsake seat added Nov 17, 2026)');
     for (const p of waiting.slice(0, 12)) {
       assert.equal(portalHasVideo(p.key), false, `${p.key} has no video yet`);
     }
