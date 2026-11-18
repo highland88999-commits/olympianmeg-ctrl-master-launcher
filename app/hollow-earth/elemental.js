@@ -212,11 +212,61 @@ export function buildElemental(R, opts = {}) {
     new R.MeshBasicMaterial({ color: 0xffd88a, transparent: true, opacity: 1, fog: false })
   );
   sun.position.set(0, 0, 0);
+  // SUN GLOW (house treatment, Merlin Nov 17): a warm halo around
+  // the core-sun sphere, same centre — the sphere is the core, the
+  // sprite the halo. Canvas radial gradient, document-guarded (no
+  // document, no halo — the sphere still carries the sun); the
+  // update() below fades it with the sun. Tagged for tests.
+  let sunGlow = null;
+  if (typeof document !== 'undefined') {
+    try {
+      const cv = document.createElement('canvas');
+      cv.width = 128; cv.height = 128;
+      const ctx = cv.getContext('2d');
+      if (ctx) {
+        const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+        g.addColorStop(0, 'rgba(255,216,138,0.85)');
+        g.addColorStop(0.4, 'rgba(255,216,138,0.3)');
+        g.addColorStop(1, 'rgba(255,216,138,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, 128, 128);
+        sunGlow = new R.Sprite(new R.SpriteMaterial({
+          map: new R.CanvasTexture(cv), color: 0xffd88a, transparent: true, opacity: 0.55,
+          blending: R.AdditiveBlending, depthWrite: false, fog: false,
+        }));
+        sunGlow.position.set(0, 0, 0);
+        sunGlow.scale.set(120, 120, 1);
+        sunGlow.name = 'he-core-sun-glow';
+        group.add(sunGlow);
+      }
+    } catch { sunGlow = null; }
+  }
+  // MOON WRAP (Merlin's photo, Nov 17): the equirectangular lunar
+  // surface on the moon sphere — a sphere ONLY, never a flat disc.
+  // The photo loads async; until it lands the pale fallback colour
+  // stands, so a failed load never leaves a blank moon. Node-safe:
+  // no document, no loader (tests keep the pale moon).
+  const moonMat = new R.MeshBasicMaterial({ color: 0xd8e0f0, transparent: true, opacity: 0, fog: false });
   const moon = new R.Mesh(
     new R.SphereGeometry(12, 16, 12),
-    new R.MeshBasicMaterial({ color: 0xd8e0f0, transparent: true, opacity: 0, fog: false })
+    moonMat
   );
   moon.position.set(0, 0, 0);
+  if (typeof document !== 'undefined') {
+    try {
+      new R.TextureLoader().load(
+        '/images/moon/moon-surface.jpg',
+        (tex) => {
+          tex.colorSpace = R.SRGBColorSpace;
+          moonMat.map = tex;
+          moonMat.color.setHex(0xffffff);
+          moonMat.needsUpdate = true;
+        },
+        undefined,
+        () => { /* photo failed: the pale fallback stands */ },
+      );
+    } catch { /* no loader available: the pale fallback stands */ }
+  }
   group.add(sun);
   group.add(moon);
 
@@ -435,6 +485,8 @@ export function buildElemental(R, opts = {}) {
     // falls back to the old orbit position above the origin.
     sun.material.opacity = s.sunOpacity;
     moon.material.opacity = s.moonOpacity;
+    // The halo fades with the sun it wraps.
+    if (sunGlow) sunGlow.material.opacity = 0.55 * s.sunOpacity;
     if (state.observer3D) {
       const o = state.observer3D;
       const u = state.observerUp || { x: 0, y: 1, z: 0 };

@@ -1465,7 +1465,7 @@ export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegio
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.hades}
         storm={{
           hue: 'red',

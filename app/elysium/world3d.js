@@ -690,7 +690,7 @@ export function ElysiumScene({playerRef, inputRef, onPortal, onRegion, reduced, 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade="earth" />
+      <DayNightRig sun moon shade="earth" />
       <Ground />
       <LightPools pools={world.pools} />
       <River reduced={reduced} />

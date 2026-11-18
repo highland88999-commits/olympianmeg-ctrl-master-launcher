@@ -5,6 +5,9 @@
 // storms (their skies stay clean). The rig replaces each scene's four
 // static sky/light lines (background / fog / ambient / directional);
 // everything else — meshes, labels, point lights, camera rig — stays.
+// Sun + moon wrap (Merlin, Nov 17, 2026): the tag also carries `sun
+// moon`, so each realm renders the house sun (core disc + halo) and
+// Merlin's photo moon on the rig's real sun/moon directions.
 // Run: node tests/higher-realms-day-night.test.mjs   (from the repo root)
 // No browser, no network, no WebGL — pure wired-source audit, same
 // grep style as the realm-gates suite.
@@ -53,7 +56,7 @@ test('the shared rig exists and is the default export', () => {
 });
 
 for (const realm of HIGHER_REALMS) {
-  test(`${realm}: mounts <DayNightRig shade="earth" /> and nothing else drives the sky`, () => {
+  test(`${realm}: mounts <DayNightRig sun moon shade="earth" /> and nothing else drives the sky`, () => {
     const path = `app/${realm}/world3d.js`;
     assert.ok(existsSync(path), `${path} missing`);
     const src = readFileSync(path, 'utf8');
@@ -65,13 +68,14 @@ for (const realm of HIGHER_REALMS) {
       `${realm}: expected exactly one DayNightRig import`,
     );
 
-    // Exactly one mount, earth shade, no storm prop — higher realms
-    // get NO lightning storms; their skies stay clean. The fog density
-    // is the realm's own (0.0035 default, thinner where it was thinner).
+    // Exactly one mount, earth shade, sun + moon wrap, no storm prop
+    // — higher realms get NO lightning storms; their skies stay clean.
+    // The fog density is the realm's own (0.0035 default, thinner
+    // where it was thinner).
     assert.equal(
-      count(src, /<DayNightRig shade="earth"(?: fogDensity=\{0\.00\d\d\})? \/>/g),
+      count(src, /<DayNightRig sun moon shade="earth"(?: fogDensity=\{0\.00\d\d\})? \/>/g),
       1,
-      `${realm}: expected exactly one <DayNightRig shade="earth" />`,
+      `${realm}: expected exactly one <DayNightRig sun moon shade="earth" />`,
     );
     const wantFog = FOG_DENSITY[realm];
     if (wantFog === null) {
@@ -82,7 +86,7 @@ for (const realm of HIGHER_REALMS) {
       );
     } else {
       assert.ok(
-        src.includes(`<DayNightRig shade="earth" fogDensity={${wantFog}} />`),
+        src.includes(`<DayNightRig sun moon shade="earth" fogDensity={${wantFog}} />`),
         `${realm}: expected fogDensity={${wantFog}} (its own thinness, kept)`,
       );
     }

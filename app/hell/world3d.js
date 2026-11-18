@@ -884,7 +884,7 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, gui
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.hell}
         storm={{
           hue: 'red',

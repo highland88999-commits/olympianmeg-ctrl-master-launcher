@@ -86,6 +86,14 @@ test('Earth 1: the street sky dome follows the real sun vector, shader kept', ()
   assert.ok(nexusEarth.includes('mat.uniforms.sunDirection.value.set(v.x, v.y, v.z)'), 'uniform takes the real vector');
   assert.ok(nexusEarth.includes('nightBlue'), 'the night-blue floor survives');
   assert.ok(nexusEarth.includes('skyBlue'), 'the blue-day sky survives');
+  // Visible sun (house sun treatment, Merlin 2026-11-17): the
+  // street scene had light but no sun to look at — a bright core
+  // + halo ride the same real vector inside the dome, gone at
+  // night with the street lights' dayF.
+  assert.ok(nexusEarth.includes('streetSunDiscRef.current.position.set(v.x * 70, v.y * 70, v.z * 70)'), 'the core rides the real sun vector inside the dome (r82.5)');
+  assert.ok(nexusEarth.includes('<sphereGeometry args={[1.2, 32, 24]}'), 'the core is a sphere, r1.2');
+  assert.ok(nexusEarth.includes('streetSunGlowRef.current.position.set(v.x * 70, v.y * 70, v.z * 70)'), 'the halo rides the core');
+  assert.ok(nexusEarth.includes('streetSunDiscRef.current.material.opacity = dayF'), 'the core fades with dayF, gone at night');
 });
 
 test('Earth 3: the scene drives background/fog/hemi/sun + the sun disc from the law, blue day kept', () => {
@@ -98,6 +106,15 @@ test('Earth 3: the scene drives background/fog/hemi/sun + the sun disc from the 
   assert.ok(newEarth.includes('ctx.skyDomeMat'), 'the baked sky dome is tinted by the day factor');
   assert.ok(newEarth.includes('0x9fd0e8'), 'the blue-day background is still the starting sky');
   assert.ok(newEarth.includes('refreshDayNight(performance.now())'), 'the refresh runs in tick()');
+  // Photo moon (Merlin 2026-11-17): a sphere wearing the
+  // equirectangular lunar photo at the sun's distance, visible
+  // at night — the mirror of the sun's sunUp rule.
+  assert.ok(newEarth.includes("new THREE.SphereGeometry(55, 32, 24)"), 'the moon is a sphere, r55');
+  assert.ok(newEarth.includes("'/images/moon/moon-surface.jpg'"), 'the moon wears the lunar photo');
+  assert.ok(newEarth.includes('ctx.moonDisc.position.set('), 'the moon rides the real moon vector');
+  assert.ok(newEarth.includes('ctx.moonDisc.visible = moonUp'), 'the moon sets below the horizon');
+  assert.ok(newEarth.includes('dn.moon.altDeg > 0'), 'the moon shows only while it is up');
+  assert.ok(newEarth.includes('ctx.moonDisc = moon'), 'the moon on ctx is the photo sphere, not the sun disc');
 });
 
 test('Jupiter 2: the walkable storm scene exists and follows the day/night law', () => {

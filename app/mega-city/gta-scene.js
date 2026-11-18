@@ -6,7 +6,8 @@ import { guardCanvasContext } from '../../lib/scene-context-guard.js';
 import { generateCity, createGroundTexture, buildStreetlights, SUBWAY_STATIONS } from './city.js';
 import {
   materialForFacade, facadeKindForDistrict, buildHarborWater,
-  buildSkyDome, buildSunSprite, buildMoonSprite, buildStars, buildClouds,
+  buildSkyDome, buildSunSprite, buildMoonSprite, buildSunDisc, buildMoonDisc,
+  buildStars, buildClouds,
   cloudAngle, skyDayness, skyPalette, CITY_SUN_DIST,
   makeRainField, updateRainField,
   TRAFFIC_COUNT, trafficCarFor, PEDESTRIAN_COUNT, pedestrianFor,
@@ -115,8 +116,12 @@ export function createGTAScene(canvas, opts = {}) {
   scene.add(skyDome);
   const sunSprite = buildSunSprite();
   scene.add(sunSprite);
+  const sunDisc = buildSunDisc();
+  scene.add(sunDisc);
   const moonSprite = buildMoonSprite();
   scene.add(moonSprite);
+  const moonDisc = buildMoonDisc();
+  scene.add(moonDisc);
   const stars = buildStars();
   scene.add(stars);
   const clouds = buildClouds();
@@ -427,8 +432,16 @@ export function createGTAScene(canvas, opts = {}) {
     );
     sunSprite.visible = sunUp;
     sunSprite.material.opacity = sunUp ? 0.35 + 0.65 * dayness : 0;
+    // The sun's bright core rides the glow sprite, same rule.
+    sunDisc.position.copy(sunSprite.position);
+    sunDisc.visible = sunUp;
+    sunDisc.material.opacity = sunUp ? 0.35 + 0.65 * dayness : 0;
     moonSprite.material.opacity = 0.15 + 0.85 * night;
     moonSprite.visible = night > 0.05;
+    // The real Moon rides the glow sprite, same rule.
+    moonDisc.position.copy(moonSprite.position);
+    moonDisc.material.opacity = 0.15 + 0.85 * night;
+    moonDisc.visible = night > 0.05;
     stars.material.opacity = night * 0.9;
     clouds.material.opacity = 0.25 + 0.3 * dayness;
     // Emissive night pass — no new real lights, ever.

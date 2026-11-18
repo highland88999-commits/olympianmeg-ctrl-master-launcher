@@ -669,7 +669,7 @@ export function NavScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.nav} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.nav} storm={null} />
       <RealmSkyDome realmKey="nav" />
       <Ground />
       <RootTangles tangles={world.rootTangles} />

@@ -89,7 +89,9 @@ export function createSky() {
   g2.fillStyle = grad; g2.fillRect(0, 0, 4, 256);
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(3000, 16, 12),
-    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.BackSide, fog: false })
+    // depthWrite off, house sky-dome idiom: the Moon sits 8 m outside
+    // this 3000 m wall, and a depth-writing dome would occlude it.
+    new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.BackSide, fog: false, depthWrite: false })
   );
   group.add(dome);
 
@@ -117,6 +119,34 @@ export function createSky() {
   moon.scale.set(320, 320, 1);
   moon.position.set(-1400, 1500, -2200);
   group.add(moon);
+  // The real Moon: Merlin's photograph on a sphere (never a flat
+  // disc — the photo is equirectangular and would smear). It sits
+  // 160 m inside the glow sprite along the moon direction so the
+  // halo's opaque centre never paints over the photo; the glow
+  // sprite stays as its halo. Rides with the sky group, which
+  // follows the camera. Pale fallback if the photo fails to load.
+  const moonDir = new THREE.Vector3(-1400, 1500, -2200);
+  const moonDist = moonDir.length();
+  const moonMat = new THREE.MeshBasicMaterial({ color: 0xdfe8ff, fog: false });
+  const moonBall = new THREE.Mesh(new THREE.SphereGeometry(100, 48, 32), moonMat);
+  moonBall.position.copy(moonDir).multiplyScalar((moonDist - 160) / moonDist);
+  moonBall.name = 'dutchman-moon';
+  group.add(moonBall);
+  if (typeof document !== 'undefined') {
+    try {
+      new THREE.TextureLoader().load(
+        '/images/moon/moon-surface.jpg',
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          moonMat.map = tex;
+          moonMat.color.set(0xffffff);
+          moonMat.needsUpdate = true;
+        },
+        undefined,
+        () => { /* photo failed: the pale fallback stays */ },
+      );
+    } catch { /* no loader available: the pale fallback stays */ }
+  }
   const moonLight = new THREE.DirectionalLight(0xbfd9ff, 1.1);
   moonLight.position.copy(moon.position);
   group.add(moonLight);

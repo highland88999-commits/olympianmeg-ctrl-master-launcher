@@ -719,7 +719,7 @@ export function DuatScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.duat} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.duat} storm={null} />
       <RealmSkyDome realmKey="duat" />
       <Ground />
       <DarkPools pools={world.darkPools} />

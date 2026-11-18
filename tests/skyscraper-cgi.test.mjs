@@ -408,6 +408,21 @@ describe('skyscraper CGI wiring', () => {
     assert.ok(skyCycle.includes('<primitive object={starField} />'));
   });
 
+  it('SkyCycle wears Merlin\'s photo on the Moon (sphere, never a flat disc)', () => {
+    assert.ok(skyCycle.includes("import { makeMoonTexture } from '@/components/HubMoon'"));
+    assert.ok(skyCycle.includes('useMemo(makeMoonTexture, [])'));
+    assert.ok(skyCycle.includes('<meshBasicMaterial map={moonMaps.map}'));
+    assert.ok(skyCycle.includes('<sphereGeometry args={[100, 32, 32]} />'));
+  });
+
+  it('SkyCycle shows a visible Sun — core sphere + glow halo riding the sun light, gone at night', () => {
+    assert.ok(skyCycle.includes('<sphereGeometry args={[150, 32, 32]} />'));
+    assert.ok(skyCycle.includes('<sprite ref={sunGlowRef} scale={[600, 600, 1]}>'));
+    assert.ok(skyCycle.includes('sunMeshRef.current.position.copy(sunLightRef.current.position)'));
+    assert.ok(skyCycle.includes('sunGlowRef.current.position.copy(sunLightRef.current.position)'));
+    assert.ok(skyCycle.includes('sunPos.altitude > -0.05'));
+  });
+
   it('ProceduralRoads wears the textured road strip', () => {
     assert.ok(roads.includes("materialForSkyscraper('road'"));
     assert.ok(roads.includes('material={roadMat}'));

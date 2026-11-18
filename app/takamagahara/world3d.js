@@ -681,7 +681,7 @@ export function TakamagaharaScene({playerRef, inputRef, onPortal, onRegion, redu
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade="earth" fogDensity={0.0028} />
+      <DayNightRig sun moon shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.cloudPools} />
       <River reduced={reduced} />

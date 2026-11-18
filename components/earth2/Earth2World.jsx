@@ -1739,14 +1739,22 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       constellationLines.frustumCulled = false;
       scene.add(constellationLines);
 
-      // The moon: a pale disc + a soft halo, flown to its real
-      // bearing by the environment tick.
-      const moonDisc = new THREE.Mesh(
-        new THREE.CircleGeometry(56, 32),
-        new THREE.MeshBasicMaterial({ color: 0xe9eff8, transparent: true, opacity: 0, depthWrite: false, fog: false }),
-      );
-      moonDisc.frustumCulled = false;
-      scene.add(moonDisc);
+      // The moon: a SPHERE wearing Merlin's lunar photo + a soft
+      // halo, flown to its real bearing by the environment tick.
+      // The photo is equirectangular (2:1, the full unwrapped
+      // lunar surface) — it wraps a sphere, never a flat disc,
+      // which would smear the whole unwrapped surface. Pale
+      // #e9eff8 until the photo lands (and if it never does).
+      const moonMat = new THREE.MeshBasicMaterial({ color: 0xe9eff8, transparent: true, opacity: 0, depthWrite: false, fog: false });
+      const moonSphere = new THREE.Mesh(new THREE.SphereGeometry(56, 32, 24), moonMat);
+      moonSphere.frustumCulled = false;
+      scene.add(moonSphere);
+      new THREE.TextureLoader().load('/images/moon/moon-surface.jpg', (loaded) => {
+        loaded.colorSpace = THREE.SRGBColorSpace;
+        moonMat.map = loaded;
+        moonMat.color.set(0xffffff);
+        moonMat.needsUpdate = true;
+      }, undefined, () => { /* photo failed: the pale colour stays */ });
       const moonGlow = (() => {
         const c = document.createElement('canvas'); c.width = 128; c.height = 128;
         const g = c.getContext('2d');
@@ -1756,6 +1764,29 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         const tex = new THREE.CanvasTexture(c);
         const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, fog: false }));
         spr.scale.setScalar(420);
+        scene.add(spr);
+        return spr;
+      })();
+
+      // The sun: a bright core + a warm halo on its real bearing,
+      // gone at night (the house sun treatment — the same
+      // elevation rule Earth 3 uses). The light itself already
+      // rode the real sun; now the sun is visible too.
+      const sunDisc = new THREE.Mesh(
+        new THREE.SphereGeometry(70, 32, 24),
+        new THREE.MeshBasicMaterial({ color: 0xfff6d8, transparent: true, opacity: 0, depthWrite: false, fog: false }),
+      );
+      sunDisc.frustumCulled = false;
+      scene.add(sunDisc);
+      const sunGlow = (() => {
+        const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+        const g = c.getContext('2d');
+        const grad = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+        grad.addColorStop(0, 'rgba(255,242,192,0.85)'); grad.addColorStop(1, 'rgba(255,242,192,0)');
+        g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+        const tex = new THREE.CanvasTexture(c);
+        const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+        spr.scale.setScalar(500);
         scene.add(spr);
         return spr;
       })();
@@ -6516,14 +6547,21 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         sun.target.position.set(walker.x, y0, walker.z);
         sun.intensity = pal.sunIntensity * (1 - cloud * 0.65);
         sun.color.setRGB(pal.sunColor[0], pal.sunColor[1], pal.sunColor[2]);
-        // The moon: disc, halo and cool light on ITS bearing.
+        // The sun, visible: core + halo on its real bearing at
+        // the moon's distance, gone below the horizon (the
+        // elevation > -2 rule Earth 3 uses), dimmed by cloud.
+        const sunUp = sol.elevationDeg > -2;
+        sunDisc.position.set(walker.x + sd.x * 1850, y0 + sd.y * 1850, walker.z + sd.z * 1850);
+        sunDisc.material.opacity = sunUp ? (1 - cloud * 0.65) : 0;
+        sunGlow.position.copy(sunDisc.position);
+        sunGlow.material.opacity = sunUp ? 0.85 * (1 - cloud * 0.65) : 0;
+        // The moon: sphere, halo and cool light on ITS bearing.
         const mp = moonPosition(nowMs, ll.lat, ll.lon);
         const md = altAzToVector(mp.altDeg, mp.azDeg);
         const moonVis = pal.night * (mp.altDeg > -3 ? 1 : 0) * (1 - cloud * 0.8);
-        moonDisc.position.set(walker.x + md.x * 1850, y0 + md.y * 1850, walker.z + md.z * 1850);
-        moonDisc.lookAt(walker.x, y0, walker.z);
-        moonDisc.material.opacity = moonVis * (0.45 + 0.55 * mp.illum);
-        moonGlow.position.copy(moonDisc.position);
+        moonSphere.position.set(walker.x + md.x * 1850, y0 + md.y * 1850, walker.z + md.z * 1850);
+        moonSphere.material.opacity = moonVis * (0.45 + 0.55 * mp.illum);
+        moonGlow.position.copy(moonSphere.position);
         moonGlow.material.opacity = moonVis * 0.5;
         moonLight.position.set(walker.x + md.x * 200, y0 + md.y * 200, walker.z + md.z * 200);
         moonLight.target.position.set(walker.x, y0, walker.z);

@@ -534,18 +534,70 @@ function buildSkyDome(R, spec) {
   return dome;
 }
 
-/* One glowing sun sprite. T.glowSprite() is canvas-based (client-side). */
-function buildSunSprite(R, T, sun) {
+/* One glowing sun sprite (bare). The lightning flash and the
+ * horizon glow use this directly — they are glow only, never a sun. */
+function buildGlowSprite(R, T, sun) {
   const tex = T.glowSprite();
   const mat = new R.SpriteMaterial({
     map: tex, color: sun.color, transparent: true, opacity: 1,
     blending: R.AdditiveBlending, depthWrite: false, fog: false,
   });
   const sp = new R.Sprite(mat);
-  sp.name = 'cgi-sun';
   sp.scale.set(sun.scale, sun.scale, 1);
   sp.userData.sunSpec = sun;
   return sp;
+}
+
+/* A solid white disc, for a sun's bright core — drawn once and
+ * shared by every sun. Canvas-guarded: no document, no disc (the
+ * glow still carries the sun). */
+let discTextureCache = null;
+function discTexture(R) {
+  if (discTextureCache) return discTextureCache;
+  if (typeof document === 'undefined') return null;
+  try {
+    const cv = document.createElement('canvas');
+    cv.width = 64; cv.height = 64;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return null;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(32, 32, 31, 0, Math.PI * 2);
+    ctx.fill();
+    discTextureCache = new R.CanvasTexture(cv);
+    return discTextureCache;
+  } catch {
+    return null;
+  }
+}
+
+/* One sun (house treatment, Merlin Nov 17): a bright core disc +
+ * the glow halo in one group. The group IS the 'cgi-sun' the
+ * tests count (the inner sprite wears no 'cgi-sun' name, so the
+ * count stays one per sun); group.userData.sprite is the halo,
+ * group.userData.disc the core — the per-frame loop moves the
+ * group and fades both materials together. */
+function buildSunSprite(R, T, sun) {
+  const group = new R.Group();
+  group.name = 'cgi-sun';
+  const glow = buildGlowSprite(R, T, sun);
+  glow.name = 'cgi-sun-glow';
+  group.add(glow);
+  const tex = discTexture(R);
+  let disc = null;
+  if (tex) {
+    disc = new R.Sprite(new R.SpriteMaterial({
+      map: tex, color: sun.color, transparent: true, opacity: 1,
+      depthWrite: false, fog: false,
+    }));
+    disc.name = 'cgi-sun-core';
+    disc.scale.set(sun.scale * 0.25, sun.scale * 0.25, 1);
+    group.add(disc);
+  }
+  group.userData.sprite = glow;
+  group.userData.disc = disc;
+  group.userData.sunSpec = sun;
+  return group;
 }
 
 /* Drifting cloud billboards on one ring; the whole group turns on
@@ -680,7 +732,9 @@ export function buildCgi(R, def, T, opts) {
       sunSprites.push(sp);
     }
     if (spec.horizonGlow) {
-      const glow = buildSunSprite(THREE, T, {
+      // Glow only, not a sun — the bare glow sprite, never a
+      // core-disc group.
+      const glow = buildGlowSprite(THREE, T, {
         color: spec.horizonGlow.color, scale: spec.horizonGlow.scale,
       });
       const gp = sunPosition(spec.horizonGlow.azimuthDeg, spec.horizonGlow.elevationDeg, CGI_SUN_DIST);
@@ -737,7 +791,8 @@ export function buildCgi(R, def, T, opts) {
       flashLight.position.set(100, 200, 50);
       flashLight.name = 'cgi-lightning';
       group.add(flashLight);
-      flashSprite = buildSunSprite(THREE, T, { color: 0xc9a0ff, scale: 420 });
+      // The flash stays a bare glow sprite (never a sun group).
+      flashSprite = buildGlowSprite(THREE, T, { color: 0xc9a0ff, scale: 420 });
       flashSprite.position.set(0, 320, -500);
       flashSprite.material.opacity = 0;
       flashSprite.name = 'cgi-lightning-flash';
@@ -787,6 +842,7 @@ export function buildCgi(R, def, T, opts) {
        * look, not two suns in different quarters of the sky. */
       sunSprites.forEach((sp, i) => {
         if (sp.userData.isGlow) {
+          // The horizon glow is a bare sprite — its own material.
           sp.material.opacity = 0.25 + 0.65 * dn.night;
           return;
         }
@@ -818,7 +874,11 @@ export function buildCgi(R, def, T, opts) {
           );
         }
         sp.visible = sunUp;
-        sp.material.opacity = sunUp ? 1 : 0;
+        // Core + halo fade together: the group carries both
+        // (userData.sprite / userData.disc).
+        const fade = sunUp ? 1 : 0;
+        sp.userData.sprite.material.opacity = fade;
+        if (sp.userData.disc) sp.userData.disc.material.opacity = fade;
       });
       if (dome) {
         /* The dome keeps its own gradient; the material colour is

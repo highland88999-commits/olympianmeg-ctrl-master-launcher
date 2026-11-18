@@ -13,7 +13,8 @@ import {
   facadeMaps, materialForFacade, facadeKindForDistrict, FACADE_KINDS,
   HARBOR_WATER, waterMaps, buildHarborWater,
   CITY_SKY, skyDayness, skyPalette,
-  buildSkyDome, buildSunSprite, buildMoonSprite, buildStars, buildClouds,
+  buildSkyDome, buildSunSprite, buildMoonSprite, buildSunDisc, buildMoonDisc,
+  MOON_DISC_RADIUS, MOON_DISC_FALLBACK_COLOR, buildStars, buildClouds,
   cloudAngle,
   CITY_WIND_BEARING_DEG, CITY_WIND_VEER_DEG, CITY_WIND_GUST_MIN_MPS,
   CITY_WIND_GUST_MAX_MPS, cityWindAt,
@@ -84,8 +85,15 @@ t('sky: dusk sits between day and night', skyPalette(0.5).top !== CITY_SKY.day.t
   t('sky: dome ignores fog and depth write', dome.material.fog === false && dome.material.depthWrite === false);
   const sun = buildSunSprite();
   t('sky: sun is an additive sprite', sun.material.blending === THREE.AdditiveBlending);
+  const sunDisc = buildSunDisc();
+  t('sky: sun core is a small solid-disc additive sprite', sunDisc.isSprite && sunDisc.scale.x === 28 && sunDisc.material.blending === THREE.AdditiveBlending);
+  t('sky: sun core wears the sun colour', sunDisc.material.color.getHex() === CITY_SKY.sunColor);
   const moon = buildMoonSprite();
   t('sky: moon sprite placed high', moon.position.y > 300);
+  const moonDisc = buildMoonDisc();
+  t('sky: moon is a photo sphere, not a flat disc', moonDisc.isMesh && moonDisc.geometry.type === 'SphereGeometry' && moonDisc.geometry.parameters.radius === MOON_DISC_RADIUS);
+  t('sky: moon sphere rides the sprite perch', moonDisc.position.equals(moon.position));
+  t('sky: moon sphere falls back pale without a document', moonDisc.material.color.getHex() === MOON_DISC_FALLBACK_COLOR);
   const stars = buildStars();
   t('sky: 240 stars, starting dark', stars.geometry.getAttribute('position').count === 240 && stars.material.opacity === 0);
   const clouds = buildClouds();
@@ -201,6 +209,7 @@ t('sky: dusk sits between day and night', skyPalette(0.5).top !== CITY_SKY.day.t
   const stripped = scene.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
   t('scene: imports the CGI layer', /lib\/gta\/city-cgi\.js/.test(scene));
   t('scene: builds the sky dome + sun + stars + clouds', /buildSkyDome\(\)/.test(stripped) && /buildSunSprite\(\)/.test(stripped) && /buildStars\(\)/.test(stripped) && /buildClouds\(\)/.test(stripped));
+  t('scene: sun core disc + photo moon disc ride the sprites', /buildSunDisc\(\)/.test(stripped) && /buildMoonDisc\(\)/.test(stripped) && /sunDisc\.position\.copy\(sunSprite\.position\)/.test(stripped) && /moonDisc\.position\.copy\(moonSprite\.position\)/.test(stripped));
   t('scene: builds the harbor water', /buildHarborWater\(\)/.test(stripped));
   t('scene: drives traffic + pedestrians from the operators', /trafficCarFor\(i, now\)/.test(stripped) && /pedestrianFor\(i, now\)/.test(stripped));
   t('scene: rain follows the player', /updateRainField\(rain, now\)/.test(stripped) && /rain\.position\.set\(player\.x/.test(stripped));

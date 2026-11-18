@@ -698,7 +698,7 @@ export function YomiScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.yomi} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.yomi} storm={null} />
       <RealmSkyDome realmKey="yomi" />
       <Ground />
       <DarkPools pools={world.darkPools} />

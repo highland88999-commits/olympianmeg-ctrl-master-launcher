@@ -561,5 +561,25 @@ const src = (p) => readFileSync(p, 'utf8');
   }
 }
 
+// --- Visible sun at street level (house sun treatment, Merlin
+// 2026-11-17): the street scene had light but no sun to look at.
+// A bright core + halo ride the real sun vector inside the sky
+// dome, gone at night with the street lights' dayF. ---
+{
+  const nexus = src('components/NexusEarth.jsx');
+  t('street sun core is a sphere on the real sun vector (inside the dome)',
+    nexus.includes('streetSunDiscRef') && nexus.includes('<sphereGeometry args={[1.2, 32, 24]}')
+    && nexus.includes('streetSunDiscRef.current.position.set(v.x * 70, v.y * 70, v.z * 70)'));
+  t('street sun halo is a glow sprite at the same spot, same scale as the core',
+    nexus.includes('streetSunGlowRef') && nexus.includes('scale={[12, 12, 1]}')
+    && nexus.includes('streetSunGlowRef.current.position.set(v.x * 70, v.y * 70, v.z * 70)'));
+  t('street sun fades with the same dayF as the street lights, gone at night',
+    nexus.includes('streetSunDiscRef.current.material.opacity = dayF')
+    && nexus.includes('streetSunGlowRef.current.material.opacity = 0.85 * dayF')
+    && nexus.includes('streetSunDiscRef.current.visible = dayF > 0'));
+  t('street sun is driven by the 1 s real-sun effect, not a second clock',
+    nexus.includes('const id = setInterval(updateSun, 1000)'));
+}
+
 console.log(`earth1-round2: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

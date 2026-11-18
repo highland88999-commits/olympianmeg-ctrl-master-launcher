@@ -676,7 +676,7 @@ export function AaruScene({playerRef, inputRef, onPortal, onRegion, reduced, onF
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade="earth" />
+      <DayNightRig sun moon shade="earth" />
       <Ground />
       <LightPools pools={world.pools} />
       <River reduced={reduced} />

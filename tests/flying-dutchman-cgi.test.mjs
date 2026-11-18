@@ -375,3 +375,12 @@ test('sea3d.js and ship3d.js are untouched by the CGI work', () => {
   assert.ok(!cgiSrc.includes('new THREE.AmbientLight'), 'no AmbientLight in the CGI module');
   assert.ok(!cgiSrc.includes('new THREE.HemisphereLight'), 'no HemisphereLight in the CGI module');
 });
+
+test('sea3d.js: the Moon is Merlin\'s photo on a sphere, glow kept as halo', () => {
+  assert.ok(seaSrc.includes("'/images/moon/moon-surface.jpg'"), 'moon photo loaded');
+  assert.ok(seaSrc.includes('new THREE.SphereGeometry(100, 48, 32)'), 'moon is a sphere r100, never a flat disc');
+  assert.ok(seaSrc.includes("name = 'dutchman-moon'"), 'moon sphere named');
+  assert.ok(seaSrc.includes('moon.position.set(-1400, 1500, -2200)'), 'glow sprite stays at its fixed perch');
+  assert.ok(seaSrc.includes('moon.scale.set(320, 320, 1)'), 'glow sprite stays as the halo');
+  assert.ok(seaSrc.includes('depthWrite: false'), 'dome does not depth-occlude the moon outside its wall');
+});

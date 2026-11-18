@@ -184,6 +184,29 @@ function buildSky(ctx) {
   scene.add(glow);
   ctx.sunGlow = glow;
 
+  // Moon — a SPHERE wearing Merlin's lunar photo (equirectangular,
+  // 2:1: it wraps a sphere, never a flat disc) at the same built
+  // distance as the sun, with a soft halo; the day/night refresh
+  // rides it along the real moon vector. Pale #e9eff8 until the
+  // photo lands (and if it never does).
+  const moonMat = new THREE.MeshBasicMaterial({ color: 0xe9eff8, transparent: true, opacity: 0, depthWrite: false, fog: false });
+  const moon = new THREE.Mesh(new THREE.SphereGeometry(55, 32, 24), moonMat);
+  moon.position.set(-420, 300, 680);
+  scene.add(moon);
+  ctx.moonDisc = moon;
+  new THREE.TextureLoader().load('/images/moon/moon-surface.jpg', (loaded) => {
+    loaded.colorSpace = THREE.SRGBColorSpace;
+    moonMat.map = loaded;
+    moonMat.color.set(0xffffff);
+    moonMat.needsUpdate = true;
+  }, undefined, () => { /* photo failed: the pale colour stays */ });
+  const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: ctx.tex.soft, color: 0xbed2f5, transparent: true, opacity: 0, fog: false, depthWrite: false,
+  }));
+  moonGlow.scale.set(420, 420, 1); moonGlow.position.copy(moon.position);
+  scene.add(moonGlow);
+  ctx.moonGlow = moonGlow;
+
   const clouds = [];
   for (let i = 0; i < 12; i++) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -741,6 +764,24 @@ export function createWorld(canvas, cb) {
       if (ctx.sunGlow && ctx.sunDisc) {
         ctx.sunGlow.position.copy(ctx.sunDisc.position);
         ctx.sunGlow.visible = sunUp;
+      }
+      // The moon rides the real moon vector at the sun's distance,
+      // visible at night (alt > 0), opacity by night × illumination
+      // — the mirror of the sun's sunUp rule above.
+      const moonUp = dn.moon.altDeg > 0;
+      if (ctx.moonDisc) {
+        ctx.moonDisc.position.set(
+          dn.moonVec.x * SUN_DISC_DIST,
+          dn.moonVec.y * SUN_DISC_DIST,
+          dn.moonVec.z * SUN_DISC_DIST,
+        );
+        ctx.moonDisc.material.opacity = moonUp ? dn.palette.night * (0.45 + 0.55 * dn.moon.illum) : 0;
+        ctx.moonDisc.visible = moonUp;
+      }
+      if (ctx.moonGlow && ctx.moonDisc) {
+        ctx.moonGlow.position.copy(ctx.moonDisc.position);
+        ctx.moonGlow.material.opacity = moonUp ? dn.palette.night * 0.5 : 0;
+        ctx.moonGlow.visible = moonUp;
       }
       if (ctx.skyDomeMat) {
         const dayF = 1 - dn.palette.night;

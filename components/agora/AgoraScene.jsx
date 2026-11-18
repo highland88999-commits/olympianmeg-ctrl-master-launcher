@@ -684,7 +684,7 @@ function SceneContent({ timeOfDay, mode, inputRef }) {
 
   return (
     <>
-      <DayNightRig shade="earth" fogDensity={0.0035} />
+      <DayNightRig sun moon shade="earth" fogDensity={0.0035} />
       <AgoraStars opacity={1 - dayF} />
       <AgoraGround />
       <Fountain dayF={dayF} />

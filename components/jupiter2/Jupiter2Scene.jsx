@@ -1202,6 +1202,9 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
     tex.center.set(0.5, 0.5);
     return tex;
   }, []);
+  // The sun's glow halo texture (shared particle cache — never
+  // disposed here, same as the rain's drop texture in StormRig).
+  const sunGlowTex = useMemo(() => getParticleTexture('glow'), []);
   const speederGroup = useMemo(() => buildSpeeder(), []);
   const leverGroup = useMemo(() => buildOblivionLever(), []);
   const mountainGroup = useMemo(() => buildMountain(), []);
@@ -1338,6 +1341,23 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
       <hemisphereLight args={[sky.hemiSky, sky.hemiGround, 0.5]} />
       <directionalLight position={sky.sunPos} intensity={sky.sunIntensity} color={sky.sunColor} />
       <directionalLight position={[-40, 24, 40]} intensity={0.15} color="#7a86a8" />
+
+      {/* the sun itself (house treatment, Merlin Nov 17): a bright
+          core sphere + glow halo on the real sun direction — the
+          sky.sunPos the light already rides, so core and light
+          agree. Gone at night: dayF is 0 below the horizon, so
+          both fade with it. fog:false, so the storm fog never
+          swallows it; the planet still hides it below the horizon. */}
+      <mesh position={sky.sunPos}>
+        <sphereGeometry args={[4, 20, 20]} />
+        <meshBasicMaterial color={sky.sunColor} fog={false} transparent opacity={0.95 * sky.dayF} depthWrite={false} />
+      </mesh>
+      {sunGlowTex && (
+        <sprite position={sky.sunPos} scale={[40, 40, 1]}>
+          <spriteMaterial map={sunGlowTex} color={sky.sunColor} fog={false} transparent
+            opacity={0.55 * sky.dayF} depthWrite={false} blending={THREE.AdditiveBlending} />
+        </sprite>
+      )}
 
       {/* storm sky dome — Jupiter's bands overhead, flowing */}
       <mesh material={skyMat}>

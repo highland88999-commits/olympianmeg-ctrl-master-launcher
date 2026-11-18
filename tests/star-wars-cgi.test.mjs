@@ -208,6 +208,29 @@ describe('star-wars CGI sky builders', () => {
     assert.ok(findNamed(ex.group, 'cgi-lightning-flash'), 'Exegol builds a lightning flash sprite');
   });
 
+  it('each sun is a core-disc + glow-halo group; the flash and horizon glow stay bare sprites', () => {
+    const tat = CGI.buildCgi(THREE, PLANETS.tatooine, T, {});
+    const suns = [];
+    tat.group.traverse((o) => { if (o.name === 'cgi-sun') suns.push(o); });
+    assert.equal(suns.length, 2, 'Tatooine still builds two suns');
+    for (const s of suns) {
+      assert.ok(s.isGroup, 'a sun is a group, not a bare sprite');
+      assert.ok(s.userData.sprite, 'the group carries its glow sprite');
+      assert.ok(s.userData.disc, 'the group carries its core disc');
+      assert.ok(s.userData.disc.isSprite, 'the core disc is a camera-facing sprite');
+    }
+    const ex = CGI.buildCgi(THREE, PLANETS.exegol, T, {});
+    const flash = findNamed(ex.group, 'cgi-lightning-flash');
+    assert.ok(flash && flash.isSprite, 'the lightning flash stays a bare sprite');
+    for (const [id, def] of Object.entries(PLANETS)) {
+      if (def.kind !== 'walk') continue;
+      if (!CGI.worldCgiSpec(def).horizonGlow) continue;
+      const cgi = CGI.buildCgi(THREE, def, T, {});
+      const glow = findNamed(cgi.group, 'cgi-horizon-glow');
+      assert.ok(glow && glow.isSprite, `${id}: the horizon glow stays a bare sprite`);
+    }
+  });
+
   it('sunPosition returns a unit direction at the requested distance', () => {
     const p = CGI.sunPosition(205, 26, 950);
     const len = Math.hypot(p.x, p.y, p.z);

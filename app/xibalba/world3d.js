@@ -719,7 +719,7 @@ export function XibalbaScene({playerRef, inputRef, onPortal, onRegion, reduced, 
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.xibalba}
         storm={{
           hue: 'purple',

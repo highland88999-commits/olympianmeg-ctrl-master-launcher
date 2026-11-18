@@ -7,6 +7,9 @@
 // not the law's.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   solarPosition,
@@ -264,5 +267,71 @@ describe('scene helpers', () => {
     const day = dayNightFor(NOON_EQUINOX, 0, 0);
     assert.doesNotThrow(() => applyDayNightRig({}, day.palette, day.sunVec, day.moon, day.moonVec));
     assert.doesNotThrow(() => applyDayNightRig(null, day.palette, day.sunVec, day.moon, day.moonVec));
+  });
+});
+
+// Sun + moon wrap sweep (Merlin, Nov 17, 2026): every DayNightRig
+// world renders the house sun (core disc + halo) and Merlin's
+// photo moon — the rig opts in per world. Mars 2 is the one
+// exception: its sun is on, its moon stays red (a separate
+// coordinator builds it), so its tag must NOT carry `moon`.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repo = path.join(__dirname, '..');
+const read = (p) => readFileSync(path.join(repo, p), 'utf8');
+const rigTag = (src) => {
+  const m = src.match(/<DayNightRig[\s\S]*?\/>/);
+  assert.ok(m, 'no DayNightRig tag found');
+  return m[0];
+};
+
+const RIG_SUN_MOON_WORLDS = [
+  'app/tlalocan/world3d.js',
+  'app/maya-sky/world3d.js',
+  'app/vyraj/world3d.js',
+  'app/tiangong/world3d.js',
+  'app/heaven/world3d.js',
+  'app/svarga/world3d.js',
+  'app/takamagahara/world3d.js',
+  'app/tir-na-nog/world3d.js',
+  'app/elysium/world3d.js',
+  'app/valhalla/world3d.js',
+  'app/aaru/world3d.js',
+  'app/ghost-rider/world3d.js',
+  'app/nether-realm/world3d.js',
+  'app/helheim/world3d.js',
+  'app/duat/world3d.js',
+  'app/hell/world3d.js',
+  'app/naraka/world3d.js',
+  'app/yomi/world3d.js',
+  'app/annwn/world3d.js',
+  'app/mictlan/world3d.js',
+  'app/xibalba/world3d.js',
+  'app/kur/world3d.js',
+  'app/nav/world3d.js',
+  'app/diyu/world3d.js',
+  'app/orun/world3d.js',
+  'components/agora/AgoraScene.jsx',
+];
+
+describe('the sun + moon wrap — every rig world opts in', () => {
+  it('the rig renders the photo moon when moon is passed', () => {
+    const rig = read('components/DayNightRig.jsx');
+    assert.ok(rig.includes('moon = false'), 'moon prop exists, default false');
+    assert.ok(rig.includes('makeMoonTexture'), 'moon wears Merlin’s photo via makeMoonTexture');
+    assert.ok(rig.includes('moonVis'), 'moon visibility follows the moon law');
+  });
+
+  for (const f of RIG_SUN_MOON_WORLDS) {
+    it(`${f} passes sun + moon to the rig`, () => {
+      const tag = rigTag(read(f));
+      assert.ok(/\bsun\b/.test(tag), `sun missing in ${f}`);
+      assert.ok(/\bmoon\b/.test(tag), `moon missing in ${f}`);
+    });
+  }
+
+  it('Mars 2 passes sun but NOT moon — its moon stays red', () => {
+    const tag = rigTag(read('components/mars2/Mars2Scene.jsx'));
+    assert.ok(/\bsun\b/.test(tag), 'Mars 2 sun missing');
+    assert.ok(!/\bmoon\b/.test(tag), 'Mars 2 must not carry the grey photo moon');
   });
 });

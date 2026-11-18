@@ -58,6 +58,15 @@ describe('route', () => {
     assert.match(src, /timeOfDay01/);
     assert.match(src, /requestDayNightPlace/);
   });
+  it('the scene wears the house sun: core sphere + glow halo at sky.sunPos, gone at night', () => {
+    const sceneSrc = read('components/jupiter2/Jupiter2Scene.jsx');
+    // The core rides the same sunPos the directional light rides.
+    assert.match(sceneSrc, /<mesh position=\{sky\.sunPos\}>/);
+    assert.match(sceneSrc, /sphereGeometry args=\{\[4, 20, 20\]\}/);
+    assert.match(sceneSrc, /opacity=\{0\.95 \* sky\.dayF\}/);
+    assert.match(sceneSrc, /<sprite position=\{sky\.sunPos\} scale=\{\[40, 40, 1\]\}>/);
+    assert.match(sceneSrc, /opacity=\{0\.55 \* sky\.dayF\}/);
+  });
 });
 
 describe('speeder (Earth 1 summon contract)', () => {

@@ -28,6 +28,7 @@ import { fx, unlockFx } from '@/lib/fx';
 import { HermesBackdrop, HermesPanelTexture } from '@/components/hermes-ui/HermesUi';
 import { RadarIcon, GridIcon, EyeIcon, PortalIcon, PinIcon } from '@/lib/hermes-icons';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { makeMoonTexture } from '@/components/HubMoon';
 
 import {
   tuningFor,
@@ -231,6 +232,12 @@ function Planet({ planet, palette, reduced }) {
 
 function Moons({ scene, reduced }) {
   const refs = useRef([]);
+  // MOON WRAP (Merlin's photo, Nov 17): the equirectangular lunar
+  // surface on every moon sphere — shared with the hub moon,
+  // procedural fallback, so a failed photo load never leaves a
+  // blank moon. The standard material stays, so the scene lights
+  // still shape them.
+  const moonMaps = useMemo(makeMoonTexture, []);
   const list = useMemo(
     () =>
       scene.moons.map((m) => ({
@@ -260,7 +267,7 @@ function Moons({ scene, reduced }) {
           position={[planet.pos.x + moon.orbitR, planet.pos.y, planet.pos.z]}
         >
           <sphereGeometry args={[moon.size, 20, 20]} />
-          <meshStandardMaterial color="#9aa7bd" roughness={0.9} metalness={0.05} />
+          <meshStandardMaterial map={moonMaps.map} roughness={0.9} metalness={0.05} />
         </mesh>
       ))}
     </group>

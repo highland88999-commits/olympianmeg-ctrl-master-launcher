@@ -218,3 +218,30 @@ describe('NO MOTION WALL (Merlin, Nov 16 ~02:42) — the bound is the terrain ed
     }
   });
 });
+
+describe('HOUSE SUN (Merlin, Nov 17) — core sphere + glow halo on the light direction', () => {
+  it('every pod: a sun core sphere and a glow halo ride the light direction, ~300 m out', () => {
+    for (const id of DATA.POD_ORDER) {
+      const z = buildZone(THREE, DATA.PODS[id], T, { freeRoam: true });
+      try {
+        let core = null;
+        let glow = null;
+        z.group.traverse((o) => {
+          if (o.name === 'me-sun-core') core = o;
+          if (o.name === 'me-sun-glow') glow = o;
+        });
+        assert.ok(core, `${id}: sun core sphere in the scene`);
+        assert.ok(glow, `${id}: sun glow halo in the scene`);
+        // On the light's direction (60, 110, 35), ~300 m out, high
+        // above the terrain — inside the page's 2500 far plane.
+        const len = Math.hypot(core.position.x, core.position.y, core.position.z);
+        assert.ok(Math.abs(len - 300) < 1, `${id}: sun distance ${len.toFixed(1)} m should be ~300 m`);
+        assert.ok(core.position.y > 200, `${id}: the sun sits high in the sky`);
+        assert.equal(glow.position.x, core.position.x, `${id}: halo rides the core`);
+        assert.equal(glow.position.y, core.position.y, `${id}: halo rides the core`);
+      } finally {
+        z.dispose();
+      }
+    }
+  });
+});

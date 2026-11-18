@@ -355,6 +355,48 @@ export function buildZone(THREE, podDef, T, opts) {
   sun.position.set(60, 110, 35);
   group.add(sun);
 
+  /* THE SUN ITSELF (house treatment, Merlin Nov 17): a bright core
+   * sphere + glow halo on the light's direction, static — no
+   * day/night cycle here. Normalised * 300: inside the page's 2500
+   * far plane, high above the terrain (y ~254), fog:false so the
+   * exp fog never swallows it. The halo is a radial-gradient canvas
+   * sprite (T.makeCanvasTexture, try/caught — no document, no halo,
+   * the sphere still carries the sun). No moon exists in
+   * Middle-earth — none to add. dispose() traverses the group and
+   * frees the halo texture with its material. */
+  const sunDir = new R.Vector3(60, 110, 35).normalize();
+  const sunPos = sunDir.clone().multiplyScalar(300);
+  const sunCore = new R.Mesh(
+    new R.SphereGeometry(10, 20, 20),
+    new R.MeshBasicMaterial({ color: 0xfff2dd, transparent: true, opacity: 0.95, fog: false, depthWrite: false })
+  );
+  sunCore.position.copy(sunPos);
+  sunCore.name = 'me-sun-core';
+  group.add(sunCore);
+  let sunGlowTex = null;
+  try {
+    if (T && typeof T.makeCanvasTexture === 'function') {
+      sunGlowTex = T.makeCanvasTexture(128, (ctx, size) => {
+        const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+        g.addColorStop(0, 'rgba(255,242,221,0.9)');
+        g.addColorStop(0.35, 'rgba(255,242,221,0.35)');
+        g.addColorStop(1, 'rgba(255,242,221,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      });
+    }
+  } catch (e) { sunGlowTex = null; }
+  if (sunGlowTex) {
+    const sunGlow = new R.Sprite(new R.SpriteMaterial({
+      map: sunGlowTex, color: 0xffe9b0, transparent: true, opacity: 0.55,
+      depthWrite: false, fog: false,
+    }));
+    sunGlow.position.copy(sunPos);
+    sunGlow.scale.set(90, 90, 1);
+    sunGlow.name = 'me-sun-glow';
+    group.add(sunGlow);
+  }
+
   /* terrain — DENSE on purpose (the saga density law): the walker
    * tracks analytic heightAt exactly (page snapY), so the mesh
    * must track it too; this is what keeps deviation inside 0.2 m. */

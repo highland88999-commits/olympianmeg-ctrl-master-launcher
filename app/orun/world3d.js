@@ -682,7 +682,7 @@ export function OrunScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.orun} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.orun} storm={null} />
       <RealmSkyDome realmKey="orun" />
       <Ground />
       <GroveTrees trees={world.groveTrees} />

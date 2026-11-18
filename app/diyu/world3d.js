@@ -712,7 +712,7 @@ export function DiyuScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.diyu}
         storm={{
           hue: 'red',

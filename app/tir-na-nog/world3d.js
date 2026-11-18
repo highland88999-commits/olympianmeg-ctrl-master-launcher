@@ -672,7 +672,7 @@ export function TirNaNogScene({playerRef, inputRef, onPortal, onRegion, reduced,
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade="earth" fogDensity={0.0028} />
+      <DayNightRig sun moon shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.springPools} />
       <River reduced={reduced} />

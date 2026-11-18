@@ -817,3 +817,24 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     assert.ok(world.includes('killWalker'), 'the hunt can catch the swimmer');
   });
 });
+
+describe('the sky — a visible sun and the photo moon (Merlin, 2026-11-17)', () => {
+  it('the moon is a sphere wearing the lunar photo, never a flat disc', () => {
+    const world = read('components/earth2/Earth2World.jsx');
+    assert.ok(world.includes("new THREE.SphereGeometry(56, 32, 24)"), 'the moon is a sphere, r56');
+    assert.ok(world.includes("'/images/moon/moon-surface.jpg'"), 'the moon wears the equirectangular photo');
+    assert.ok(world.includes('new THREE.TextureLoader().load('), 'the photo loads through TextureLoader');
+    assert.ok(!world.includes('CircleGeometry(56'), 'no flat moon disc — a disc would smear the unwrapped photo');
+    assert.ok(!world.includes('moonDisc.lookAt'), 'a sphere needs no lookAt');
+    assert.ok(world.includes('moonGlow.position.copy(moonSphere.position)'), 'the halo still rides the moon');
+  });
+
+  it('the sun is a visible core + halo on its real bearing, gone at night', () => {
+    const world = read('components/earth2/Earth2World.jsx');
+    assert.ok(world.includes('new THREE.SphereGeometry(70, 32, 24)'), 'the sun core is a sphere, r70');
+    assert.ok(world.includes('sunDisc.position.set(walker.x + sd.x * 1850'), 'the core rides the real sun vector at the moon distance');
+    assert.ok(world.includes('sunGlow.position.copy(sunDisc.position)'), 'the halo rides the core');
+    assert.ok(world.includes('sol.elevationDeg > -2'), 'the sun sets below the horizon — the Earth 3 rule');
+    assert.ok(world.includes('sunDisc.material.opacity = sunUp ?'), 'the core is gone at night, not shining through the ground');
+  });
+});

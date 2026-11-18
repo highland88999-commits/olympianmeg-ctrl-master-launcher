@@ -48,6 +48,20 @@ function makeGlowTexture() {
   return tex;
 }
 
+// Solid-disc texture for the sun's bright core: opaque white out to
+// 0.7 of the radius, then a falloff to transparent at the rim.
+function makeSolidDiscTexture() {
+  const cv = document.createElement('canvas');
+  cv.width = 128; cv.height = 128;
+  const c = cv.getContext('2d');
+  const g = c.createRadialGradient(64, 64, 4, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.7, 'rgba(255,255,255,1)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = g; c.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(cv);
+}
+
 // One town car: body + cabin + 4 wheels + headlights + taillights.
 // Front is local +Z (matches the shared vehicle forward law:
 // forward = (sin(heading), cos(heading))). Returns
@@ -145,6 +159,36 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   }));
   moonSprite.scale.setScalar(38);
   scene.add(moonSprite);
+  // Sun core disc: the bright centre inside the glow halo.
+  const sunDisc = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeSolidDiscTexture(), color: 0xfff3d6, transparent: true, opacity: 1,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  sunDisc.scale.setScalar(14);
+  sunDisc.renderOrder = 1;
+  scene.add(sunDisc);
+  // The real Moon: Merlin's photograph on a sphere (never a flat
+  // disc — the photo is equirectangular and would smear). It sits
+  // 30 m inside the glow sprite along its direction so the halo's
+  // opaque centre never paints over the photo; the glow stays as
+  // its halo. Pale fallback if the photo fails to load.
+  const moonMat = new THREE.MeshBasicMaterial({ color: 0xdfe9ff, transparent: true, opacity: 0, fog: false });
+  const moonBall = new THREE.Mesh(new THREE.SphereGeometry(13, 48, 32), moonMat);
+  moonBall.name = 'truman-moon';
+  scene.add(moonBall);
+  try {
+    new THREE.TextureLoader().load(
+      '/images/moon/moon-surface.jpg',
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        moonMat.map = tex;
+        moonMat.color.set(0xffffff);
+        moonMat.needsUpdate = true;
+      },
+      undefined,
+      () => { /* photo failed: the pale fallback stays */ },
+    );
+  } catch { /* no loader available: the pale fallback stays */ }
   const starGeo = new THREE.BufferGeometry();
   {
     const rnd = mulberry32(31337);
@@ -525,6 +569,13 @@ export function createTrumanGTAScene(canvas, opts = {}) {
     moonDir.normalize();
     moonSprite.position.copy(moonDir).multiplyScalar(420);
     moonSprite.material.opacity = sky.moonOpacity;
+    // Sun core rides the glow sprite; the real Moon rides 30 m
+    // inside it, same opacity rule as the halo.
+    sunDisc.position.copy(sunSprite.position);
+    sunDisc.material.opacity = sky.sunOpacity;
+    moonBall.position.copy(moonDir).multiplyScalar(420 - 30);
+    moonBall.material.opacity = sky.moonOpacity;
+    moonBall.visible = sky.moonOpacity > 0.02;
     starMat.opacity = sky.starOpacity;
     // Dusk/night glow: lit windows, headlights, the lighthouse beam.
     litWinMat.opacity = 0.3 + 0.65 * windowGlow;

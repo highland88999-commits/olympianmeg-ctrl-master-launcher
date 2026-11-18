@@ -237,6 +237,14 @@ describe('CGI is wired into the scene', () => {
     assert.match(scene, /fogMul=\{season\.fogMul\} dayFactor=\{sky\.day\}/);
   });
 
+  it('the moon is Merlin’s photo on a sphere, not a flat disc — the sun keeps its disc + glow', () => {
+    assert.match(skydome, /makeMoonTexture/);
+    assert.match(skydome, /sphereGeometry args=\{\[9, 24, 24\]\}/);
+    assert.match(skydome, /meshBasicMaterial map=\{moonMaps\.map\}/);
+    assert.doesNotMatch(skydome, /circleGeometry args=\{\[9, 32\]\}/);
+    assert.match(skydome, /circleGeometry args=\{\[13, 32\]\}/);
+  });
+
   it('Canopy wears the leaf texture and sways on the breeze', () => {
     assert.match(canopy, /leafClusterTexture/);
     assert.match(canopy, /canopySway\(/);

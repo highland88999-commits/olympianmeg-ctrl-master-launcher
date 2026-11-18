@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import GoogleEarthTiles from '@/components/GoogleEarthTiles';
@@ -59,11 +59,37 @@ const EARTH_CENTER_WORLD = new THREE.Vector3(0, -30, -80);
 // inside it).
 const SHELL_CAMERA_MIN_DIST = 57.5;
 
+// A soft radial glow (white core fading to transparent) for the
+// street sun's halo — drawn once on a canvas, tinted by the
+// sprite's colour, so the sun carries haze instead of a hard
+// edge (the DayNightRig pattern, local here so the rig stays
+// untouched).
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
 export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, phase, spinEnabled, controls }) {
   const spinRef = useRef();
   const skyMatRef = useRef(null); // street-level day-sky dome shader material
   const streetSunRef = useRef(null); // street sun directional (black-car fix, below)
   const streetAmbientRef = useRef(null); // street ambient (black-car fix, below)
+  const streetSunDiscRef = useRef(null); // visible sun core at street level (house sun treatment)
+  const streetSunGlowRef = useRef(null); // visible sun halo at street level
+  // The halo texture is canvas-only: no DOM on the server render,
+  // so the sprite mounts untextured there and picks the glow up
+  // on the client render (the HubMoon guard pattern).
+  const sunGlowTex = useMemo(() => (typeof document === 'undefined' ? null : makeGlowTexture()), []);
   // 'terrain' = procedural 3D globe (default, always 3D).
   // 'photorealistic' = Google 3D tiles, only after they really render.
   const [layer, setLayer] = useState('terrain');
@@ -121,6 +147,22 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
         }
         if (streetAmbientRef.current) {
           streetAmbientRef.current.intensity = 0.15 + 0.55 * dayF;
+        }
+        // VISIBLE SUN (house sun treatment, Merlin 2026-11-17):
+        // a bright core + halo on the real sun vector, inside
+        // the sky dome (r55 × 1.5 = 82.5) at 70 — gone at night,
+        // fading with the same dayF as the street lights. The
+        // position is local to this group (Earth centre), like
+        // the street sun directional above.
+        if (streetSunDiscRef.current) {
+          streetSunDiscRef.current.position.set(v.x * 70, v.y * 70, v.z * 70);
+          streetSunDiscRef.current.visible = dayF > 0;
+          streetSunDiscRef.current.material.opacity = dayF;
+        }
+        if (streetSunGlowRef.current) {
+          streetSunGlowRef.current.position.set(v.x * 70, v.y * 70, v.z * 70);
+          streetSunGlowRef.current.visible = dayF > 0;
+          streetSunGlowRef.current.material.opacity = 0.85 * dayF;
         }
       } catch {}
     };
@@ -320,6 +362,21 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
               `}
             />
           </mesh>
+        )}
+        {/* Visible sun at street level (house sun treatment):
+            a bright core + halo on the real sun vector, inside
+            the sky dome at 70 — the 1 s sun effect above drives
+            both from the real sun, gone at night. */}
+        {effectiveLayer === 'terrain' && roaming && (
+          <group>
+            <mesh ref={streetSunDiscRef} visible={false}>
+              <sphereGeometry args={[1.2, 32, 24]} />
+              <meshBasicMaterial color="#fff6d8" transparent opacity={0} fog={false} depthWrite={false} />
+            </mesh>
+            <sprite ref={streetSunGlowRef} scale={[12, 12, 1]} visible={false}>
+              <spriteMaterial map={sunGlowTex ?? undefined} color="#fff2c0" transparent opacity={0} fog={false} depthWrite={false} />
+            </sprite>
+          </group>
         )}
       </group>
 

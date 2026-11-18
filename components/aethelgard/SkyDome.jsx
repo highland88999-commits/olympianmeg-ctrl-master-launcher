@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { getParticleTexture } from '@/lib/particles/sprites';
+import { makeMoonTexture } from '@/components/HubMoon';
 import { skyPalette } from '@/lib/aethelgard/data';
 
 // AETHELGARD sky — the flat background colour is gone. A vertex-colour
@@ -57,6 +58,10 @@ export default function SkyDome({ sky, timeOfDay = 0.32 }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const glowTex = useMemo(() => getParticleTexture('glow'), []);
+  // The moon's maps (Merlin's photo, shared with the hub moon —
+  // one texture object, procedural fallback, so a failed photo
+  // load never leaves a blank moon).
+  const moonMaps = useMemo(makeMoonTexture, []);
 
   // Recolour the dome when the palette moves; the geometry itself
   // lives for the life of the component and is disposed on unmount.
@@ -81,7 +86,6 @@ export default function SkyDome({ sky, timeOfDay = 0.32 }) {
     const dir = new THREE.Vector3(...night.sunPos).normalize();
     return {
       pos: dir.clone().multiplyScalar(MOON_DIST),
-      quat: discQuaternion(dir),
       opacity: Math.max(0, Math.min(1, 1 - sky.day)),
     };
   }, [timeOfDay, sky.day]);
@@ -110,10 +114,14 @@ export default function SkyDome({ sky, timeOfDay = 0.32 }) {
           opacity={0.45 * sun.opacity} blending={THREE.AdditiveBlending}
           depthWrite={false} fog={false} />
       </sprite>
-      {/* moon disc for the night */}
-      <mesh position={moon.pos} quaternion={moon.quat}>
-        <circleGeometry args={[9, 32]} />
-        <meshBasicMaterial color="#dfe8ff" transparent opacity={moon.opacity}
+      {/* moon sphere for the night — Merlin's photo wrapped on a
+          sphere at the same position and radius as the old flat
+          disc (the equirectangular surface only reads on a
+          sphere, never on a disc). The sun's disc + glow above
+          are untouched. */}
+      <mesh position={moon.pos}>
+        <sphereGeometry args={[9, 24, 24]} />
+        <meshBasicMaterial map={moonMaps.map} transparent opacity={moon.opacity}
           fog={false} depthWrite={false} />
       </mesh>
     </group>

@@ -698,7 +698,7 @@ export function AnnwnScene({playerRef, inputRef, onPortal, onRegion, reduced, on
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.annwn} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.annwn} storm={null} />
       <RealmSkyDome realmKey="annwn" />
       <Ground />
       <MistPools pools={world.mistPools} />

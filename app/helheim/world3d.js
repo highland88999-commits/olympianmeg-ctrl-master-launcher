@@ -710,7 +710,7 @@ export function HelheimScene({playerRef, inputRef, onPortal, onRegion, reduced, 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.helheim} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.helheim} storm={null} />
       <RealmSkyDome realmKey="helheim" />
       <Ground />
       <FrostPools pools={world.frostPools} />

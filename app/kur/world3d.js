@@ -690,7 +690,7 @@ export function KurScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.kur}
         storm={{
           hue: 'purple',

@@ -667,7 +667,7 @@ export function VyrajScene({playerRef, inputRef, onPortal, onRegion, reduced, on
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade="earth" fogDensity={0.0022} />
+      <DayNightRig sun moon shade="earth" fogDensity={0.0022} />
       <Ground />
       <Pools pools={world.pools} />
       <River reduced={reduced} />

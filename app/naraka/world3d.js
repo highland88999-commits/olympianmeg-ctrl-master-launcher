@@ -714,7 +714,7 @@ export function NarakaScene({playerRef, inputRef, onPortal, onRegion, reduced, o
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.naraka}
         storm={{
           hue: 'purple',

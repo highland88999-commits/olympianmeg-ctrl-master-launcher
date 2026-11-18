@@ -53,6 +53,7 @@ import {
 } from '@/lib/land-of-the-dead/world';
 import { LandOfTheDeadReturn } from '@/components/world/FloorDrop';
 import RealmSkyDome from '@/components/RealmSkyDome';
+import { makeMoonTexture } from '@/components/HubMoon';
 import { FLOOR_EMISSIVE_INTENSITY } from '@/lib/portal/realm-surfaces';
 import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 
@@ -474,6 +475,10 @@ export default function LandOfTheDeadScene({ moveRef, jumpRef, hudRef, onRegion,
   // gate, shades, return portal, walker, scatter) takes this radius.
   const radius = radiusFor(arrivals);
   const world = useMemo(() => makeWorld(20261116, radius), [radius]);
+  // MOON WRAP (Merlin's photo, Nov 17): the equirectangular lunar
+  // surface on the moon sphere — shared with the hub moon, procedural
+  // fallback, so a failed photo load never leaves a blank moon.
+  const moonMaps = useMemo(makeMoonTexture, []);
   return (
     <Canvas
       dpr={[1, 2]}
@@ -487,17 +492,20 @@ export default function LandOfTheDeadScene({ moveRef, jumpRef, hudRef, onRegion,
       {/* Pale moonlight from the moon's direction — the only strong light. */}
       <directionalLight position={MOON_POS} intensity={0.55} color="#d8e8d8" />
       {/* The dead world itself — see Ground() above (video wrap). */}
-      {/* The pale moon, hanging 26° up ahead on arrival. */}
+      {/* The pale moon, hanging 26° up ahead on arrival — now
+          wearing Merlin's moon photo on the same sphere. */}
       <mesh position={MOON_POS}>
         <sphereGeometry args={[LOTD_MOON_RADIUS, 24, 24]} />
-        <meshBasicMaterial color="#e8f2e4" fog={false} />
+        <meshBasicMaterial map={moonMaps.map} fog={false} />
       </mesh>
       {/* VIDEO WRAP (Merlin, Nov 16 ~04:19): the blood-red-moon storm
           sky video on the shared dome; the static sky image
           (public/art/realms/land-of-the-dead-sky.jpg) is the fallback
           while it loads. The pale moon mesh stays as the light anchor
           — its red video moon is part of the dome, so the sky carries
-          two moons until Merlin says otherwise. */}
+          two moons until Merlin says otherwise. The photo wrap above
+          does NOT fix that: the mesh moon is now photographic, the
+          dome still carries its own red one. */}
       <RealmSkyDome realmKey="land-of-the-dead" />
       <Stars />
       <Ground radius={radius} />

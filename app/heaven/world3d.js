@@ -675,7 +675,7 @@ export function HeavenScene({playerRef, inputRef, onPortal, onRegion, reduced, o
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade="earth" fogDensity={0.0028} />
+      <DayNightRig sun moon shade="earth" fogDensity={0.0028} />
       <Ground />
       <Pools pools={world.lightPools} />
       <River reduced={reduced} />

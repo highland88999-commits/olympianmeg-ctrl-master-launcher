@@ -8,12 +8,39 @@ import {
     makeSkyDome, updateSkyDome, makeStarField, updateStars,
     skyStateFor, skyStateKey,
 } from '@/lib/skyscraper-cgi/sky.js';
+import { makeMoonTexture } from '@/components/HubMoon';
 
 export default function SkyCycle() {
     const { scene } = useThree();
     const sunLightRef = useRef();
     const moonLightRef = useRef();
     const moonMeshRef = useRef();
+    const sunMeshRef = useRef();
+    const sunGlowRef = useRef();
+
+    // Merlin's lunar photograph on the Moon (shared maker, node-safe:
+    // procedural fallback without a DOM, photo swapped in on load).
+    // Basic (unlit) material: the Moon wears the photo of the lit
+    // Moon, and its own directional light sits at the Moon, so a
+    // lit material would leave the Earth-facing side black.
+    const moonMaps = useMemo(makeMoonTexture, []);
+    // Radial glow texture for the sun's halo (browser canvas; the
+    // sprite simply has no map without a document).
+    const sunGlowTex = useMemo(() => {
+        if (typeof document === 'undefined') return null;
+        try {
+            const cv = document.createElement('canvas');
+            cv.width = 128; cv.height = 128;
+            const c = cv.getContext('2d');
+            if (!c) return null;
+            const g = c.createRadialGradient(64, 64, 4, 64, 64, 64);
+            g.addColorStop(0, 'rgba(255,255,255,1)');
+            g.addColorStop(0.35, 'rgba(255,255,255,0.85)');
+            g.addColorStop(1, 'rgba(255,255,255,0)');
+            c.fillStyle = g; c.fillRect(0, 0, 128, 128);
+            return new THREE.CanvasTexture(cv);
+        } catch { return null; }
+    }, []);
 
     // CGI (Nov 15, 2026): the sky was one flat background colour.
     // The gradient dome + star field + city-glow horizon now ride
@@ -54,6 +81,19 @@ export default function SkyCycle() {
                 r * Math.sin(sunPos.altitude),
                 r * Math.cos(sunPos.altitude) * Math.cos(sunPos.azimuth)
             );
+        }
+
+        // The visible Sun rides the light: bright core sphere + glow
+        // halo, gone once the sun drops below the horizon (house
+        // treatment — the light alone used to be the whole sun).
+        const sunUp = sunPos.altitude > -0.05;
+        if (sunMeshRef.current) {
+            sunMeshRef.current.visible = sunUp;
+            if (sunLightRef.current) sunMeshRef.current.position.copy(sunLightRef.current.position);
+        }
+        if (sunGlowRef.current) {
+            sunGlowRef.current.visible = sunUp;
+            if (sunLightRef.current) sunGlowRef.current.position.copy(sunLightRef.current.position);
         }
 
         // Move the Moon (Physical Mesh + Directional Light)
@@ -106,12 +146,30 @@ export default function SkyCycle() {
 
             {/* The Harvested Sun */}
             <directionalLight ref={sunLightRef} color={0xffffee} castShadow />
-            
+
+            {/* The visible Sun: bright core + glow halo, following the
+                light above (gone at night — see useFrame). */}
+            <mesh ref={sunMeshRef}>
+                <sphereGeometry args={[150, 32, 32]} />
+                <meshBasicMaterial color={0xffffee} fog={false} />
+            </mesh>
+            <sprite ref={sunGlowRef} scale={[600, 600, 1]}>
+                <spriteMaterial
+                    map={sunGlowTex || undefined}
+                    color={0xffffee}
+                    transparent
+                    opacity={0.9}
+                    blending={THREE.AdditiveBlending}
+                    depthWrite={false}
+                    fog={false}
+                />
+            </sprite>
+
             {/* The Moon */}
             <directionalLight ref={moonLightRef} color={0x88bbff} intensity={0.5} />
             <mesh ref={moonMeshRef}>
                 <sphereGeometry args={[100, 32, 32]} />
-                <meshStandardMaterial color={0xdddddd} roughness={0.9} metalness={0.1} emissive={0x223344} emissiveIntensity={0.2} />
+                <meshBasicMaterial map={moonMaps.map} fog={false} />
             </mesh>
 
             {/* SECOND CLOUD SYSTEM: High-Altitude Stratosphere */}

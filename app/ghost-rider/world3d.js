@@ -727,7 +727,7 @@ export function GhostRiderScene({ playerRef, inputRef, onPortal, onRegion, reduc
   };
   return (
     <>
-      <DayNightRig
+      <DayNightRig sun moon
         shade={NETHER_REALM_SHADE.hell}
         storm={{
           hue: 'red',

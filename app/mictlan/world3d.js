@@ -685,7 +685,7 @@ export function MictlanScene({playerRef, inputRef, onPortal, onRegion, reduced, 
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig shade={NETHER_REALM_SHADE.mictlan} storm={null} />
+      <DayNightRig sun moon shade={NETHER_REALM_SHADE.mictlan} storm={null} />
       <RealmSkyDome realmKey="mictlan" />
       <Ground />
       <ObsidianPools pools={world.obsidianPools} />
