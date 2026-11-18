@@ -32,6 +32,11 @@ import {
   CAM_DIST_DEFAULT, ASHORE_CAM_BASE, CAM_ZOOM_PER_PX,
   clampCamDist, zoomDist, lookDrag, ashoreCamScale, nextCamMode,
 } from '../../lib/flying-dutchman/cam-mode.js';
+// The shared wind law (lib/wind.js): the gauge reads 10–80 km/h —
+// the wind and the ship's speed, live. Merlin, Nov 18 2026.
+import {
+  msToKmh, windKmhFromStrength, windGaugeState, gaugeFill01,
+} from '../../lib/wind.js';
 import {
   levelFor, levelStats, SLOT_PRIZES, rollSlotPrize, rollSlotPrizeOwned, slotCanSpin,
   applySlotPrize, prizeToItem, equipStoredPrize, MERCHANT_CATALOGUE, buyUpgrade,
@@ -1606,7 +1611,8 @@ export default function DutchmanPage() {
           hull: Math.max(0, Math.round(p.hull)), maxHull: p.maxHull,
           crew: p.crew, souls: p.souls, wave: world.wave,
           windRel: wrapAngle(world.wind.dir - p.heading),
-          windStr: world.wind.strength,
+          windKmh: world.wind.kmh ?? windKmhFromStrength(world.wind.strength),
+          shipKmh: msToKmh(Math.abs(p.speed)),
           speed: Math.abs(p.speed),
           signedSpeed: p.speed,
           anchored: p.anchored,
@@ -1926,6 +1932,12 @@ export default function DutchmanPage() {
   const panelPos = panelPosForIcon(iconPos, panelSize, statusArea);
 
   const windDeg = hud ? (hud.windRel * 180) / Math.PI : 0;
+  // Wind gauge (lib/wind.js): the wind in km/h on the 10–80 scale,
+  // the ship's resulting speed beside it. Merlin, Nov 18 2026.
+  const windKmh = hud ? hud.windKmh ?? 0 : 0;
+  const shipKmh = hud ? hud.shipKmh ?? 0 : 0;
+  const windGauge = windGaugeState(windKmh);
+  const windFill = gaugeFill01(windKmh);
 
   return (
     <div className="fixed inset-0 overflow-hidden bg-[#020608] text-zinc-100 select-none">
@@ -2187,6 +2199,23 @@ export default function DutchmanPage() {
                   ⚓ DOCK
                 </button>
               )}
+              {/* Wind gauge: the wind and the ship's speed, live —
+                  10–80 km/h, BECALMED below 10, STORM at 80. The
+                  bar sits on the same 10–80 scale. It rides ABOVE
+                  the compass on purpose: the bottom of this column
+                  sits under the site music dock (Merlin, Nov 18 2026). */}
+              <p className={`text-[10px] ${windGauge.becalmed ? 'font-black text-amber-300' : 'text-zinc-500'}`}>
+                {anchored ? '⚓ ANCHORED' : hud ? (
+                  <>
+                    {windGauge.becalmed ? '🌬 BECALMED' : `🌬 ${Math.round(windKmh)} km/h${windGauge.storm ? ' · STORM' : ''}`} · 🚢 {Math.round(shipKmh)} km/h{hud.signedSpeed < -0.5 ? ' ◂ ASTERN' : ''}
+                  </>
+                ) : ''}
+              </p>
+              {!hud?.ashore && hud && (
+                <div className="h-1 w-24 overflow-hidden rounded-full bg-zinc-800" aria-label="Wind gauge">
+                  <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.round(windFill * 100)}%` }} />
+                </div>
+              )}
               <div className="flex h-14 w-14 items-center justify-center rounded-full border border-zinc-700 bg-black/55 backdrop-blur" aria-label="Wind compass">
                 <svg width="52" height="52" viewBox="0 0 52 52">
                   <circle cx="26" cy="26" r="23" fill="none" stroke="#3f3f46" strokeWidth="1.5" />
@@ -2211,9 +2240,6 @@ export default function DutchmanPage() {
               >
                 ⛵ {hud ? SAIL_LABEL[hud.sails] : ''}
               </button>
-              <p className="text-[10px] text-zinc-500">
-                {anchored ? '⚓ ANCHORED' : hud ? `${Math.round(hud.speed)} kn${hud.signedSpeed < -0.5 ? ' ◂ ASTERN' : ''}` : ''}
-              </p>
             </div>
             )}
 

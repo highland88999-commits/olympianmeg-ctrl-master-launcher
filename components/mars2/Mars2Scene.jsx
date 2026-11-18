@@ -21,6 +21,10 @@ import { makeMoonTexture } from '../HubMoon';
 import { materialForHardware } from '@/lib/mars2/textures';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { thuleWindAt, makeSandField, updateSandField, windCompass, sandstormAt, sandstormWarningAt } from '@/lib/mars2/weather';
+// The shared wind law (lib/wind.js): the pill reads km/h on the
+// 10–80 gauge — Merlin, Nov 18 2026. Thule gusts (5–22 m/s) land
+// at 18–79 km/h, so Mars never reads becalmed on this scale.
+import { msToKmh, windGaugeState, gaugeFill01 } from '@/lib/wind';
 import { MARS2_MAX_HP, tickMars2Health } from '@/lib/mars2/health';
 // Endless free roam (Merlin, Nov 18, 2026): the ground streams in
 // chunks around the camera — lib/mars2/streaming.js.
@@ -1437,6 +1441,9 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
 // "GUSTING" when the gust factor is high — so the weather is
 // readable, not just felt. A sandstorm rides the same pill — no
 // new HUD chrome (orb law) — as "· SANDSTORM" while one is on.
+// The pill IS the wind gauge (Merlin, Nov 18 2026): the speed
+// reads km/h on the shared 10–80 scale, with a thin bar under the
+// text showing where the wind sits on that scale.
 function ThuleWindPill() {
   const [wind, setWind] = useState(() => thuleWindAt(Date.now()));
   const [storm, setStorm] = useState(() => sandstormAt(Date.now()));
@@ -1447,6 +1454,9 @@ function ThuleWindPill() {
     }, 1000);
     return () => clearInterval(id);
   }, []);
+  const kmh = msToKmh(wind.speed);
+  const gauge = windGaugeState(kmh);
+  const fill = gaugeFill01(kmh);
   return (
     <div style={{
       position: 'absolute', top: 96, right: 10, zIndex: 5,
@@ -1454,7 +1464,10 @@ function ThuleWindPill() {
       background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
       pointerEvents: 'none', whiteSpace: 'nowrap',
     }}>
-      🌬 THULE WIND {wind.speed.toFixed(0)} m/s {windCompass(wind.bearingDeg)}{wind.gust > 0.6 ? ' · GUSTING' : ''}{storm.active ? ' · SANDSTORM' : ''}
+      🌬 THULE WIND {gauge.becalmed ? 'BECALMED' : `${kmh.toFixed(0)} km/h`} {windCompass(wind.bearingDeg)}{wind.gust > 0.6 ? ' · GUSTING' : ''}{storm.active ? ' · SANDSTORM' : ''}
+      <div style={{ marginTop: 4, height: 3, background: 'rgba(255,255,255,0.25)', borderRadius: 2 }} aria-label="Wind gauge">
+        <div style={{ width: `${Math.round(fill * 100)}%`, height: '100%', background: '#ffb37a', borderRadius: 2 }} />
+      </div>
     </div>
   );
 }

@@ -15,6 +15,12 @@ import {
   respawnPlayer, syncCaptain, dressIslands,
 } from './voyage.js';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
+// The shared wind law (lib/wind.js): the wind reads 10–80 km/h and
+// ships sail at those speeds — Merlin, Nov 18 2026. The point of
+// sail and the 10 km/h floor live there, not here.
+import {
+  windKmhFromStrength, shipSpeedKmh, kmhToMs,
+} from '../../lib/wind.js';
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -34,7 +40,9 @@ export const SHIP = {
   turnBase: 0.55,      // rad/s at full speed
   accel: 6.0,
   drag: 0.55,
-  maxSpeed: 15,        // m/s running before the wind, full sails
+  // No maxSpeed here any more: the top speed is the wind law's
+  // 80 km/h ceiling (lib/wind.js), not a ship constant — Merlin,
+  // Nov 18 2026. A ship running before an 80 wind reads 80.
   reverseMax: 4,       // m/s astern — the helm can back her, slowly
   ballSpeed: 64,       // fast enough that a shot reaches cannonRange
   ballGravity: 9.8,
@@ -125,11 +133,18 @@ export function makeWind(seed) {
   return { dir: rng() * TAU, strength: 0.8 + rng() * 0.5, _t: 0 };
 }
 
-/** Wind veers slowly; strength breathes. */
+/** Wind veers slowly; strength breathes across the full gauge.
+ * The breath is wide on purpose: strength 0–1.5 reads 0–80 km/h
+ * on the shared law, so the wind dips becalmed (under 10) at the
+ * bottom of the cycle and hits the 80 storm ceiling at the top —
+ * a mean strength of 0.9 reads ~48 km/h, so the sailing feel is
+ * the same as the old 0.5–1.5 breath, only the numbers are exact
+ * now. Stamps wind.kmh so the HUD never recomputes the law. */
 export function stepWind(wind, dt) {
   wind._t += dt;
   wind.dir += Math.sin(wind._t * 0.05) * 0.02 * dt;
-  wind.strength = clamp(0.9 + 0.4 * Math.sin(wind._t * 0.11) + 0.15 * Math.sin(wind._t * 0.043), 0.5, 1.5);
+  wind.strength = clamp(0.9 + 0.6 * Math.sin(wind._t * 0.11) + 0.2 * Math.sin(wind._t * 0.043), 0, 1.5);
+  wind.kmh = windKmhFromStrength(wind.strength);
 }
 
 // ---------------------------------------------------------------------------
@@ -193,17 +208,20 @@ export function windAngle(ship, wind) {
   return Math.abs(toWind);
 }
 
-/** Target speed for the ship's sail plan and point of sail. */
+/**
+ * Target speed for the ship's sail plan and point of sail — in m/s,
+ * because the physics below (accel, drag, reverse) is metric; the
+ * LAW is km/h (lib/wind.js): the ship's speed tracks the wind by
+ * its point of sail, clamped 10–80 km/h, the floor holding even
+ * beating into the wind. A running ship before an 80 wind reads
+ * 80; a ship close-hauled in a 10 wind still reads 10.
+ */
 export function targetSpeed(ship, wind) {
   const wa = windAngle(ship, wind);
   const sailF = SAIL_FACTOR[ship.sails] || 1;
-  let pointF;
-  if (wa < 0.5) pointF = 0.22;              // in irons
-  else if (wa < 1.1) pointF = 0.55 + 0.2 * (wa - 0.5);
-  else if (wa < 2.2) pointF = 0.72 + 0.18 * (wa - 1.1);
-  else pointF = 1.0;                          // running
   const crewF = 1 + Math.min(ship.crew, SHIP.maxCrew) * 0.005; // +12% max
-  return SHIP.maxSpeed * pointF * sailF * wind.strength * crewF;
+  const windKmh = windKmhFromStrength(wind.strength);
+  return kmhToMs(shipSpeedKmh(windKmh, wa, sailF, crewF));
 }
 
 export function stepShip(ship, dt, wind) {
