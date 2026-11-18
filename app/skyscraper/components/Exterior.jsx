@@ -15,6 +15,7 @@ import { useMapObjects } from './MapContext';
 // were already here stay exactly four).
 import { materialForSkyscraper } from '@/lib/skyscraper-cgi/textures.js';
 import { cloudBankAt } from '@/lib/skyscraper-cgi/weather.js';
+import StreamingGround from '@/components/infinite/StreamingGround';
 import {
     airTaxiFor, AIR_TAXI_COUNT, AIR_TAXI_COLORS, elevatorBeaconAt,
 } from '@/lib/skyscraper-cgi/life.js';
@@ -490,6 +491,27 @@ export default function Exterior({
         emissiveIntensity: 0.9,
     }), []);
 
+    // ENDLESS (Wave 4, Nov 18, 2026): the same city floor at repeat
+    // 1 for the streamed chunks (a separate cache entry — the home
+    // material above keeps its 40 repeats). Chunk UVs are world
+    // metres per 100 m tile, so the streets continue seamlessly
+    // past the 4000 m home floor. The chunk meshes carry the DRIVE_
+    // names, so the bike raycast finds ground out here too — without
+    // them the bike would fall past the old edge.
+    const cityGroundChunkMat = useMemo(() => materialForSkyscraper('cityGround', 'omega-city', '#ffffff', {
+        repeat: { x: 1, y: 1 },
+        emissiveIntensity: 0.9,
+    }), []);
+    const cloudFloorChunkMat = useMemo(() => new THREE.MeshStandardMaterial({
+        color: '#020202', roughness: 1, metalness: 0,
+    }), []);
+    // The underworld floor is a raycast-only plane (opacity 0, like
+    // the home DRIVE_FloorUnder) — ghost-mode walking/biking rides
+    // it, so it streams too, invisibly, on the same floor-0 terms.
+    const underFloorChunkMat = useMemo(() => new THREE.MeshBasicMaterial({
+        color: '#000000', transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+    }), []);
+
     useEffect(() => {
         const updateRoving = () => {
             const step = Math.floor(Date.now() / 60000);
@@ -567,6 +589,14 @@ export default function Exterior({
             
             <mesh name="DRIVE_CloudFloor" rotation-x={-Math.PI / 2} position-y={0} onPointerDown={(e) => e.stopPropagation()} dispose={null}><planeGeometry args={[4000, 4000]} /><meshStandardMaterial color="#020202" roughness={1} metalness={0} side={THREE.FrontSide} /></mesh>
             <mesh name="DRIVE_CityFloor" rotation-x={-Math.PI / 2} position-y={-480} onPointerDown={(e) => e.stopPropagation()} material={cityGroundMat} dispose={null}><planeGeometry args={[4000, 4000]} /></mesh>
+            {/* ENDLESS (Wave 4): both exterior levels stream past the
+                4000 m home floors — the bike is fast, so these rings
+                build 8 chunks/frame. The underworld level streams
+                invisibly on the same terms (see the underworldRef
+                group above — its floor is raycast-only too). */}
+            <StreamingGround material={cloudFloorChunkMat} tileM={1} y={-0.02} radius={3} budget={8} name="DRIVE_CloudFloor" />
+            <StreamingGround material={cityGroundChunkMat} tileM={100} y={-480.02} radius={3} budget={8} name="DRIVE_CityFloor" />
+            <StreamingGround material={underFloorChunkMat} tileM={1} y={-550.02} radius={3} budget={8} name="DRIVE_FloorUnder" receiveShadow={false} />
             
             <group position={[0, -479.9, 0]}>
                 <ProceduralRoads gridSize={40} blockSize={BLOCK_SIZE} roadWidth={ROAD_WIDTH} />

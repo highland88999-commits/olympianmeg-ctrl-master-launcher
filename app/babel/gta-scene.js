@@ -21,7 +21,10 @@ import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle
 import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetWanted } from '@/lib/gta/wanted.js';
 import { createMission, updateMission, startMission, currentObjective, MISSION_STATE, BABEL_MISSIONS } from '@/lib/gta/missions.js';
 import { createInput } from '@/lib/gta/input.js';
-import { findClearSpot } from '@/lib/gta/collisions.js';
+import { findClearSpot, buildColliders } from '@/lib/gta/collisions.js';
+import { ChunkRing } from '@/lib/infinite/streaming.js';
+import { generateBabelBlock, blocksInChunk, isHomeBlock } from '@/lib/gta/blocks.js';
+import { chunkGroundMesh, createBabelGroundTileTexture } from '@/lib/gta/streaming.js';
 import { createWalkerEmbodiment, capsuleProcSize } from '@/lib/gta/walker-embodiment.js';
 import { buildVehicleMesh, buildCopMesh, copFlashAt, materialForFacade } from '@/lib/gta/city-cgi.js';
 
@@ -60,6 +63,7 @@ export function createGTAScene(canvas, opts = {}) {
   sun.shadow.camera.top = 120; sun.shadow.camera.bottom = -120;
   sun.shadow.camera.far = 600;
   scene.add(sun);
+  scene.add(sun.target); // shadow frustum follows the player (see updateTimeOfDay)
   scene.add(new THREE.HemisphereLight(0xbdd7ff, 0x3a3f45, 0.6));
 
   // District
@@ -92,6 +96,16 @@ export function createGTAScene(canvas, opts = {}) {
   // traffic, plaza pedestrians. No new real lights.
   const cgi = buildBabelCgi(THREE);
   scene.add(cgi.group);
+  // The sky pieces ride the player (dome + sun + stars + clouds);
+  // the traffic, pedestrians and motes stay home — they live on the
+  // district's own streets, and the motes already follow the player
+  // inside cgi.update. The sun sprite's position is reset by
+  // cgi.update every frame, so its player offset is applied after
+  // each update (see the loop).
+  const babelDome = cgi.group.getObjectByName('babel-sky-dome');
+  const babelSun = cgi.group.getObjectByName('babel-sun');
+  const babelStars = cgi.group.getObjectByName('babel-stars');
+  const babelClouds = cgi.group.getObjectByName('babel-clouds');
 
   // Surrounding buildings (instanced) — shared CGI facade: lit
   // windows at night via the emissive map, no new lights. The old
@@ -112,6 +126,67 @@ export function createGTAScene(canvas, opts = {}) {
   buildMesh.castShadow = true;
   buildMesh.receiveShadow = true;
   scene.add(buildMesh);
+
+  // ---- ENDLESS (Wave 4, Nov 18, 2026): no edge, no wall, no turn-back.
+  // The home district above is byte-identical. Beyond ±300 m the
+  // ground streams in 64 m chunks around the player (same road grid,
+  // tiled every 44 m — the tile aligns with the home painter's grid),
+  // and the blocks keep growing from the block-local generator
+  // (lib/gta/blocks.js — same plaza skip, same height law). The
+  // tower, the plaza, the vault door, the traffic and the pedestrians
+  // stay home-region features; the outskirts are open streets.
+  const groundTileTex = createBabelGroundTileTexture();
+  const groundTileMat = new THREE.MeshStandardMaterial({ map: groundTileTex, roughness: 0.9 });
+  const streamGroup = new THREE.Group();
+  scene.add(streamGroup);
+  let activeColliders = district.colliders.slice();
+  function rebuildColliders() {
+    activeColliders = district.colliders.slice();
+    for (const v of streamRing.loaded.values()) activeColliders.push(...v.colliders);
+  }
+  const streamRing = new ChunkRing({
+    radius: 3, budget: 2,
+    onLoad: (key, cx, cz) => {
+      const group = new THREE.Group();
+      group.add(chunkGroundMesh(cx, cz, groundTileMat, 44, -300, -300, -0.02));
+      const buildings = [];
+      for (const { bx, bz } of blocksInChunk(cx, cz, { blockSize: 44, homeHalf: 300 })) {
+        if (isHomeBlock(bx, bz, 300)) continue;
+        buildings.push(...generateBabelBlock(bx, bz, {
+          seed: 2026, blockSize: 44, roadWidth: 14, plazaRadius: BABEL.plazaRadius,
+        }).buildings);
+      }
+      if (buildings.length) {
+        const dummy = new THREE.Object3D();
+        const col = new THREE.Color();
+        const mesh = new THREE.InstancedMesh(boxGeo, buildMat, buildings.length);
+        buildings.forEach((b, i) => {
+          dummy.position.set(b.x, b.h / 2, b.z);
+          dummy.scale.set(b.w, b.h, b.d);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+          col.setHex(b.color);
+          mesh.setColorAt(i, col);
+        });
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+      }
+      streamGroup.add(group);
+      return { group, colliders: buildColliders(buildings) };
+    },
+    onDrop: (key, value) => {
+      if (!value) return;
+      streamGroup.remove(value.group);
+      value.group.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.name === 'endless-ground') o.geometry.dispose();
+        else if (o.isInstancedMesh) o.dispose();
+      });
+    },
+  });
+  streamRing.update(0, 80);
+  rebuildColliders();
 
   // Player — spawn on the plaza, facing the tower
   const spawn = findClearSpot(0, 80, district.colliders, 2);
@@ -189,11 +264,15 @@ export function createGTAScene(canvas, opts = {}) {
   function updateTimeOfDay(dt) {
     timeOfDay = (timeOfDay + dt / 600) % 1;
     const sunAngle = timeOfDay * Math.PI * 2;
+    // The sun + its shadow frustum follow the player, so the light
+    // stays overhead wherever the endless district runs to.
     sun.position.set(
-      Math.cos(sunAngle) * 250,
+      player.x + Math.cos(sunAngle) * 250,
       Math.sin(sunAngle) * 180 + 60,
-      120
+      player.z + 120
     );
+    sun.target.position.set(player.x, 0, player.z);
+    sun.target.updateMatrixWorld();
     const len = Math.hypot(sun.position.x, sun.position.y, sun.position.z);
     sunDir = {
       x: sun.position.x / len,
@@ -239,6 +318,15 @@ export function createGTAScene(canvas, opts = {}) {
     // clock, so every phone shows the same street at the same time).
     cgi.update(Date.now(), { player, dayness, sunDir, parked: vehicles, dt });
 
+    // Endless ground + sky follow the player (the sun sprite is
+    // re-placed by cgi.update above, so its offset lands after it).
+    const ringRes = streamRing.update(player.x, player.z);
+    if (ringRes.built > 0 || ringRes.dropped > 0) rebuildColliders();
+    if (babelDome) babelDome.position.set(player.x, 0, player.z);
+    if (babelStars) babelStars.position.set(player.x, 0, player.z);
+    if (babelClouds) babelClouds.position.set(player.x, 0, player.z);
+    if (babelSun) { babelSun.position.x += player.x; babelSun.position.z += player.z; }
+
     // E: enter/exit vehicle, or open the vault door
     if (inp.action) {
       if (player.inVehicle) {
@@ -264,7 +352,7 @@ export function createGTAScene(canvas, opts = {}) {
 
     if (player.inVehicle) {
       const v = player.inVehicle;
-      const res = updateVehicle(v, inp, district.colliders, dt);
+      const res = updateVehicle(v, inp, activeColliders, dt);
       player.x = v.x; player.z = v.z;
       if (res.crashed && res.impact > 15) {
         commitCrime(wanted, 'recklessDriving', now / 1000);
@@ -275,7 +363,7 @@ export function createGTAScene(canvas, opts = {}) {
         mesh.rotation.y = v.heading;
       }
     } else {
-      updatePlayer(player, inp, camYaw, district.colliders, dt);
+      updatePlayer(player, inp, camYaw, activeColliders, dt);
     }
 
     // Player mesh (hidden whenever the embodied character stands in)
@@ -308,7 +396,7 @@ export function createGTAScene(canvas, opts = {}) {
           cop.x = player.x + (Math.random() - 0.5) * 120;
           cop.z = player.z + (Math.random() - 0.5) * 120;
         }
-        updateCop(cop, player.x, player.z, wanted.stars, district.colliders, dt);
+        updateCop(cop, player.x, player.z, wanted.stars, activeColliders, dt);
         mesh.position.set(cop.x, 0, cop.z);
         mesh.rotation.y = cop.heading;
         const flash = copFlashAt(now);
@@ -386,6 +474,9 @@ export function createGTAScene(canvas, opts = {}) {
       input.detach();
       walker.dispose();
       cgi.dispose();
+      streamRing.disposeAll();
+      groundTileTex.dispose();
+      groundTileMat.dispose();
       renderer.dispose();
     },
     setCamYaw(yaw) { camYaw = yaw; },

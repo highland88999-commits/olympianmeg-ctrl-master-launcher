@@ -16,7 +16,10 @@ import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle
 import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetWanted } from '@/lib/gta/wanted.js';
 import { createMission, updateMission, startMission, currentObjective, MISSION_STATE, TRUMAN_MISSIONS } from '@/lib/gta/missions.js';
 import { createInput } from '@/lib/gta/input.js';
-import { findClearSpot } from '@/lib/gta/collisions.js';
+import { findClearSpot, buildColliders } from '@/lib/gta/collisions.js';
+import { ChunkRing } from '@/lib/infinite/streaming.js';
+import { generateTownBlock, blocksInChunk, isHomeBlock } from '@/lib/gta/blocks.js';
+import { chunkGroundMesh, createTownGroundTileTexture } from '@/lib/gta/streaming.js';
 import { createWalkerEmbodiment, capsuleProcSize } from '@/lib/gta/walker-embodiment.js';
 
 function mulberry32(seed) {
@@ -144,21 +147,26 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   sun.shadow.camera.left = -80; sun.shadow.camera.right = 80;
   sun.shadow.camera.top = 80; sun.shadow.camera.bottom = -80;
   scene.add(sun);
+  scene.add(sun.target); // shadow frustum follows the player (see updateTimeOfDay)
   const hemi = new THREE.HemisphereLight(0xcde7ff, 0x4a5a3a, 0.7);
   scene.add(hemi);
 
-  // Sun + moon discs (unlit sprites) and the night stars.
+  // Sun + moon discs (unlit sprites) and the night stars. They ride
+  // one sky group that follows the player (see the loop), so the sun,
+  // moon and stars stay overhead wherever the endless town runs to.
+  const skyGroup = new THREE.Group();
+  scene.add(skyGroup);
   const glowTex = makeGlowTexture();
   const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glowTex, color: 0xfff3d6, transparent: true, opacity: 1, depthWrite: false,
   }));
   sunSprite.scale.setScalar(70);
-  scene.add(sunSprite);
+  skyGroup.add(sunSprite);
   const moonSprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glowTex, color: 0xdfe9ff, transparent: true, opacity: 0, depthWrite: false,
   }));
   moonSprite.scale.setScalar(38);
-  scene.add(moonSprite);
+  skyGroup.add(moonSprite);
   // Sun core disc: the bright centre inside the glow halo.
   const sunDisc = new THREE.Sprite(new THREE.SpriteMaterial({
     map: makeSolidDiscTexture(), color: 0xfff3d6, transparent: true, opacity: 1,
@@ -166,7 +174,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   }));
   sunDisc.scale.setScalar(14);
   sunDisc.renderOrder = 1;
-  scene.add(sunDisc);
+  skyGroup.add(sunDisc);
   // The real Moon: Merlin's photograph on a sphere (never a flat
   // disc — the photo is equirectangular and would smear). It sits
   // 30 m inside the glow sprite along its direction so the halo's
@@ -175,7 +183,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   const moonMat = new THREE.MeshBasicMaterial({ color: 0xdfe9ff, transparent: true, opacity: 0, fog: false });
   const moonBall = new THREE.Mesh(new THREE.SphereGeometry(13, 48, 32), moonMat);
   moonBall.name = 'truman-moon';
-  scene.add(moonBall);
+  skyGroup.add(moonBall);
   try {
     new THREE.TextureLoader().load(
       '/images/moon/moon-surface.jpg',
@@ -208,7 +216,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   });
   const stars = new THREE.Points(starGeo, starMat);
   stars.frustumCulled = false;
-  scene.add(stars);
+  skyGroup.add(stars);
 
   // Lazy small-town clouds: flat white puffs drifting downwind.
   const cloudBases = trumanClouds();
@@ -430,6 +438,84 @@ export function createTrumanGTAScene(canvas, opts = {}) {
 
   const treeData = buildTownTrees(scene);
 
+  // ---- ENDLESS (Wave 4, Nov 18, 2026): no edge, no wall, no turn-back.
+  // The home town above is byte-identical. Beyond ±250 m the ground
+  // streams in 64 m chunks around the player (same road grid, tiled
+  // every 60 m — the tile aligns with the home painter's grid), and
+  // the houses keep growing from the block-local generator
+  // (lib/gta/blocks.js — same house law as generateTown). Shops,
+  // Henry's house, the lighthouse, the observatory, the pier, the
+  // beach, the trees, the traffic and the pedestrians stay
+  // home-region features; the outskirts are open lawns with houses.
+  // (Outskirt houses wear no window/door quads — those stay a
+  // home-region detail; roofs + siding + colours carry the look.)
+  const groundTileTex = createTownGroundTileTexture();
+  const groundTileMat = new THREE.MeshStandardMaterial({ map: groundTileTex, roughness: 0.95 });
+  const streamGroup = new THREE.Group();
+  scene.add(streamGroup);
+  let activeColliders = townData.colliders.slice();
+  function rebuildColliders() {
+    activeColliders = townData.colliders.slice();
+    for (const v of streamRing.loaded.values()) activeColliders.push(...v.colliders);
+  }
+  const streamRing = new ChunkRing({
+    radius: 3, budget: 2,
+    onLoad: (key, cx, cz) => {
+      const group = new THREE.Group();
+      group.add(chunkGroundMesh(cx, cz, groundTileMat, 60, -250, -250, -0.02));
+      const houses = [];
+      const buildings = [];
+      for (const { bx, bz } of blocksInChunk(cx, cz, { blockSize: 60, homeHalf: 250 })) {
+        if (isHomeBlock(bx, bz, 250)) continue;
+        const gen = generateTownBlock(bx, bz, {
+          seed: 4242, blockSize: 60, pois: TRUMAN_POIS, beachX: 150,
+        });
+        houses.push(...gen.houses);
+        buildings.push(...gen.buildings);
+      }
+      const dummy = new THREE.Object3D();
+      const col = new THREE.Color();
+      if (houses.length) {
+        const houseMesh = new THREE.InstancedMesh(houseGeo, houseMat, houses.length);
+        const roofMesh = new THREE.InstancedMesh(roofGeo, roofMat, houses.length);
+        houses.forEach((h, i) => {
+          dummy.rotation.set(0, 0, 0);
+          dummy.position.set(h.x, h.h / 2, h.z);
+          dummy.scale.set(h.w, h.h, h.d);
+          dummy.updateMatrix();
+          houseMesh.setMatrixAt(i, dummy.matrix);
+          col.setHex(h.color);
+          houseMesh.setColorAt(i, col);
+          dummy.position.set(h.x, h.h + 1.5, h.z);
+          dummy.scale.set(h.w * 0.75, 3, h.d * 0.75);
+          dummy.rotation.y = Math.PI / 4;
+          dummy.updateMatrix();
+          roofMesh.setMatrixAt(i, dummy.matrix);
+          col.setHex(ROOF_HUES[i % ROOF_HUES.length]);
+          roofMesh.setColorAt(i, col);
+          dummy.rotation.set(0, 0, 0);
+        });
+        houseMesh.castShadow = true;
+        houseMesh.receiveShadow = true;
+        roofMesh.castShadow = true;
+        group.add(houseMesh, roofMesh);
+      }
+      streamGroup.add(group);
+      return { group, colliders: buildColliders(buildings) };
+    },
+    onDrop: (key, value) => {
+      if (!value) return;
+      streamGroup.remove(value.group);
+      value.group.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.name === 'endless-ground') o.geometry.dispose();
+        else if (o.isInstancedMesh) o.dispose();
+      });
+    },
+  });
+  streamRing.update(10, 10);
+  rebuildColliders();
+
   // POI markers
   for (const poi of TRUMAN_POIS) {
     const marker = new THREE.Mesh(
@@ -548,7 +634,11 @@ export function createTrumanGTAScene(canvas, opts = {}) {
   function updateTimeOfDay(dt, nowMs) {
     simTime = (simTime + dt / 600) % 1;
     const sunAngle = simTime * Math.PI * 2;
-    sun.position.set(Math.cos(sunAngle) * 150, Math.sin(sunAngle) * 120 + 40, 80);
+    // The sun + its shadow frustum follow the player, so the light
+    // stays overhead wherever the endless town runs to.
+    sun.position.set(player.x + Math.cos(sunAngle) * 150, Math.sin(sunAngle) * 120 + 40, player.z + 80);
+    sun.target.position.set(player.x, 0, player.z);
+    sun.target.updateMatrixWorld();
     // Sky, light colours and glow all come from the CGI kit —
     // the sun intensity law itself is unchanged (0.25 + dayness).
     const sky = trumanSkyAt(simTime);
@@ -584,12 +674,14 @@ export function createTrumanGTAScene(canvas, opts = {}) {
       car.tailMat.opacity = 0.4 + 0.5 * windowGlow;
     }
     beamMat.opacity = 0.06 + 0.3 * windowGlow;
-    // Clouds drift downwind with the breeze.
+    // Clouds drift downwind with the breeze — wrapped around the
+    // player, so the sky stays cloudy wherever the town runs to.
     for (let i = 0; i < clouds.length; i++) {
       const base = cloudBases[i];
       let cx = base.x + cloudOffset(i, nowMs) - TRUMAN_CLOUD_SPAN / 2;
       cx = ((cx + TRUMAN_CLOUD_SPAN / 2) % TRUMAN_CLOUD_SPAN + TRUMAN_CLOUD_SPAN) % TRUMAN_CLOUD_SPAN - TRUMAN_CLOUD_SPAN / 2;
-      clouds[i].position.x = cx;
+      clouds[i].position.x = cx + player.x;
+      clouds[i].position.z = base.z + player.z;
     }
     // Lighthouse beam sweeps on the device clock.
     beamGroup.rotation.y = lighthouseBeamAngle(nowMs);
@@ -630,12 +722,12 @@ export function createTrumanGTAScene(canvas, opts = {}) {
 
     if (player.inVehicle) {
       const v = player.inVehicle;
-      updateVehicle(v, inp, townData.colliders, dt);
+      updateVehicle(v, inp, activeColliders, dt);
       player.x = v.x; player.z = v.z;
       const mesh = vehicleMeshes.get(v);
       if (mesh) { mesh.position.set(v.x, 0, v.z); mesh.rotation.y = v.heading; }
     } else {
-      updatePlayer(player, inp, camYaw, townData.colliders, dt);
+      updatePlayer(player, inp, camYaw, activeColliders, dt);
     }
 
     playerMesh.position.set(player.x, player.y + 1.0, player.z);
@@ -713,7 +805,7 @@ export function createTrumanGTAScene(canvas, opts = {}) {
           cop.x = player.x + (Math.random() - 0.5) * 100;
           cop.z = player.z + (Math.random() - 0.5) * 100;
         }
-        updateCop(cop, player.x, player.z, wanted.stars, townData.colliders, dt);
+        updateCop(cop, player.x, player.z, wanted.stars, activeColliders, dt);
         mesh.position.set(cop.x, 0, cop.z);
         mesh.rotation.y = cop.heading;
       }
@@ -747,6 +839,11 @@ export function createTrumanGTAScene(canvas, opts = {}) {
         }
       }
     }
+
+    // Endless ground + sky follow the player.
+    const ringRes = streamRing.update(player.x, player.z);
+    if (ringRes.built > 0 || ringRes.dropped > 0) rebuildColliders();
+    skyGroup.position.set(player.x, 0, player.z);
 
     renderer.render(scene, camera);
 
@@ -783,6 +880,9 @@ export function createTrumanGTAScene(canvas, opts = {}) {
       window.removeEventListener('resize', resize);
       input.detach();
       walker.dispose();
+      streamRing.disposeAll();
+      groundTileTex.dispose();
+      groundTileMat.dispose();
       renderer.dispose();
     },
     setCamYaw(yaw) { camYaw = yaw; },

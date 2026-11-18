@@ -11,6 +11,7 @@ import {
 import DuatEnv from './DuatEnv';
 import DuatEnemies from './DuatEnemies';
 import DuatCombat from './DuatCombat';
+import StreamingGround from '@/components/infinite/StreamingGround';
 
 // DUAT — the Egyptian desert of the dead. Pyramid, obelisks, unblinking sun.
 // Arena wiring: accepts the shared walker state (inputRef) and walkMode like
@@ -25,6 +26,7 @@ function DuatArenaStage({ inputRef, walkMode }) {
   const sand = useTexture('/textures/babel/FloorDuat/sandstone.jpg');
   const sun = useRef();
   const heat = useRef();
+  const sunGroup = useRef();
 
   const sandTex = useMemo(() => {
     const t = sand.clone();
@@ -33,6 +35,20 @@ function DuatArenaStage({ inputRef, walkMode }) {
     t.colorSpace = THREE.SRGBColorSpace;
     t.needsUpdate = true;
     return t;
+  }, [sand]);
+
+  // Endless desert floor (Wave 4): the home plane wears sandTex at
+  // repeat 30 over 400 m (one tile per 400/30 m); the chunks wear
+  // the same texture at repeat 1 with UVs in tile units, so the sand
+  // continues seamlessly past the plane. Pyramid, obelisks and the
+  // arena stay home-region features.
+  const chunkGroundMat = useMemo(() => {
+    const t = sand.clone();
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 1);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 1 });
   }, [sand]);
 
   const wallTex = useMemo(() => {
@@ -48,6 +64,12 @@ function DuatArenaStage({ inputRef, walkMode }) {
     const t = state.clock.elapsedTime;
     if (sun.current) sun.current.material.emissiveIntensity = 2.4 + Math.sin(t * 1.3) * 0.35;
     if (heat.current) heat.current.rotation.y = t * 0.05;
+    // The unblinking sun + its heat ring ride the camera, keeping
+    // their place in the northern sky wherever the desert runs to.
+    if (sunGroup.current) {
+      const cam = state.camera.position;
+      sunGroup.current.position.set(cam.x, 0, cam.z);
+    }
   });
 
   return (
@@ -60,6 +82,8 @@ function DuatArenaStage({ inputRef, walkMode }) {
           <planeGeometry args={[400, 400]} />
           <meshStandardMaterial map={sandTex} roughness={1} />
         </mesh>
+        {/* endless desert past the plane (fog far is 260 m) */}
+        <StreamingGround material={chunkGroundMat} tileM={400 / 30} y={-0.02} radius={2} />
 
         {/* the great pyramid */}
         <mesh position={[0, 24, -45]} rotation={[0, Math.PI / 4, 0]} castShadow>
@@ -91,15 +115,17 @@ function DuatArenaStage({ inputRef, walkMode }) {
         ))}
 
         {/* the unblinking sun */}
-        <mesh ref={sun} position={[0, 70, -160]}>
-          <sphereGeometry args={[16, 32, 32]} />
-          <meshStandardMaterial color="#fff3c9" emissive="#ffdf8a" emissiveIntensity={2.4} />
-        </mesh>
-        <group ref={heat} position={[0, 70, -160]}>
-          <mesh>
-            <torusGeometry args={[24, 0.8, 8, 64]} />
-            <meshBasicMaterial color="#ffdf8a" transparent opacity={0.35} />
+        <group ref={sunGroup} position={[0, 0, 0]}>
+          <mesh ref={sun} position={[0, 70, -160]}>
+            <sphereGeometry args={[16, 32, 32]} />
+            <meshStandardMaterial color="#fff3c9" emissive="#ffdf8a" emissiveIntensity={2.4} />
           </mesh>
+          <group ref={heat} position={[0, 70, -160]}>
+            <mesh>
+              <torusGeometry args={[24, 0.8, 8, 64]} />
+              <meshBasicMaterial color="#ffdf8a" transparent opacity={0.35} />
+            </mesh>
+          </group>
         </group>
 
         {/* restrained desert light: bright but never washing out the reliefs */}

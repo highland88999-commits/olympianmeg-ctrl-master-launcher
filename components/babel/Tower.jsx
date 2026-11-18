@@ -5,13 +5,19 @@ import { useTexture, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { FLOORS } from '@/lib/babel/floors';
 import VaultDoor from './VaultDoor';
+import StreamingGround from '@/components/infinite/StreamingGround';
 
 // BABEL — the tower exterior. Floors are pocket universes; glowing rings
 // mark each floor and can be tapped to ride the elevator there.
 export default function Tower({ onSelectFloor }) {
   const spin = useRef();
+  const starsFollow = useRef();
   const facade = useTexture('/textures/babel/Tower/facade.jpg');
   const beacon = useRef();
+
+  // Endless plaza ground (Wave 4): the dark disc below is the home
+  // plaza; the chunks stream the same flat dark ground on past it.
+  const plazaGroundMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#0a0c16', roughness: 1 }), []);
 
   const tex = useMemo(() => {
     const t = facade.clone();
@@ -27,6 +33,9 @@ export default function Tower({ onSelectFloor }) {
     if (beacon.current) {
       beacon.current.material.emissiveIntensity = 2 + Math.sin(state.clock.elapsedTime * 2.4) * 1.2;
     }
+    // The star shell rides the camera, so the night sky stays
+    // overhead wherever the endless plaza runs to.
+    if (starsFollow.current) starsFollow.current.position.copy(state.camera.position);
   });
 
   const sceneFloors = FLOORS.filter((f) => f.kind === 'scene');
@@ -34,7 +43,9 @@ export default function Tower({ onSelectFloor }) {
 
   return (
     <group>
-      <Stars radius={120} depth={60} count={4000} factor={4} fade speed={0.6} />
+      <group ref={starsFollow}>
+        <Stars radius={120} depth={60} count={4000} factor={4} fade speed={0.6} />
+      </group>
       <fog attach="fog" args={['#05060f', 60, 220]} />
 
       {/* ground */}
@@ -42,6 +53,8 @@ export default function Tower({ onSelectFloor }) {
         <circleGeometry args={[70, 48]} />
         <meshStandardMaterial color="#0a0c16" roughness={1} />
       </mesh>
+      {/* endless ground past the plaza disc (fog far is 220 m) */}
+      <StreamingGround material={plazaGroundMat} tileM={1} y={-0.55} radius={2} />
 
       <group ref={spin}>
         {/* main shaft */}

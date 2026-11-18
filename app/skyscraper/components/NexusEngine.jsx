@@ -626,9 +626,10 @@ export default function NexusEngine({
             velocity.current.multiplyScalar(0.85);
 
             if (currentFloor === 0) {
-                playerPos.current.x = Math.max(-1950, Math.min(1950, playerPos.current.x));
-                playerPos.current.z = Math.max(-1950, Math.min(1950, playerPos.current.z));
-                
+                // ENDLESS (Wave 4, Nov 18, 2026): the old ±1950 box clamp
+                // is gone — the walker roams on while the exterior ground
+                // streams (see Exterior.jsx). Interiors (below) keep
+                // their strict bounds exactly as-is.
                 const step = Math.floor(Date.now() / 60000);
                 const spots = [[3, -2], [-5, 4], [2, 4], [-3, -4], [4, -4]];
                 const rX = spots[step % spots.length][0] * 100;

@@ -17,6 +17,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { WORLDS, GODS } from './world-names.js';
 import manifest from './generation-manifest.json';
 import { loadAsset } from '../../lib/world-nexus/asset-loader.js';
+import { ChunkRing, chunkGroundGeometry } from '../../lib/infinite/streaming.js';
 
 const ACCENTS = {
   ARES: 0xe5484d, APOLLO: 0xf5b942, HERMES: 0xd4a017, HEPHAESTUS: 0xf97316,
@@ -123,7 +124,9 @@ export function createWorld(canvas, cb = {}) {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xaFC4e8, size: 1.4, sizeAttenuation: false, fog: false })));
+    const nexusStars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xaFC4e8, size: 1.4, sizeAttenuation: false, fog: false }));
+    nexusStars.name = 'nexus-stars';
+    scene.add(nexusStars);
   }
 
   // ---- ground ----
@@ -131,6 +134,31 @@ export function createWorld(canvas, cb = {}) {
   const ground = new THREE.Mesh(new THREE.CircleGeometry(WORLD_R + 30, 64), groundMat);
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
+
+  // ENDLESS (Wave 4, Nov 18, 2026): the home plaza disc is
+  // byte-identical; past it the same flat ground streams in 64 m
+  // chunks around the player (fog far is 170 m, so radius 2).
+  // Districts, portals and the return gate stay home.
+  const streamMat = new THREE.MeshStandardMaterial({ color: 0x0b0e15, roughness: 1 });
+  const streamGroup = new THREE.Group();
+  scene.add(streamGroup);
+  const streamRing = new ChunkRing({
+    radius: 2, budget: 2,
+    onLoad: (key, cx, cz) => {
+      const geo = chunkGroundGeometry(cx, cz, 1);
+      const mesh = new THREE.Mesh(geo, streamMat);
+      mesh.position.set(cx * 64, -0.02, cz * 64);
+      streamGroup.add(mesh);
+      return { mesh, geo };
+    },
+    onDrop: (key, value) => {
+      if (!value) return;
+      streamGroup.remove(value.mesh);
+      value.geo.dispose();
+    },
+  });
+  // (Primed on the first tick, before the first render — the player
+  // starts at SPAWN and tick() updates the ring every frame.)
 
   // central plaza disc + gold ring
   const plaza = new THREE.Mesh(
@@ -458,12 +486,9 @@ export function createWorld(canvas, cb = {}) {
   }
 
   function collide() {
-    // world boundary
-    const d0 = Math.hypot(player.x, player.z);
-    if (d0 > WORLD_R) {
-      player.x *= WORLD_R / d0;
-      player.z *= WORLD_R / d0;
-    }
+    // ENDLESS (Wave 4, Nov 18, 2026): the old WORLD_R circle clamp
+    // is gone — the player roams on while the plaza ground streams
+    // (see the ground section). The collider push-outs below stay.
     // circle push-out vs nearby colliders (deflect, never kill)
     for (const c of colliders) {
       const dx = player.x - c.x, dz = player.z - c.z;
@@ -507,6 +532,11 @@ export function createWorld(canvas, cb = {}) {
     }
 
     collide();
+    // ENDLESS (Wave 4): the ground streams around the player and
+    // the star sphere rides along, so the sky never ends at the
+    // old boundary.
+    streamRing.update(player.x, player.z);
+    nexusStars.position.set(player.x, 0, player.z);
     travelCooldown = Math.max(0, travelCooldown - dt);
     checkPortalTravel();
     applyLook();

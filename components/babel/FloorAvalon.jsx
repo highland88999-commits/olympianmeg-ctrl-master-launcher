@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import StreamingGround from '@/components/infinite/StreamingGround';
 
 // AVALON — the misty isle. Nine standing stones circle a sword that waits.
 export default function FloorAvalon() {
@@ -27,6 +28,20 @@ export default function FloorAvalon() {
     t.colorSpace = THREE.SRGBColorSpace;
     t.needsUpdate = true;
     return t;
+  }, [stone]);
+
+  // Endless isle floor (Wave 4): the home disc wears stoneTex at
+  // repeat 18 over 180 m (one tile per 10 m); the chunks wear the
+  // same texture at repeat 1 with UVs in tile units, so the stone
+  // continues seamlessly past the disc. The standing stones, the
+  // sword and the mist ring stay home-region features.
+  const chunkGroundMat = useMemo(() => {
+    const t = stone.clone();
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 1);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 1, color: '#b9c4cc' });
   }, [stone]);
 
   // Deterministic layout: seeded RNG, stable across renders.
@@ -62,6 +77,8 @@ export default function FloorAvalon() {
         <circleGeometry args={[90, 48]} />
         <meshStandardMaterial map={stoneTex} roughness={1} color="#b9c4cc" />
       </mesh>
+      {/* endless stone past the disc (fog far is 150 m) */}
+      <StreamingGround material={chunkGroundMat} tileM={10} y={-0.02} radius={2} />
 
       {stones.map((s, i) => (
         <mesh

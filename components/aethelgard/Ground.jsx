@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import StreamingGround from '@/components/infinite/StreamingGround';
 import {
   AETHELGARD_DAPPLE_COUNT, aethelgardWindAt, canopySway, dappleAt, forestFloorMaps,
 } from '@/lib/aethelgard/cgi';
@@ -64,6 +65,25 @@ export default function Ground({ dapple = 0.4 }) {
     m.map.repeat.set(10, 10);
     m.bumpMap.repeat.set(10, 10);
     return m;
+  }, []);
+
+  // Endless forest floor (Wave 4): the home disc wears the maps at
+  // repeat 10 over 196 m (one tile per 19.6 m); the chunks wear
+  // CLONES of the same maps at repeat 1 with UVs in tile units, so
+  // the floor continues seamlessly past the disc. (The maps are
+  // cached per seed — cloning is what keeps the home repeat at 10.)
+  // Ferns, moss, logs and the damp ring stay home-region features.
+  const chunkFloorMat = useMemo(() => {
+    const m = forestFloorMaps('aethelgard-floor');
+    const map = m.map.clone();
+    map.repeat.set(1, 1);
+    map.needsUpdate = true;
+    const bumpMap = m.bumpMap.clone();
+    bumpMap.repeat.set(1, 1);
+    bumpMap.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({
+      map, bumpMap, bumpScale: m.bumpScale, roughness: m.roughness,
+    });
   }, []);
 
   const data = useMemo(() => {
@@ -172,6 +192,8 @@ export default function Ground({ dapple = 0.4 }) {
         <meshStandardMaterial map={floorMaps.map} bumpMap={floorMaps.bumpMap}
           bumpScale={floorMaps.bumpScale} roughness={floorMaps.roughness} />
       </mesh>
+      {/* endless forest floor past the disc (fog far is 85–150 m) */}
+      <StreamingGround material={chunkFloorMat} tileM={19.6} y={-0.07} radius={2} />
       {/* dappled light — additive sun patches drifting across the floor */}
       <instancedMesh ref={dappleRef} args={[undefined, undefined, AETHELGARD_DAPPLE_COUNT]} frustumCulled={false}>
         <circleGeometry args={[1, 18]} />

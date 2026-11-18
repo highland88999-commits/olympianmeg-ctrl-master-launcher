@@ -20,6 +20,7 @@ import {
   awningSwayRad, windCompass,
 } from '@/lib/agora/weather';
 import { lifeFor, crowdCount, CROWD_KINDS } from '@/lib/agora/operators';
+import StreamingGround from '@/components/infinite/StreamingGround';
 
 // AGORA — THE MARKET CITY (Merlin, Nov 15, 2026). The CGI
 // makeover for the town square: Agora was a 2D feed with no 3D
@@ -34,7 +35,10 @@ import { lifeFor, crowdCount, CROWD_KINDS } from '@/lib/agora/operators';
 // MeshBasicMaterial (emissive only), and the only lights are the
 // shared DayNightRig's, exactly as Mars 2 runs it.
 
-const WALK_RADIUS = 40; // the walker stays inside the market square
+// ENDLESS (Wave 4, Nov 18, 2026): the old WALK_RADIUS = 40 clamp
+// is gone — the walker roams on while the cobbled ground streams
+// (see AgoraGround). Stalls, stoa, temple, houses and the olive
+// ring stay home-region features.
 
 function useKeys(inputRef) {
   useEffect(() => {
@@ -102,11 +106,28 @@ function AgoraGround() {
     return m;
   }, [mats]);
   useEffect(() => () => { cobble.dispose(); }, [cobble]);
+  // Endless cobbles (Wave 4): the home circle wears the maps at
+  // repeat 24 over 136 m (one tile per 136/24 m); the chunks wear
+  // clones at repeat 1 with UVs in tile units, so the market
+  // ground continues seamlessly past the circle.
+  const chunkCobble = useMemo(() => {
+    const m = mats.cobble.clone();
+    m.map = mats.cobble.map.clone();
+    m.map.repeat.set(1, 1);
+    m.map.needsUpdate = true;
+    m.bumpMap = mats.cobble.bumpMap.clone();
+    m.bumpMap.repeat.set(1, 1);
+    m.bumpMap.needsUpdate = true;
+    return m;
+  }, [mats]);
+  useEffect(() => () => { chunkCobble.dispose(); }, [chunkCobble]);
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} material={cobble}>
         <circleGeometry args={[WORLD_RADIUS + 8, 64]} />
       </mesh>
+      {/* endless cobbled ground past the market circle */}
+      <StreamingGround material={chunkCobble} tileM={136 / 24} y={-0.02} radius={3} />
       {/* mosaic medallion under the fountain */}
       <mesh position={[FOUNTAIN_POSITION.x, 0.02, FOUNTAIN_POSITION.z]} rotation={[-Math.PI / 2, 0, 0]} material={mats.mosaic}>
         <circleGeometry args={[6.5, 48]} />
@@ -558,7 +579,7 @@ function Crowd() {
 }
 
 // --- stars ---------------------------------------------------------------------
-function AgoraStars({ opacity }) {
+function AgoraStars({ opacity, walkerRef }) {
   const points = useMemo(() => {
     const rng = mulberry32(hashString(`agora:stars:${AGORA_SEED}`));
     const starCount = 450;
@@ -584,6 +605,14 @@ function AgoraStars({ opacity }) {
     points.material.dispose();
   }, [points]);
   points.material.opacity = opacity;
+  // ENDLESS (Wave 4): the star dome rides the walker, so the night
+  // sky never ends at the old market edge.
+  useFrame(() => {
+    if (walkerRef) {
+      const p = walkerRef.current;
+      points.position.set(p.x, 0, p.z);
+    }
+  });
   return <primitive object={points} />;
 }
 
@@ -604,8 +633,8 @@ function AgoraWeather({ dayF }) {
 
 // --- walk rig --------------------------------------------------------------------
 // Walk: first-person, drag to look, stick/WASD, eye 1.7 m over the
-// flat square, clamped to the market (radius 40) so the walker
-// stays among the stalls and out of the houses and the temple.
+// flat square. ENDLESS (Wave 4): no clamp — the walker roams on
+// while the cobbled ground streams (see AgoraGround).
 function WalkerRig({ inputRef, mode, walkerRef, yawRef, pitchRef }) {
   const { camera, gl } = useThree();
   const dragging = useRef(false);
@@ -665,8 +694,6 @@ function WalkerRig({ inputRef, mode, walkerRef, yawRef, pitchRef }) {
     const p = walkerRef.current;
     p.x += (-sin * fwd + cos * strafe) * 3 * dt;
     p.z += (-cos * fwd - sin * strafe) * 3 * dt;
-    const r = Math.hypot(p.x, p.z);
-    if (r > WALK_RADIUS) { p.x *= WALK_RADIUS / r; p.z *= WALK_RADIUS / r; }
     p.y = EYE_HEIGHT;
     camera.position.copy(p);
     camera.rotation.set(pitchRef.current, yawRef.current, 0);
@@ -685,7 +712,7 @@ function SceneContent({ timeOfDay, mode, inputRef }) {
   return (
     <>
       <DayNightRig sun moon shade="earth" fogDensity={0.0035} />
-      <AgoraStars opacity={1 - dayF} />
+      <AgoraStars opacity={1 - dayF} walkerRef={walkerRef} />
       <AgoraGround />
       <Fountain dayF={dayF} />
       <Stoa />

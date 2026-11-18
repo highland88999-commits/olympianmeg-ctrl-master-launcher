@@ -3,7 +3,7 @@
 
 import * as THREE from 'three';
 import { guardCanvasContext } from '../../lib/scene-context-guard.js';
-import { generateCity, createGroundTexture, buildStreetlights, SUBWAY_STATIONS } from './city.js';
+import { generateCity, createGroundTexture, buildStreetlights, SUBWAY_STATIONS, DISTRICTS_3D } from './city.js';
 import {
   materialForFacade, facadeKindForDistrict, buildHarborWater,
   buildSkyDome, buildSunSprite, buildMoonSprite, buildSunDisc, buildMoonDisc,
@@ -19,7 +19,10 @@ import { createVehicle, updateVehicle, enterVehicle, exitVehicle, nearestVehicle
 import { createWanted, commitCrime, updateWanted, updateCop, checkBusted, resetWanted } from '@/lib/gta/wanted.js';
 import { createMission, updateMission, startMission, currentObjective, MISSION_STATE, MEGA_CITY_MISSIONS } from '@/lib/gta/missions.js';
 import { createInput } from '@/lib/gta/input.js';
-import { findClearSpot } from '@/lib/gta/collisions.js';
+import { findClearSpot, buildColliders } from '@/lib/gta/collisions.js';
+import { ChunkRing } from '@/lib/infinite/streaming.js';
+import { generateCityBlock, blocksInChunk, isHomeBlock } from '@/lib/gta/blocks.js';
+import { chunkGroundMesh, createCityGroundTileTexture } from '@/lib/gta/streaming.js';
 import { createWalkerEmbodiment, capsuleProcSize } from '@/lib/gta/walker-embodiment.js';
 import {
   SUBWAY as SUBWAY_CFG, createSubway, updateSubway, subwayPos,
@@ -63,6 +66,7 @@ export function createGTAScene(canvas, opts = {}) {
   sun.shadow.camera.left = -100; sun.shadow.camera.right = 100;
   sun.shadow.camera.top = 100; sun.shadow.camera.bottom = -100;
   scene.add(sun);
+  scene.add(sun.target); // shadow frustum follows the player (see updateTimeOfDay)
   scene.add(new THREE.HemisphereLight(0xbdd7ff, 0x3a3f45, 0.6));
 
   // City
@@ -81,8 +85,8 @@ export function createGTAScene(canvas, opts = {}) {
   // each wearing its lit-window emissive map (city-cgi). The old
   // single flat material is gone; instance colours still tint.
   const facadeMats = [];
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
   {
-    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     const byKind = new Map();
     for (const b of cityData.buildings) {
       const kind = facadeKindForDistrict(b.district);
@@ -109,23 +113,100 @@ export function createGTAScene(canvas, opts = {}) {
     }
   }
 
+  // ---- ENDLESS (Wave 4, Nov 18, 2026): no edge, no wall, no turn-back.
+  // The home city above is byte-identical. Beyond ±300 m the ground
+  // streams in 64 m chunks around the player (same road grid, tiled
+  // every 40 m — the tile aligns with the home painter's grid), and
+  // the blocks keep growing from the block-local generator
+  // (lib/gta/blocks.js — same district law, same per-block law).
+  // Traffic, peds, streetlights, harbor water and the subway stay
+  // home-region features; the outskirts are open streets.
+  const groundTileTex = createCityGroundTileTexture();
+  const groundTileMat = new THREE.MeshStandardMaterial({ map: groundTileTex, roughness: 0.9 });
+  const CITY_OUTER = { minH: 15, maxH: 40, color: 0x8a94a6, id: 'outer' }; // city.js generateCity default
+  const CITY_WATER = { cx: DISTRICTS_3D[1].cx, cz: DISTRICTS_3D[1].cz, r: 50 }; // harbor water, city.js
+  const streamGroup = new THREE.Group();
+  scene.add(streamGroup);
+  let activeColliders = cityData.colliders.slice();
+  function rebuildColliders() {
+    activeColliders = cityData.colliders.slice();
+    for (const v of streamRing.loaded.values()) activeColliders.push(...v.colliders);
+  }
+  const streamRing = new ChunkRing({
+    radius: 3, budget: 2,
+    onLoad: (key, cx, cz) => {
+      const group = new THREE.Group();
+      group.add(chunkGroundMesh(cx, cz, groundTileMat, 40, -300, -300, -0.02));
+      const buildings = [];
+      for (const { bx, bz } of blocksInChunk(cx, cz, { blockSize: 40, homeHalf: 300 })) {
+        if (isHomeBlock(bx, bz, 300)) continue;
+        buildings.push(...generateCityBlock(bx, bz, {
+          seed: 1337, blockSize: 40, roadWidth: 12,
+          districts: DISTRICTS_3D, outer: CITY_OUTER, water: CITY_WATER,
+        }).buildings);
+      }
+      const byKind = new Map();
+      for (const b of buildings) {
+        const kind = facadeKindForDistrict(b.district);
+        if (!byKind.has(kind)) byKind.set(kind, []);
+        byKind.get(kind).push(b);
+      }
+      const dummy = new THREE.Object3D();
+      const col = new THREE.Color();
+      for (const [kind, list] of byKind) {
+        const mat = materialForFacade(kind, 1337);
+        const mesh = new THREE.InstancedMesh(boxGeo, mat, list.length);
+        list.forEach((b, i) => {
+          dummy.position.set(b.x, b.h / 2, b.z);
+          dummy.scale.set(b.w, b.h, b.d);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+          col.setHex(b.color);
+          mesh.setColorAt(i, col);
+        });
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        group.add(mesh);
+      }
+      streamGroup.add(group);
+      return { group, colliders: buildColliders(buildings) };
+    },
+    onDrop: (key, value) => {
+      if (!value) return;
+      streamGroup.remove(value.group);
+      value.group.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.name === 'endless-ground') o.geometry.dispose();
+        else if (o.isInstancedMesh) o.dispose();
+      });
+    },
+  });
+  // Prime the ring around spawn so the ground is there on frame one
+  // (budget 2/frame fills the rest over the first seconds).
+  streamRing.update(0, 50);
+  rebuildColliders();
+
   // CGI sky: gradient dome + sun / moon sprites + stars + clouds.
-  // The dome replaces the old flat background colour; the scene's
-  // own 10-minute day cycle still drives it (see updateTimeOfDay).
+  // The whole sky rides one group that follows the player, so the
+  // dome, sun, moon and stars stay overhead wherever the endless
+  // city runs to (their positions are still set exactly as before,
+  // now relative to the group).
+  const skyGroup = new THREE.Group();
+  scene.add(skyGroup);
   const skyDome = buildSkyDome();
-  scene.add(skyDome);
+  skyGroup.add(skyDome);
   const sunSprite = buildSunSprite();
-  scene.add(sunSprite);
+  skyGroup.add(sunSprite);
   const sunDisc = buildSunDisc();
-  scene.add(sunDisc);
+  skyGroup.add(sunDisc);
   const moonSprite = buildMoonSprite();
-  scene.add(moonSprite);
+  skyGroup.add(moonSprite);
   const moonDisc = buildMoonDisc();
-  scene.add(moonDisc);
+  skyGroup.add(moonDisc);
   const stars = buildStars();
-  scene.add(stars);
+  skyGroup.add(stars);
   const clouds = buildClouds();
-  scene.add(clouds);
+  skyGroup.add(clouds);
 
   // The Harbor finally has water (its `water: true` flag used to
   // mean "no buildings here" and nothing else).
@@ -405,11 +486,15 @@ export function createGTAScene(canvas, opts = {}) {
     // Slow cycle: full day = 10 minutes
     timeOfDay = (timeOfDay + dt / 600) % 1;
     const sunAngle = timeOfDay * Math.PI * 2;
+    // The sun + its shadow frustum follow the player, so the light
+    // stays overhead wherever the endless city runs to.
     sun.position.set(
-      Math.cos(sunAngle) * 200,
+      player.x + Math.cos(sunAngle) * 200,
       Math.sin(sunAngle) * 150 + 50,
-      100
+      player.z + 100
     );
+    sun.target.position.set(player.x, 0, player.z);
+    sun.target.updateMatrixWorld();
     const dayness = skyDayness(timeOfDay);
     const night = 1 - dayness;
     sun.intensity = 0.2 + dayness * 1.0;
@@ -443,7 +528,11 @@ export function createGTAScene(canvas, opts = {}) {
     moonDisc.material.opacity = 0.15 + 0.85 * night;
     moonDisc.visible = night > 0.05;
     stars.material.opacity = night * 0.9;
-    clouds.material.opacity = 0.25 + 0.3 * dayness;
+    // Pre-existing fix (Wave 4, Nov 18): buildClouds() returns a
+    // Group — groups have no .material, so the old line threw every
+    // frame. All ten cloud billboards share one material instance,
+    // so setting it through the first child fades them all.
+    if (clouds.children[0]) clouds.children[0].material.opacity = 0.25 + 0.3 * dayness;
     // Emissive night pass — no new real lights, ever.
     for (const m of facadeMats) m.emissiveIntensity = 0.05 + night * 1.15;
     streetlights.headMat.emissiveIntensity = 0.2 + night * 1.8;
@@ -561,7 +650,7 @@ export function createGTAScene(canvas, opts = {}) {
       player.y = TUNNEL_Y;
     } else if (player.inVehicle) {
       const v = player.inVehicle;
-      const res = updateVehicle(v, inp, cityData.colliders, dt);
+      const res = updateVehicle(v, inp, activeColliders, dt);
       player.x = v.x; player.z = v.z;
       if (res.crashed && res.impact > 15) {
         commitCrime(wanted, 'recklessDriving', now / 1000);
@@ -573,7 +662,7 @@ export function createGTAScene(canvas, opts = {}) {
         mesh.rotation.y = v.heading;
       }
     } else {
-      updatePlayer(player, inp, camYaw, cityData.colliders, dt);
+      updatePlayer(player, inp, camYaw, activeColliders, dt);
     }
 
     // Player mesh (hidden while riding the train; hidden whenever
@@ -654,7 +743,7 @@ export function createGTAScene(canvas, opts = {}) {
           cop.x = player.x + (Math.random() - 0.5) * 120;
           cop.z = player.z + (Math.random() - 0.5) * 120;
         }
-        updateCop(cop, player.x, player.z, wanted.stars, cityData.colliders, dt);
+        updateCop(cop, player.x, player.z, wanted.stars, activeColliders, dt);
         mesh.position.set(cop.x, 0, cop.z);
         mesh.rotation.y = cop.heading;
         // Lightbar flash alternates red / blue on the clock.
@@ -697,6 +786,11 @@ export function createGTAScene(canvas, opts = {}) {
       }
     }
 
+    // Endless ground + sky follow the player.
+    const ringRes = streamRing.update(player.x, player.z);
+    if (ringRes.built > 0 || ringRes.dropped > 0) rebuildColliders();
+    skyGroup.position.set(player.x, 0, player.z);
+
     renderer.render(scene, camera);
 
     // HUD sync via event
@@ -734,6 +828,9 @@ export function createGTAScene(canvas, opts = {}) {
       window.removeEventListener('resize', resize);
       input.detach();
       walker.dispose();
+      streamRing.disposeAll();
+      groundTileTex.dispose();
+      groundTileMat.dispose();
       renderer.dispose();
     },
     setCamYaw(yaw) { camYaw = yaw; },

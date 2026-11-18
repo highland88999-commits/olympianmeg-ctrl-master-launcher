@@ -128,8 +128,9 @@ function FirstPerson({ inputRef, fly }) {
     } else {
       p.y = EYE;
     }
-    const r = Math.hypot(p.x, p.z);
-    if (r > WORLD_R - 3) { p.x *= (WORLD_R - 3) / r; p.z *= (WORLD_R - 3) / r; }
+    // ENDLESS (Wave 4, Nov 18, 2026): the old WORLD_R-3 circle clamp
+    // is gone — walk and fly roam on while the rainforest floor
+    // streams (see Ground.jsx). The landmarks stay home.
     camera.position.copy(p);
     camera.rotation.set(pitch.current, yaw.current, 0);
   });

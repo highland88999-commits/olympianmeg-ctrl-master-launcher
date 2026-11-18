@@ -8,6 +8,7 @@ import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, GAMEPAD_BUTTO
 import { hawkinsModel, HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
 import { instantiateHawkins, prefetchHawkins } from '../../lib/hawkins/loader.js';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
+import { ChunkRing, chunkBounds, chunkGroundGeometry, hashString32, mulberry32 } from '../../lib/infinite/streaming.js';
 
 const EYE = 7;
 const TRACES_NEEDED = 5;
@@ -42,8 +43,9 @@ export function createEngine(canvas, hooks) {
     bike: null,
     tracesCollected: 0, wave: 1, kills: 0, waveSpawned: 0, waveTimer: 0,
     colliders: [], blasts: [],
-    lightningLight: null, skyFlash: null, bloodSun: null, ambient: null,
+    lightningLight: null, skyFlash: null, bloodSun: null, moonLight: null, ambient: null,
     ash: null, spores: null, flashlight: null, muzzle: null,
+    streamRing: null,
     shakeAmt: 0, isTouch: false,
     hudTimer: 0,
     perspective: 'first', // 'first' | 'third' — camera perspective toggle
@@ -183,7 +185,8 @@ export function createEngine(canvas, hooks) {
     const E = engine;
     E.ambient = new THREE.AmbientLight(PAL.hawkins.amb, 0.7); E.scene.add(E.ambient);
     const moon = new THREE.DirectionalLight(0x5a1020, 0.35);
-    moon.position.set(-300, 500, -600); E.scene.add(moon);
+    moon.position.set(-300, 500, -600); E.scene.add(moon); E.scene.add(moon.target);
+    E.moonLight = moon;
     E.bloodSun = new THREE.Mesh(new THREE.SphereGeometry(70, 24, 24),
       new THREE.MeshBasicMaterial({ color: 0x880000, fog: false }));
     E.bloodSun.position.set(0, 620, -2200); E.scene.add(E.bloodSun);
@@ -208,6 +211,66 @@ export function createEngine(canvas, hooks) {
       v.position.set((Math.random() - 0.5) * 1600, 0.3, 600 - Math.random() * 4800);
       E.scene.add(v);
     }
+
+    // ---- ENDLESS (Wave 4, Nov 18, 2026): no edge, no wall, no turn-back.
+    // The home planes above are byte-identical. Beyond them the ground
+    // streams in 64 m chunks around the player — BOTH layers in step
+    // (the Upside-Down overlay shares the home overlay's material, so
+    // the dimension crossfade animates every chunk at once) — plus the
+    // main road (60 m wide on x=0, dashes every 90 m, same law as the
+    // home road) wherever a chunk crosses it. Veins, lamps, buildings
+    // and the portal stay home-region features.
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x0b0508, roughness: 1 });
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x111114, roughness: 0.9 });
+    const dashMat = new THREE.MeshBasicMaterial({ color: 0x551111 });
+    const roadGeo = new THREE.PlaneGeometry(60, 64);
+    const dashGeo = new THREE.PlaneGeometry(2, 34);
+    const streamGroup = new THREE.Group();
+    E.scene.add(streamGroup);
+    E.streamRing = new ChunkRing({
+      radius: 3, budget: 2,
+      onLoad: (key, cx, cz) => {
+        const { x0, z0, x1, z1 } = chunkBounds(cx, cz);
+        const group = new THREE.Group();
+        const geo = chunkGroundGeometry(cx, cz, 1);
+        const g1c = new THREE.Mesh(geo, groundMat);
+        g1c.position.set(x0, -0.02, z0);
+        g1c.receiveShadow = true;
+        group.add(g1c);
+        // Upside-Down layer, same material as the home overlay.
+        const g2c = new THREE.Mesh(geo, E.groundUD.material);
+        g2c.position.set(x0, 0.13, z0);
+        group.add(g2c);
+        // The road runs the length of any chunk it crosses.
+        if (x0 < 30 && x1 > -30) {
+          const road = new THREE.Mesh(roadGeo, roadMat);
+          road.rotation.x = -Math.PI / 2;
+          road.position.set(0, 0.08, z0 + 32);
+          road.receiveShadow = true;
+          group.add(road);
+          // Dashes at z = 1600 - 90k, same law as the home road.
+          const kMin = Math.floor((1600 - z1) / 90) + 1;
+          const kMax = Math.floor((1600 - z0) / 90);
+          for (let k = kMin; k <= kMax; k++) {
+            const dz = 1600 - 90 * k;
+            const dx = (mulberry32(hashString32(`hawkins:dash:${k}`))() - 0.5) * 6;
+            const dash = new THREE.Mesh(dashGeo, dashMat);
+            dash.rotation.x = -Math.PI / 2;
+            dash.position.set(dx, 0.18, dz);
+            group.add(dash);
+          }
+        }
+        streamGroup.add(group);
+        return { group, geo };
+      },
+      onDrop: (key, value) => {
+        if (!value) return;
+        streamGroup.remove(value.group);
+        value.geo.dispose(); // road/dash geos are shared — not disposed
+      },
+    });
+    // Prime around spawn (0, 420) so the ground is there on frame one.
+    E.streamRing.update(0, 420);
   };
 
   engine.buildRoad = function () {
@@ -1457,8 +1520,9 @@ export function createEngine(canvas, hooks) {
       const ox = nx - c.x, oz = nz - c.z, od = Math.hypot(ox, oz);
       if (od < c.r + 3 && od > 0.01) { nx = c.x + ox / od * (c.r + 3); nz = c.z + oz / od * (c.r + 3); }
     }
-    nx = Math.max(-700, Math.min(700, nx));
-    nz = Math.max(-4600, Math.min(900, nz));
+    // ENDLESS (Wave 4, Nov 18, 2026): the old box clamp is gone —
+    // the player roams on while the ground streams (see buildGround).
+    // Colliders (town buildings, Vecna's lair) still push out.
     P.pos.x = nx; P.pos.z = nz;
     const t = E.clock.getElapsedTime();
     const bob = (mx || mz) ? Math.sin(t * 11) * 0.55 : 0;
@@ -1529,6 +1593,22 @@ export function createEngine(canvas, hooks) {
       P.health = Math.min(P.maxHealth, P.health + 4 * dt);
       E.hooks.onHealth(P.health / P.maxHealth);
     }
+
+    // ENDLESS (Wave 4): the ground streams around the player, and
+    // the sky rides along — the blood sun keeps its bearing, the
+    // moonlight keeps its direction (target follows too), the
+    // lightning stays overhead, and the ash + spores drift around
+    // the player instead of ending at the old map edge.
+    if (E.streamRing) E.streamRing.update(P.pos.x, P.pos.z);
+    if (E.bloodSun) E.bloodSun.position.set(P.pos.x, 620, P.pos.z - 2200);
+    if (E.moonLight) {
+      E.moonLight.position.set(P.pos.x - 300, 500, P.pos.z - 600);
+      E.moonLight.target.position.set(P.pos.x, 0, P.pos.z);
+      E.moonLight.target.updateMatrixWorld();
+    }
+    if (E.lightningLight) E.lightningLight.position.set(P.pos.x, 900, P.pos.z);
+    if (E.ash) E.ash.position.set(P.pos.x, 0, P.pos.z);
+    if (E.spores) E.spores.position.set(P.pos.x, 0, P.pos.z);
   };
 
   engine.updateWaves = function (dt) {

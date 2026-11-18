@@ -334,8 +334,11 @@ for (const call of MECHANIC_CALLS) {
 }
 
 test('mechanics keep their exact collision + event wiring', () => {
-  assert.ok(sceneSrc.includes('updateVehicle(v, inp, townData.colliders, dt)'));
-  assert.ok(sceneSrc.includes('updatePlayer(player, inp, camYaw, townData.colliders, dt)'));
+  // Wave 4: the loop passes activeColliders — the home colliders
+  // PLUS the streamed outskirt-chunk colliders — so outskirt
+  // houses collide too. The home set is unchanged inside it.
+  assert.ok(sceneSrc.includes('updateVehicle(v, inp, activeColliders, dt)'));
+  assert.ok(sceneSrc.includes('updatePlayer(player, inp, camYaw, activeColliders, dt)'));
   assert.ok(sceneSrc.includes("commitCrime(wanted, 'stealCar'"));
   assert.ok(sceneSrc.includes("onEvent({ type: 'busted', money })"));
   assert.ok(sceneSrc.includes("onEvent({ type: 'mission_complete'"));
@@ -353,13 +356,15 @@ test('CGI is wired in: sky, traffic, pedestrians, textures, beam', () => {
   }
 });
 
-test('scene imports no new lib/gta modules (workarounds stay in app/truman)', () => {
+test('scene imports the sanctioned lib/gta modules (blocks.js grows the outskirts)', () => {
   const imports = [...sceneSrc.matchAll(/from '(@\/lib\/gta\/[^']+)'/g)].map((m) => m[1]);
   assert.deepEqual([...imports].sort(), [
+    '@/lib/gta/blocks.js',
     '@/lib/gta/collisions.js',
     '@/lib/gta/input.js',
     '@/lib/gta/missions.js',
     '@/lib/gta/player.js',
+    '@/lib/gta/streaming.js',
     '@/lib/gta/vehicle.js',
     '@/lib/gta/walker-embodiment.js',
     '@/lib/gta/wanted.js',
