@@ -26,6 +26,12 @@ import { createIslands, createChests, dutchmanNightFactor } from './world3d.js';
 // dressing. Additive only — it never edits an existing surface or
 // material (the wraps worker owns the wrapped sea metal).
 import { createDutchmanStorm, dressShip } from '../../lib/flying-dutchman/cgi.js';
+// Camera modes (lib/flying-dutchman/cam-mode.js): LOOK (default — swipe
+// looks around) vs ZOOM (swipe zooms in/out). Merlin, Nov 18 2026.
+import {
+  CAM_DIST_DEFAULT, ASHORE_CAM_BASE, CAM_ZOOM_PER_PX,
+  clampCamDist, zoomDist, lookDrag, ashoreCamScale, nextCamMode,
+} from '../../lib/flying-dutchman/cam-mode.js';
 import {
   levelFor, levelStats, SLOT_PRIZES, rollSlotPrize, rollSlotPrizeOwned, slotCanSpin,
   applySlotPrize, prizeToItem, equipStoredPrize, MERCHANT_CATALOGUE, buyUpgrade,
@@ -401,6 +407,10 @@ export default function DutchmanPage() {
   const [paused, setPaused] = useState(false);
   const [anchored, setAnchored] = useState(false);
   const [webglFail, setWebglFail] = useState(false);
+  // Camera mode (Merlin, Nov 18 2026): 'look' (default — swipe looks
+  // around) or 'zoom' (swipe zooms in/out). Mirrored onto G.cam.mode
+  // so the canvas pointer handlers read it without a re-render.
+  const [camMode, setCamMode] = useState('look');
   const [best, setBest] = useState(0);
   // Voyage panels (solo only): null | 'merchant' | 'duel' | 'slot' | 'backpack'.
   const [panel, setPanel] = useState(null);
@@ -969,7 +979,7 @@ export default function DutchmanPage() {
       panelOpen: false,
       manualPause: false,
       input: { rudder: 0, joy: 0, throttle: 0.5, anchored: false, keys: { left: false, right: false }, sails: SAILS.FULL, fire: null },
-      cam: { yaw: 0, pitch: 0.34, dist: 36 },
+      cam: { yaw: 0, pitch: 0.34, dist: CAM_DIST_DEFAULT, mode: 'look' },
       acc: 0,
       raf: 0,
       last: performance.now(),
@@ -1532,12 +1542,15 @@ export default function DutchmanPage() {
       }
 
       // Chase camera with orbit offsets — or above-behind the walker ashore.
+      // Ashore the chase distance scales with the zoom (16 m at the default
+      // distance), so the zoom toggle is never dead on land.
       if (G.ashore) {
         const w = G.ashore.walker;
+        const s = ashoreCamScale(G.cam.dist);
         camera.position.set(
-          w.x - Math.sin(w.heading) * 16,
-          16,
-          w.z - Math.cos(w.heading) * 16
+          w.x - Math.sin(w.heading) * ASHORE_CAM_BASE * s,
+          ASHORE_CAM_BASE * s,
+          w.z - Math.cos(w.heading) * ASHORE_CAM_BASE * s
         );
         camera.lookAt(w.x, 2, w.z);
       } else {
@@ -1654,11 +1667,18 @@ export default function DutchmanPage() {
       if (pointers.size === 2) {
         const [a, b] = [...pointers.values()];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (pinchD > 0) G.cam.dist = clamp(G.cam.dist - (d - pinchD) * 0.08, 20, 70);
+        if (pinchD > 0) G.cam.dist = clampCamDist(G.cam.dist - (d - pinchD) * CAM_ZOOM_PER_PX);
         pinchD = d;
+      } else if (G.cam.mode === 'zoom') {
+        // ZOOM mode (Merlin, Nov 18 2026): a vertical swipe zooms —
+        // drag up zooms in, drag down zooms out. Horizontal swipe
+        // does nothing here; pinch and wheel still zoom too.
+        G.cam.dist = zoomDist(G.cam.dist, dy);
       } else {
-        G.cam.yaw -= dx * 0.005;
-        G.cam.pitch = clamp(G.cam.pitch + dy * 0.003, 0.08, 1.1);
+        // LOOK mode (default): the swipe looks around, as before.
+        const next = lookDrag(G.cam, dx, dy);
+        G.cam.yaw = next.yaw;
+        G.cam.pitch = next.pitch;
       }
     });
     const upPointer = (ev) => { pointers.delete(ev.pointerId); pinchD = 0; };
@@ -1666,7 +1686,7 @@ export default function DutchmanPage() {
     el.addEventListener('pointercancel', upPointer);
     el.addEventListener('wheel', (ev) => {
       ev.preventDefault();
-      G.cam.dist = clamp(G.cam.dist + ev.deltaY * 0.02, 20, 70);
+      G.cam.dist = clampCamDist(G.cam.dist + ev.deltaY * 0.02);
     }, { passive: false });
 
     // -- keyboard ----------------------------------------------------------------------
@@ -1776,6 +1796,20 @@ export default function DutchmanPage() {
     G.paused = !G.paused;
     G.manualPause = G.paused;
     setPaused(G.paused);
+  }
+
+  // Camera mode toggle (Merlin, Nov 18 2026): LOOK (swipe looks around)
+  // vs ZOOM (swipe zooms in/out). The mode lives on G.cam so the canvas
+  // handlers read it, and in state so the orb face follows it. A toast
+  // teaches the gesture on every switch.
+  function toggleCamMode() {
+    const next = nextCamMode(camMode);
+    const G = gameRef.current;
+    if (G) G.cam.mode = next;
+    setCamMode(next);
+    addToast(next === 'zoom'
+      ? '🔍 Zoom mode — swipe up to zoom in, down to zoom out.'
+      : '👁 Look mode — swipe to look around.');
   }
 
   // Anchor: drop it to stop dead and pivot in place; weigh it to sail on.
@@ -1940,8 +1974,18 @@ export default function DutchmanPage() {
               </p>
             </div>
 
-            {/* pause + voyage backpack (solo only) */}
+            {/* camera toggle + pause + voyage backpack (solo only) — the
+                camera orb sits at the top-right camera-control spot,
+                left of the other round controls. */}
             <div className="flex flex-none gap-2">
+              <button
+                type="button" onClick={toggleCamMode}
+                aria-label={camMode === 'zoom' ? 'Camera: zoom mode — tap for look around' : 'Camera: look around — tap for zoom'}
+                title={camMode === 'zoom' ? 'Zoom mode — swipe to zoom' : 'Look mode — swipe to look around'}
+                className={`flex h-11 w-11 items-center justify-center rounded-full border text-lg backdrop-blur ${camMode === 'zoom' ? 'border-amber-300 bg-amber-400/25 text-amber-100' : 'border-zinc-700 bg-black/55 text-zinc-100'}`}
+              >
+                {camMode === 'zoom' ? '🔍' : '👁️'}
+              </button>
               {mode === 'solo' && (
                 <button
                   type="button" onClick={() => openPanel('backpack')} aria-label="Ghost Voyage backpack"
