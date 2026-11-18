@@ -37,11 +37,12 @@ import {
 } from '@/lib/backpack/backpack';
 import { useBackpack, updateBackpack } from '@/lib/backpack/store';
 import { BACKPACK_KIND_GROUPS } from '@/lib/backpack/groups';
-import { dinoStateOf, isEggItem } from '@/lib/earth2/breeding';
+import { dinoStateOf, eggIsCold, isEggItem } from '@/lib/earth2/breeding';
 import { trophyDetailFor } from '@/lib/backpack/trophies';
 import OrbButton, { HOLO_PANEL } from '@/components/backpack/OrbButton';
 import usePackTrophies from '@/components/backpack/usePackTrophies';
 import useEggHatch from '@/components/backpack/useEggHatch';
+import { deleteEggRecord } from '@/lib/earth2/hatch';
 import PortalGunCard from '@/components/PortalGunCard';
 
 const RETICLE_GLYPH = { crosshair: '✛', dot: '•', chevron: '»' };
@@ -129,6 +130,33 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
   // select -> the row's detail opens; weapons and dinos use
   // their own state — equipped / out — as their selection).
   const [selectedUid, setSelectedUid] = useState(null);
+  // COLD-EGG DELETE (Merlin, 2026-11-17): a cold egg will never
+  // hatch and the pack had no way to clear it — it sat in the
+  // pack forever. A cold egg's row carries a small trash button:
+  // tap once to arm it ("Delete?"), tap again within 5 s to
+  // clear it. Viable eggs never get the button, and the delete
+  // runs through updateBackpack, so the egg leaves the device
+  // copy instantly and the account copy on the debounced flush.
+  const [deleteArmedUid, setDeleteArmedUid] = useState(null);
+  const deleteArmTimer = useRef(null);
+  useEffect(() => () => {
+    if (deleteArmTimer.current) clearTimeout(deleteArmTimer.current);
+  }, []);
+  const deleteColdEgg = useCallback((eggItem) => {
+    if (!eggItem || !isEggItem(eggItem)) return;
+    if (deleteArmedUid !== eggItem.uid) {
+      setDeleteArmedUid(eggItem.uid);
+      if (deleteArmTimer.current) clearTimeout(deleteArmTimer.current);
+      deleteArmTimer.current = setTimeout(() => setDeleteArmedUid(null), 5000);
+      return;
+    }
+    if (deleteArmTimer.current) {
+      clearTimeout(deleteArmTimer.current);
+      deleteArmTimer.current = null;
+    }
+    setDeleteArmedUid(null);
+    updateBackpack((rec) => ({ ...rec, items: deleteEggRecord(rec.items || [], eggItem) }));
+  }, [deleteArmedUid]);
   // Trophies + souls, fetched when the panel opens: the server
   // statuses for the head/chain rows, the soul tally, and the
   // heal that puts an earned head (or chain) into the pack.
@@ -561,7 +589,14 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                     const isEgg = isEggItem(it);
                     const canHatch = isEgg && typeof hatchEgg === 'function';
                     const eggAction = canHatch ? 'hatch' : null;
-                    const eggHint = eggAction === 'hatch' ? ' · tap to hatch 🐣' : '';
+                    // A cold egg (stolen over 24 h ago) will never
+                    // hatch — the row says so instead of promising
+                    // a hatch, and carries the delete button. A
+                    // viable egg keeps "tap to hatch" and no button.
+                    const isColdEgg = isEgg && eggIsCold(it.meta, Date.now());
+                    const eggHint = eggAction === 'hatch'
+                      ? (isColdEgg ? ' · gone cold 🥚' : ' · tap to hatch 🐣')
+                      : '';
                     const rowAction = dinoAction || eggAction;
                     // ORBS (Merlin, 2026-11-15): the orb is the
                     // selection control. Dinos: lit when with you,
@@ -596,6 +631,17 @@ export default function BackpackHud({ realm, realmLabel, combatApplies = false, 
                           {isEgg && eggAction && <span style={{ fontSize: 11, opacity: 0.7 }}>{eggHint}</span>}
                           {selected && <span style={{ display: 'block', fontSize: 11, opacity: 0.7, color: '#fff', fontWeight: 400 }}>{trophyDetailFor(it, trophies)}</span>}
                         </span>
+                        {isColdEgg && (
+                          <button
+                            type="button"
+                            onClick={() => deleteColdEgg(it)}
+                            aria-label={deleteArmedUid === it.uid ? `Confirm delete of cold ${it.name}` : `Delete cold ${it.name}`}
+                            title={deleteArmedUid === it.uid ? 'Tap again to delete this cold egg' : 'Delete this cold egg'}
+                            style={deleteArmedUid === it.uid
+                              ? { flexShrink: 0, height: 28, padding: '0 10px', borderRadius: 999, border: '1px solid #dc2626', background: '#dc2626', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
+                              : { flexShrink: 0, width: 28, height: 28, borderRadius: '50%', border: '1px solid rgba(248,113,113,0.7)', background: 'transparent', color: '#fca5a5', fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                          >{deleteArmedUid === it.uid ? 'Delete?' : '🗑️'}</button>
+                        )}
                       </div>
                     );
                   })}

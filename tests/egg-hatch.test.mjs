@@ -27,6 +27,7 @@ import {
   makeDinoItem,
 } from '../lib/earth2/breeding.js';
 import {
+  deleteEggRecord,
   hatchPrecheck,
   hatchEggRecord,
   isLandownerFor,
@@ -225,5 +226,109 @@ describe('wiring — the hatch lives in the backpack, in every realm', () => {
       assert.ok(src.includes('onDinoRecall='), `${page} passes recall to the HUD`);
       assert.ok(src.includes('dinoApiRef.current = { summon:'), `${page} wires summon/recall through its dino api`);
     }
+  });
+});
+
+describe('deleteEggRecord — clearing a cold egg (Merlin, 2026-11-17)', () => {
+  // Stored items carry a uid (sanitizeBackpackRecord stamps one);
+  // the helper mirrors that so the identity/uid paths are real.
+  function storedEgg(species, stolenAtMs, uid) {
+    return { ...makeEggItem(species, stolenAtMs), uid };
+  }
+  const coldAt = NOW - EGG_VIABLE_MS - 1000;
+  const warmAt = NOW - 60_000;
+
+  it('removes the cold egg by identity and leaves everything else alone', () => {
+    const cold = storedEgg('stegosaurus', coldAt, 'egg-cold-1');
+    const warm = storedEgg('triceratops', warmAt, 'egg-warm-1');
+    const weapon = { id: 'sword-1', kind: 'weapon', name: 'Sword', qty: 1, meta: {}, uid: 'w-1' };
+    const dino = raisedDino('brachiosaurus');
+    const items = deleteEggRecord([weapon, cold, warm, dino], cold, { nowMs: NOW });
+    assert.equal(items.length, 3);
+    assert.ok(!items.some((it) => it === cold), 'the cold egg leaves');
+    assert.ok(items.some((it) => it === warm), 'the viable egg survives');
+    assert.ok(items.some((it) => it === weapon), 'unrelated items survive');
+    assert.ok(items.some((it) => it === dino), 'a hatched dino survives');
+  });
+
+  it('two cold eggs of one species: only the tapped one leaves', () => {
+    const first = storedEgg('stegosaurus', coldAt, 'egg-cold-1');
+    const second = storedEgg('stegosaurus', coldAt, 'egg-cold-2');
+    const items = deleteEggRecord([first, second], first, { nowMs: NOW });
+    assert.equal(items.length, 1);
+    assert.equal(items[0], second);
+  });
+
+  it('a viable egg is never deleted — the cold guard refuses it', () => {
+    const warm = storedEgg('triceratops', warmAt, 'egg-warm-1');
+    const items = deleteEggRecord([warm], warm, { nowMs: NOW });
+    assert.equal(items.length, 1);
+    assert.equal(items[0], warm);
+  });
+
+  it('an egg stolen exactly 24 h ago is still viable and never deleted', () => {
+    const edge = storedEgg('triceratops', NOW - EGG_VIABLE_MS, 'egg-edge-1');
+    assert.equal(deleteEggRecord([edge], edge, { nowMs: NOW }).length, 1);
+  });
+
+  it('a non-egg is never deleted', () => {
+    const rock = { id: 'rock', kind: 'material', name: 'Rock', qty: 1, meta: {}, uid: 'r-1' };
+    assert.equal(deleteEggRecord([rock], rock, { nowMs: NOW }).length, 1);
+    assert.equal(deleteEggRecord([rock], null, { nowMs: NOW }).length, 1);
+  });
+
+  it('when the record moved since the tap, the uid removes it', () => {
+    const stored = storedEgg('stegosaurus', coldAt, 'egg-cold-9');
+    // The tap holds a different object with the same uid — the
+    // record refreshed between the tap and the confirm.
+    const tapped = { ...makeEggItem('stegosaurus', coldAt - 5000), uid: 'egg-cold-9' };
+    assert.notEqual(tapped, stored);
+    const items = deleteEggRecord([stored], tapped, { nowMs: NOW });
+    assert.equal(items.length, 0, 'the uid fallback removes the stored egg');
+  });
+
+  it('when even the uid moved, the (id, species, stolenAt) key removes it', () => {
+    const stored = storedEgg('stegosaurus', coldAt, 'egg-cold-7');
+    const tapped = makeEggItem('stegosaurus', coldAt); // no uid at all
+    const items = deleteEggRecord([stored], tapped, { nowMs: NOW });
+    assert.equal(items.length, 0, 'the key fallback removes the stored egg');
+  });
+
+  it('an egg with no stolen moment counts as cold and deletes', () => {
+    const noTime = { ...makeEggItem('stegosaurus', Date.now()), uid: 'egg-notime-1' };
+    delete noTime.meta.stolenAt;
+    assert.equal(deleteEggRecord([noTime], noTime, { nowMs: NOW }).length, 0);
+  });
+});
+
+describe('wiring — the cold-egg delete lives on the cold row only', () => {
+  it('BackpackHud shows a delete button on cold eggs and never on viable ones', () => {
+    const hud = readSource('components/backpack/BackpackHud.jsx');
+    assert.ok(hud.includes("import { dinoStateOf, eggIsCold, isEggItem } from '@/lib/earth2/breeding'"), 'HUD imports the cold check');
+    assert.ok(hud.includes("import { deleteEggRecord } from '@/lib/earth2/hatch'"), 'HUD imports the delete');
+    assert.ok(hud.includes('const isColdEgg = isEgg && eggIsCold(it.meta, Date.now())'), 'cold is decided per row, live');
+    assert.ok(hud.includes('{isColdEgg && ('), 'the button renders only on a cold egg row');
+    assert.ok(hud.includes("aria-label={deleteArmedUid === it.uid ? `Confirm delete of cold ${it.name}` : `Delete cold ${it.name}`}"), 'the button names the egg it deletes');
+    assert.ok(hud.includes("'Delete?'"), 'the armed state reads as a question, not a done deed');
+  });
+
+  it('the delete is two taps: arm, then confirm — never one stray tap', () => {
+    const hud = readSource('components/backpack/BackpackHud.jsx');
+    assert.ok(hud.includes('const [deleteArmedUid, setDeleteArmedUid] = useState(null)'), 'an armed uid is tracked');
+    assert.ok(hud.includes('setTimeout(() => setDeleteArmedUid(null), 5000)'), 'the arm expires after 5 s');
+    assert.ok(hud.includes('deleteEggRecord(rec.items || [], eggItem)'), 'the confirm deletes through the record');
+    assert.ok(hud.includes('updateBackpack((rec) => ({ ...rec, items: deleteEggRecord'), 'the delete goes through updateBackpack (device copy now, account copy on flush)');
+  });
+
+  it('a cold egg row says it has gone cold instead of promising a hatch', () => {
+    const hud = readSource('components/backpack/BackpackHud.jsx');
+    assert.ok(hud.includes("' · gone cold 🥚'"), 'cold rows read as gone cold');
+    assert.ok(hud.includes("' · tap to hatch 🐣'"), 'viable rows still promise the hatch');
+  });
+
+  it('the delete lives in lib/earth2/hatch.js next to the hatch law', () => {
+    const hatch = readSource('lib/earth2/hatch.js');
+    assert.ok(hatch.includes('export function deleteEggRecord'), 'deleteEggRecord is exported from the hatch law');
+    assert.ok(hatch.includes('if (!eggIsCold(eggItem.meta, now)) return list'), 'the cold guard is inside the delete');
   });
 });
