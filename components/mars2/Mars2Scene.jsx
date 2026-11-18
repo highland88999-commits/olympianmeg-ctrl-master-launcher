@@ -9,17 +9,20 @@ import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@
 import { getParticleTexture } from '@/lib/particles/sprites';
 import DayNightRig from '@/components/DayNightRig';
 import BackpackHud from '@/components/backpack/BackpackHud';
-import { mars2DayFactor, outpostSite, WORLD_RADIUS, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
+import { mars2DayFactor, outpostSite, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
 import {
   outpostDoorAngle, outpostCollide,
   OUTPOST_SCALE, OUTPOST_DOOR_WEDGE_RAD, OUTPOST_DOOR_THETA,
   OUTPOST_WALKER_BODY_R_M, OUTPOST_ROVER_BODY_R_M,
 } from '@/lib/mars2/world';
-import { dayNightFor, dateMsForSolarTime, getDayNightPlace } from '@/lib/day-night';
+import { dayNightFor, dateMsForSolarTime, getDayNightPlace, rgbStr } from '@/lib/day-night';
 import { makeMoonTexture } from '../HubMoon';
 import { materialForHardware } from '@/lib/mars2/textures';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { thuleWindAt, makeSandField, updateSandField, windCompass, sandstormAt } from '@/lib/mars2/weather';
+// Endless free roam (Merlin, Nov 18, 2026): the ground streams in
+// chunks around the camera — lib/mars2/streaming.js.
+import { CHUNK_M, chunksAround, chunkHeightField } from '@/lib/mars2/streaming';
 import {
   ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
   summonRover, updateRover, dismountRover, roverSpeedKmh, smoothRoverSpeedKmh,
@@ -75,44 +78,84 @@ function useKeys(inputRef) {
   }, [inputRef]);
 }
 
-// --- terrain ---------------------------------------------------------------
-// Same 180×180 m seeded ground as Mars 1: vertex-coloured rust
-// bands with the marsRegolith dune map + bump multiplied over them.
-function Mars2Terrain({ profile }) {
-  const geo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(180, 180, 96, 96);
-    g.rotateX(-Math.PI / 2);
-    const posAttr = g.attributes.position;
-    const colors = [];
-    const cLow = profile.groundColor.clone().multiplyScalar(0.55);
-    const cMid = profile.groundColor.clone();
-    const cHigh = profile.groundAccentColor.clone();
-    const cPeak = new THREE.Color('#f8fafc');
-    const col = new THREE.Color();
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vz = posAttr.getZ(i);
-      const vy = getTerrainHeight(vx, vz, profile);
-      posAttr.setY(i, vy);
-      if (vy < -0.2) {
-        col.copy(cLow);
-      } else if (vy < 2.2) {
-        col.lerpColors(cMid, cHigh, (vy + 0.2) / 2.4);
-      } else {
-        col.copy(cHigh).lerp(cPeak, Math.min(0.45, (vy - 2.2) * 0.12));
-      }
-      colors.push(col.r, col.g, col.b);
-    }
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    g.computeVertexNormals();
-    return g;
+// --- the streaming terrain -------------------------------------------------
+// Mars 2 is ENDLESS (Merlin, Nov 18, 2026): no edge, no wall, no
+// turn-back. The old fixed 180 m plane is gone; the ground now
+// streams in 64 m chunks around the camera, built from the same
+// seeded height field the old plane used — the dunes, the basins
+// and the crater rim all continue as far as the walker roams.
+// The ring follows the CAMERA (walk, drive, orbit and flight all
+// move it — the orbit camera can sit 200 m from the walker and
+// still stay inside the 448 m ring). Chunks build a couple per
+// frame so crossing a boundary never hitches, and chunks that
+// leave the ring are disposed. Chunk geometry is chunk-local
+// (vertices 0..64 m, the world offset on the mesh), so precision
+// never degrades with distance; the regolith map tiles every
+// 30 m through UVs baked in tile units, continuous across chunk
+// borders, so the material's repeat is 1 here (the old plane
+// repeated it 6 times across its 180 m).
+function buildChunkGeometry(profile, cx, cz) {
+  const field = chunkHeightField(profile, cx, cz);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(field.positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(field.uvs, 2));
+  geo.setIndex(new THREE.BufferAttribute(field.indices, 1));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function Mars2StreamingTerrain({ profile }) {
+  const { camera } = useThree();
+  const groupRef = useRef();
+  const chunksRef = useRef(new Map());
+  const queueRef = useRef([]);
+  const material = useMemo(() => {
+    const m = terrainMaterial(profile);
+    if (m.map) m.map.repeat.set(1, 1);
+    if (m.bumpMap) m.bumpMap.repeat.set(1, 1);
+    return m;
   }, [profile]);
-  const material = useMemo(() => terrainMaterial(profile), [profile]);
   useEffect(() => () => {
-    geo.dispose();
+    for (const entry of chunksRef.current.values()) entry.geometry.dispose();
+    chunksRef.current.clear();
     disposeTerrainMaterial(material);
-  }, [geo, material]);
-  return <mesh geometry={geo} material={material} />;
+  }, [material]);
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const wanted = chunksAround(camera.position.x, camera.position.z);
+    const wantedKeys = new Set(wanted.map((w) => w.key));
+    const chunks = chunksRef.current;
+    for (const [key, entry] of chunks) {
+      if (!wantedKeys.has(key)) {
+        group.remove(entry.mesh);
+        entry.geometry.dispose();
+        chunks.delete(key);
+      }
+    }
+    // Drop queued chunks the camera has already left behind, then
+    // queue the missing ones — centre first, so the ground under
+    // the walker builds before the far edge.
+    const queue = queueRef.current.filter((k) => wantedKeys.has(k));
+    for (const w of wanted) {
+      if (!chunks.has(w.key) && !queue.includes(w.key)) queue.push(w.key);
+    }
+    queueRef.current = queue;
+    let built = 0;
+    while (queue.length && built < 2) {
+      const key = queue.shift();
+      if (chunks.has(key)) continue;
+      const [cx, cz] = key.split(',').map(Number);
+      const geometry = buildChunkGeometry(profile, cx, cz);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(cx * CHUNK_M, 0, cz * CHUNK_M);
+      group.add(mesh);
+      chunks.set(key, { mesh, geometry });
+      built++;
+    }
+  });
+  return <group ref={groupRef} />;
 }
 
 // --- Olympus Mons ------------------------------------------------------------
@@ -140,6 +183,13 @@ function OlympusMons({ profile }) {
 // live ~40 s then reseed elsewhere, the haze breathes — all pure
 // functions of the device clock. dayF dims them at night.
 function Mars2Cgi({ profile, dayF }) {
+  // The ambient fields follow the camera (Merlin, Nov 18, 2026 —
+  // the world is endless): the dust box, the devils and the haze
+  // are all local around the origin, so they ride in a group
+  // parked on the camera's xz each frame. The devils' ground
+  // height is still sampled at their WORLD position (camera +
+  // local offset), so they stand on the dunes wherever they are.
+  const followRef = useRef();
   const dust = useMemo(() => makeDustField({
     count: 260, width: 170, height: 8, depth: 170, yBase: 0.3,
     seed: profile.seed + '-dust', color: '#d9a06a', size: 0.12, opacity: 0.5, sprite: 'grain',
@@ -176,7 +226,9 @@ function Mars2Cgi({ profile, dayF }) {
     haze.tex.dispose();
     haze.list.forEach((h) => h.sprite.material.dispose());
   }, [dust, devilGeo, devilTex, devilMats, haze]);
-  useFrame(() => {
+  useFrame((state) => {
+    const cam = state.camera.position;
+    if (followRef.current) followRef.current.position.set(cam.x, 0, cam.z);
     const now = Date.now();
     updateDustField(dust, now);
     dust.material.opacity = 0.18 + 0.34 * dayF;
@@ -193,7 +245,7 @@ function Mars2Cgi({ profile, dayF }) {
       if (!g) continue;
       g.visible = d.alive;
       if (!d.alive) continue;
-      const gy = getTerrainHeight(d.x, d.z, profile);
+      const gy = getTerrainHeight(cam.x + d.x, cam.z + d.z, profile);
       g.position.set(d.x, gy + d.height / 2, d.z);
       g.rotation.y = d.spin;
       g.scale.set(d.radius, d.height, d.radius);
@@ -209,7 +261,7 @@ function Mars2Cgi({ profile, dayF }) {
     }
   });
   return (
-    <>
+    <group ref={followRef}>
       <primitive object={dust} />
       {devilMats.map((m, i) => (
         <group key={i} ref={(el) => { devilRefs.current[i] = el; }} visible={false}>
@@ -220,7 +272,7 @@ function Mars2Cgi({ profile, dayF }) {
       {haze.list.map((h, i) => (
         <primitive key={i} object={h.sprite} />
       ))}
-    </>
+    </group>
   );
 }
 
@@ -238,6 +290,12 @@ function Mars2Cgi({ profile, dayF }) {
 // scene fog thickens with it (set every frame, so the rig's
 // once-a-second fog re-attach never holds the clear value).
 function Mars2Weather({ profile, dayF }) {
+  // The sand fields follow the camera (Merlin, Nov 18, 2026 —
+  // the world is endless): both Points fields are local boxes
+  // around the origin, so they ride in a group parked on the
+  // camera's xz each frame — the wind still blows around the
+  // walker wherever they roam.
+  const followRef = useRef();
   const sand = useMemo(() => makeSandField({ seed: profile.seed + '-thule' }), [profile]);
   const stormSand = useMemo(() => makeSandField({
     count: 900, width: 170, height: 10, depth: 170, yBase: 0.2,
@@ -252,6 +310,8 @@ function Mars2Weather({ profile, dayF }) {
   }, [sand, stormSand]);
   useFrame((state, rawDt) => {
     const now = Date.now();
+    const cam = state.camera.position;
+    if (followRef.current) followRef.current.position.set(cam.x, 0, cam.z);
     const wind = thuleWindAt(now);
     const storm = sandstormAt(now);
     const dt = Math.min(rawDt, 0.05);
@@ -260,15 +320,21 @@ function Mars2Weather({ profile, dayF }) {
     if (scene.fog) scene.fog.density = 0.004 + storm.intensity * 0.016;
   });
   return (
-    <>
+    <group ref={followRef}>
       <primitive object={sand} />
       <primitive object={stormSand} />
-    </>
+    </group>
   );
 }
 
 // --- starfield ---------------------------------------------------------------
 function Mars2Stars({ profile, opacity }) {
+  // The star dome follows the camera (Merlin, Nov 18, 2026 —
+  // the world is endless): a r420 dome centred on the origin
+  // reads wrong a kilometre out, so the group rides on the
+  // camera each frame — the stars stay overhead wherever the
+  // walker roams, at the same apparent size.
+  const followRef = useRef();
   const points = useMemo(() => {
     const rng = new SeedRNG(profile.seed + '-STARS');
     const starCount = 450;
@@ -293,8 +359,16 @@ function Mars2Stars({ profile, opacity }) {
     points.geometry.dispose();
     points.material.dispose();
   }, [points]);
+  useFrame((state) => {
+    const cam = state.camera.position;
+    if (followRef.current) followRef.current.position.set(cam.x, cam.y, cam.z);
+  });
   points.material.opacity = opacity;
-  return <primitive object={points} />;
+  return (
+    <group ref={followRef}>
+      <primitive object={points} />
+    </group>
+  );
 }
 
 // --- the red moon ------------------------------------------------------------
@@ -323,10 +397,20 @@ function Mars2RedMoon({ timeOfDay }) {
   const vis = dn.palette.night
     * Math.max(0, Math.min(1, dn.moon.illum))
     * Math.max(0, Math.min(1, dn.moon.altDeg / 20));
+  // The moon follows the camera (Merlin, Nov 18, 2026 — the
+  // world is endless): the disc sits at moonVec*380 from the
+  // group's origin, so the group rides on the camera each frame
+  // and the moon stays in the true moon direction from the
+  // walker's eye, at a constant apparent size, at any distance.
+  const followRef = useRef();
+  const camera = useThree((s) => s.camera);
+  useFrame(() => {
+    if (followRef.current) followRef.current.position.set(camera.position.x, camera.position.y, camera.position.z);
+  });
   if (vis <= 0.01 || dn.moon.altDeg < -2) return null;
   const pos = [dn.moonVec.x * 380, dn.moonVec.y * 380, dn.moonVec.z * 380];
   return (
-    <group>
+    <group ref={followRef}>
       <mesh position={pos}>
         <sphereGeometry args={[9, 32, 32]} />
         <meshBasicMaterial map={moonMaps.map} color="#ff6a4a" fog={false} transparent opacity={0.95 * vis} depthWrite={false} />
@@ -336,6 +420,66 @@ function Mars2RedMoon({ timeOfDay }) {
       </sprite>
     </group>
   );
+}
+
+// --- the sun, following the camera -------------------------------------------
+// Mars 2 is endless (Merlin, Nov 18, 2026): the rig's sun disc sits
+// at sunVec*380 from the ORIGIN, so far from home it hangs in the
+// wrong place. Mars 2 draws its own sun instead — the same law the
+// rig's disc used (core disc + glow halo, same sizes, same
+// opacities), centred on the camera, so the disc always sits in the
+// true sun direction from the walker's eye, at a constant apparent
+// size. The rig tag runs with sun off; it still owns the daylight,
+// the moonlight and the fog.
+function Mars2Sun({ timeOfDay }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const dn = useMemo(() => {
+    const place = getDayNightPlace();
+    const dateMs = Number.isFinite(timeOfDay)
+      ? dateMsForSolarTime(timeOfDay, place.lat, place.lon, now)
+      : now;
+    return dayNightFor(dateMs, place.lat, place.lon);
+  }, [now, timeOfDay]);
+  const glowTex = useMemo(() => getParticleTexture('glow') || undefined, []);
+  const sunVis = Math.max(0, Math.min(1, dn.palette.sunIntensity / 0.9));
+  const groupRef = useRef();
+  const camera = useThree((s) => s.camera);
+  useFrame(() => {
+    if (groupRef.current) groupRef.current.position.set(camera.position.x, camera.position.y, camera.position.z);
+  });
+  if (sunVis <= 0.01) return null;
+  const pos = [dn.sunVec.x * 380, dn.sunVec.y * 380, dn.sunVec.z * 380];
+  return (
+    <group ref={groupRef}>
+      <mesh position={pos}>
+        <sphereGeometry args={[6, 20, 20]} />
+        <meshBasicMaterial color={rgbStr(dn.palette.sunColor)} fog={false} transparent opacity={0.95 * sunVis} depthWrite={false} />
+      </mesh>
+      <sprite position={pos} scale={[64, 64, 1]}>
+        <spriteMaterial map={glowTex} color={rgbStr(dn.palette.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
+      </sprite>
+    </group>
+  );
+}
+
+
+// --- the orbit target --------------------------------------------------------
+// Orbit mode looks at the walker, not the origin (Merlin, Nov 18,
+// 2026 — the world is endless; the origin is just where home is).
+// The target follows the walker's feet every frame, so the camera
+// orbits wherever the walker has roamed to.
+function OrbitTargetFollower({ orbitRef, walkerRef }) {
+  useFrame(() => {
+    const controls = orbitRef.current;
+    const p = walkerRef.current;
+    if (!controls || !p) return;
+    controls.target.set(p.x, p.y, p.z);
+  });
+  return null;
 }
 
 // --- ARES outpost ------------------------------------------------------------
@@ -936,7 +1080,7 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     const k = inputRef.current.keys;
     const rover = roverRef.current;
     if (mode === 'drive' && rover && rover.active) {
-      updateRover(rover, k, dt, groundHeight, WORLD_RADIUS);
+      updateRover(rover, k, dt, groundHeight);
       // The outpost's domes and tube are solid to the rover too —
       // it cannot drive through the habitat (or into the doorway,
       // which is walker-sized). Re-ground after the push.
@@ -959,10 +1103,9 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
       yawRef.current = rover.heading;
       const now = state.clock.elapsedTime;
       if (now - lastTelemetry.current > 0.25) {
-        // Clamped + smoothed needle (lib/mars2/rovers.js): the raw
-        // converter alone would jump with every 0.25 s poll and
-        // cliff-dive on the rim shed, so the HUD reads the
-        // smoothed value, stepped over the real poll interval.
+        // Smoothed needle (lib/mars2/rovers.js): the raw converter
+        // alone would jump with every 0.25 s poll, so the HUD reads
+        // the smoothed value, stepped over the real poll interval.
         const dtMs = (now - lastTelemetry.current) * 1000;
         lastTelemetry.current = now;
         const nextKmh = smoothRoverSpeedKmh(lastSpeedKmh.current, roverSpeedKmh(Math.abs(rover.speed)), dtMs);
@@ -997,8 +1140,9 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     vyRef.current = next.vy;
     groundedRef.current = next.grounded;
     p.set(next.pos.x, next.pos.y, next.pos.z);
-    const r = Math.hypot(p.x, p.z);
-    if (r > WORLD_RADIUS) { p.x *= WORLD_RADIUS / r; p.z *= WORLD_RADIUS / r; }
+    // No rim clamp: the world is endless (Merlin, Nov 18, 2026) —
+    // the walker roams as far as they like and the ground streams
+    // on under them.
     // The outpost's domes and tube are solid — the doorway is the
     // way in, not through a wall. Re-ground after the push when
     // the walker is on foot (a push can move them across a dune).
@@ -1104,17 +1248,20 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
   return (
     <>
       {/* The page's timeOfDay drives the rig's cycle (the TIME
-          slider + presets move the real sun), and the rig draws
-          the sun itself — core disc + glow halo — so it reads as
-          a sun. moonColor red: Mars's nights are lit red by its
-          moon (the red moon disc below rides the same direction). */}
-      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} sun moonColor="#ff5040" />
+          slider + presets move the real sun). The rig runs with
+          sun OFF — Mars 2 draws its own sun disc (Mars2Sun below),
+          which follows the camera so it stays in the true sun
+          direction at any distance. moonColor red: Mars's nights
+          are lit red by its moon (the red moon disc below rides
+          the same direction). */}
+      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} moonColor="#ff5040" />
+      <Mars2Sun timeOfDay={timeOfDay} />
       <Mars2RedMoon timeOfDay={timeOfDay} />
       {/* cool fill from the opposite side so the night never goes
           black (the Mars 1 pattern — same light, same reason). */}
       <directionalLight position={[-40, 24, 40]} intensity={0.18} color="#7a86a8" />
       <Mars2Stars profile={profile} opacity={1 - dayF} />
-      <Mars2Terrain profile={profile} />
+      <Mars2StreamingTerrain profile={profile} />
       <OlympusMons profile={profile} />
       <Mars2Cgi profile={profile} dayF={dayF} />
       <Mars2Weather profile={profile} dayF={dayF} />
@@ -1126,6 +1273,9 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
         <OrbitControls ref={orbitRef} makeDefault enableDamping dampingFactor={0.08}
           maxPolarAngle={Math.PI * 0.52} minDistance={5} maxDistance={200}
           target={[0, 6, 0]} />
+      )}
+      {mode === 'orbit' && (
+        <OrbitTargetFollower orbitRef={orbitRef} walkerRef={walkerRef} />
       )}
       {mode !== 'orbit' && (
         <WalkerRig

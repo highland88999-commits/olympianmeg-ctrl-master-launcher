@@ -20,7 +20,7 @@ import { makeDustField, devilFor } from '../lib/planet-cgi/motion.js';
 import { dayNightFor, timeOfDay01 } from '../lib/day-night.js';
 import {
   MARS2_ROUTE_KEY, MARS2_ROUTE_PATH, MARS2_SEED, WORLD_RADIUS, WALKER_SPAWN,
-  mars2DayFactor, outpostSite, clampToWorld,
+  mars2DayFactor, outpostSite,
   OUTPOST_SCALE, OUTPOST_BIG_DOME_R_M, OUTPOST_SMALL_DOME_R_M,
   OUTPOST_DOOR_WEDGE_RAD, OUTPOST_DOOR_HALF_ANGLE_RAD, OUTPOST_DOOR_PASSAGE_M,
   OUTPOST_DOOR_CORRIDOR_HALF_M, OUTPOST_WALKER_BODY_R_M, OUTPOST_ROVER_BODY_R_M,
@@ -77,7 +77,9 @@ describe('mars-2 route identity', () => {
   it('scene file exists and mounts the shared day/night rig', () => {
     const scene = read('components/mars2/Mars2Scene.jsx');
     assert.ok(scene.includes('DayNightRig'));
-    assert.ok(scene.includes('Mars2Terrain'));
+    // The terrain is the streaming one now (chunked around the
+    // camera — it replaced the old Mars2Terrain, same ground law).
+    assert.ok(scene.includes('Mars2StreamingTerrain'));
     assert.ok(scene.includes('OlympusMons'));
     assert.ok(scene.includes('Mars2Cgi'));
     assert.ok(scene.includes('Outpost'));
@@ -111,7 +113,7 @@ describe('mars-2 rover: summon, drive, dismount', () => {
   });
   it('driving is faster than walking: full throttle reaches top speed', () => {
     const rover = summonRover(null, { x: 10, z: 26, heading: 0 });
-    for (let i = 0; i < 600; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground, WORLD_RADIUS);
+    for (let i = 0; i < 600; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground);
     assert.ok(rover.speed > WALK_SPEED_MPS, `rover ${rover.speed} must beat walking ${WALK_SPEED_MPS}`);
     assert.ok(Math.abs(rover.speed - ROVER_TOP_SPEED_MPS) < 0.01);
     assert.ok(roverSpeedKmh(rover.speed) > roverSpeedKmh(WALK_SPEED_MPS) * 3);
@@ -120,33 +122,35 @@ describe('mars-2 rover: summon, drive, dismount', () => {
     const rover = summonRover(null, { x: 0, z: 0, heading: 0 });
     const sx = rover.x;
     const sz = rover.z;
-    for (let i = 0; i < 300; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground, WORLD_RADIUS);
+    for (let i = 0; i < 300; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground);
     const drove = Math.hypot(rover.x - sx, rover.z - sz);
     assert.ok(drove > WALK_SPEED_MPS * 5 * 2, `drove ${drove.toFixed(1)} m in 5 s`);
   });
   it('steering turns the rover only while rolling', () => {
     const parked = summonRover(null, { x: 0, z: 0, heading: 0 });
-    updateRover(parked, keys({ left: true }), 1, ground, WORLD_RADIUS);
+    updateRover(parked, keys({ left: true }), 1, ground);
     assert.equal(parked.heading, 0);
     const rolling = summonRover(null, { x: 0, z: 0, heading: 0 });
-    for (let i = 0; i < 120; i++) updateRover(rolling, keys({ fwd: true, left: true }), 1 / 60, ground, WORLD_RADIUS);
+    for (let i = 0; i < 120; i++) updateRover(rolling, keys({ fwd: true, left: true }), 1 / 60, ground);
     assert.ok(rolling.heading > 0.2, `rolling rover turned ${rolling.heading.toFixed(2)} rad`);
   });
   it('reverse is capped well below forward top speed', () => {
     const rover = summonRover(null, { x: 0, z: 0, heading: 0 });
-    for (let i = 0; i < 600; i++) updateRover(rover, keys({ back: true }), 1 / 60, ground, WORLD_RADIUS);
+    for (let i = 0; i < 600; i++) updateRover(rover, keys({ back: true }), 1 / 60, ground);
     assert.ok(rover.speed < 0 && Math.abs(rover.speed) <= ROVER_REVERSE_SPEED_MPS + 1e-9);
   });
-  it('the rover stays on the terrain and inside the world rim', () => {
-    const rover = summonRover(null, { x: 80, z: 0, heading: Math.PI / 2 });
-    for (let i = 0; i < 1200; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground, WORLD_RADIUS);
-    assert.ok(Math.hypot(rover.x, rover.z) <= WORLD_RADIUS + 1e-9);
+  it('the rover stays on the terrain and drives past the old rim, unclamped', () => {
+    // Heading -PI/2 faces +X: out from (80, 0), away from home.
+    const rover = summonRover(null, { x: 80, z: 0, heading: -Math.PI / 2 });
+    for (let i = 0; i < 1200; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground);
+    assert.ok(Math.hypot(rover.x, rover.z) > WORLD_RADIUS + 50, `rover got ${Math.hypot(rover.x, rover.z).toFixed(0)} m out`);
+    assert.ok(Math.abs(rover.speed - ROVER_TOP_SPEED_MPS) < 0.01, 'no rim shed: still at top speed');
     assert.equal(rover.y, ground(rover.x, rover.z));
     assert.ok(rover.wheelSpin > 0, 'wheels spin while driving');
   });
   it('dismount restores foot beside the rover, facing the same way', () => {
     const rover = summonRover(null, { x: 10, z: 26, heading: 0.6 });
-    for (let i = 0; i < 60; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground, WORLD_RADIUS);
+    for (let i = 0; i < 60; i++) updateRover(rover, keys({ fwd: true }), 1 / 60, ground);
     const walker = dismountRover(rover);
     assert.equal(rover.active, false);
     assert.equal(rover.parked, true);
@@ -194,8 +198,8 @@ describe('mars-2 rover speedometer: clamped + smoothed (Nov 16, 2026)', () => {
   it('the slew cap binds on cliffs: a 100 km/h/s override caps the step', () => {
     const capped = smoothRoverSpeedKmh(0, ROVER_TOP_SPEED_KMH, 1000, { maxSlewKmhPerS: 10 });
     assert.equal(capped, 10, 'one second at 10 km/h/s moves at most 10 km/h');
-    const rimShed = smoothRoverSpeedKmh(ROVER_TOP_SPEED_KMH, 0, 250, { maxSlewKmhPerS: 100 });
-    assert.ok(rimShed >= ROVER_TOP_SPEED_KMH - 25, `rim shed sweeps, not cliffs: ${rimShed}`);
+    const cliffDrop = smoothRoverSpeedKmh(ROVER_TOP_SPEED_KMH, 0, 250, { maxSlewKmhPerS: 100 });
+    assert.ok(cliffDrop >= ROVER_TOP_SPEED_KMH - 25, `a sudden drop sweeps, not cliffs: ${cliffDrop}`);
   });
   it('smoothing clamps its output and holds on a bad step', () => {
     assert.ok(smoothRoverSpeedKmh(0, 999, 1000) <= ROVER_TOP_SPEED_KMH, 'raw above top still caps');
@@ -224,7 +228,7 @@ describe('mars-2 terrain and landmarks', () => {
     }
     assert.ok(Math.max(...samples) - Math.min(...samples) > 2, 'dunes must vary');
   });
-  it('Olympus Mons stands on the outer rise, inside the world', () => {
+  it('Olympus Mons stands on the outer rise, inside the home region', () => {
     const site = monsSite(profile);
     assert.ok(site.dist >= 70 && site.dist <= 78);
     assert.ok(Math.hypot(site.x, site.z) < WORLD_RADIUS);
@@ -251,12 +255,6 @@ describe('mars-2 terrain and landmarks', () => {
     for (const b of profile.basins) {
       assert.ok(Math.hypot(site.x - b.x, site.z - b.z) >= b.radius * 1.1, 'outpost must clear basins');
     }
-  });
-  it('clampToWorld holds the rim', () => {
-    assert.deepEqual(clampToWorld(10, 10), { x: 10, z: 10, clamped: false });
-    const c = clampToWorld(200, 0);
-    assert.equal(c.clamped, true);
-    assert.ok(Math.abs(Math.hypot(c.x, c.z) - WORLD_RADIUS) < 1e-9);
   });
 });
 
