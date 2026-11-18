@@ -231,6 +231,7 @@ import {
   heightAt,
   groundColorAt,
   parcelAtWorld,
+  isInParcelGrid,
   parcelCenterWorld,
   parcelWorldRect,
   parcelBorderPoints,
@@ -252,6 +253,11 @@ import {
   applyWorldLook,
   WALK_SPEED_MPS,
 } from '@/lib/earth2/world';
+import {
+  CHUNK_M,
+  chunksAround,
+  chunkHeightField,
+} from '@/lib/earth2/terrain-streaming';
 import {
   solarPosition,
   sunVector,
@@ -1939,11 +1945,65 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         });
       };
 
-      // ── Terrain: ONE static mesh sampled from world.js — the
-      // same heightAt/groundColorAt the walker, the drivers and
-      // the tests all read, so ground, feet and data can never
-      // disagree. Vertex colours carry the biome tint blended
-      // across parcel borders, the beach band and the bed shading.
+      // ── Endless terrain manager (Merlin, Nov 18, 2026): no edge,
+      // no wall, no turn-back. The ground streams in 64 m chunks
+      // around the camera, built from the same heightAt/groundColorAt
+      // the walker, the drivers and the tests all read, so ground,
+      // feet and data can never disagree. updateTerrainStreaming
+      // (every 15th frame, the streaming beat) recomputes the wanted
+      // ring; pumpTerrainQueue builds at most 2 chunks a frame,
+      // centre first, so the ground underfoot builds before the far
+      // edge — and chunks that leave the ring are disposed. The ring
+      // is 960 m across (fog far 720–980 m), so its edge sits inside
+      // the haze. The material is assigned in the terrain block
+      // below, once the canvas texture exists.
+      const terrainChunks = new Map();
+      let terrainQueue = [];
+      let terrainMat = null;
+      function buildTerrainChunk(cx, cz) {
+        const field = chunkHeightField(cx, cz);
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(field.positions, 3));
+        geo.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
+        geo.setAttribute('uv', new THREE.BufferAttribute(field.uvs, 2));
+        geo.setIndex(new THREE.BufferAttribute(field.indices, 1));
+        geo.computeVertexNormals();
+        const mesh = new THREE.Mesh(geo, terrainMat);
+        mesh.position.set(cx * CHUNK_M, 0, cz * CHUNK_M);
+        scene.add(mesh);
+        terrainChunks.set(`${cx},${cz}`, { mesh, geometry: geo });
+      }
+      function updateTerrainStreaming() {
+        const wanted = chunksAround(camera.position.x, camera.position.z);
+        const wantedKeys = new Set(wanted.map((w) => w.key));
+        for (const [key, entry] of terrainChunks) {
+          if (!wantedKeys.has(key)) {
+            scene.remove(entry.mesh);
+            entry.geometry.dispose();
+            terrainChunks.delete(key);
+          }
+        }
+        terrainQueue = terrainQueue.filter((k) => wantedKeys.has(k));
+        for (const w of wanted) {
+          if (!terrainChunks.has(w.key) && !terrainQueue.includes(w.key)) terrainQueue.push(w.key);
+        }
+      }
+      function pumpTerrainQueue() {
+        let built = 0;
+        while (terrainQueue.length && built < 2) {
+          const key = terrainQueue.shift();
+          if (terrainChunks.has(key)) continue;
+          const [cx, cz] = key.split(',').map(Number);
+          buildTerrainChunk(cx, cz);
+          built++;
+        }
+      }
+
+      // ── Terrain texture: the canvas ground texture the chunk
+      // material shares (see the endless-terrain manager above).
+      // Vertex colours carry the biome tint blended across parcel
+      // borders, the beach band and the bed shading — chunk by
+      // chunk, exactly as the old static plane wore them.
       {
         const c = document.createElement('canvas'); c.width = 512; c.height = 512;
         const g = c.getContext('2d');
@@ -1960,22 +2020,14 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         const tex = new THREE.CanvasTexture(c);
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(46, 46);
-        const geo = new THREE.PlaneGeometry(WORLD_SIZE_M, WORLD_SIZE_M, 256, 256);
-        geo.rotateX(-Math.PI / 2);
-        const posA = geo.attributes.position;
-        const colors = new Float32Array(posA.count * 3);
-        for (let i = 0; i < posA.count; i++) {
-          const x = posA.getX(i);
-          const z = posA.getZ(i);
-          posA.setY(i, heightAt(x, z));
-          const col = groundColorAt(x, z);
-          colors[i * 3] = col[0]; colors[i * 3 + 1] = col[1]; colors[i * 3 + 2] = col[2];
-        }
-        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        geo.computeVertexNormals();
-        const ground = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, roughness: 1, vertexColors: true }));
-        scene.add(ground);
-        track(ground);
+        // The chunk material shares this canvas texture with a
+        // repeat-1 clone — chunk UVs are baked in tile units
+        // (world / 30.43 m), continuous across borders, so the
+        // ground reads exactly as the old plane wore it.
+        const texChunk = tex.clone();
+        texChunk.repeat.set(1, 1);
+        texChunk.needsUpdate = true;
+        terrainMat = new THREE.MeshStandardMaterial({ map: texChunk, roughness: 1, vertexColors: true });
       }
 
       // ── The water: one deep-blue plane at the waterline
@@ -1988,6 +2040,8 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       // never land standing against the sky.
       let waterMat = null;
       let waterTex = null;
+      let waterMesh = null;
+      let horizonSeaMesh = null;
       {
         const wc = document.createElement('canvas'); wc.width = 256; wc.height = 256;
         const wg = wc.getContext('2d');
@@ -2017,9 +2071,13 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         water.position.y = WATER_Y;
         scene.add(water);
         track(water);
+        waterMesh = water;
         // The horizon sea: a ring from just under the terrain's
         // edge out to the camera's reach, a breath below the
         // fitted plane so the two never z-fight at the shore.
+        // (Endless world, Nov 18, 2026: the ring rides the camera
+        // now — see the tick — so the sea runs on to the horizon
+        // wherever the walker roams, not just around the origin.)
         const horizonSea = new THREE.Mesh(
           new THREE.RingGeometry(WORLD_SIZE_M / 2 - 12, 2300, 64, 1),
           new THREE.MeshStandardMaterial({
@@ -2031,6 +2089,7 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         horizonSea.position.y = WATER_Y - 0.04;
         scene.add(horizonSea);
         track(horizonSea);
+        horizonSeaMesh = horizonSea;
       }
 
       // ── The current-parcel highlight: an amber outline hugging
@@ -5060,6 +5119,10 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
           const alt = st ? (st.alt || 0) : 0;
           if (alt > 2) return true;
         }
+        // ENDLESS (Nov 18, 2026): immunity is own-property only —
+        // in the wilderness past the grid there is no parcel, so
+        // no immunity, even on the edge parcel's far side.
+        if (!isInParcelGrid(walker.x, walker.z)) return false;
         const p = parcelAtWorld(walker.x, walker.z);
         const bp = buildPropsRef.current || {};
         return !!(bp.owners && typeof bp.owners.get === 'function' && bp.owners.get(p.id));
@@ -6422,9 +6485,25 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
       let hudParcel = null;
 
       function syncParcel(force) {
-        const p = parcelAtWorld(walker.x, walker.z);
+        // ENDLESS (Nov 18, 2026): past the parcel grid the walker is
+        // in wilderness — no parcel underfoot, no outline, no rent,
+        // no immunity. The HUD says so plainly; the chamber map's
+        // selection clears (setSelectedId(null)).
+        const p = isInParcelGrid(walker.x, walker.z) ? parcelAtWorld(walker.x, walker.z) : null;
+        if (!p) {
+          if (!force && hudParcel === null) return;
+          hudParcel = null;
+          if (highlight) highlight.visible = false;
+          const ll = worldToLatLon(walker.x, walker.z);
+          if (!cancelled) {
+            setHud({ parcel: null, biome: null, lat: ll.lat, lon: ll.lon, mine: false, home: false, wild: true });
+          }
+          parcelChangeRef.current(null);
+          return;
+        }
         if (!force && hudParcel && p.index === hudParcel.index) return;
         hudParcel = p;
+        if (highlight) highlight.visible = true;
         setHighlight(p);
         // OWNED = BLUE (Merlin, 2026-10-23): the viewer's own
         // parcels outline blue, not amber — in the world and in
@@ -8127,6 +8206,23 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         // top of the frame, before any life loop iterates the
         // shared arrays.
         if (frameNo % 15 === 1) updateStreaming();
+        // ENDLESS TERRAIN (Nov 18, 2026): the ground streams in
+        // chunks around the camera — the wanted ring recomputes
+        // on the streaming beat, the build queue pumps every frame.
+        if (frameNo % 15 === 1) updateTerrainStreaming();
+        pumpTerrainQueue();
+        // ENDLESS WATER (Nov 18, 2026): the water + horizon sea
+        // follow the camera — past the grid the world is endless
+        // sea. The water plane snaps to its texture tile (46.67 m)
+        // so the texture never swims; the horizon ring is plain
+        // colour, so it rides the camera exactly.
+        if (waterMesh) {
+          const wt = WORLD_SIZE_M / 30;
+          waterMesh.position.x = Math.round(camera.position.x / wt) * wt;
+          waterMesh.position.z = Math.round(camera.position.z / wt) * wt;
+          horizonSeaMesh.position.x = camera.position.x;
+          horizonSeaMesh.position.z = camera.position.z;
+        }
         // Staged objects: refresh who's near enough to see, once a
         // second (every 60th frame). Keeps the phone alive.
         if (frameNo % 60 === 1) updateStagedVisibility();
@@ -9400,6 +9496,8 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
                 Display only — no rent, no buying on foot. The chamber panels keep those jobs.
               </div>
             </>
+          ) : hud && hud.wild ? (
+            <div className="text-sm text-zinc-300">🌊 Open wilderness — beyond the parcel lands. No land to claim out here, just sea and wild ground as far as you roam.</div>
           ) : (
             <div className="text-sm text-zinc-300">Stepping onto the planet…</div>
           )}

@@ -1,10 +1,12 @@
 // tests/earth3-streaming.test.mjs
 // EARTH 3 — THE STREAMING LAW (Merlin, 2026-11-14): the pure
 // law in lib/earth3/streaming.js — chunk math, the streamed
-// ring, set diffs, origin rebasing, and the world's true edge.
-// Plus the far-world checks the full-world build depends on:
-// claims and the dino spawner must hold on tiles far from the
-// showcase, with the same rules and no overflow.
+// ring, set diffs, origin rebasing. Plus the far-world checks the
+// full-world build depends on: claims and the dino spawner must hold
+// on tiles far from the showcase, with the same rules and no overflow.
+// (Nov 18, 2026 — the world is endless: the old turn-back wall is
+//  gone, so the wall law — distanceToEdge / atEdge / clampToWorld —
+//  is deleted with it. The terrain law never had an edge.)
 //
 // Run: node --test tests/earth3-streaming.test.mjs   (from the repo root)
 
@@ -15,7 +17,6 @@ import {
   CHUNK_M,
   CHUNK_TILES,
   REBASE_M,
-  EDGE_MARGIN_M,
   STREAM_RADIUS_CHUNKS,
   chunkFor,
   chunkKey,
@@ -23,12 +24,9 @@ import {
   chunksAround,
   chunkSetDiff,
   needsRebase,
-  distanceToEdge,
-  atEdge,
-  clampToWorld,
   isWaterAt,
 } from '../lib/earth3/streaming.js';
-import { WORLD_HALF_M, TILE_M, biomeAt } from '../lib/earth3/terrain.js';
+import { WORLD_HALF_M, TILE_M, heightAt, biomeAt } from '../lib/earth3/terrain.js';
 import {
   tileIdFor,
   tileInfo,
@@ -44,15 +42,12 @@ import {
   WILD_CAP,
 } from '../lib/earth3/spawner.js';
 
-const LIMIT = WORLD_HALF_M - EDGE_MARGIN_M; // 1,399,972 — the leash line
-
 describe('the streaming constants', () => {
   it('a chunk is 16 tiles of 28 m; rebase is Earth 4’s 160 m', () => {
     assert.equal(CHUNK_M, 448);
     assert.equal(CHUNK_TILES, 16);
     assert.equal(CHUNK_TILES * TILE_M, CHUNK_M);
     assert.equal(REBASE_M, 160);
-    assert.equal(EDGE_MARGIN_M, 28);
     assert.equal(STREAM_RADIUS_CHUNKS, 2);
   });
 });
@@ -175,45 +170,46 @@ describe('needsRebase', () => {
   });
 });
 
-describe('distanceToEdge and atEdge', () => {
-  it('the centre is a full half-world from every edge', () => {
-    assert.equal(distanceToEdge(0, 0), WORLD_HALF_M);
+// ── Endless world (Merlin, Nov 18, 2026): the turn-back wall is ──
+// gone. There is no edge law any more — the terrain runs past the
+// old 2,800 km grid, the ring streams around the walker wherever
+// they stand, and claims stay in-grid by the page's own guard
+// (worldToTile still clamps — see earth3-terrain.test.mjs).
+describe('endless world — no wall past the old grid', () => {
+  it('the terrain is defined, finite and varying past the old grid edge', () => {
+    const spots = [
+      [WORLD_HALF_M + 1000, 0], [-WORLD_HALF_M - 5000, 3000],
+      [0, WORLD_HALF_M + 1000], [WORLD_HALF_M + 100000, WORLD_HALF_M + 100000],
+      [3000000, -3000000],
+    ];
+    const heights = spots.map(([x, z]) => heightAt(x, z));
+    for (const h of heights) assert.ok(Number.isFinite(h), `non-finite height ${h}`);
+    assert.ok(new Set(heights).size > 1, 'terrain past the edge must vary, not flatten');
+    for (const [x, z] of spots) {
+      assert.ok(['water', 'plains', 'forest', 'hills', 'mountains'].includes(biomeAt(x, z)));
+    }
   });
-  it('falls to 28 m on the leash line and 0 at the true edge', () => {
-    assert.equal(distanceToEdge(LIMIT, 0), EDGE_MARGIN_M);
-    assert.equal(distanceToEdge(0, -LIMIT), EDGE_MARGIN_M);
-    assert.equal(distanceToEdge(WORLD_HALF_M, 0), 0);
-    assert.equal(distanceToEdge(0, WORLD_HALF_M), 0);
-    assert.equal(distanceToEdge(WORLD_HALF_M, WORLD_HALF_M), 0);
-    assert.equal(distanceToEdge(WORLD_HALF_M + 5000, 0), 0);
+  it('chunksAround streams a ring past the old grid edge, centre first', () => {
+    const list = chunksAround(WORLD_HALF_M + 1000, 0);
+    assert.equal(list.length, 25);
+    const centre = chunkFor(WORLD_HALF_M + 1000, 0);
+    assert.ok(list.some((c) => c.cx === centre.cx && c.cz === centre.cz));
+    assert.ok(list.every((c) => Math.abs(c.cx - centre.cx) <= 2 && Math.abs(c.cz - centre.cz) <= 2));
+    const far = chunksAround(-3000000, 3000000);
+    assert.equal(far.length, 25);
+    assert.ok(far.every((c) => c.cx < -6000 || c.cz > 6000));
   });
-  it('atEdge trips inside the 100 m margin and clears outside it', () => {
-    assert.equal(atEdge(0, 0), false);
-    assert.equal(atEdge(LIMIT, 0), true); // 28 m out
-    assert.equal(atEdge(WORLD_HALF_M - 101, 0), false);
-    assert.equal(atEdge(WORLD_HALF_M - 100, 0), true);
-    assert.equal(atEdge(WORLD_HALF_M, 0), true);
-    assert.equal(atEdge(0, 0, 0), false);
+  it('needsRebase still fires past the old grid edge', () => {
+    assert.equal(needsRebase(WORLD_HALF_M, 0, WORLD_HALF_M + 161, 0), true);
+    assert.equal(needsRebase(WORLD_HALF_M, 0, WORLD_HALF_M + 160, 0), false);
   });
-});
-
-describe('clampToWorld', () => {
-  it('leaves an inside point untouched, hitEdge false', () => {
-    assert.deepEqual(clampToWorld(0, 0), { x: 0, z: 0, hitEdge: false });
-    assert.deepEqual(clampToWorld(LIMIT, -LIMIT), { x: LIMIT, z: -LIMIT, hitEdge: false });
-  });
-  it('clamps all four edges to the leash line, hitEdge true', () => {
-    assert.deepEqual(clampToWorld(WORLD_HALF_M, 0), { x: LIMIT, z: 0, hitEdge: true });
-    assert.deepEqual(clampToWorld(-WORLD_HALF_M, 0), { x: -LIMIT, z: 0, hitEdge: true });
-    assert.deepEqual(clampToWorld(0, WORLD_HALF_M), { x: 0, z: LIMIT, hitEdge: true });
-    assert.deepEqual(clampToWorld(0, -WORLD_HALF_M), { x: 0, z: -LIMIT, hitEdge: true });
-  });
-  it('clamps corners on both axes at once', () => {
-    assert.deepEqual(clampToWorld(1e9, 1e9), { x: LIMIT, z: LIMIT, hitEdge: true });
-    assert.deepEqual(clampToWorld(-1e9, -1e9), { x: -LIMIT, z: -LIMIT, hitEdge: true });
-  });
-  it('a point just past the line on one axis keeps the other axis', () => {
-    assert.deepEqual(clampToWorld(LIMIT + 1, 42), { x: LIMIT, z: 42, hitEdge: true });
+  it('isWaterAt agrees with biomeAt past the old grid edge', () => {
+    for (const [x, z] of [
+      [WORLD_HALF_M + 1000, 0], [-WORLD_HALF_M - 1000, 0],
+      [0, -WORLD_HALF_M - 1000], [2500000, 2500000], [-2500000, -2500000],
+    ]) {
+      assert.equal(isWaterAt(x, z), biomeAt(x, z) === 'water');
+    }
   });
 });
 

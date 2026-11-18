@@ -14,11 +14,13 @@ import { plantTrees, loadTreeModel, treeSpeciesForIndex, islandTreeSpeciesForInd
 import { tileToWorld, heightAt as terrainHeightAt, biomeAt as terrainBiomeAt, TILE_M, WATER_Y } from '../../lib/earth3/terrain.js';
 // Full-world streaming (Merlin, 2026-11-14): the frozen law in
 // lib/earth3/streaming.js — chunks around the walker, origin
-// rebase, the true edge. The scene builds against these exact
-// names; the pure law lives in the lib, the meshes live here.
+// rebase. The scene builds against these exact names; the pure law
+// lives in the lib, the meshes live here. (Nov 18, 2026 — the world
+// is endless: the old turn-back wall is gone, so there is no "true
+// edge" left in the law.)
 import {
   CHUNK_M, CHUNK_TILES, STREAM_RADIUS_CHUNKS,
-  chunkBounds, chunksAround, chunkSetDiff, needsRebase, atEdge, clampToWorld, isWaterAt,
+  chunkBounds, chunksAround, chunkSetDiff, needsRebase, isWaterAt,
 } from '../../lib/earth3/streaming.js';
 import { tileIndexFromId } from '../../lib/earth3/claims.js';
 import { modelDeliveryUrls, fetchEarth2ModelUrls } from '../../lib/earth2/models.js';
@@ -1718,7 +1720,6 @@ export function createWorld(canvas, cb) {
     world: worldGroup,
     chunks: new Map(), // chunk key -> { mesh, treeHandle }
     chunkKeys: new Set(),
-    edgeState: false,
     rng: mulberry32(20261009),
     anim: [],
     plaques: [],
@@ -1902,12 +1903,6 @@ export function createWorld(canvas, cb) {
       ctx.roamWater.visible = Math.hypot(S.pos.x, S.pos.z) > SHOWCASE_R + 40;
     }
     scatterRoamFlowers();
-    // The edge notice: plain words, fired only on change.
-    const edgeNow = atEdge(S.pos.x, S.pos.z);
-    if (edgeNow !== ctx.edgeState) {
-      ctx.edgeState = edgeNow;
-      if (cb.onEdge) cb.onEdge(edgeNow);
-    }
   }
 
   const v3 = (a) => new THREE.Vector3(a[0], a[1], a[2]);
@@ -1965,10 +1960,10 @@ export function createWorld(canvas, cb) {
 
   /* ---------------- movement ---------------- */
   const fwdV = new THREE.Vector3(), rightV = new THREE.Vector3(), fwd3V = new THREE.Vector3();
-  // The 250 m clamp is gone: the walker roams the whole
-  // 2,800 km grid. The grid edge is a turn-back wall instead
-  // (clampToWorld, one tile inside the true edge — no void, no
-  // falling off, no wrap), and it binds fly mode too.
+  // The 250 m clamp is gone, and so is the grid edge: the walker
+  // roams the whole 2,800 km grid and on past it (Nov 18, 2026 —
+  // the world is endless). The terrain law is defined everywhere,
+  // so there is no void, no falling off, no wrap — and no wall.
   function updateMovement(dt) {
     if (S.tour.active || S.tour.glide) return;
     const sy = Math.sin(S.yaw), cy = Math.cos(S.yaw);
@@ -1980,13 +1975,10 @@ export function createWorld(canvas, cb) {
     // away from -Z (fully inverted at yaw ±90°).
     rightV.set(cy, 0, -sy);
     if (S.mode === 'walk') {
-      // Candidate step, then the edge wall first: clampToWorld
-      // pulls the step back inside the grid before anything
-      // else sees it.
-      let nx = S.pos.x + fwdV.x * S.move.y * WALK_SPEED * dt + rightV.x * S.move.x * WALK_SPEED * dt;
-      let nz = S.pos.z + fwdV.z * S.move.y * WALK_SPEED * dt + rightV.z * S.move.x * WALK_SPEED * dt;
-      const ew = clampToWorld(nx, nz);
-      nx = ew.x; nz = ew.z;
+      // Candidate step — no edge wall any more (Nov 18, 2026):
+      // the step stands as computed, in-grid or out.
+      const nx = S.pos.x + fwdV.x * S.move.y * WALK_SPEED * dt + rightV.x * S.move.x * WALK_SPEED * dt;
+      const nz = S.pos.z + fwdV.z * S.move.y * WALK_SPEED * dt + rightV.z * S.move.x * WALK_SPEED * dt;
       // Water is a wall on foot (Earth's rule: street level
       // stays dry — no swimming). Slide along the shoreline:
       // try the full step, then x-only, then z-only.
@@ -2010,9 +2002,6 @@ export function createWorld(canvas, cb) {
       S.pos.addScaledVector(rightV, S.move.x * FLY_SPEED * dt);
       S.pos.y += S.lift * FLY_SPEED * dt;
       S.pos.y = clamp(S.pos.y, 2, FLY_CEIL);
-      // The edge wall binds fly mode too.
-      const ew = clampToWorld(S.pos.x, S.pos.z);
-      S.pos.x = ew.x; S.pos.z = ew.z;
       // Flying may cross water, but not through a mountain:
       // the floor rides the terrain (real peaks reach ~193 m,
       // hence the 260 m ceiling).

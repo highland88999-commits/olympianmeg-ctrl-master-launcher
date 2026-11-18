@@ -20,7 +20,7 @@
 //     — whole-body articulation, pinned as a fact, not a hope);
 //   - the pure drive/fly law (lib/earth2/vehicles.js): accel and
 //     speed clamps in Merlin's ordering, steering authority and
-//     its reverse flip, colliders, the world's edge, slope
+//     its reverse flip, colliders, no wall at the grid edge, slope
 //     pitch/roll, the VTOL's lift and water crossing — and,
 //     since Phase 2, the physics that replaced every wall:
 //     fording and drowning, impacts billed by energy, landings
@@ -406,14 +406,16 @@ describe('the drive law — ground machines', () => {
     assert.equal(resting.integrity, hit.integrity, 'leaning on the rock is free — the impact billed once');
   });
 
-  it('structures push out by radius, and the world edge is a wall', () => {
+  it('structures push out by radius — and no wall holds the machine in', () => {
     const env = { heightAt: () => 2, waterDepthAt: () => 0, colliders: [{ x: 20, z: -600, r: 3 }] };
     const spec = vehicleSpec('rover');
     const st = run({ x: 0, z: -600, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 8, env);
     const d = Math.hypot(st.x - 20, st.z - -600);
     assert.ok(d >= 3 + spec.radius - 0.05, `held at radius (d=${d.toFixed(2)})`);
-    const edge = run({ x: WORLD_HALF_M - 30, z: 0, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 8);
-    assert.ok(edge.x <= WORLD_HALF_M - 4 + 1e-6, 'the edge holds');
+    // No wall: the same rover drives out past the old grid edge and
+    // keeps going — the flat default env is dry ground all the way.
+    const edge = run({ x: WORLD_HALF_M - 5, z: 0, heading: Math.PI / 2, speed: 0 }, spec, { throttle: 1, steer: 0 }, 10);
+    assert.ok(edge.x > WORLD_HALF_M + 40, `the rover crossed the old edge (x=${edge.x.toFixed(1)})`);
   });
 
   it('the body reads the slope: pitch on a climb, roll on a camber', () => {
@@ -658,8 +660,11 @@ describe('persistence — where a machine was left, on-device', () => {
     assert.equal(states.rover.alt, 0, 'a ground machine has no altitude');
     assert.ok(isParkedAtHome(states.vtol, 'vtol'), 'malformed entries fall back to the apron');
     assert.ok(isParkedAtHome(states['speed-bike'], 'speed-bike'));
-    const clamped = sanitizeVehicleStates({ rover: { x: 99999, z: 0, heading: 0 } });
-    assert.ok(clamped.rover.x <= WORLD_HALF_M - 4, 'states clamp inside the world');
+    // No world-edge clamp on a reload: a machine left out in the
+    // wilderness stands where it was left, not snapped back to
+    // the parcel grid.
+    const far = sanitizeVehicleStates({ rover: { x: 99999, z: 0, heading: 0 } });
+    assert.equal(far.rover.x, 99999, 'a wilderness position survives a reload');
   });
 
   it('the store round-trips through a localStorage-shaped fake', () => {

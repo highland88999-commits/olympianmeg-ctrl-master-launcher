@@ -4,6 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
+import { CHUNK_M, chunksAround, chunkHeightField } from '@/lib/mars/streaming';
 import { terrainMaterial, disposeTerrainMaterial, monsSite, monsSlopeMaterial, monsCapMaterial, hazeSpriteTexture, devilStreakTexture, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '@/lib/mars/cgi';
 import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import { getParticleTexture } from '@/lib/particles/sprites';
@@ -21,7 +22,9 @@ import { SharedMaterials, buildFloraGroup, buildFaunaGroup } from '@/lib/mars/me
 // selectedId.
 
 const EYE = 1.7;
-const MOVE_R = 88;
+
+// (Nov 18, 2026 — the world is endless: the old 88 m radial
+//  clamp is gone. The walker roams as far as the terrain streams.)
 
 function useKeys(inputRef) {
   useEffect(() => {
@@ -133,8 +136,6 @@ function FirstPerson({ inputRef, fly, groundHeight }) {
     } else {
       p.y = groundHeight(p.x, p.z) + EYE;
     }
-    const r = Math.hypot(p.x, p.z);
-    if (r > MOVE_R) { p.x *= MOVE_R / r; p.z *= MOVE_R / r; }
     camera.position.copy(p);
     camera.rotation.set(pitch.current, yaw.current, 0);
   });
@@ -518,47 +519,83 @@ function disposeWorld(world) {
 }
 
 // --- terrain -----------------------------------------------------------------
-function MarsTerrain({ profile }) {
-  const geo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(180, 180, 96, 96);
-    g.rotateX(-Math.PI / 2);
-    const posAttr = g.attributes.position;
-    const colors = [];
-    const cLow = profile.groundColor.clone().multiplyScalar(0.55);
-    const cMid = profile.groundColor.clone();
-    const cHigh = profile.groundAccentColor.clone();
-    const cPeak = new THREE.Color('#f8fafc');
-    const col = new THREE.Color();
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vz = posAttr.getZ(i);
-      const vy = getTerrainHeight(vx, vz, profile);
-      posAttr.setY(i, vy);
-      if (vy < -0.2) {
-        col.copy(cLow);
-      } else if (vy < 2.2) {
-        col.lerpColors(cMid, cHigh, (vy + 0.2) / 2.4);
-      } else {
-        col.copy(cHigh).lerp(cPeak, Math.min(0.45, (vy - 2.2) * 0.12));
-      }
-      colors.push(col.r, col.g, col.b);
-    }
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    g.computeVertexNormals();
-    return g;
+// Mars is ENDLESS (Merlin, Nov 18, 2026): no edge, no wall, no
+// turn-back. The old fixed 180 m plane is gone; the ground now
+// streams in 64 m chunks around the camera, built from the same
+// seeded height field the old plane used — the dunes, the basins
+// and the crater rim all continue as far as the walker roams.
+// The ring follows the CAMERA (walk, fly and orbit all move it —
+// the orbit camera can sit 170 m from the walker and still stay
+// inside the 448 m ring). Chunks build a couple per frame so
+// crossing a boundary never hitches, and chunks that leave the
+// ring are disposed. Chunk geometry is chunk-local (vertices
+// 0..64 m, the world offset on the mesh), so precision never
+// degrades with distance; the regolith map tiles every 30 m
+// through UVs baked in tile units, continuous across chunk
+// borders, so the material's repeat is 1 here (the old plane
+// repeated it 6 times across its 180 m).
+function buildChunkGeometry(profile, cx, cz) {
+  const field = chunkHeightField(profile, cx, cz);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(field.positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(field.uvs, 2));
+  geo.setIndex(new THREE.BufferAttribute(field.indices, 1));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function MarsStreamingTerrain({ profile }) {
+  const { camera } = useThree();
+  const groupRef = useRef();
+  const chunksRef = useRef(new Map());
+  const queueRef = useRef([]);
+  const material = useMemo(() => {
+    const m = terrainMaterial(profile);
+    if (m.map) m.map.repeat.set(1, 1);
+    if (m.bumpMap) m.bumpMap.repeat.set(1, 1);
+    return m;
   }, [profile]);
-  // CGI: the marsRegolith map + bump MULTIPLY over the vertex
-  // colours (three.js: map × vertexColor × color), so the seeded
-  // rust bands keep their hue and gain dunes + relief. The cloned
-  // textures carry the repeat — the shared cache stays pristine.
-  const material = useMemo(() => terrainMaterial(profile), [profile]);
   useEffect(() => () => {
-    geo.dispose();
+    for (const entry of chunksRef.current.values()) entry.geometry.dispose();
+    chunksRef.current.clear();
     disposeTerrainMaterial(material);
-  }, [geo, material]);
-  return (
-    <mesh geometry={geo} material={material} />
-  );
+  }, [material]);
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group) return;
+    const wanted = chunksAround(camera.position.x, camera.position.z);
+    const wantedKeys = new Set(wanted.map((w) => w.key));
+    const chunks = chunksRef.current;
+    for (const [key, entry] of chunks) {
+      if (!wantedKeys.has(key)) {
+        group.remove(entry.mesh);
+        entry.geometry.dispose();
+        chunks.delete(key);
+      }
+    }
+    // Drop queued chunks the camera has already left behind, then
+    // queue the missing ones — centre first, so the ground under
+    // the walker builds before the far edge.
+    const queue = queueRef.current.filter((k) => wantedKeys.has(k));
+    for (const w of wanted) {
+      if (!chunks.has(w.key) && !queue.includes(w.key)) queue.push(w.key);
+    }
+    queueRef.current = queue;
+    let built = 0;
+    while (queue.length && built < 2) {
+      const key = queue.shift();
+      if (chunks.has(key)) continue;
+      const [cx, cz] = key.split(',').map(Number);
+      const geometry = buildChunkGeometry(profile, cx, cz);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(cx * CHUNK_M, 0, cz * CHUNK_M);
+      group.add(mesh);
+      chunks.set(key, { mesh, geometry });
+      built++;
+    }
+  });
+  return <group ref={groupRef} />;
 }
 
 // --- CGI: Olympus Mons landmark --------------------------------------------
@@ -611,6 +648,13 @@ function MarsCgi({ profile, dayF }) {
     inner: new THREE.MeshBasicMaterial({ map: devilTex, color: '#e8c9a0', transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
   })), [devilTex]);
   const devilRefs = useRef([]);
+  // The dust, the devils and the haze ride the camera (endless
+  // world, Nov 18, 2026 — Mars 2's pattern): the group tracks the
+  // camera each frame, so the ambient field stays around the
+  // walker at any distance. The devils are weather, not landmarks —
+  // they roam with the viewer, seeded around the camera, and their
+  // ground height reads at the camera-relative spot.
+  const followRef = useRef();
 
   const haze = useMemo(() => {
     const rng = new SeedRNG(profile.seed + '-HAZE');
@@ -639,8 +683,10 @@ function MarsCgi({ profile, dayF }) {
     haze.list.forEach((h) => h.sprite.material.dispose());
   }, [dust, devilGeo, devilTex, devilMats, haze]);
 
-  useFrame(() => {
+  useFrame((state) => {
     const now = Date.now();
+    const cam = state.camera.position;
+    if (followRef.current) followRef.current.position.set(cam.x, 0, cam.z);
     updateDustField(dust, now);
     dust.material.opacity = 0.18 + 0.34 * dayF;
     const t = (now - PLANET_CGI_EPOCH_MS) / 1000;
@@ -651,7 +697,7 @@ function MarsCgi({ profile, dayF }) {
       if (!g) continue;
       g.visible = d.alive;
       if (!d.alive) continue;
-      const gy = getTerrainHeight(d.x, d.z, profile);
+      const gy = getTerrainHeight(cam.x + d.x, cam.z + d.z, profile);
       g.position.set(d.x, gy + d.height / 2, d.z);
       g.rotation.y = d.spin;
       g.scale.set(d.radius, d.height, d.radius);
@@ -668,7 +714,7 @@ function MarsCgi({ profile, dayF }) {
   });
 
   return (
-    <>
+    <group ref={followRef}>
       <primitive object={dust} />
       {devilMats.map((m, i) => (
         <group key={i} ref={(el) => { devilRefs.current[i] = el; }} visible={false}>
@@ -679,7 +725,7 @@ function MarsCgi({ profile, dayF }) {
       {haze.list.map((h, i) => (
         <primitive key={i} object={h.sprite} />
       ))}
-    </>
+    </group>
   );
 }
 
@@ -912,6 +958,22 @@ function creatureSummary(c) {
   };
 }
 
+// --- the sky, following the camera -------------------------------------------
+// Mars is endless (Merlin, Nov 18, 2026): the sun disc and the star
+// dome sit at fixed offsets from the ORIGIN, so far from home they
+// hang in the wrong place. They ride a group that tracks the camera
+// each frame, so the sun stays in its true direction from the
+// walker's eye, at a constant apparent size, at any distance.
+// (Mars 2's pattern, Mars 1's sky.)
+function SkyFollower({ children }) {
+  const { camera } = useThree();
+  const groupRef = useRef();
+  useFrame(() => {
+    if (groupRef.current) groupRef.current.position.set(camera.position.x, 0, camera.position.z);
+  });
+  return <group ref={groupRef}>{children}</group>;
+}
+
 // --- scene composition ---------------------------------------------------------
 function SceneContent({ profile, timeOfDay, mode, inputRef, focusReq, onSelect, selectedId }) {
   const orbitRef = useRef();
@@ -932,14 +994,17 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, focusReq, onSelect, 
       {/* cool fill from the opposite side so the night never goes black */}
       <directionalLight position={[-40, 24, 40]} intensity={0.18} color="#7a86a8" />
 
-      {/* the small pale Martian sun */}
-      <mesh position={sky.sunDiscPos}>
-        <sphereGeometry args={[13, 20, 20]} />
-        <meshBasicMaterial color={sky.sunColor} fog={false} transparent opacity={0.35 + sky.dayF * 0.65} />
-      </mesh>
-      <MarsStars profile={profile} opacity={1 - sky.dayF} />
+      {/* the small pale Martian sun + the stars ride the camera
+          (endless world, Nov 18, 2026 — see SkyFollower) */}
+      <SkyFollower>
+        <mesh position={sky.sunDiscPos}>
+          <sphereGeometry args={[13, 20, 20]} />
+          <meshBasicMaterial color={sky.sunColor} fog={false} transparent opacity={0.35 + sky.dayF * 0.65} />
+        </mesh>
+        <MarsStars profile={profile} opacity={1 - sky.dayF} />
+      </SkyFollower>
 
-      <MarsTerrain profile={profile} />
+      <MarsStreamingTerrain profile={profile} />
       <OlympusMons profile={profile} />
       <MarsCgi profile={profile} dayF={sky.dayF} />
       <primitive object={world.worldGroup} />

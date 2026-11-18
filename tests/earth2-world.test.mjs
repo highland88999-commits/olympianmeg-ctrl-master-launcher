@@ -13,8 +13,8 @@
 // - population habitat placement (swimmers only in water, herds
 //   only on dry land, the castle cast at the castle parcel, the
 //   two apexes holding separate territories)
-// - the walker step (collision push-out, the wading law, the
-//   world's edge)
+// - the walker step (collision push-out, the wading law, no wall
+//   at the grid edge — the world is endless)
 // - the gate: the chamber page still 404s non-owners and the
 //   world chunk is lazy behind it, exactly like the Bay
 //
@@ -564,9 +564,19 @@ describe('the walker — Earth laws in the step', () => {
     assert.ok(swum > 2 && swum < 9, `2 s of swimming covers ${swum.toFixed(1)} m, not a walk's 12`);
   });
 
-  it("the world's edge is a wall", () => {
-    const next = stepWorldWalker({ x: WORLD_HALF_M - 5, z: 0 }, -Math.PI / 2, { fwd: 1, strafe: 0 }, 2, [], true);
-    assert.ok(next.x <= WORLD_HALF_M - 4 + 0.001, `clamped at the edge (${next.x})`);
+  it('no wall at the grid edge: the walker walks out into the open sea and keeps going', () => {
+    // Travel mode, due east from 5 m inside the edge: 10 s at 26 m/s
+    // would run 260 m on dry land — out through the sea the pace
+    // eases to a swim (the river law), but nothing stops the walker.
+    let p = { x: WORLD_HALF_M - 5, z: 0 };
+    for (let i = 0; i < 40; i++) p = stepWorldWalker(p, -Math.PI / 2, { fwd: 1, strafe: 0 }, 0.25, [], true);
+    assert.ok(p.x > WORLD_HALF_M + 50, `the walker crossed the old edge (x=${p.x.toFixed(1)})`);
+    assert.ok(heightAt(p.x, p.z) < WATER_Y, 'beyond the grid is open sea');
+    // And it keeps going: another 10 s further out, still swimming
+    // on real sea floor, not a void.
+    for (let i = 0; i < 40; i++) p = stepWorldWalker(p, -Math.PI / 2, { fwd: 1, strafe: 0 }, 0.25, [], true);
+    assert.ok(p.x > WORLD_HALF_M + 100, `the walker keeps going (x=${p.x.toFixed(1)})`);
+    assert.ok(Number.isFinite(heightAt(p.x, p.z)), 'the sea floor is defined out there');
   });
 
   it('the highlight outline traces the parcel border', () => {
@@ -780,7 +790,12 @@ describe('proximity streaming — the memory contract (Safari killed the all-at-
     assert.ok(world.includes('worldStreamUnits'), 'units come from the plan');
     assert.ok(world.includes('planStreamActions'), 'per-frame decisions come from the plan');
     assert.ok(world.includes('disposeGraph'), 'releases dispose GPU resources');
-    assert.ok(world.includes('256, 256'), 'the terrain mesh took the diet (256×256 segments)');
+    // ENDLESS (Nov 18, 2026): the old static 256×256 plane is gone —
+    // the ground streams in chunks around the camera instead.
+    assert.ok(world.includes("from '@/lib/earth2/terrain-streaming'"), 'the endless terrain law is imported');
+    assert.ok(world.includes('updateTerrainStreaming'), 'terrain streams around the camera');
+    assert.ok(world.includes('chunkHeightField(cx, cz)'), 'chunks built from the seeded field');
+    assert.ok(!world.includes('PlaneGeometry(WORLD_SIZE_M, WORLD_SIZE_M, 256, 256)'), 'the old static plane is gone');
   });
 
   it('marine creatures stay in water — never on dry land (Merlin, 2026-11-03)', () => {
