@@ -2,9 +2,9 @@
 // KEEPSAKE (Nov 17, 2026) — a treasured photo, kept in a snow globe.
 // - registry: 'keepsake' in SATELLITES (SANCTUM, ARTEMIS) + the ARTEMIS
 //   god menu; title/subtitle in en and all 34 locale JSONs
-// - the roster grows 213 -> 214 and the portal-video queue gains one
-//   waiting portal (195 wired of 214 as of Nov 17; the runner generates
-//   the video)
+// - the roster grows 213 -> 214 and the portal-video queue is clear
+//   (214 wired of 214 as of Nov 18, 2026; the Red Moon's video is wired
+//   ahead of its registry seat, which lands with the Mars 2 space round)
 // - the Supabase SQL stages the table, the public bucket and the RLS
 //   policies (it is NOT run here — Merlin green-lights the run)
 // - camera math: a swipe leaves the camera exactly where it stops
@@ -74,10 +74,10 @@ describe('keepsake registry (dual-registry rule)', () => {
     assert.equal(seat.section, 'SANCTUM');
   });
 
-  it('has its portal video wired (195 wired of 214)', () => {
+  it('has its portal video wired (214 wired of 214 — the queue is clear)', () => {
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
     const waiting = roster.filter((p) => !PORTAL_VIDEO_KEYS.includes(p.key));
-    assert.equal(waiting.length, 19);
+    assert.equal(waiting.length, 0); // batch 26 wired the last roster video (sun-base); mars-moon's video is wired too, ahead of its registry seat
     assert.ok(PORTAL_VIDEO_KEYS.includes('keepsake'), 'keepsake video is wired');
     assert.ok(!waiting.some((p) => p.key === 'keepsake'), 'keepsake no longer waits');
   });
