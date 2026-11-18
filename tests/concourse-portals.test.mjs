@@ -19,7 +19,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -241,7 +241,7 @@ describe('the panel + hall (static)', () => {
     assert.ok(panel.includes('Step through'), 'step-through action');
     assert.ok(panel.includes('>Back<') || panel.includes('Back'), 'back action');
     assert.ok(panel.includes('<PortalEnterOverlay'), 'shares the room step-through');
-    assert.ok(panel.includes('onGlFail'), 'WebGL failure reported to the panel (retry fallback in 3D mode; list always available)');
+    assert.ok(panel.includes('onGlFail'), 'WebGL failure reported to the panel (retry fallback instead of a wall)');
     assert.ok(panel.includes("from '@/lib/webgl-support'"), 'uses the shared WebGL probe');
     assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
   });
@@ -251,15 +251,38 @@ describe('the panel + hall (static)', () => {
     assert.ok(scene.includes('OMEGA_ARCH.rotationZ'), 'instances wear the gap-at-bottom tilt');
   });
 
-  it('the merged menu lands on the ALL list; the wall keeps its own GAMES section', () => {
-    assert.ok(panel.includes("useState('ALL')"), 'list default is ALL, the room\'s default');
+  it('the menu is 3D-only: no switch, no list; the wall keeps its own GAMES section', () => {
+    assert.ok(!panel.includes("useState('list')"), 'no list default — the hall IS the menu');
+    assert.ok(!panel.includes('setMode('), 'no view switching');
+    assert.ok(!panel.includes('aria-label="View"'), 'no switch group in the header');
+    assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
     assert.ok(panel.includes("useState('GAMES')"), 'wall default is GAMES, one section at a time');
     assert.ok(panel.includes('OMEGA_WRAP_VIDEO'), 'the room\'s top video lives over the categories');
     assert.ok(panel.includes("`All · ${programs.length}`"), 'the ALL tab carries the whole count');
-    assert.ok(panel.includes("s === 'TOOLS'"), 'the Cheat Code feature heads TOOLS');
+    assert.ok(panel.includes("wallSection === 'TOOLS'"), 'the Cheat Code feature heads TOOLS');
     assert.ok(panel.includes('<CheatCodeFeatured />'), 'the feature banner is in the sheet');
-    assert.ok(panel.includes("s === 'SHOPPING'"), 'the FINTRAC entry heads SHOPPING');
+    assert.ok(panel.includes("wallSection === 'SHOPPING'"), 'the FINTRAC entry heads SHOPPING');
     assert.ok(panel.includes('<FintracExplanationMenuButton />'), 'the FINTRAC button is in the sheet');
+    assert.ok(panel.indexOf('<CheatCodeFeatured />') < panel.indexOf('<PortalHallScene'), 'feature banner sits above the wall');
+    assert.ok(panel.indexOf('<FintracExplanationMenuButton />') < panel.indexOf('<PortalHallScene'), 'FINTRAC button sits above the wall');
+    assert.ok(!existsSync(join(repo, 'components', 'portal-room', 'PortalRoom.jsx')), 'room file deleted');
+    assert.ok(!existsSync(join(repo, 'app', 'portal-room', 'page.jsx')), 'room route deleted');
+  });
+
+  it('the categories ride one horizontal carousel row, never a wrapped grid', () => {
+    assert.ok(panel.includes('flex flex-nowrap gap-1.5 overflow-x-auto'), 'tabs ride one scrollable row');
+    assert.ok(!panel.includes('flex flex-wrap gap-1.5 px-5'), 'no wrapped tab grid');
+    assert.ok(panel.includes('[scrollbar-width:none]'), 'carousel hides its scrollbar');
+    assert.ok(panel.includes('shrink-0 whitespace-nowrap rounded-full border'), 'pills never shrink or wrap mid-label');
+  });
+
+  it('the sheet wears the Concourse background graphic behind a scrim', () => {
+    assert.ok(panel.includes("from '@/lib/concourse-bg'"), 'bg comes from the shared concourse-bg module');
+    assert.ok(panel.includes('resolveConcourseBg'), 'the stored preference resolves through the shared resolver');
+    assert.ok(panel.includes('CONCOURSE_BG_ART'), 'a malformed preference falls back to the default art');
+    assert.ok(panel.includes('olympus.concourse.v1'), 'the device cache is the same key the box reads');
+    assert.ok(panel.includes('preferences?.concourse_bg'), 'the account copy wins when signed in');
+    assert.ok(panel.includes('bg-[#070418]/75'), 'a scrim keeps the menu legible over the graphic');
   });
 
   it('the hall is two instanced meshes over one shared swirl texture', () => {

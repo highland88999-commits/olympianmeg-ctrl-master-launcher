@@ -1,8 +1,20 @@
 // tests/portal-card-tilt.test.mjs
 // Per-card tilt for the Portal Room's single card view (Merlin,
 // 2026-10-27: the card view with per-card rotation IS the room's
-// standard; the PORTALS 3D panel separately opens on a list by
-// default with a List/3D switch since 2026-10-27):
+// standard; the PORTALS 3D panel is 3D-only since 2026-11-17 —
+// Merlin: "no more switching", the List/3D switch and the list are
+// gone, the hall IS the menu):
+// - drag distance -> rotation angle + direction (right pull yaws
+//   the face screen-right, left pull the other way), clamped
+// - spring-back on release (exponential decay to rest)
+// - tap-vs-drag threshold (10px / 500ms) so quick taps still open
+//   and tilt-drags never open
+// - deviceorientation -> per-card tilt mapping (gamma -> yaw,
+//   beta -> pitch, ±8° dead-zone, full deflection at ±45°)
+// - motion-denied/unavailable -> drag-only, no crash, no nag
+// - static: the room card view is untouched; the panel is the hall,
+//   no switch, no list
+//
 // - drag distance -> rotation angle + direction (right pull yaws
 //   the face screen-right, left pull the other way), clamped
 // - spring-back on release (exponential decay to rest)
@@ -130,30 +142,22 @@ describe('springTiltStep (release springs back to rest)', () => {
   });
 });
 
-describe('the panel view switch (list by default; the room card view is untouched)', () => {
-  it('the panel opens on the list, with a List/3D switch in the header', () => {
-    assert.ok(panel.includes("useState('list')"), 'list is the default view');
-    assert.ok(panel.includes("setMode('list')"), 'switch can select the list');
-    assert.ok(panel.includes("setMode('3d')"), 'switch can select the hall');
-    assert.ok(panel.includes('aria-label="View"'), 'switch is labeled');
+describe('the panel is the hall (3D-only; the room card view is untouched)', () => {
+  it('the panel is 3D-only: no switch, no list', () => {
+    assert.ok(!panel.includes("useState('list')"), 'no list default — the hall IS the menu');
+    assert.ok(!panel.includes("setMode('list')"), 'no switch to the list');
+    assert.ok(!panel.includes("setMode('3d')"), 'no switch to the hall either');
+    assert.ok(!panel.includes('aria-label="View"'), 'no switch group in the header');
+    assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
+    assert.ok(panel.includes('<PortalHallScene'), 'the hall is the menu');
   });
 
-  it('the panel renders the hall in 3D mode, with a retry fallback for WebGL loss', () => {
+  it('the panel renders the hall, with a retry fallback for WebGL loss', () => {
     assert.ok(panel.includes('<PortalHallScene'), 'the hall is the 3D view');
     assert.ok(panel.includes('glFailed'), 'GL failure state exists');
-    assert.ok(panel.includes('Retry 3D'), 'retry action in 3D mode');
+    assert.ok(panel.includes('Retry 3D'), 'retry action exists');
     assert.ok(panel.includes('onGlFail'), 'context loss still reported to the panel');
     assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
-  });
-
-  it('the panel list is a mini card grid, not rows', () => {
-    assert.ok(panel.includes('<PortalCard'), 'panel list renders the room cards');
-    assert.ok(panel.includes('groupBySection(wallItems)'), 'cards group under section headers');
-    assert.ok(panel.includes('grid grid-cols-2'), 'two-column mini grid');
-    assert.ok(
-      panel.includes('onEnter={() => setExpandedKey(p.key)}'),
-      'card tap opens the detail, never enters directly'
-    );
   });
 
   it('the hall applies one shared tilt behavior, not two motion systems', () => {

@@ -231,8 +231,8 @@ describe('master-portal seating + featured placement', () => {
     const panel = read('components/ConcoursePortals.jsx');
     assert.ok(panel.includes("import CheatCodeFeatured from './CheatCodeFeatured'"));
     assert.ok(panel.includes('<CheatCodeFeatured />'));
-    assert.ok(panel.includes("s === 'TOOLS'"), 'feature sits in the TOOLS section, its registry section');
-    assert.ok(panel.indexOf('<CheatCodeFeatured />') < panel.indexOf('<PortalCard'), 'feature sits above the section cards');
+    assert.ok(panel.includes("wallSection === 'TOOLS'"), 'feature sits in the TOOLS section, its registry section');
+    assert.ok(panel.indexOf('<CheatCodeFeatured />') < panel.indexOf('<PortalHallScene'), 'feature sits above the wall');
   });
 
   it('the hub program menu features the room as a pinned top button', () => {

@@ -8,15 +8,23 @@
 // Room is gone; this sheet is the menu now). It carries the room's
 // front door in the room's order: the Arch wrap video on top, then
 // the categories as the room showed them (the ALL tab + section
-// tabs, the roster grouped under section headings), then the 3D
-// portal wall. The wall keeps its one-section-at-a-time paging —
-// the categories are the navigation over the wall, not a second
-// wall. The room's extras live here too, each under the section it
-// fits best: the Social Media Cheat Code feature at the head of
-// TOOLS (its registry section), the FINTRAC explanation at the head
-// of SHOPPING (payments & creator earnings), the owner-only and
-// signed-in portals inside the roster itself (Earth 2 under
-// OBSERVATORY), and the search above the tabs.
+// tabs) over the 3D portal wall. The wall keeps its
+// one-section-at-a-time paging — the categories are the navigation
+// over the wall, not a second wall. The room's extras live here too,
+// each under the section it fits best: the Social Media Cheat Code
+// feature at the head of TOOLS (its registry section), the FINTRAC
+// explanation at the head of SHOPPING (payments & creator earnings),
+// the owner-only and signed-in portals inside the roster itself
+// (Earth 2 under OBSERVATORY), and the search above the tabs.
+//
+// The sheet opens on the 3D hall (Merlin, 2026-11-17: "no more
+// switching" — the List/3D switch and the list are gone; the hall IS
+// the menu). The categories ride a single horizontal carousel row so
+// the wall sits directly under them. The sheet wears the Concourse
+// background graphic (the concourse_bg preference, default art on a
+// bad value) behind a scrim, so the menu feels like the Concourse.
+// If WebGL is unavailable or its context dies, the sheet shows an
+// honest retry fallback instead of a wall.
 //
 // Inside it, the menu's portals live as 3D objects — a curved wall of
 // minimized portal rings, one per program (the same roster as the
@@ -28,12 +36,10 @@
 // version of our menu — or concourse."
 //
 // The 3D hall (components/concourse/PortalHallScene.jsx) loads
-// lazily and exists only while this sheet is open. The sheet opens
-// on the LIST (Merlin, 2026-10-27: "the list form is how I want
-// them, like list form was before, by default") — a header switch
-// reaches the 3D hall, which stays intact with its per-card tilt.
-// If WebGL is unavailable or its context dies while in 3D mode,
-// the sheet shows an honest retry fallback instead of a wall.
+// lazily and exists only while this sheet is open. The hall is the
+// menu — no list, no switch (Merlin, 2026-11-17: "no more
+// switching"). If WebGL is unavailable or its context dies, the
+// sheet shows an honest retry fallback instead of a wall.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -44,19 +50,19 @@ import { supabase } from '@/lib/supabase';
 import { isOwnerEmail } from '@/lib/owner';
 import { hasEarth2Access } from '@/lib/earth2/access';
 import { OMEGA_WRAP_VIDEO } from '@/lib/omega-arch';
+import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import CheatCodeFeatured from './CheatCodeFeatured';
 import { FintracExplanationMenuButton } from './FintracExplanation';
 import {
   SECTION_ORDER,
   buildPortalRoster,
   filterPortals,
-  groupBySection,
   paginateWall,
   withOwnerPortals,
   withSignedInPortals,
 } from '@/lib/portal-roster';
 import { probeWebGL } from '@/lib/webgl-support';
-import PortalCard, { PortalStyles } from './portal/PortalCard';
+import { PortalStyles } from './portal/PortalCard';
 import PortalEnterOverlay from './portal/PortalEnterOverlay';
 import { useRiderPrefs } from '@/lib/use-rider-prefs';
 
@@ -68,21 +74,12 @@ export default function ConcoursePortals({ open, onClose }) {
   // The repo's shared WebGL probe (memoized; its throwaway context is
   // released, never counted against the live-context limit) decides
   // whether the hall can mount at all. A failed hall shows the retry
-  // fallback below; the list view is always available via the switch.
+  // fallback below.
   const [glFailed, setGlFailed] = useState(() => !probeWebGL());
   const [hallKey, setHallKey] = useState(0);
-  // View: the list is the default on every open (Merlin, 2026-10-27);
-  // the 3D hall is one switch away, never the landing view.
-  const [mode, setMode] = useState('list');
-  useEffect(() => {
-    if (open) setMode('list');
-  }, [open]);
   const [query, setQuery] = useState('');
-  // The list lands on ALL (the room's default: every section grouped
-  // under its heading); the WALL keeps its own section — one section
-  // at a time, GAMES first — so the ALL tab never turns the wall
-  // into a second list.
-  const [section, setSection] = useState('ALL');
+  // The WALL keeps its own section — one section at a time, GAMES
+  // first — so the ALL tab never turns the wall into a second list.
   const [wallSection, setWallSection] = useState('GAMES');
   const [page, setPage] = useState(0);
   const [expandedKey, setExpandedKey] = useState(null);
@@ -128,6 +125,44 @@ export default function ConcoursePortals({ open, onClose }) {
     };
   }, []);
 
+  // The sheet wears the Concourse background graphic — the SAME
+  // concourse_bg preference the Concourse box wears
+  // (lib/concourse-bg.js): the device cache first (instant), then
+  // the account copy from /api/ui-state when signed in (it wins,
+  // exactly like the box). A malformed value falls back to the
+  // default art; the card's own solid base means never a hole.
+  const [bgPref, setBgPref] = useState({ kind: 'default' });
+  useEffect(() => {
+    if (!open) return undefined;
+    try {
+      const raw = window.localStorage.getItem('olympus.concourse.v1');
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (parsed?.bg && typeof parsed.bg === 'object') {
+        setBgPref(resolveConcourseBg(parsed.bg));
+      }
+    } catch {}
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token || null;
+        if (!token || cancelled) return;
+        const res = await fetch('/api/ui-state', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+        const body = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (body?.preferences?.concourse_bg) {
+          setBgPref(resolveConcourseBg(body.preferences.concourse_bg));
+        }
+      } catch {}
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open ]);
+
   // The roster: the registry + live i18n lookups (the SatelliteMenu
   // pattern). t() echoes the key itself for a missing string, so a
   // lookup treats an echoed key as "absent" and the builder applies
@@ -155,29 +190,15 @@ export default function ConcoursePortals({ open, onClose }) {
 
   // The wall: one section at a time — or, while searching, every
   // match across all sections collapsed into a single results wall.
-  // The list: the room's view — ALL shows every section grouped
-  // under its heading; one section shows just that section.
   const searching = query.trim().length > 0;
   const wallItems = useMemo(() => {
     if (searching) return filterPortals(programs, { section: 'ALL', query });
     return programs.filter((p) => p.section === wallSection);
   }, [programs, searching, query, wallSection]);
-  const listItems = useMemo(
-    () => filterPortals(programs, { section, query }),
-    [programs, section, query]
-  );
-  // The results chip counts what the current view is showing.
-  const resultsCount = searching
-    ? mode === '3d'
-      ? wallItems.length
-      : listItems.length
-    : 0;
+  // The results chip counts what the wall is showing.
+  const resultsCount = searching ? wallItems.length : 0;
 
   const pages = useMemo(() => paginateWall(wallItems), [wallItems]);
-  // The list groups the filtered list under the room's section
-  // headers (mini card grid — Merlin, 2026-10-28: the panel list is
-  // a mini version of the Portal Room menu, same cards, smaller).
-  const grouped = useMemo(() => groupBySection(listItems), [listItems]);
   const safePage = Math.min(page, Math.max(0, pages.length - 1));
   const pageItems = pages[safePage] || [];
   const expanded = expandedKey
@@ -203,11 +224,10 @@ export default function ConcoursePortals({ open, onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open, entering, expandedKey, handleClose]);
 
-  // A section tab picks the list's section AND the wall's section;
-  // ALL picks the list's view only — the wall keeps the section it
-  // already had, so it never stops being one section at a time.
+  // A section tab picks the wall's section; ALL leaves the wall's
+  // section alone, so the wall never stops being one section at a
+  // time.
   const changeSection = (s) => {
-    setSection(s);
     if (s !== 'ALL') setWallSection(s);
     setQuery('');
     setPage(0);
@@ -251,9 +271,41 @@ export default function ConcoursePortals({ open, onClose }) {
         onClick={handleClose}
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
-      <div className="relative flex h-[min(640px,86dvh)] w-[min(680px,94vw)] flex-col overflow-hidden rounded-[2rem] border border-cyan-200/25 bg-[#070418]/92 shadow-[0_24px_70px_rgba(0,0,0,0.65),0_0_40px_rgba(0,229,255,0.10)] backdrop-blur-xl">
-        {/* Header: title + count, the List/3D switch, close. */}
-        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-4">
+      <div className="relative flex h-[min(640px,86dvh)] w-[min(680px,94vw)] flex-col overflow-hidden rounded-[2rem] border border-cyan-200/25 bg-[#070418] shadow-[0_24px_70px_rgba(0,0,0,0.65),0_0_40px_rgba(0,229,255,0.10)] backdrop-blur-xl">
+        {/* The Concourse background graphic behind everything — the
+            SAME concourse_bg preference the Concourse box wears
+            (default art when the preference is malformed; the card's
+            solid base means never a hole). The scrim keeps the
+            title, pills, and hall legible over a busy photo. */}
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+          {bgPref?.kind === 'video' && bgPref.url ? (
+            <video
+              src={bgPref.url}
+              autoPlay={
+                typeof window === 'undefined' ||
+                !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+              }
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <img
+              src={bgPref?.kind === 'image' && bgPref.url ? bgPref.url : CONCOURSE_BG_ART}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="h-full w-full object-cover"
+            />
+          )}
+          <div className="absolute inset-0 bg-[#070418]/75" />
+        </div>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+        {/* Header: title + count, close. No switch — the hall IS the
+            menu (Merlin, 2026-11-17: "no more switching"). */}
+        <div className="flex items-center justify-between gap-2 px-5 pt-4">
           <div className="flex items-baseline gap-2.5">
             <span aria-hidden="true" className="text-xl text-amber-200 drop-shadow-[0_0_10px_rgba(255,190,80,0.8)]">
               Ω
@@ -263,42 +315,14 @@ export default function ConcoursePortals({ open, onClose }) {
             </span>
             <span className="text-[11px] tracking-widest text-zinc-500">{programs.length} realms</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div role="group" aria-label="View" className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 p-1">
-              <button
-                type="button"
-                aria-pressed={mode === 'list'}
-                onClick={() => setMode('list')}
-                className={`rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide transition ${
-                  mode === 'list'
-                    ? 'bg-amber-300/20 text-amber-100'
-                    : 'text-zinc-300 hover:text-white'
-                }`}
-              >
-                List
-              </button>
-              <button
-                type="button"
-                aria-pressed={mode === '3d'}
-                onClick={() => setMode('3d')}
-                className={`rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide transition ${
-                  mode === '3d'
-                    ? 'bg-amber-300/20 text-amber-100'
-                    : 'text-zinc-300 hover:text-white'
-                }`}
-              >
-                3D
-              </button>
-            </div>
-            <button
-              type="button"
-              aria-label="Close Portals 3D"
-              onClick={handleClose}
-              className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 transition hover:border-cyan-300/60 hover:text-white"
-            >
-              <span aria-hidden="true" className="text-sm leading-none">✕</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            aria-label="Close Portals 3D"
+            onClick={handleClose}
+            className="ui-element pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 text-zinc-300 transition hover:border-cyan-300/60 hover:text-white"
+          >
+            <span aria-hidden="true" className="text-sm leading-none">✕</span>
+          </button>
         </div>
 
         {/* The Arch itself, wearing its wrap video — the merged
@@ -338,16 +362,18 @@ export default function ConcoursePortals({ open, onClose }) {
           />
         </div>
         {/* Categories as the Portal Room showed them: ALL first, then
-            one tab per section. In list mode the active tab is the
-            list's section; in 3D mode it is the wall's section. */}
-        <div className="flex flex-wrap gap-1.5 px-5 pt-3">
+            one tab per section — on ONE horizontal carousel row
+            (Merlin, 2026-11-17), never a wrapped grid, so the wall
+            sits directly under them. The active tab is the wall's
+            section; ALL leaves the wall's section alone. */}
+        <div className="flex flex-nowrap gap-1.5 overflow-x-auto px-5 pt-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {['ALL', ...SECTION_ORDER.filter((s) => counts.has(s))].map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => changeSection(s)}
-              className={`rounded-full border px-3 py-1 text-[11px] font-medium tracking-wide transition ${
-                !searching && (mode === '3d' ? wallSection : section) === s
+              className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-medium tracking-wide transition ${
+                !searching && wallSection === s
                   ? 'border-amber-300/70 bg-amber-300/15 text-amber-100'
                   : 'border-white/12 bg-white/5 text-zinc-300 hover:border-cyan-300/40'
               }`}
@@ -356,58 +382,34 @@ export default function ConcoursePortals({ open, onClose }) {
             </button>
           ))}
           {searching && (
-            <span className="rounded-full border border-cyan-300/50 bg-cyan-300/10 px-3 py-1 text-[11px] font-medium tracking-wide text-cyan-100">
+            <span className="shrink-0 whitespace-nowrap rounded-full border border-cyan-300/50 bg-cyan-300/10 px-3 py-1 text-[11px] font-medium tracking-wide text-cyan-100">
               Results · {resultsCount}
             </span>
           )}
         </div>
 
-        {/* The stage: the realm list by default, or the 3D hall. */}
+        {/* The room's extras, each under the section it fits best —
+            never a dumped pile: the Cheat Code feature heads TOOLS
+            (its registry section); the FINTRAC explanation heads
+            SHOPPING (payments & creator earnings). They used to live
+            in the list; the list is gone, so they ride as a banner
+            above the wall on their section (hidden while searching,
+            when the wall is showing cross-section results). Tapping
+            either closes the sheet on the way in. */}
+        {!searching && wallSection === 'TOOLS' && (
+          <div className="px-5 pt-3" onClick={handleClose}>
+            <CheatCodeFeatured />
+          </div>
+        )}
+        {!searching && wallSection === 'SHOPPING' && (
+          <div className="px-5 pt-3" onClick={handleClose}>
+            <FintracExplanationMenuButton />
+          </div>
+        )}
+
+        {/* The stage: the 3D hall. */}
         <div className="relative mt-3 flex-1 overflow-hidden">
-          {mode === 'list' ? (
-            <div className="absolute inset-0 overflow-y-auto px-5 pb-2">
-              {listItems.length === 0 ? (
-                <p className="mt-14 text-center text-sm text-zinc-500">
-                  No realm matches that search yet.
-                </p>
-              ) : (
-                grouped.map(({ section: s, items }) => (
-                  <section key={s} className="mt-6 first:mt-1">
-                    <h2 className="mb-3 text-center text-xs font-semibold tracking-[0.35em] text-cyan-100/70">
-                      {s}
-                    </h2>
-                    {/* The room's extras, each under the section it
-                        fits best — never a dumped pile: the Cheat
-                        Code feature heads TOOLS (its registry
-                        section); the FINTRAC explanation heads
-                        SHOPPING (payments & creator earnings). Tapping
-                        either closes the sheet on the way in. */}
-                    {s === 'TOOLS' && (
-                      <div className="mb-4" onClick={handleClose}>
-                        <CheatCodeFeatured />
-                      </div>
-                    )}
-                    {s === 'SHOPPING' && (
-                      <div className="mb-4" onClick={handleClose}>
-                        <FintracExplanationMenuButton />
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-5">
-                      {items.map((p) => (
-                        <PortalCard
-                          key={p.key}
-                          program={p}
-                          selected={expandedKey === p.key}
-                          ariaLabel={`View ${p.title}`}
-                          onEnter={() => setExpandedKey(p.key)}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))
-              )}
-            </div>
-          ) : glFailed ? (
+          {glFailed ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
               <p className="text-sm leading-relaxed text-zinc-400">
                 The 3D hall needs WebGL, which this device isn&apos;t offering right now.
@@ -434,15 +436,15 @@ export default function ConcoursePortals({ open, onClose }) {
               />
             </div>
           )}
-          {mode === '3d' && !glFailed && wallItems.length === 0 && (
+          {!glFailed && wallItems.length === 0 && (
             <p className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
               No realm matches that search yet.
             </p>
           )}
         </div>
 
-        {/* Wall pages (3D mode only — the list shows every match). */}
-        {mode === '3d' && !glFailed && pages.length > 1 && (
+        {/* Wall pages — the wall shows one section at a time. */}
+        {!glFailed && pages.length > 1 && (
           <div className="flex items-center justify-center gap-1.5 pb-1 pt-1">
             {pages.map((_, i) => (
               <button
@@ -492,11 +494,10 @@ export default function ConcoursePortals({ open, onClose }) {
             </div>
           ) : (
             <p className="text-center text-xs leading-relaxed text-zinc-500">
-              {mode === 'list'
-                ? 'Tap a realm to view it.'
-                : 'Tap a portal to expand it — hold a card and pull to tilt it, or drag empty space to look around the hall.'}
+              Tap a portal to expand it — hold a card and pull to tilt it, or drag empty space to look around the hall.
             </p>
           )}
+        </div>
         </div>
       </div>
 

@@ -177,7 +177,7 @@ describe('hub wiring', () => {
     const panel = read('components/ConcoursePortals.jsx');
     assert.ok(panel.includes("from '@/lib/i18n/satellites'"));
     assert.ok(panel.includes('buildPortalRoster'), 'panel derives via the shared builder');
-    assert.ok(panel.includes("from './portal/PortalCard'"), 'panel renders the cards that wear the portal videos');
+    assert.ok(panel.includes('<PortalHallScene'), 'the hall expands a portal wearing its video');
     // The skip itself lives in the shared derivation
     // (lib/portal-roster.js) — one builder, no drift.
     const roster = read('lib/portal-roster.js');
