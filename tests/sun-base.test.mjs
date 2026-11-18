@@ -205,7 +205,9 @@ test('the sun-base route exists: picker, scene, walk rig, sign-in gate', () => {
   assert.ok(route.includes('saveSunBasePick'), 'the pick persists');
   assert.ok(route.includes('Change interior'), 'the interior can be re-picked inside the base');
   assert.ok(route.includes('WalkJoystick'), 'touch walking uses the shared joystick');
-  assert.ok(route.includes("router.push('/')"), 'leaving returns to the hub');
+  assert.ok(route.includes("const backRoute = fromMars ? '/mars-2' : '/'"), 'leaving returns to the hub by default');
+  assert.ok(route.includes("router.push(backRoute)"), 'the leave buttons use the way back');
+  assert.ok(route.includes("get('from') === 'mars-2'"), 'arriving from Mars 2 sends the way back there');
 
   const scene = src('../components/SunBaseScene.jsx');
   assert.ok(scene.includes('buildInteriorRoom'), 'the room is the reserved interior factory');

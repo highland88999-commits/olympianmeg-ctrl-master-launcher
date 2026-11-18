@@ -89,6 +89,19 @@ function prettyCategory(id) {
 export default function SunBasePage() {
   const router = useRouter();
   const [gate, setGate] = useState('checking'); // 'checking' | 'open' | 'locked'
+  // Where the way back goes (Merlin, Nov 17, 2026 — Mars 2 space):
+  // the Sun is one Sun, so Mars 2's sun entry lands in this same
+  // base — and ?from=mars-2 sends the way back to Mars 2 instead
+  // of the hub. Read off window.location (no useSearchParams, so
+  // no Suspense boundary is needed around this page).
+  const [fromMars, setFromMars] = useState(false);
+  useEffect(() => {
+    try {
+      setFromMars(new URLSearchParams(window.location.search).get('from') === 'mars-2');
+    } catch {}
+  }, []);
+  const backRoute = fromMars ? '/mars-2' : '/';
+  const backLabel = fromMars ? '← Back to Mars 2' : '← Back to the hub';
   const [user, setUser] = useState(null);
   const [pick, setPick] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -340,10 +353,10 @@ export default function SunBasePage() {
         </p>
         <button
           type="button"
-          onClick={() => router.push('/')}
+          onClick={() => router.push(backRoute)}
           style={{ marginTop: 8, padding: '10px 22px', borderRadius: 999, cursor: 'pointer', background: GOLD, color: '#140c02', fontSize: 14, fontWeight: 800, border: 'none', fontFamily: 'inherit' }}
         >
-          ← Back to the hub
+          {backLabel}
         </button>
       </div>
     );
@@ -409,8 +422,8 @@ export default function SunBasePage() {
             </OrbButton>
           )}
           <OrbButton accent={GOLD} size={48}
-            onClick={() => router.push('/')}
-            ariaLabel="Back to hub">
+            onClick={() => router.push(backRoute)}
+            ariaLabel={fromMars ? 'Back to Mars 2' : 'Back to hub'}>
             <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
           </OrbButton>
         </div>

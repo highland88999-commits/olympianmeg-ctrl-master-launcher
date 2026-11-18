@@ -543,7 +543,7 @@ describe('mars-2 fullscreen controls (Merlin, Nov 17, 2026 — phone check)', ()
     // One definition of each control group, shared by both layouts.
     assert.ok(page.includes('const timeSlider = ('), 'the TIME slider lives in one fragment');
     assert.ok(page.includes('const timeOrbs = ('), 'the time preset + LIVE orbs live in one fragment');
-    assert.ok(page.includes('const modeOrbs = ('), 'the WALK / RIDE-or-OUT / ORBIT orbs live in one fragment');
+    assert.ok(page.includes('const modeOrbs = ('), 'the WALK / SUMMON / OUT / ORBIT orbs live in one fragment');
     // Fullscreen: the panel inside the stage carries all three rows.
     assert.ok(page.includes('className="fs-controls"'), 'a fullscreen controls panel exists');
     assert.ok(page.includes('aria-label="Mars 2 controls"'), 'the panel is labelled');
@@ -555,11 +555,21 @@ describe('mars-2 fullscreen controls (Merlin, Nov 17, 2026 — phone check)', ()
     // Normal layout: the same fragments render below the stage.
     assert.ok(page.includes('{!fullscreen && ('), 'the below-stage controls hide in fullscreen');
     assert.ok(page.includes('{timeSlider}'), 'time controls sit below the stage normally');
-    // Nothing about what the controls DO changed: RIDE still summons,
-    // OUT still dismounts, the slider still takes the clock manual.
-    assert.ok(page.includes('ariaLabel="Summon rover"'), 'RIDE still summons the rover');
+    // Nothing about what the controls DO changed: SUMMON still summons
+    // the rover (now through the vehicle menu, which also offers the
+    // ship — the Mars 2 space round), OUT still dismounts it, and the
+    // slider still takes the clock manual.
+    assert.ok(page.includes('ariaLabel="Summon rover or ship"'), 'SUMMON still summons the rover, via the vehicle menu');
+    assert.ok(page.includes('setVehicleMenuOpen(true)'), 'SUMMON opens the vehicle menu');
     assert.ok(page.includes('ariaLabel="Dismount rover"'), 'OUT still dismounts it');
     assert.ok(page.includes('aria-label="Time of day"'), 'the TIME slider is still a slider');
+    // The menu itself sits inside the stage (a z-90 overlay), so
+    // SUMMON stays reachable in fullscreen too — the menu is not
+    // another under-screen control hiding behind the fixed stage.
+    const stageOpen = page.indexOf('className="stage"');
+    const menuAt = page.indexOf('<VehicleSelectMenu');
+    const stageClose = page.indexOf('{/* Under-screen controls');
+    assert.ok(stageOpen !== -1 && menuAt > stageOpen && menuAt < stageClose, 'the vehicle menu sits inside the stage, so SUMMON works in fullscreen');
   });
   it('the fullscreen panel parks above the joystick row: it never covers the stick', () => {
     const page = read('app/mars-2/page.jsx');
@@ -822,8 +832,9 @@ describe('mars-2 outpost round 2 (Merlin, Nov 17, 2026 — phone video ~23:37)',
     // chain may substitute black at ground level.
     const rig = read('components/DayNightRig.jsx');
     assert.ok(rig.includes('<color attach="background" args={[rgbStr(pal.top)]} />'), 'the rig backgrounds the law colour');
-    // (The space layer's sky lerp is another coordinator's file —
-    // this push pins the law + the rig, which are round 2's own.)
+    const space = read('components/mars2/Mars2Space.jsx');
+    assert.ok(space.includes('groundTop.current'), 'the space sky lerps from the law colour');
+    assert.ok(space.includes('spaceFactorForAltitude(alt)'), 'the black is gated on altitude, not on noon');
   });
 
   it('moonlight: the red moon drives real light onto the terrain at night', () => {

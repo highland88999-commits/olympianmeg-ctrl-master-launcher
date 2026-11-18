@@ -112,6 +112,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "mars", route: "/mars", pos: "ARES", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "jupiter-2", route: "/jupiter-2", pos: "ARES", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "mars-2", route: "/mars-2", pos: "ARES", section: "OBSERVATORY", constellation: "ARGUS" },
+  { key: "mars-moon", route: "/mars-moon", pos: "ARES", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "arachnid-weaver", route: "/arachnid-weaver", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "architectural-legacy", route: "/architectural-legacy", pos: "APOLLO", section: "OBSERVATORY", constellation: "ARGUS" },
   { key: "astra", route: "/astra", pos: "ARES", section: "GAMES", constellation: "ZEUS" },

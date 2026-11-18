@@ -2,13 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { generateMarsProfile } from "@/lib/mars/engine";
 import { timeOfDay01, getDayNightPlace, requestDayNightPlace, dayNightFor } from "@/lib/day-night";
 import { MARS2_SEED, MARS2_WORLD_NAME } from "@/lib/mars2/world";
-import { ROVER_NAME, ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS, roverSpeedKmh } from "@/lib/mars2/rovers";
+import { ROVER_NAME, ROVER_ID, ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS, roverSpeedKmh } from "@/lib/mars2/rovers";
+import { SHIP_NAME, SHIP_ID, SHIP_BLURB, SHIP_TOP_SPEED_MPS, shipSpeedKmh } from "@/lib/mars2/spaceship";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute } from "@/app/artemis-ui/icons";
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
 import ControlsCore from "@/components/world/ControlsCore";
+import VehicleSelectMenu from "@/components/world/VehicleSelectMenu";
+import { normalizeVehicleOptions } from "@/lib/world/vehicle-select";
 import BuildPanel from "@/components/mars2/BuildPanel";
 import { useBackpack, updateBackpack } from "@/lib/backpack/store";
 import { addItem, removeItem, countItem } from "@/lib/backpack/backpack";
@@ -22,10 +26,13 @@ import {
 // MARS 2 — the successor world (Merlin, Nov 15, 2026). One-word
 // spec: ROVERS. Fixed seed, no seed picker, no exobiology — walk
 // the red dunes or summon the ARES-2 survey rover and drive them.
-// Day/night runs the shared law (lib/day-night.js): real time by
-// default, the slider and presets take it manual, REAL TIME hands
-// it back. The menu registries are owned by the coordinator;
-// this page is the route itself (/mars-2).
+// SPACE (Merlin, Nov 17, 2026): the Space Orb floats up out
+// of Mars into the space around Mars 2, where the sun and the
+// red moon are real destinations — the sun into the Sun Base, the
+// moon into its own walkable world. Day/night runs the shared law
+// (lib/day-night.js): real time by default, the slider and presets
+// take it manual, REAL TIME hands it back. The menu registries are
+// owned by the coordinator; this page is the route itself (/mars-2).
 
 // R3F scene loads client-side only (WebGL).
 const Mars2Scene = dynamic(() => import("@/components/mars2/Mars2Scene"), {
@@ -54,6 +61,7 @@ function timeString(t) {
 }
 
 export default function Mars2Page() {
+  const router = useRouter();
   const inputRef = useRef({ keys: { fwd: false, back: false, left: false, right: false, up: false, down: false } });
   const jumpRef = useRef(false);
   const [time, setTime] = useState(0.32);
@@ -88,9 +96,25 @@ export default function Mars2Page() {
     const id = setInterval(applyRealTime, 10000);
     return () => clearInterval(id);
   }, [liveTime]);
-  const [mode, setMode] = useState("orbit"); // orbit | walk | drive
+  const [mode, setMode] = useState("orbit"); // orbit | walk | drive | fly
   const [roverCmd, setRoverCmd] = useState(null); // { action: 'summon' | 'dismount', nonce }
   const [rover, setRover] = useState({ active: false, speedKmh: 0 });
+  // The ship (Merlin, Nov 17, 2026 — space): the same shape as
+  // the rover's state, plus altitude + the landing flags the
+  // roverbar reads. The FLIGHT AXIS pill decides what the stick's
+  // push means in flight: HORIZONTAL flies level (push = faster),
+  // VERTICAL climbs (push = up). Default HORIZONTAL, like the hub.
+  const [shipCmd, setShipCmd] = useState(null); // { action: 'summon' | 'dismount', nonce }
+  const [ship, setShip] = useState({ active: false, speedKmh: 0, altitudeM: 0, landed: false, landing: false, landBlocked: false, canLand: false });
+  const [flightAxis, setFlightAxis] = useState("horizontal"); // 'horizontal' | 'vertical'
+  const [vehicleMenuOpen, setVehicleMenuOpen] = useState(false);
+  // Switching vehicles while one is active: the current one steps
+  // down first (the ship may need seconds to auto-land), then the
+  // pending pick summons. Fresh refs — the change handlers fire
+  // from the scene, so the guards read refs, not stale closures.
+  const pendingSummonRef = useRef(null);
+  const roverActiveRef = useRef(false);
+  const shipActiveRef = useRef(false);
   // Fullscreen (Merlin, Nov 16 — circle orb law: the maximize
   // orb sits at the very top right): the Earth 3 / Earth 4
   // mechanism — a fixed inset-0 stage at z-80, no Fullscreen API
@@ -116,18 +140,24 @@ export default function Mars2Page() {
   const profile = useMemo(() => generateMarsProfile(MARS2_SEED), []);
 
   useEffect(() => {
-    document.title = "Mars 2 — Rovers";
+    document.title = "Mars 2 — Rovers & Space";
   }, []);
 
   function toggleMode(m) {
-    // Leaving the rover for foot always steps out of it first:
-    // walk mode must never carry an active rover, or the stick
-    // moves the walker while the roverbar still says ROVER ACTIVE
+    // Leaving a vehicle for foot always steps out of it first:
+    // walk mode must never carry an active rover or ship, or the
+    // stick moves the walker while the roverbar still says ACTIVE
     // (and its speedo freezes at the last value) and the JUMP orb
-    // shows as if the rover could jump. The dismount parks the
-    // rover where it stands; RIDE summons it back.
+    // shows as if the vehicle could jump. The dismount parks the
+    // vehicle where it stands; SUMMON calls it back. (The rover's
+    // rule, extended to the ship: a ship mid-air auto-lands first,
+    // and the mode drops to walk when the step-out completes.)
     if (m === "walk" && rover.active) {
       dismountRover();
+      return;
+    }
+    if (m === "walk" && ship.active) {
+      dismountShip();
       return;
     }
     setMode((prev) => (prev === m ? "orbit" : m));
@@ -271,6 +301,89 @@ export default function Mars2Page() {
     setBuildNotice(delta > 0 ? "Crew on the mine — output up." : "Crew pulled off the mine.");
   }
 
+  function summonShip() {
+    setShipCmd({ action: "summon", nonce: Date.now() });
+    setMode("fly");
+  }
+
+  function dismountShip() {
+    // The mode stays 'fly' until the step-out completes (at once
+    // on the ground, after the auto-landing in the air) — the
+    // ship change handler below drops it to walk then.
+    setShipCmd({ action: "dismount", nonce: Date.now() });
+  }
+
+  // SUMMON opens the vehicle menu (the unify pattern: more than
+  // one summonable vehicle means the menu, not a direct summon).
+  // Picking a vehicle while the other is active steps the current
+  // one down first, then the pending pick summons.
+  const vehicleOptions = useMemo(() => normalizeVehicleOptions([
+    { id: ROVER_ID, name: ROVER_NAME, blurb: "Six wheels, camera mast, high-gain dish — the survey pace across the dunes", art: "/images/shadow-realm/ui/tron-vehicle-rover.webp" },
+    { id: SHIP_ID, name: SHIP_NAME, blurb: SHIP_BLURB, art: "/images/shadow-realm/ui/tron-vehicle-space-orb.webp" },
+  ]), []);
+
+  function summonVehicle(id) {
+    setVehicleMenuOpen(false);
+    if (id === ROVER_ID) {
+      if (shipActiveRef.current) {
+        pendingSummonRef.current = ROVER_ID;
+        dismountShip();
+        return;
+      }
+      summonRover();
+      return;
+    }
+    if (id === SHIP_ID) {
+      if (roverActiveRef.current) {
+        pendingSummonRef.current = SHIP_ID;
+        dismountRover();
+        return;
+      }
+      summonShip();
+    }
+  }
+
+  function dismountActiveVehicle() {
+    if (ship.active) dismountShip();
+    else if (rover.active) dismountRover();
+  }
+
+  // Vehicle change handlers: the scene reports the state, the page
+  // owns the mode. A vehicle stepping down drops a fly/drive mode
+  // back to walk, and runs a pending summon (a switch mid-flight
+  // waits for the auto-landing, then boards the other craft).
+  function handleRoverChange(next) {
+    setRover(next);
+    roverActiveRef.current = !!next.active;
+    if (!next.active && pendingSummonRef.current) {
+      const pending = pendingSummonRef.current;
+      pendingSummonRef.current = null;
+      summonVehicle(pending);
+    }
+  }
+
+  function handleShipChange(next) {
+    setShip(next);
+    shipActiveRef.current = !!next.active;
+    if (!next.active) {
+      setMode((prev) => (prev === "fly" ? "walk" : prev));
+      if (pendingSummonRef.current) {
+        const pending = pendingSummonRef.current;
+        pendingSummonRef.current = null;
+        summonVehicle(pending);
+      }
+    }
+  }
+
+  // Entering a space destination: the pull hands the camera to
+  // the body, then the route opens — the sun to the Sun Base
+  // (with ?from=mars-2 so its way back returns here), the red
+  // moon to its own walkable world.
+  function handleSpaceEnter(route) {
+    if (typeof route === "string" && route) router.push(route);
+  }
+
+
   // Touch stick (the universal controls core): the scene reads
   // these keys for walking AND for driving the rover, so the
   // stick drives both. 0.2 dead zone, so a resting thumb never
@@ -306,10 +419,12 @@ export default function Mars2Page() {
   // the roverbar itself (normal layout, and fullscreen while the
   // merged panel is minimized) and the merged panel's header row
   // (fullscreen while it is open). Same words either way.
-  const statusLine = rover.active ? (
+  const statusLine = ship.active ? (
+    <span><b>◉ IN FLIGHT</b> · {ship.speedKmh.toFixed(0)} km/h · ALT {ship.altitudeM.toFixed(0)} m · AXIS {flightAxis === "vertical" ? "VERTICAL" : "HORIZONTAL"}{ship.landing ? " · LANDING…" : ""}{ship.landBlocked ? " · FLY BACK OVER THE DUNES TO LAND" : ""}</span>
+  ) : rover.active ? (
     <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h</span>
   ) : (
-    <span><b>○ ON FOOT</b> · walk {WALK_SPEED_MPS.toFixed(0)} m/s — summon the rover to drive</span>
+    <span><b>○ ON FOOT</b> · walk {WALK_SPEED_MPS.toFixed(0)} m/s — summon the rover to drive, or the ship to fly</span>
   );
   const timeSlider = (
     <div className="ctl">
@@ -339,15 +454,32 @@ export default function Mars2Page() {
       <OrbButton accent="#e07840" active={mode === "walk"} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"} ariaLabel={mode === "walk" ? "Walking" : "Walk"}>
         <IcRoute /><OrbLabel>WALK</OrbLabel>
       </OrbButton>
-      {rover.active ? (
-        <OrbButton accent="#e07840" onClick={dismountRover} ariaLabel="Dismount rover">
+      {/* SUMMON opens the vehicle menu (rover + ship — the unify
+          pattern): one orb, two rides, each wearing its own
+          graphic and no words on the orb itself. */}
+      <OrbButton accent="#e07840" fn="summon" onClick={() => setVehicleMenuOpen(true)} ariaLabel="Summon rover or ship">
+        <OrbLabel>SUMMON</OrbLabel>
+      </OrbButton>
+      {/* OUT dismounts whichever ride is out: the rover steps out
+          beside it; the ship lands first, then steps out. */}
+      {ship.active && (
+        <OrbButton accent="#e07840" onClick={dismountActiveVehicle} ariaLabel="Land and step out of the ship">
           <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
           <OrbLabel>OUT</OrbLabel>
         </OrbButton>
-      ) : (
-        <OrbButton accent="#e07840" onClick={summonRover} ariaLabel="Summon rover">
-          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬆</span>
-          <OrbLabel>RIDE</OrbLabel>
+      )}
+      {rover.active && (
+        <OrbButton accent="#e07840" onClick={dismountActiveVehicle} ariaLabel="Dismount rover">
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
+          <OrbLabel>OUT</OrbLabel>
+        </OrbButton>
+      )}
+      {/* FLIGHT AXIS (the hub's pill, as an orb): HORIZONTAL flies
+          level — the stick's push is speed; VERTICAL climbs — the
+          stick's push is up/down. Only while flying. */}
+      {ship.active && (
+        <OrbButton accent="#e07840" fn="flight-axis" active={flightAxis === "vertical"} onClick={() => setFlightAxis((a) => (a === "vertical" ? "horizontal" : "vertical"))} aria-pressed={flightAxis === "vertical"} ariaLabel={flightAxis === "vertical" ? "Flight axis vertical — stick up climbs" : "Flight axis horizontal — stick up goes faster"}>
+          <OrbLabel>AXIS</OrbLabel>
         </OrbButton>
       )}
       <OrbButton accent="#e07840" active={mode === "orbit"} onClick={() => setMode("orbit")} aria-pressed={mode === "orbit"} ariaLabel={mode === "orbit" ? "Orbiting" : "Orbit"}>
@@ -409,7 +541,7 @@ export default function Mars2Page() {
       <header>
         <div className="kicker">ARES // OLYMPUS SURFACE PROGRAM</div>
         <h1>MARS 2</h1>
-        <div className="sub">{MARS2_WORLD_NAME} — the successor world. Same red Mars, a new reason to be here: rovers. Walk the dunes, or summon the {ROVER_NAME} and drive them — Olympus Mons on the horizon, dust devils crossing the flats, the ARES outpost waiting at the end of the track.</div>
+        <div className="sub">{MARS2_WORLD_NAME} — the successor world. Same red Mars, a new reason to be here: rovers. Walk the dunes, or summon the {ROVER_NAME} and drive them — Olympus Mons on the horizon, dust devils crossing the flats, the ARES outpost waiting at the end of the track. And above it all, space: summon the {SHIP_NAME}, float up out of Mars, and look out at the solar system — the sun, the red moon, Earth, Jupiter and the Moon are real places now, and the other planets hang there to fly to.</div>
       </header>
 
       <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
@@ -420,7 +552,7 @@ export default function Mars2Page() {
           mode={mode}
           inputRef={inputRef}
           roverCmd={roverCmd}
-          onRoverChange={setRover}
+          onRoverChange={handleRoverChange}
           buildMode={buildMode}
           buildState={buildState}
           buildPlots={plots}
@@ -429,6 +561,10 @@ export default function Mars2Page() {
           onSelectPlot={handleSelectPlot}
           jumpRef={jumpRef}
           onRespawn={handleRespawn}
+          shipCmd={shipCmd}
+          onShipChange={handleShipChange}
+          flightAxis={flightAxis}
+          onSpaceEnter={handleSpaceEnter}
         />
         {/* Build mode panel — inside the stage, so it stays
             reachable in fullscreen too (the fixed stage covers
@@ -460,13 +596,15 @@ export default function Mars2Page() {
             mode only, and only while the rover is parked — the
             rover has no jump) + the fullscreen orb at the very
             top right. The roverbar above already carries the
-            instructions, so no hint pill here. Mars 2 has no
-            backpack, no weapon and no merchant, so those core
-            slots stay off — nothing invented. */}
+            instructions, so no hint pill here — except in flight,
+            where the AXIS switch needs one line of teaching.
+            Mars 2 has no backpack, no weapon and no merchant, so
+            those core slots stay off — nothing invented. */}
         <ControlsCore world="mars-2" accent={ACCENT}
           onMove={mode === "orbit" ? undefined : onMarsMove}
           onJump={mode === "walk" && !rover.active ? () => { jumpRef.current = true; } : undefined}
           fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen((f) => !f)}
+          hint={mode === "fly" ? (flightAxis === "vertical" ? "AXIS VERTICAL — stick up climbs, down descends" : "AXIS HORIZONTAL — stick up goes faster · tap AXIS to climb") : undefined}
         />
         {/* The roverbar — the information script, top-left. It
             shows whenever the merged panel is NOT open in
@@ -479,6 +617,18 @@ export default function Mars2Page() {
           <div className="roverbar" aria-live="polite">
             {statusLine}
           </div>
+        )}
+        {/* The vehicle menu: rover + ship orbs with their own
+            graphics, no words on the orbs — the unify pattern. */}
+        {vehicleMenuOpen && (
+          <VehicleSelectMenu
+            options={vehicleOptions}
+            selectedId={ship.active ? SHIP_ID : (rover.active ? ROVER_ID : null)}
+            onSelect={(opt) => summonVehicle(opt.id)}
+            onClose={() => setVehicleMenuOpen(false)}
+            title="Choose your ride"
+            accent={ACCENT}
+          />
         )}
         {/* Fullscreen controls (Merlin, Nov 17 ~22:09): the fixed
             stage covers the page below it, so the under-screen
@@ -536,6 +686,7 @@ export default function Mars2Page() {
         <div className="biome">Dune Sea · Seed {MARS2_SEED} · Successor to Mars 1</div>
         <div className="vitals">
           ROVER {ROVER_NAME} · TOP {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} KM/H · 6 WHEELS · CAMERA MAST · HIGH-GAIN DISH<br />
+          SHIP {SHIP_NAME} · TOP {shipSpeedKmh(SHIP_TOP_SPEED_MPS).toFixed(0)} KM/H · SEE-THROUGH ORB · FLOATS UP OUT OF MARS · THE SOLAR SYSTEM FROM INSIDE IT<br />
           WALK {WALK_SPEED_MPS.toFixed(0)} M/S ON FOOT · OLYMPUS MONS ON THE HORIZON · DUST DEVILS · ARES OUTPOST · DAY / NIGHT ON THE REAL CLOCK
         </div>
       </section>

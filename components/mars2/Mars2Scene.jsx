@@ -26,16 +26,25 @@ import { thuleWindAt, makeSandField, updateSandField, windCompass, sandstormAt, 
 // at 18–79 km/h, so Mars never reads becalmed on this scale.
 import { msToKmh, windGaugeState, gaugeFill01 } from '@/lib/wind';
 import { MARS2_MAX_HP, tickMars2Health } from '@/lib/mars2/health';
-// Endless free roam (Merlin, Nov 18, 2026): the ground streams in
-// chunks around the camera — lib/mars2/streaming.js.
-import { CHUNK_M, chunksAround, chunkHeightField } from '@/lib/mars2/streaming';
 import {
   ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
   summonRover, updateRover, dismountRover, roverSpeedKmh, smoothRoverSpeedKmh,
 } from '@/lib/mars2/rovers';
+// The space layer (Merlin, Nov 17, 2026): the Space Orb, the
+// sun + red moon as bodies, the star field, the sky going black
+// with height — components/mars2/Mars2Space.jsx.
+import { Mars2SpaceSky, Mars2SpaceStars, Mars2SpaceBodies, ShipModel, ShipRig } from './Mars2Space';
 // Build mode (Merlin, Nov 17, 2026): land plots, mining areas,
 // mines + barracks on the terrain.
 import BuildModeLayer from './BuildModeLayer';
+import { spaceFactorForAltitude } from '@/lib/mars2/space';
+import {
+  SHIP_REST_M, SHIP_BODY_R_M,
+  summonShip, dismountShip, requestShipLanding, canDismountShip,
+} from '@/lib/mars2/spaceship';
+// Endless free roam (Merlin, Nov 18, 2026): the ground streams in
+// chunks around the camera — lib/mars2/streaming.js.
+import { CHUNK_M, chunksAround, chunkHeightField } from '@/lib/mars2/streaming';
 // The shared planet walker (Merlin, Nov 15, 2026 — the same
 // gravity logic on every planet): Mars 2's walk runs on it now —
 // real Mars gravity (3.71 m/s²) with the shared 3.0 m/s take-off,
@@ -51,8 +60,9 @@ const MARS_PLANET = planetParams('mars');
 // dunes, dust devils, haze, Olympus Mons, one ARES outpost, and
 // a summonable six-wheeled survey rover you drive across it.
 // Modes: 'orbit' overview, 'walk' (WASD + stick, terrain-clamped),
-// 'drive' (same keys drive the rover, chase camera). No fly mode
-// on purpose — this world is walked and driven, not flown.
+// 'drive' (same keys drive the rover, chase camera), 'fly' (the
+// Space Orb — the ship floats up out of Mars into the space
+// layer, where the sun and the red moon are real destinations).
 // Day/night is the shared law: DayNightRig (lib/day-night.js)
 // drives sky, fog and lights from the real clock; the page's
 // timeOfDay (same real clock) only dims the dust and devils.
@@ -236,9 +246,9 @@ function Mars2Cgi({ profile, dayF }) {
     haze.list.forEach((h) => h.sprite.material.dispose());
   }, [dust, devilGeo, devilTex, devilMats, haze]);
   useFrame((state) => {
+    const now = Date.now();
     const cam = state.camera.position;
     if (followRef.current) followRef.current.position.set(cam.x, 0, cam.z);
-    const now = Date.now();
     updateDustField(dust, now);
     dust.material.opacity = 0.18 + 0.34 * dayF;
     const t = (now - PLANET_CGI_EPOCH_MS) / 1000;
@@ -298,7 +308,7 @@ function Mars2Cgi({ profile, dayF }) {
 // rides the storm harder too. The storm also closes the air: the
 // scene fog thickens with it (set every frame, so the rig's
 // once-a-second fog re-attach never holds the clear value).
-function Mars2Weather({ profile, dayF }) {
+function Mars2Weather({ profile, dayF, spaceFRef }) {
   // The sand fields follow the camera (Merlin, Nov 18, 2026 —
   // the world is endless): both Points fields are local boxes
   // around the origin, so they ride in a group parked on the
@@ -326,7 +336,14 @@ function Mars2Weather({ profile, dayF }) {
     const dt = Math.min(rawDt, 0.05);
     updateSandField(sand, wind, dt, now, 0.45 + 0.55 * dayF, storm.intensity);
     updateSandField(stormSand, wind, dt, now, storm.intensity, storm.intensity);
+    // The storm closes the air — and the air thins with height:
+    // in space the fog is gone (the space factor owns it), so the
+    // climb reads as leaving the atmosphere, not driving into haze.
+    const spaceF = (spaceFRef && spaceFRef.current.spaceF) || 0;
     if (scene.fog) scene.fog.density = 0.004 + storm.intensity * 0.016;
+    // In space the air is gone: the fog thins with height, on top
+    // of the storm law above.
+    if (scene.fog) scene.fog.density *= (1 - spaceF);
   });
   return (
     <group ref={followRef}>
@@ -337,7 +354,11 @@ function Mars2Weather({ profile, dayF }) {
 }
 
 // --- starfield ---------------------------------------------------------------
-function Mars2Stars({ profile, opacity }) {
+// The night-sky dome stars (upper hemisphere, r420). In space
+// they hand over to the full-sphere field (Mars2SpaceStars): the
+// dome fades out with the space factor, so the sky never wears
+// two different star layouts at once.
+function Mars2Stars({ profile, opacity, spaceFRef }) {
   // The star dome follows the camera (Merlin, Nov 18, 2026 —
   // the world is endless): a r420 dome centred on the origin
   // reads wrong a kilometre out, so the group rides on the
@@ -368,11 +389,14 @@ function Mars2Stars({ profile, opacity }) {
     points.geometry.dispose();
     points.material.dispose();
   }, [points]);
+  const opacityRef = useRef(opacity);
+  opacityRef.current = opacity;
   useFrame((state) => {
     const cam = state.camera.position;
     if (followRef.current) followRef.current.position.set(cam.x, cam.y, cam.z);
+    const spaceF = (spaceFRef && spaceFRef.current.spaceF) || 0;
+    points.material.opacity = opacityRef.current * (1 - spaceF);
   });
-  points.material.opacity = opacity;
   return (
     <group ref={followRef}>
       <primitive object={points} />
@@ -406,6 +430,15 @@ function Mars2RedMoon({ timeOfDay }) {
   const vis = dn.palette.night
     * Math.max(0, Math.min(1, dn.moon.illum))
     * Math.max(0, Math.min(1, dn.moon.altDeg / 20));
+  // In space the sky moon hands over to the moon body
+  // (Mars2SpaceBodies): this disc fades out with height, so the
+  // sky never wears two moons at once. The altitude comes from
+  // the camera itself — the same law the space layer reads
+  // (spaceFactorForAltitude: 60 m → 150 m).
+  const meshMatRef = useRef();
+  const haloMatRef = useRef();
+  const visRef = useRef(vis);
+  visRef.current = vis;
   // The moon follows the camera (Merlin, Nov 18, 2026 — the
   // world is endless): the disc sits at moonVec*380 from the
   // group's origin, so the group rides on the camera each frame
@@ -414,7 +447,10 @@ function Mars2RedMoon({ timeOfDay }) {
   const followRef = useRef();
   const camera = useThree((s) => s.camera);
   useFrame(() => {
+    const spaceF = spaceFactorForAltitude(camera.position.y);
     if (followRef.current) followRef.current.position.set(camera.position.x, camera.position.y, camera.position.z);
+    if (meshMatRef.current) meshMatRef.current.opacity = 0.95 * visRef.current * (1 - spaceF);
+    if (haloMatRef.current) haloMatRef.current.opacity = 0.4 * visRef.current * (1 - spaceF);
   });
   if (vis <= 0.01 || dn.moon.altDeg < -2) return null;
   const pos = [dn.moonVec.x * 380, dn.moonVec.y * 380, dn.moonVec.z * 380];
@@ -422,14 +458,15 @@ function Mars2RedMoon({ timeOfDay }) {
     <group ref={followRef}>
       <mesh position={pos}>
         <sphereGeometry args={[9, 32, 32]} />
-        <meshBasicMaterial map={moonMaps.map} color="#ff6a4a" fog={false} transparent opacity={0.95 * vis} depthWrite={false} />
+        <meshBasicMaterial ref={meshMatRef} map={moonMaps.map} color="#ff6a4a" fog={false} transparent opacity={0.95 * vis} depthWrite={false} />
       </mesh>
       <sprite position={pos} scale={[110, 110, 1]}>
-        <spriteMaterial map={glowTex} color="#ff4a2a" fog={false} transparent opacity={0.4 * vis} depthWrite={false} />
+        <spriteMaterial ref={haloMatRef} map={glowTex} color="#ff4a2a" fog={false} transparent opacity={0.4 * vis} depthWrite={false} />
       </sprite>
     </group>
   );
 }
+
 
 // --- the sun, following the camera -------------------------------------------
 // Mars 2 is endless (Merlin, Nov 18, 2026): the rig's sun disc sits
@@ -456,9 +493,16 @@ function Mars2Sun({ timeOfDay }) {
   const glowTex = useMemo(() => getParticleTexture('glow') || undefined, []);
   const sunVis = Math.max(0, Math.min(1, dn.palette.sunIntensity / 0.9));
   const groupRef = useRef();
+  const visRef = useRef(sunVis);
+  visRef.current = sunVis;
+  const meshMatRef = useRef();
+  const haloMatRef = useRef();
   const camera = useThree((s) => s.camera);
   useFrame(() => {
+    const spaceF = spaceFactorForAltitude(camera.position.y);
     if (groupRef.current) groupRef.current.position.set(camera.position.x, camera.position.y, camera.position.z);
+    if (meshMatRef.current) meshMatRef.current.opacity = 0.95 * visRef.current * (1 - spaceF);
+    if (haloMatRef.current) haloMatRef.current.opacity = 0.55 * visRef.current * (1 - spaceF);
   });
   if (sunVis <= 0.01) return null;
   const pos = [dn.sunVec.x * 380, dn.sunVec.y * 380, dn.sunVec.z * 380];
@@ -466,15 +510,14 @@ function Mars2Sun({ timeOfDay }) {
     <group ref={groupRef}>
       <mesh position={pos}>
         <sphereGeometry args={[6, 20, 20]} />
-        <meshBasicMaterial color={rgbStr(dn.palette.sunColor)} fog={false} transparent opacity={0.95 * sunVis} depthWrite={false} />
+        <meshBasicMaterial ref={meshMatRef} color={rgbStr(dn.palette.sunColor)} fog={false} transparent opacity={0.95 * sunVis} depthWrite={false} />
       </mesh>
       <sprite position={pos} scale={[64, 64, 1]}>
-        <spriteMaterial map={glowTex} color={rgbStr(dn.palette.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
+        <spriteMaterial ref={haloMatRef} map={glowTex} color={rgbStr(dn.palette.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
       </sprite>
     </group>
   );
 }
-
 
 // --- the orbit target --------------------------------------------------------
 // Orbit mode looks at the walker, not the origin (Merlin, Nov 18,
@@ -763,11 +806,6 @@ function Outpost({ profile, walkerRef }) {
         <meshStandardMaterial {...redMast} />
         <boxGeometry args={[0.1, 1.8, 0.1]} />
       </mesh>
-      {/* lit lintel strip under the header — the doorway reads after dark */}
-      <mesh position={[-8.62, 1.72, 0]}>
-        <boxGeometry args={[0.04, 0.04, 1.2]} />
-        <meshBasicMaterial color="#ffb37a" />
-      </mesh>
       <mesh position={[-8.62, 0.9, 0.62]}>
         <meshStandardMaterial {...redMast} />
         <boxGeometry args={[0.1, 1.8, 0.1]} />
@@ -775,6 +813,11 @@ function Outpost({ profile, walkerRef }) {
       <mesh position={[-8.62, 1.8, 0]}>
         <meshStandardMaterial {...redMast} />
         <boxGeometry args={[0.1, 0.12, 1.34]} />
+      </mesh>
+      {/* lit lintel strip under the header — the doorway reads after dark */}
+      <mesh position={[-8.62, 1.72, 0]}>
+        <boxGeometry args={[0.04, 0.04, 1.2]} />
+        <meshBasicMaterial color="#ffb37a" />
       </mesh>
       {/* lit windows — the domes read at night */}
       <DomeWindow cx={-4} phi={1.1} theta={1.1} radius={3.22} />
@@ -1107,9 +1150,10 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
   useEffect(() => {
     camera.rotation.order = 'YXZ';
     const el = gl.domElement;
-    const s = (e) => { dragging.current = true; last.current = [e.clientX, e.clientY]; };
+    const s = (e) => { if (modeRef.current === 'fly') return; dragging.current = true; last.current = [e.clientX, e.clientY]; };
     const m = (e) => {
       if (!dragging.current) return;
+      if (modeRef.current === 'fly') return; // the ShipRig owns the drag in flight
       const dx = e.clientX - last.current[0];
       const dy = e.clientY - last.current[1];
       last.current = [e.clientX, e.clientY];
@@ -1122,6 +1166,7 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     };
     const e = () => { dragging.current = false; };
     const ts = (e2) => {
+      if (modeRef.current === 'fly') return;
       const t = e2.touches[0];
       dragging.current = true;
       last.current = [t.clientX, t.clientY];
@@ -1129,6 +1174,7 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     const tm = (e2) => {
       const t = e2.touches[0];
       if (!dragging.current) return;
+      if (modeRef.current === 'fly') return; // the ShipRig owns the drag in flight
       const dx = t.clientX - last.current[0];
       const dy = t.clientY - last.current[1];
       last.current = [t.clientX, t.clientY];
@@ -1158,6 +1204,9 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
 
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
+    // Fly mode belongs to the ShipRig (components/mars2/Mars2Space.jsx):
+    // the walker rides with the ship and never walks mid-flight.
+    if (mode === 'fly') return;
     const k = inputRef.current.keys;
     const rover = roverRef.current;
     if (mode === 'drive' && rover && rover.active) {
@@ -1250,9 +1299,10 @@ const WORLD_LABELS = [
   { key: 'mons', text: 'OLYMPUS MONS' },
   { key: 'outpost', text: 'ARES OUTPOST' },
   { key: 'rover', text: 'ARES-2 ROVER' },
+  { key: 'ship', text: 'SPACE ORB' },
 ];
 
-function LabelProjector({ profile, roverRef, labelRef }) {
+function LabelProjector({ profile, roverRef, shipRef, labelRef }) {
   const { camera, size } = useThree();
   const mons = useMemo(() => monsSite(profile), [profile]);
   const outpost = useMemo(() => outpostSite(profile), [profile]);
@@ -1278,6 +1328,9 @@ function LabelProjector({ profile, roverRef, labelRef }) {
     const rover = roverRef.current;
     if (rover) place('rover', rover.x, rover.y + 3.1, rover.z);
     else if (nodes.rover) nodes.rover.style.visibility = 'hidden';
+    const ship = shipRef && shipRef.current;
+    if (ship) place('ship', ship.x, ship.y + 2.5, ship.z);
+    else if (nodes.ship) nodes.ship.style.visibility = 'hidden';
   });
   return null;
 }
@@ -1331,14 +1384,22 @@ function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, onHpChange, on
 }
 
 // --- scene composition ---------------------------------------------------------
-function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, onHpChange, onRespawn, buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot }) {
+function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, shipCmd, onShipChange, flightAxis, onSpaceEnter, onHpChange, onRespawn, buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot }) {
   const orbitRef = useRef();
   const walkerRef = useRef(new THREE.Vector3(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z));
   const yawRef = useRef(0.6);
   const pitchRef = useRef(-0.05);
-  const roverRef = useRef(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const roverRef = useRef(null);
+  const shipRef = useRef(null);
+  // The space factor (0 on the ground → 1 in space), the camera's
+  // altitude, and whether the entry pull owns the camera — one
+  // shared ref the sky, stars, fog, moon and flight rig all read
+  // every frame, so the handoff stays in step.
+  const spaceFRef = useRef({ spaceF: 0, altitudeM: 0, pullActive: false });
+  const flightAxisRef = useRef(flightAxis);
+  flightAxisRef.current = flightAxis;
   const dayF = mars2DayFactor(timeOfDay);
   const groundHeight = (x, z) => getTerrainHeight(x, z, profile);
   const outpost = useMemo(() => outpostSite(profile), [profile]);
@@ -1376,6 +1437,55 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roverCmd]);
 
+  // Ship commands from the page: summon boards the ship at the
+  // walker's side; dismount steps the walker out beside it and
+  // leaves the ship parked where it stands — or, while airborne,
+  // starts the auto-landing, and the ShipRig completes the step-out
+  // the moment it has touched down (it calls onShipChange then).
+  useEffect(() => {
+    if (!shipCmd) return;
+    if (shipCmd.action === 'summon') {
+      const walker = {
+        x: walkerRef.current.x,
+        z: walkerRef.current.z,
+        heading: yawRef.current,
+      };
+      const ship = summonShip(shipRef.current, walker);
+      ship.y = groundHeight(ship.x, ship.z) + SHIP_REST_M;
+      // A summon never lands the ship inside the outpost's domes
+      // or tube — the walker may be standing in the doorway.
+      const c = outpostCollide(ship.x, ship.z, outpost, SHIP_BODY_R_M);
+      ship.x = c.x; ship.z = c.z;
+      ship.y = groundHeight(ship.x, ship.z) + SHIP_REST_M;
+      shipRef.current = ship;
+      if (onShipChange) onShipChange({ active: true, speedKmh: 0, altitudeM: 0, landed: false, landing: false, canLand: false });
+    } else if (shipCmd.action === 'dismount') {
+      const ship = shipRef.current;
+      if (ship && ship.active) {
+        if (canDismountShip(ship)) {
+          const spot = dismountShip(ship);
+          walkerRef.current.set(spot.x, groundHeight(spot.x, spot.z) + EYE_HEIGHT, spot.z);
+          yawRef.current = spot.heading;
+          pitchRef.current = -0.05;
+          if (onShipChange) onShipChange({ active: false, speedKmh: 0, altitudeM: 0, landed: true, landing: false, canLand: true });
+        } else {
+          // Airborne: land itself — there is a dune to land on
+          // at any distance (the world is endless, Nov 18, 2026),
+          // so landing never fails and never needs a flag.
+          requestShipLanding(ship);
+          if (onShipChange) {
+            onShipChange({
+              active: true, speedKmh: 0,
+              altitudeM: Math.max(0, ship.y - groundHeight(ship.x, ship.z)),
+              landed: false, landing: ship.landing, canLand: false,
+            });
+          }
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipCmd]);
+
   return (
     <>
       {/* The page's timeOfDay drives the rig's cycle (the TIME
@@ -1386,17 +1496,23 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
           are lit red by its moon (the red moon disc below rides
           the same direction). */}
       <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} moonColor="#ff5040" moonIntensity={2.5} />
-      <Mars2Sun timeOfDay={timeOfDay} />
+      <Mars2SpaceSky timeOfDay={timeOfDay} spaceFRef={spaceFRef} />
+      <Mars2SpaceStars spaceFRef={spaceFRef} />
+      <Mars2SpaceBodies timeOfDay={timeOfDay} spaceFRef={spaceFRef} onEnter={onSpaceEnter} />
       <Mars2RedMoon timeOfDay={timeOfDay} />
+      <Mars2Sun timeOfDay={timeOfDay} />
       {/* cool fill from the opposite side so the night never goes
           black (the Mars 1 pattern — same light, same reason). */}
       <directionalLight position={[-40, 24, 40]} intensity={0.18} color="#7a86a8" />
-      <Mars2Stars profile={profile} opacity={1 - dayF} />
+      <Mars2Stars profile={profile} opacity={1 - dayF} spaceFRef={spaceFRef} />
       <Mars2StreamingTerrain profile={profile} />
       <OlympusMons profile={profile} />
       <Mars2Cgi profile={profile} dayF={dayF} />
-      <Mars2Weather profile={profile} dayF={dayF} />
+      <Mars2Weather profile={profile} dayF={dayF} spaceFRef={spaceFRef} />
       <Outpost profile={profile} walkerRef={walkerRef} />
+      {/* Storm health: the ticker watches the storm + shelter and
+          reports HP to the page; death respawns at the outpost. */}
+      <Mars2HealthTicker walkerRef={walkerRef} yawRef={yawRef} modeRef={modeRef} outpost={outpost} onHpChange={onHpChange} onRespawn={onRespawn} />
       {/* Build mode: plots + mining areas (build mode only),
           mines + barracks (always, once built). */}
       <BuildModeLayer
@@ -1408,11 +1524,9 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
         selectedPlotId={selectedPlotId}
         onSelectPlot={onSelectPlot}
       />
-      {/* Storm health: the ticker watches the storm + shelter and
-          reports HP to the page; death respawns at the outpost. */}
-      <Mars2HealthTicker walkerRef={walkerRef} yawRef={yawRef} modeRef={modeRef} outpost={outpost} onHpChange={onHpChange} onRespawn={onRespawn} />
       <RoverModel roverRef={roverRef} />
-      <LabelProjector profile={profile} roverRef={roverRef} labelRef={labelRef} />
+      <ShipModel shipRef={shipRef} />
+      <LabelProjector profile={profile} roverRef={roverRef} shipRef={shipRef} labelRef={labelRef} />
 
       {mode === 'orbit' && (
         <OrbitControls ref={orbitRef} makeDefault enableDamping dampingFactor={0.08}
@@ -1428,6 +1542,14 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
           walkerRef={walkerRef} yawRef={yawRef} pitchRef={pitchRef}
           roverRef={roverRef} onRoverChange={onRoverChange} jumpRef={jumpRef}
           outpost={outpost}
+        />
+      )}
+      {mode === 'fly' && (
+        <ShipRig
+          inputRef={inputRef} mode={mode} groundHeight={groundHeight}
+          walkerRef={walkerRef} yawRef={yawRef} pitchRef={pitchRef}
+          shipRef={shipRef} onShipChange={onShipChange}
+          outpost={outpost} spaceFRef={spaceFRef} flightAxisRef={flightAxisRef}
         />
       )}
     </>
@@ -1523,6 +1645,7 @@ function Mars2HpPill({ hp, maxHp }) {
 export default function Mars2Scene({
   profile, worldKey, timeOfDay = 0.32, mode = 'orbit',
   inputRef, roverCmd, onRoverChange, jumpRef,
+  shipCmd, onShipChange, flightAxis = 'horizontal', onSpaceEnter,
   onRespawn,
   buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot,
 }) {
@@ -1544,7 +1667,7 @@ export default function Mars2Scene({
   // the chase camera. The start sits pulled back (46, 26, 62)
   // so orbit mode opens on the whole reach — outpost and label
   // clear in frame — instead of parked against them.
-  const cameraProps = useMemo(() => ({ position: [46, 26, 62], fov: 55, near: 0.1, far: 900 }), []);
+  const cameraProps = useMemo(() => ({ position: [46, 26, 62], fov: 55, near: 0.1, far: 3000 }), []);
   const dprProps = useMemo(() => [1, 1.75], []);
   const glProps = useMemo(() => ({ antialias: true, powerPreference: 'high-performance' }), []);
 
@@ -1561,6 +1684,7 @@ export default function Mars2Scene({
           profile={profile} timeOfDay={timeOfDay} mode={mode}
           inputRef={inputRef} roverCmd={roverCmd} onRoverChange={onRoverChange} jumpRef={jumpRef}
           labelRef={labelRef}
+          shipCmd={shipCmd} onShipChange={onShipChange} flightAxis={flightAxis} onSpaceEnter={onSpaceEnter}
           buildMode={buildMode} buildState={buildState} buildPlots={buildPlots}
           buildAreas={buildAreas} selectedPlotId={selectedPlotId} onSelectPlot={onSelectPlot}
           onHpChange={handleHpChange} onRespawn={onRespawn}
