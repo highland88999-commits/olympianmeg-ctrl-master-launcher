@@ -29,6 +29,9 @@ import {
   ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
   summonRover, updateRover, dismountRover, roverSpeedKmh, smoothRoverSpeedKmh,
 } from '@/lib/mars2/rovers';
+// Build mode (Merlin, Nov 17, 2026): land plots, mining areas,
+// mines + barracks on the terrain.
+import BuildModeLayer from './BuildModeLayer';
 // The shared planet walker (Merlin, Nov 15, 2026 — the same
 // gravity logic on every planet): Mars 2's walk runs on it now —
 // real Mars gravity (3.71 m/s²) with the shared 3.0 m/s take-off,
@@ -1324,7 +1327,7 @@ function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, onHpChange, on
 }
 
 // --- scene composition ---------------------------------------------------------
-function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, onHpChange, onRespawn }) {
+function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, onHpChange, onRespawn, buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot }) {
   const orbitRef = useRef();
   const walkerRef = useRef(new THREE.Vector3(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z));
   const yawRef = useRef(0.6);
@@ -1390,6 +1393,17 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       <Mars2Cgi profile={profile} dayF={dayF} />
       <Mars2Weather profile={profile} dayF={dayF} />
       <Outpost profile={profile} walkerRef={walkerRef} />
+      {/* Build mode: plots + mining areas (build mode only),
+          mines + barracks (always, once built). */}
+      <BuildModeLayer
+        profile={profile}
+        buildMode={!!buildMode}
+        plots={buildPlots || []}
+        areas={buildAreas || []}
+        buildings={(buildState && buildState.buildings) || []}
+        selectedPlotId={selectedPlotId}
+        onSelectPlot={onSelectPlot}
+      />
       {/* Storm health: the ticker watches the storm + shelter and
           reports HP to the page; death respawns at the outpost. */}
       <Mars2HealthTicker walkerRef={walkerRef} yawRef={yawRef} modeRef={modeRef} outpost={outpost} onHpChange={onHpChange} onRespawn={onRespawn} />
@@ -1497,6 +1511,7 @@ export default function Mars2Scene({
   profile, worldKey, timeOfDay = 0.32, mode = 'orbit',
   inputRef, roverCmd, onRoverChange, jumpRef,
   onRespawn,
+  buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot,
 }) {
   useKeys(inputRef);
   const [ready, setReady] = useState(false);
@@ -1533,6 +1548,8 @@ export default function Mars2Scene({
           profile={profile} timeOfDay={timeOfDay} mode={mode}
           inputRef={inputRef} roverCmd={roverCmd} onRoverChange={onRoverChange} jumpRef={jumpRef}
           labelRef={labelRef}
+          buildMode={buildMode} buildState={buildState} buildPlots={buildPlots}
+          buildAreas={buildAreas} selectedPlotId={selectedPlotId} onSelectPlot={onSelectPlot}
           onHpChange={handleHpChange} onRespawn={onRespawn}
         />
       </Canvas>

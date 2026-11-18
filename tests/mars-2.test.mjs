@@ -930,3 +930,26 @@ describe('mars-2 outpost round 2 (Merlin, Nov 17, 2026 — phone video ~23:37)',
     assert.ok(page.includes('onRespawn={handleRespawn}'), 'the page wires the respawn callback');
   });
 });
+
+describe('mars-2 build mode (Merlin, Nov 17, 2026)', () => {
+  it('the page wires build mode: BUILD orb, panel, shared materials', () => {
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('Enter build mode'), 'the BUILD orb enters build mode');
+    assert.ok(page.includes('Exit build mode'), 'the BUILD orb exits build mode');
+    assert.ok(page.includes('BuildPanel'), 'the build panel is wired in');
+    assert.ok(page.includes('@/lib/mars2/build-mode'), 'the page uses the build-mode engine');
+    assert.ok(page.includes('@/lib/economy/materials'), 'the materials are the shared registry');
+    assert.ok(page.includes('MARS_MINE_MATERIAL_IDS'), 'the wallet counts the shared Mars materials');
+  });
+  it('the scene renders the build layer with the build props', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('BuildModeLayer'), 'the build layer is mounted');
+    assert.ok(scene.includes('buildMode={!!buildMode}'), 'plots render only in build mode');
+    assert.ok(scene.includes('buildPlots') && scene.includes('buildAreas'), 'plots + areas reach the layer');
+  });
+  it('the build-mode files exist: shared registry, engine, layer, panel, tests', () => {
+    for (const p of ['lib/economy/materials.js', 'lib/mars2/build-mode.js', 'components/mars2/BuildModeLayer.jsx', 'components/mars2/BuildPanel.jsx', 'tests/mars2-build-mode.test.mjs']) {
+      assert.ok(fs.existsSync(path.join(repo, p)), `${p} must exist`);
+    }
+  });
+});

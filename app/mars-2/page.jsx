@@ -9,6 +9,15 @@ import { ROVER_NAME, ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS, roverSpeedKmh } from "
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute } from "@/app/artemis-ui/icons";
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
 import ControlsCore from "@/components/world/ControlsCore";
+import BuildPanel from "@/components/mars2/BuildPanel";
+import { useBackpack, updateBackpack } from "@/lib/backpack/store";
+import { addItem, removeItem, countItem } from "@/lib/backpack/backpack";
+import { materialById, materialItemFor, MARS_MINE_MATERIAL_IDS } from "@/lib/economy/materials";
+import {
+  plotsFor, miningAreasFor, loadBuildState, saveBuildState,
+  buildMine, buildBarracks, upgradeBuilding, recruitCrew, assignCrew,
+  tickBuildings, collectBuilding, mineMaterialId,
+} from "@/lib/mars2/build-mode";
 
 // MARS 2 — the successor world (Merlin, Nov 15, 2026). One-word
 // spec: ROVERS. Fixed seed, no seed picker, no exobiology — walk
@@ -143,6 +152,125 @@ export default function Mars2Page() {
     setMode("walk");
   }
 
+  // BUILD MODE (Merlin, Nov 17, 2026): land plots appear on the
+  // terrain, mines go in the designated mining areas, barracks
+  // recruit crew, everything upgrades. The materials are the
+  // SHARED ones (lib/economy/materials.js) — banked into and
+  // spent from the backpack, so a Mars-mined unit is the same
+  // material the rest of the ecosystem collects. Build state
+  // (plots, buildings, crew) is device-local; the materials
+  // themselves live in the pack.
+  const [buildMode, setBuildMode] = useState(false);
+  const backpackRecord = useBackpack();
+  const plots = useMemo(() => plotsFor(profile), [profile]);
+  const areas = useMemo(() => miningAreasFor(profile), [profile]);
+  const [buildState, setBuildState] = useState(() => loadBuildState(plotsFor(profile)));
+  const [selectedPlotId, setSelectedPlotId] = useState(null);
+  const [buildNotice, setBuildNotice] = useState("");
+  // The panel collapses to a chip so the user can see the plots
+  // (it covers most of the stage on a phone). Tapping a plot
+  // reopens it; the BUILD orb exits build mode outright.
+  const [buildPanelCollapsed, setBuildPanelCollapsed] = useState(false);
+  function handleSelectPlot(plotId) {
+    setSelectedPlotId(plotId);
+    if (plotId) setBuildPanelCollapsed(false);
+  }
+  const wallet = useMemo(() => {
+    const w = {};
+    for (const id of MARS_MINE_MATERIAL_IDS) w[id] = countItem(backpackRecord, id);
+    return w;
+  }, [backpackRecord]);
+
+  // Mines accrue only while the page is open — the tick runs
+  // here, every 5 s, never offline.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setBuildState((prev) => {
+        const next = tickBuildings(prev, Date.now());
+        saveBuildState(next);
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Apply an engine result's wallet spend to the backpack: the
+  // engine spends from the plain wallet, the pack is the truth.
+  function spendWalletDiff(oldWallet, newWallet) {
+    if (!newWallet) return;
+    updateBackpack((rec) => {
+      let next = rec;
+      for (const id of Object.keys(newWallet)) {
+        const diff = (oldWallet[id] || 0) - (newWallet[id] || 0);
+        if (diff > 0) next = removeItem(next, id, diff);
+      }
+      return next;
+    });
+  }
+
+  function handleBuildMine(plotId) {
+    const res = buildMine(buildState, plots, plotId, wallet, Date.now());
+    if (!res.ok) { setBuildNotice(res.reason); return; }
+    spendWalletDiff(wallet, res.wallet);
+    setBuildState(res.state);
+    saveBuildState(res.state);
+    setBuildNotice("Mine staked — it works the seam now. Collect when it fills.");
+  }
+
+  function handleBuildBarracks(plotId) {
+    const res = buildBarracks(buildState, plots, plotId, wallet, Date.now());
+    if (!res.ok) { setBuildNotice(res.reason); return; }
+    spendWalletDiff(wallet, res.wallet);
+    setBuildState(res.state);
+    saveBuildState(res.state);
+    setBuildNotice("Barracks up — crew can be recruited here now.");
+  }
+
+  function handleUpgrade(buildingId) {
+    const res = upgradeBuilding(buildState, buildingId, wallet, Date.now());
+    if (!res.ok) { setBuildNotice(res.reason); return; }
+    spendWalletDiff(wallet, res.wallet);
+    setBuildState(res.state);
+    saveBuildState(res.state);
+    setBuildNotice("Upgraded — bigger, better output.");
+  }
+
+  function handleCollect(buildingId) {
+    const building = buildState.buildings.find((b) => b.id === buildingId);
+    const res = collectBuilding(buildState, buildingId);
+    if (!res.ok) { setBuildNotice(res.reason); return; }
+    const matId = mineMaterialId(building, plots);
+    const item = materialItemFor(matId, res.qty, "mars-2-mine");
+    const mat = materialById(matId);
+    if (item) {
+      updateBackpack((rec) => addItem(rec, item));
+      setBuildNotice(`Collected ${res.qty} ${mat ? mat.name : matId} into the backpack.`);
+    } else {
+      // No plot, no material: the yield has nowhere to bank.
+      // Say so plainly instead of claiming it banked.
+      setBuildNotice("That mine's plot is gone — its yield couldn't be banked.");
+    }
+    setBuildState(res.state);
+    saveBuildState(res.state);
+  }
+
+  function handleRecruit() {
+    const res = recruitCrew(buildState, wallet);
+    if (!res.ok) { setBuildNotice(res.reason); return; }
+    spendWalletDiff(wallet, res.wallet);
+    setBuildState(res.state);
+    saveBuildState(res.state);
+    setBuildNotice("Crew recruited — assign them to a mine to raise its output.");
+  }
+
+  function handleAssignCrew(buildingId, delta) {
+    const res = assignCrew(buildState, buildingId, delta);
+    if (!res.ok) { setBuildNotice(res.reason); return; }
+    setBuildState(res.state);
+    saveBuildState(res.state);
+    setBuildNotice(delta > 0 ? "Crew on the mine — output up." : "Crew pulled off the mine.");
+  }
+
   // Touch stick (the universal controls core): the scene reads
   // these keys for walking AND for driving the rover, so the
   // stick drives both. 0.2 dead zone, so a resting thumb never
@@ -226,6 +354,14 @@ export default function Mars2Page() {
         <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>◍</span>
         <OrbLabel>ORBIT</OrbLabel>
       </OrbButton>
+      {/* BUILD MODE (Merlin, Nov 17, 2026): plots appear on the
+          terrain, mines in the mining areas, barracks for crew.
+          An overlay mode — the walker still walks, drives and
+          flies while it is on. */}
+      <OrbButton accent="#e07840" active={buildMode} onClick={() => { setBuildMode((b) => !b); setSelectedPlotId(null); setBuildPanelCollapsed(false); }} aria-pressed={buildMode} ariaLabel={buildMode ? "Exit build mode" : "Enter build mode"}>
+        <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬢</span>
+        <OrbLabel>BUILD</OrbLabel>
+      </OrbButton>
     </>
   );
 
@@ -285,9 +421,40 @@ export default function Mars2Page() {
           inputRef={inputRef}
           roverCmd={roverCmd}
           onRoverChange={setRover}
+          buildMode={buildMode}
+          buildState={buildState}
+          buildPlots={plots}
+          buildAreas={areas}
+          selectedPlotId={selectedPlotId}
+          onSelectPlot={handleSelectPlot}
           jumpRef={jumpRef}
           onRespawn={handleRespawn}
         />
+        {/* Build mode panel — inside the stage, so it stays
+            reachable in fullscreen too (the fixed stage covers
+            the page below it). Sits below the Thule pill, clear
+            of the roverbar, joystick, JUMP and fullscreen orb. */}
+        {buildMode && (
+          <BuildPanel
+            plots={plots}
+            areas={areas}
+            state={buildState}
+            wallet={wallet}
+            selectedPlotId={selectedPlotId}
+            onSelectPlot={handleSelectPlot}
+            onBuildMine={handleBuildMine}
+            onBuildBarracks={handleBuildBarracks}
+            onUpgrade={handleUpgrade}
+            onCollect={handleCollect}
+            onRecruit={handleRecruit}
+            onAssignCrew={handleAssignCrew}
+            onClose={() => { setBuildMode(false); setSelectedPlotId(null); setBuildPanelCollapsed(false); }}
+            onCollapse={() => setBuildPanelCollapsed(true)}
+            collapsed={buildPanelCollapsed}
+            onExpand={() => setBuildPanelCollapsed(false)}
+            notice={buildNotice}
+          />
+        )}
         {/* Universal controls core (Merlin, Nov 16 ~03:49): the
             fixed joystick bottom-left + the docked JUMP orb (walk
             mode only, and only while the rover is parked — the
