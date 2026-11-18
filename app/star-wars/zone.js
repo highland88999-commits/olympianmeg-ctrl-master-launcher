@@ -27,6 +27,12 @@
  * Returns:
  *   { group, colliders, spawn, bounds, groundHeight, checkpoints, target,
  *     characters, vehicles, setObserver, update, dispose, kind, sky, fog }
+ *   - bounds is null: the world is ENDLESS (Merlin, Nov 18, 2026) —
+ *     the ground streams in chunks around the observer (walk) or the
+ *     starfield + sun travel with the pilot (fly), and no clamp, wall
+ *     or turn-back contains the walker, the vehicle or the ship. The
+ *     planet's worldRadius in the data stays the HOME-REGION radius
+ *     (texture reps, horizon, scatter, vehicles, quests).
  *   - vehicles: [{ id, type, state, group, colliders }] for landmark
  *     defs carrying `vehicle:` — drive states from vehicles.js; the
  *     group renders from the state in update().
@@ -45,6 +51,10 @@ import { buildCharacter, labelOpacity, makeLifeLabel } from './characters.js';
 import { ambientLifeFor } from './operators.js';
 import { VEHICLE_TYPES, createVehicleState } from './vehicles.js';
 import { cgiGroundMaps, buildCgi } from './cgi.js';
+import {
+  SW_STREAM, chunkKey, chunkBounds, chunksAround, chunkSetDiff,
+  chunkHeightField,
+} from '../../lib/world/streaming.js';
 import { getParticleTexture } from '../../lib/particles/sprites.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
@@ -221,32 +231,10 @@ export function spanSeatY(heightAt, x, z, radius, opts) {
   return min;
 }
 
-/* Radial disc geometry (CircleGeometry has no interior verts for displacement). */
-function makeDiscGeometry(R, radius, rings, segs, heightAt) {
-  const positions = [], uvs = [], indices = [];
-  for (let ri = 0; ri <= rings; ri++) {
-    const r = (ri / rings) * radius;
-    for (let si = 0; si <= segs; si++) {
-      const a = (si / segs) * Math.PI * 2;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      positions.push(x, heightAt(x, z), z);
-      uvs.push(x / radius * 0.5 + 0.5, z / radius * 0.5 + 0.5);
-    }
-  }
-  const row = segs + 1;
-  for (let ri = 0; ri < rings; ri++) {
-    for (let si = 0; si < segs; si++) {
-      const a = ri * row + si, b = a + 1, c = a + row, d = c + 1;
-      indices.push(a, b, c, b, d, c); // +y winding
-    }
-  }
-  const g = new R.BufferGeometry();
-  g.setAttribute('position', new R.Float32BufferAttribute(positions, 3));
-  g.setAttribute('uv', new R.Float32BufferAttribute(uvs, 2));
-  g.setIndex(indices);
-  g.computeVertexNormals();
-  return g;
-}
+/* (The old radial disc geometry lived here — removed with the
+ * endless convert, Nov 18, 2026: the ground now streams in chunks
+ * from lib/world/streaming.js. Middle-earth imports the height
+ * function from this file, so the shared law lives in one place.) */
 
 
 /**
@@ -702,6 +690,13 @@ export function buildZone(THREE, planetDef, T, opts) {
 
   /* ---------- terrain (walk) / starfield (fly) ---------- */
   const worldRadius = kind === 'walk' ? (def.worldRadius || 130) : 130;
+  /* ENDLESS (Merlin, Nov 18, 2026): walk worlds stream their ground
+   * in chunks around the observer (assigned in the walk branch);
+   * fly worlds carry their starfield + sun with the pilot (assigned
+   * in the fly branch). update() below drives both. */
+  let updateStreamingTerrain = function () {};
+  let flyStarfield = null;
+  let flyCgiGroup = null;
   if (kind === 'walk') {
     /* CGI GROUND (Nov 15, 2026): seeded colour + bump DataTextures
      * from cgi.js — the lib/planet-cgi standard — instead of the old
@@ -713,25 +708,20 @@ export function buildZone(THREE, planetDef, T, opts) {
     const reps = Math.max(4, Math.round(28 * worldRadius / 130));
     groundMaps.map.repeat.set(reps, reps);
     groundMaps.bumpMap.repeat.set(reps, reps);
-    /* DENSE on purpose: the walker tracks the ANALYTIC heightAt
-     * exactly (page snapY), so the rendered mesh must track it too.
-     * At the old ~6 m radial spacing the mesh sagged up to 2.4 m
-     * below the analytic surface at the canyon rim — the walker
-     * visibly floated over dips and clipped crests (Merlin's QA
-     * video, 2026-10-23). ~1.5 m rings + the smoothed carve
-     * centreline hold the worst deviation to ~0.17 m on every
-     * walk world (measured on a dense probe grid, pinned by the
-     * fidelity suite). Canyon worlds build denser still (x1.25
-     * rings / x1.5 sectors): the carve wall at the rim radius is
-     * where azimuthal spacing bites, and with the centripetal
-     * centreline + soft-min junctions Tatooine's worst cell is
-     * ~0.10 m. High-relief worlds scale up too: interpolation
-     * error grows with groundAmp, and at amp 4 the base grid read
-     * 0.204 m on Geonosis — the amp factor keeps every world
-     * inside the same 0.2 m bound (all-worlds QA, 2026-10-23). */
-    const ampFactor = 1 + Math.max(0, (def.groundAmp != null ? def.groundAmp : 2.5) - 2.5) * 0.125;
-    const rings = Math.max(26, Math.round(worldRadius / 1.5 * (def.canyon ? 1.25 : 1) * ampFactor));
-    const segs = Math.max(64, Math.round(worldRadius * 0.95 * (def.canyon ? 1.5 : 1) * ampFactor));
+    /* ENDLESS (Merlin, Nov 18, 2026): the ground streams in chunks
+     * around the observer (lib/world/streaming.js, SW_STREAM: 32 m
+     * chunks, 1 m vertices, 15x15 ring = 480 m of ground) instead
+     * of one fixed disc. The walker tracks the ANALYTIC heightAt
+     * exactly (page snapY), so the rendered mesh must track it too:
+     * 1 m vertices are REQUIRED on the canyon world — 2 m reads
+     * 0.353 m on Tatooine's carve wall (the fidelity suite pins
+     * 0.2 m); 1 m reads 0.108 m, inside the law the old disc held
+     * (0.10 m). 32 m chunks keep the worst build at 3.7 ms, so
+     * 2 chunks/frame stays smooth even racing a pod. The home
+     * region renders exactly as the disc did (same height fn, same
+     * maps, same disc-space UVs); the ground simply never ends.
+     * The fog (0.0075+) hazes the ring edge at 240 m to ~4%
+     * visibility, so no wall ever reads. */
     const terrainMat = new R.MeshStandardMaterial({
       color: 0xffffff,
       map: groundMaps.map, bumpMap: groundMaps.bumpMap,
@@ -739,12 +729,64 @@ export function buildZone(THREE, planetDef, T, opts) {
       metalness: 0,
     });
     terrainMat.userData.shared = true; // maps are cached per world — do not dispose
-    const terrain = new R.Mesh(
-      makeDiscGeometry(R, worldRadius, rings, segs, heightAt),
-      terrainMat
-    );
-    terrain.castShadow = false; terrain.receiveShadow = false;
-    group.add(terrain);
+    const terrainGroup = new R.Group();
+    terrainGroup.name = 'terrain-chunks';
+    group.add(terrainGroup);
+    const terrainChunks = new Map(); // key -> mesh
+    let terrainKeys = [];
+    let terrainQueue = [];
+    const buildTerrainChunk = function (cx, cz) {
+      const key = chunkKey(cx, cz);
+      if (terrainChunks.has(key)) return;
+      const f = chunkHeightField(heightAt, cx, cz, {
+        chunkM: SW_STREAM.chunkM, tiles: SW_STREAM.tiles, worldRadius,
+      });
+      const g = new R.BufferGeometry();
+      g.setAttribute('position', new R.Float32BufferAttribute(f.positions, 3));
+      g.setAttribute('uv', new R.Float32BufferAttribute(f.uvs, 2));
+      g.setIndex(new R.BufferAttribute(f.indices, 1));
+      g.computeVertexNormals();
+      const { x0, z0 } = chunkBounds(cx, cz, SW_STREAM.chunkM);
+      const mesh = new R.Mesh(g, terrainMat);
+      mesh.name = 'terrain-chunk';
+      mesh.userData.chunk = { cx, cz };
+      mesh.position.set(x0, 0, z0);
+      mesh.castShadow = false; mesh.receiveShadow = false;
+      terrainGroup.add(mesh);
+      terrainChunks.set(key, mesh);
+    };
+    const dropTerrainChunk = function (key) {
+      const mesh = terrainChunks.get(key);
+      if (!mesh) return;
+      terrainGroup.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      terrainChunks.delete(key);
+    };
+    updateStreamingTerrain = function () {
+      const want = chunksAround(observer.x, observer.z, SW_STREAM.chunkM, SW_STREAM.radiusChunks);
+      const wantKeys = want.map((c) => c.key);
+      const diff = chunkSetDiff(terrainKeys, wantKeys);
+      for (const key of diff.drop) dropTerrainChunk(key);
+      // Centre-first load queue: nearest ground first. A stale
+      // queued chunk the ring no longer wants is dropped, never built.
+      const wantByKey = new Map(want.map((c) => [c.key, c]));
+      terrainQueue = diff.load.map((key) => wantByKey.get(key)).filter(Boolean)
+        .concat(terrainQueue.filter((c) => wantByKey.has(c.key)));
+      terrainKeys = wantKeys;
+      let built = 0;
+      while (terrainQueue.length && built < SW_STREAM.perFrame) {
+        const c = terrainQueue.shift();
+        buildTerrainChunk(c.cx, c.cz);
+        built++;
+      }
+    };
+    // The home ring exists the moment the zone builds — the page
+    // renders from the first frame, and the tests sample it.
+    {
+      const want = chunksAround(observer.x, observer.z, SW_STREAM.chunkM, SW_STREAM.radiusChunks);
+      for (const c of want) buildTerrainChunk(c.cx, c.cz);
+      terrainKeys = want.map((c) => c.key);
+    }
     /* Far silhouettes so a big world reads as distance, not a rim. */
     group.add(buildHorizon(R, def, heightAt));
     /* CGI SKY (Nov 15, 2026): gradient dome, suns, clouds, motes,
@@ -765,13 +807,23 @@ export function buildZone(THREE, planetDef, T, opts) {
     }
     const sg = new R.BufferGeometry();
     sg.setAttribute('position', new R.BufferAttribute(pos, 3));
-    group.add(new R.Points(sg, new R.PointsMaterial({
+    /* ENDLESS (Merlin, Nov 18, 2026): the starfield rides in its
+     * own group and update() keeps the group over the pilot — a
+     * shell fixed at the origin would thin out and end as the
+     * pilot flew away from home. The debris and landmarks stay
+     * home; the stars never end. */
+    flyStarfield = new R.Group();
+    flyStarfield.name = 'fly-starfield';
+    flyStarfield.add(new R.Points(sg, new R.PointsMaterial({
       color: 0xffffff, size: 1.6, sizeAttenuation: false, fog: false,
       map: getParticleTexture('star') || undefined,
     })));
+    group.add(flyStarfield);
     /* CGI SKY (fly worlds): no dome — the starfield is the sky —
-     * just the fixed sun sprite, so the debris field orbits a star. */
+     * just the fixed sun sprite, so the debris field orbits a star.
+     * The sun group travels with the pilot too (update()). */
     const cgiFly = buildCgi(R, def, T, {});
+    flyCgiGroup = cgiFly.group;
     group.add(cgiFly.group);
     updaters.push(function (t, dt) { cgiFly.update(t, dt, Date.now(), observer); });
   }
@@ -1139,11 +1191,23 @@ export function buildZone(THREE, planetDef, T, opts) {
   const spawn = kind === 'walk'
     ? { x: 0, z: 95, yaw: Math.PI }
     : { x: 0, z: 120, yaw: Math.PI };
-  const bounds = kind === 'walk'
-    ? { kind: 'circle', max: def.boundsRadius || 115 }
-    : { kind: 'circle', max: def.boundsRadius || 150 };
+  /* NO MOTION WALL — ENDLESS (Merlin, Nov 18, 2026): the walk and
+   * fly circle clamps are gone — bounds is null, so stepWalker,
+   * stepVehicle and the page's fly clamp are all no-ops and every
+   * planet roams as far as its ground (or its starfield) streams.
+   * def.worldRadius / def.boundsRadius stay in the DATA as the
+   * HOME-REGION radius (texture reps, horizon, scatter, vehicles,
+   * quests); nothing beyond it becomes a quest or a claim. Fly
+   * worlds keep their starfield shell + sun travelling with the
+   * pilot; the debris and landmarks stay home. */
+  const bounds = null;
 
   function update(t, dt) {
+    /* ENDLESS: the ground streams under the observer; in a fly
+     * world the starfield + the fixed sun travel with the pilot. */
+    updateStreamingTerrain();
+    if (flyStarfield) flyStarfield.position.set(observer.x, 0, observer.z);
+    if (flyCgiGroup) flyCgiGroup.position.set(observer.x, 0, observer.z);
     for (const u of updaters) u(t, dt);
     /* Vehicles render from their drive state every frame — parked
      * states hold the seat transform, so this is a no-op until the

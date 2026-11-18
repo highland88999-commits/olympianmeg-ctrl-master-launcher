@@ -54,6 +54,7 @@ const { PLAYABLE } = await import('../app/middle-earth/characters.js');
 const { createOrc, damageOrc } = await import('../app/middle-earth/orcs.js');
 const { createSaruman, stepBoss, damageBoss, BOSS_POS } = await import('../app/middle-earth/boss.js');
 const OP = await import('../app/middle-earth/operators.js');
+const WC = await import('../lib/world/walk-controls.js');
 
 const T0 = Date.UTC(2026, 10, 14, 12, 0, 0);
 
@@ -206,14 +207,19 @@ describe('BUILD 2 — life lines (pure helpers the page toasts / tags)', () => {
   });
 });
 
-describe('NO MOTION WALL (Merlin, Nov 16 ~02:42) — the bound is the terrain edge', () => {
-  it('every pod: zone bounds max is the world radius, never a mid-terrain wall', () => {
+describe('NO MOTION WALL — ENDLESS (Merlin, Nov 16 ~02:42; Nov 18 ~04:47)', () => {
+  it('every pod: no bounds at all — the walker roams past the old terrain edge', () => {
     for (const id of DATA.POD_ORDER) {
       const def = DATA.PODS[id];
-      assert.equal(def.boundsRadius, def.worldRadius, `${id}: data bound is the terrain edge`);
+      assert.equal(def.boundsRadius, def.worldRadius, `${id}: data bound is the home-region edge`);
       const z = buildZone(THREE, def, T, { freeRoam: true });
-      assert.equal(z.bounds.kind, 'circle', `${id}: circle bound`);
-      assert.equal(z.bounds.max, def.worldRadius, `${id}: zone bound is the terrain edge (${def.worldRadius} m)`);
+      assert.equal(z.bounds, null, `${id}: no bounds — endless`);
+      // the walker strides past the old 340 m edge
+      const w = WC.createWalker({ x: 0, z: 95, yaw: -Math.PI / 2 });
+      const world = { groundHeight: z.groundHeight, colliders: [], bounds: z.bounds, snapY: true };
+      for (let i = 0; i < 60 * 60; i++) WC.stepWalker(w, { fwd: 1 }, 1 / 60, world);
+      assert.ok(Math.hypot(w.pos.x, w.pos.z) > def.worldRadius,
+        `${id}: walker passed the old edge (r=${Math.hypot(w.pos.x, w.pos.z).toFixed(0)})`);
       z.dispose();
     }
   });

@@ -41,9 +41,18 @@
  *   checkpoints, target, characters, horses, hunt: { orcs, boss, heat,
  *   level, records, noteKill, noteLoud, markDead, setHeat,
  *   resetHunt }, setObserver, update, dispose, kind, sky, fog }.
+ * bounds is null: the world is ENDLESS (Merlin, Nov 18, 2026) — the
+ * ground streams in chunks around the observer and no clamp, wall
+ * or turn-back contains the walker, the horse or the hunt. The
+ * pod's worldRadius in the data stays the HOME-REGION radius
+ * (texture reps, horizon, scatter, spawn field, quests).
  */
 import * as ThreeJS from 'three';
 import { createHeightFunction, spanSeatY } from '../star-wars/zone.js';
+import {
+  ME_STREAM, chunkKey, chunkBounds, chunksAround, chunkSetDiff,
+  chunkHeightField,
+} from '../../lib/world/streaming.js';
 import { buildLandmark, buildAmbient, GLB_MODELS, attachGlbModel } from './landmarks.js';
 import { buildFigure } from './characters.js';
 import {
@@ -250,33 +259,6 @@ function buildWorldScatter(R, def, T, heightAt, colliders, avoid) {
   return group;
 }
 
-/* Radial disc geometry (CircleGeometry has no interior verts). */
-function makeDiscGeometry(R, radius, rings, segs, heightAt) {
-  const positions = [], uvs = [], indices = [];
-  for (let ri = 0; ri <= rings; ri++) {
-    const r = (ri / rings) * radius;
-    for (let si = 0; si <= segs; si++) {
-      const a = (si / segs) * Math.PI * 2;
-      const x = Math.cos(a) * r, z = Math.sin(a) * r;
-      positions.push(x, heightAt(x, z), z);
-      uvs.push(x / radius * 0.5 + 0.5, z / radius * 0.5 + 0.5);
-    }
-  }
-  const row = segs + 1;
-  for (let ri = 0; ri < rings; ri++) {
-    for (let si = 0; si < segs; si++) {
-      const a = ri * row + si, b = a + 1, c = a + row, d = c + 1;
-      indices.push(a, b, c, b, d, c);
-    }
-  }
-  const g = new R.BufferGeometry();
-  g.setAttribute('position', new R.Float32BufferAttribute(positions, 3));
-  g.setAttribute('uv', new R.Float32BufferAttribute(uvs, 2));
-  g.setIndex(indices);
-  g.computeVertexNormals();
-  return g;
-}
-
 /* Two silhouette rings in the pod's horizon style. */
 function buildHorizon(R, def, heightAt) {
   const hz = def.horizon || {};
@@ -363,7 +345,15 @@ export function buildZone(THREE, podDef, T, opts) {
    * sprite (T.makeCanvasTexture, try/caught — no document, no halo,
    * the sphere still carries the sun). No moon exists in
    * Middle-earth — none to add. dispose() traverses the group and
-   * frees the halo texture with its material. */
+   * frees the halo texture with its material.
+   * ENDLESS (Merlin, Nov 18): the sun rides in its own group and
+   * update() keeps the group over the observer — a sun that stayed
+   * at the origin would slide across the sky and sink as the
+   * walker roamed away from home. The DirectionalLight stays put:
+   * its direction is all that shades, and it never moves. */
+  const sunGroup = new R.Group();
+  sunGroup.name = 'me-sun';
+  group.add(sunGroup);
   const sunDir = new R.Vector3(60, 110, 35).normalize();
   const sunPos = sunDir.clone().multiplyScalar(300);
   const sunCore = new R.Mesh(
@@ -372,7 +362,7 @@ export function buildZone(THREE, podDef, T, opts) {
   );
   sunCore.position.copy(sunPos);
   sunCore.name = 'me-sun-core';
-  group.add(sunCore);
+  sunGroup.add(sunCore);
   let sunGlowTex = null;
   try {
     if (T && typeof T.makeCanvasTexture === 'function') {
@@ -394,12 +384,21 @@ export function buildZone(THREE, podDef, T, opts) {
     sunGlow.position.copy(sunPos);
     sunGlow.scale.set(90, 90, 1);
     sunGlow.name = 'me-sun-glow';
-    group.add(sunGlow);
+    sunGroup.add(sunGlow);
   }
 
-  /* terrain — DENSE on purpose (the saga density law): the walker
-   * tracks analytic heightAt exactly (page snapY), so the mesh
-   * must track it too; this is what keeps deviation inside 0.2 m. */
+  /* terrain — ENDLESS (Merlin, Nov 18, 2026): the ground streams
+   * in chunks around the observer (lib/world/streaming.js,
+   * ME_STREAM: 128 m chunks, 2 m vertices, 9x9 ring = 1152 m of
+   * ground) instead of one fixed disc — the walker tracks analytic
+   * heightAt exactly (page snapY), so the mesh must track it too,
+   * and 2 m vertices hold the old disc's own fidelity on every pod
+   * (canyon pods 0.27–0.40 m vs the disc's 0.30; the rest ≤ 0.06).
+   * The home region renders exactly as the disc did (same height
+   * fn, same texture, same disc-space UVs); the ground simply
+   * never ends. The ring is built whole the moment the zone builds
+   * and follows the observer from update(), one chunk per frame,
+   * centre-first, so the walker never stands on a gap. */
   const worldRadius = def.worldRadius || 340;
   const makerName = TEX_BY_NAME[def.tex] || 'grassTexture';
   const gtex = T[makerName]();
@@ -407,15 +406,65 @@ export function buildZone(THREE, podDef, T, opts) {
   if (gtex.wrapS !== undefined) { gtex.wrapS = R.RepeatWrapping; gtex.wrapT = R.RepeatWrapping; }
   const reps = Math.max(4, Math.round(28 * worldRadius / 130));
   gtex.repeat.set(reps, reps);
-  const ampFactor = 1 + Math.max(0, (def.groundAmp != null ? def.groundAmp : 2.5) - 2.5) * 0.125;
-  const rings = Math.max(26, Math.round(worldRadius / 1.5 * (def.canyon ? 1.25 : 1) * ampFactor));
-  const segs = Math.max(64, Math.round(worldRadius * 0.95 * (def.canyon ? 1.5 : 1) * ampFactor));
-  const terrain = new R.Mesh(
-    makeDiscGeometry(R, worldRadius, rings, segs, heightAt),
-    new R.MeshStandardMaterial({ color: def.ground != null ? def.ground : 0x77b255, map: gtex, roughness: 1, metalness: 0 })
-  );
-  terrain.castShadow = false; terrain.receiveShadow = false;
-  group.add(terrain);
+  const terrainMat = new R.MeshStandardMaterial({ color: def.ground != null ? def.ground : 0x77b255, map: gtex, roughness: 1, metalness: 0 });
+  const terrainGroup = new R.Group();
+  terrainGroup.name = 'terrain-chunks';
+  group.add(terrainGroup);
+  const terrainChunks = new Map(); // key -> mesh
+  let terrainKeys = [];
+  let terrainQueue = [];
+  function buildTerrainChunk(cx, cz) {
+    const key = chunkKey(cx, cz);
+    if (terrainChunks.has(key)) return;
+    const f = chunkHeightField(heightAt, cx, cz, {
+      chunkM: ME_STREAM.chunkM, tiles: ME_STREAM.tiles, worldRadius,
+    });
+    const g = new R.BufferGeometry();
+    g.setAttribute('position', new R.Float32BufferAttribute(f.positions, 3));
+    g.setAttribute('uv', new R.Float32BufferAttribute(f.uvs, 2));
+    g.setIndex(new R.BufferAttribute(f.indices, 1));
+    g.computeVertexNormals();
+    const { x0, z0 } = chunkBounds(cx, cz, ME_STREAM.chunkM);
+    const mesh = new R.Mesh(g, terrainMat);
+    mesh.name = 'terrain-chunk';
+    mesh.userData.chunk = { cx, cz };
+    mesh.position.set(x0, 0, z0);
+    mesh.castShadow = false; mesh.receiveShadow = false;
+    terrainGroup.add(mesh);
+    terrainChunks.set(key, mesh);
+  }
+  function dropTerrainChunk(key) {
+    const mesh = terrainChunks.get(key);
+    if (!mesh) return;
+    terrainGroup.remove(mesh);
+    if (mesh.geometry) mesh.geometry.dispose();
+    terrainChunks.delete(key);
+  }
+  function updateStreamingTerrain() {
+    const want = chunksAround(observer.x, observer.z, ME_STREAM.chunkM, ME_STREAM.radiusChunks);
+    const wantKeys = want.map((c) => c.key);
+    const diff = chunkSetDiff(terrainKeys, wantKeys);
+    for (const key of diff.drop) dropTerrainChunk(key);
+    // Centre-first load queue: nearest ground first. A stale queued
+    // chunk the ring no longer wants is dropped, never built.
+    const wantByKey = new Map(want.map((c) => [c.key, c]));
+    terrainQueue = diff.load.map((key) => wantByKey.get(key)).filter(Boolean)
+      .concat(terrainQueue.filter((c) => wantByKey.has(c.key)));
+    terrainKeys = wantKeys;
+    let built = 0;
+    while (terrainQueue.length && built < ME_STREAM.perFrame) {
+      const c = terrainQueue.shift();
+      buildTerrainChunk(c.cx, c.cz);
+      built++;
+    }
+  }
+  // The home ring exists the moment the zone builds — the page
+  // renders from the first frame, and the tests sample it.
+  {
+    const want = chunksAround(observer.x, observer.z, ME_STREAM.chunkM, ME_STREAM.radiusChunks);
+    for (const c of want) buildTerrainChunk(c.cx, c.cz);
+    terrainKeys = want.map((c) => c.key);
+  }
   group.add(buildHorizon(R, def, heightAt));
 
   /* landmarks — span seating, GLB registry colliders + swap */
@@ -823,16 +872,24 @@ export function buildZone(THREE, podDef, T, opts) {
   });
 
   const spawn = { x: 0, z: 95, yaw: Math.PI };
-  /* NO MOTION WALL (Merlin, Nov 16 ~02:42): the old 295 m circle
-   * clamp walled off 45 m of visible terrain — the disc runs to
-   * worldRadius (340) and the heightfield is analytic past it, so
-   * the bound is the terrain's own edge, never a wall inside
-   * visible ground. A pod without boundsRadius falls back to its
-   * world radius, never to 295 again. */
-  const bounds = { kind: 'circle', max: def.boundsRadius || def.worldRadius || 340 };
+  /* NO MOTION WALL — ENDLESS (Merlin, Nov 16 ~02:42; Nov 18 ~04:47):
+   * the old 295 m circle clamp walled off 45 m of visible terrain,
+   * and the 340 m bound walled the world off at the disc edge. Both
+   * are gone: bounds is null, so the page's clampBounds, stepWalker
+   * and dismount settle are no-ops and the walker, the horse and
+   * the hunt roam as far as the ground streams — which is forever.
+   * def.worldRadius / def.boundsRadius stay in the DATA as the
+   * HOME-REGION radius (texture reps, horizon, scatter, spawn
+   * field, quests); nothing beyond it becomes a quest, a pod or a
+   * claim. */
+  const bounds = null;
 
   function update(t, dt) {
     clock += dt;
+    /* ENDLESS: the sun stays over the observer and the ground
+     * streams under them — the two things that must travel. */
+    sunGroup.position.set(observer.x, 0, observer.z);
+    updateStreamingTerrain();
     for (const u of updaters) u(t, dt);
     /* hunt: stream the field, then step live orcs against the
      * observer (the player). Senses get the terrain LOS check. */

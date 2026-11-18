@@ -740,6 +740,9 @@ export function buildCgi(R, def, T, opts) {
       const gp = sunPosition(spec.horizonGlow.azimuthDeg, spec.horizonGlow.elevationDeg, CGI_SUN_DIST);
       glow.position.set(gp.x, gp.y, gp.z);
       glow.name = 'cgi-horizon-glow';
+      // ENDLESS: the glow's home offset from the observer — update()
+      // re-seats it over the walker every frame (see the suns below).
+      glow.userData.home = { x: gp.x, y: gp.y, z: gp.z };
       group.add(glow);
       sunSprites.push(glow); // rides the day/night dimming, never sets
       glow.userData.isGlow = true;
@@ -840,14 +843,25 @@ export function buildCgi(R, def, T, opts) {
        * the sky as one and sets as one. The two discs (150 m and
        * 110 m across at 950 m) sit near-touching: the binary-sunset
        * look, not two suns in different quarters of the sky. */
+      /* ENDLESS (Merlin, Nov 18, 2026): the sky travels with the
+       * walker — the dome, the suns and the glow are re-seated over
+       * the observer every frame, so the sun never slides across
+       * the sky and the walker never walks out of the dome. (The
+       * motes and dust devils already follow the observer below;
+       * the clouds and the cloud sea join them.) A dome fixed at
+       * the origin would end 1100 m out — the walker would roam
+       * past the edge of the sky itself. */
+      if (dome) dome.position.set(obs.x, 0, obs.z);
       sunSprites.forEach((sp, i) => {
         if (sp.userData.isGlow) {
           // The horizon glow is a bare sprite — its own material.
           sp.material.opacity = 0.25 + 0.65 * dn.night;
+          const home = sp.userData.home || { x: 0, y: 0, z: 0 };
+          sp.position.set(obs.x + home.x, home.y, obs.z + home.z);
           return;
         }
         if (i === 0) {
-          sp.position.set(sv.x * CGI_SUN_DIST, sv.y * CGI_SUN_DIST, sv.z * CGI_SUN_DIST);
+          sp.position.set(obs.x + sv.x * CGI_SUN_DIST, sv.y * CGI_SUN_DIST, obs.z + sv.z * CGI_SUN_DIST);
         } else {
           /* Twin: step 5 deg sideways along the sun's path — in the
            * horizontal direction perpendicular to the sun's azimuth
@@ -868,9 +882,9 @@ export function buildCgi(R, def, T, opts) {
           const dy = cy - 0.02;
           const len = Math.hypot(cx, dy, cz);
           sp.position.set(
-            (cx / len) * CGI_SUN_DIST,
+            obs.x + (cx / len) * CGI_SUN_DIST,
             (dy / len) * CGI_SUN_DIST,
-            (cz / len) * CGI_SUN_DIST
+            obs.z + (cz / len) * CGI_SUN_DIST
           );
         }
         sp.visible = sunUp;
@@ -899,6 +913,7 @@ export function buildCgi(R, def, T, opts) {
       if (options.hemiLight) options.hemiLight.intensity = 0.85 * (0.25 + 0.75 * dayF);
       if (clouds && clouds.userData.driftRate) {
         clouds.rotation.y = cloudDriftAngle(clouds.userData.driftRate, now);
+        clouds.position.set(obs.x, 0, obs.z);
       }
       if (motes) {
         updateMotes(motes, now);
@@ -914,11 +929,17 @@ export function buildCgi(R, def, T, opts) {
           cone.material.opacity = 0.32 * st.opacity;
         }
       }
-      if (cloudSeaGroup) cloudSeaGroup.rotation.y = spinAngle(0.002, now);
+      if (cloudSeaGroup) {
+        cloudSeaGroup.rotation.y = spinAngle(0.002, now);
+        cloudSeaGroup.position.set(obs.x, 0, obs.z);
+      }
       if (flashLight || flashSprite) {
         const flash = lightningFlash(now, 'exegol-storm', 9000);
         if (flashLight) flashLight.intensity = flash * 2.5;
-        if (flashSprite) flashSprite.material.opacity = flash * 0.8;
+        if (flashSprite) {
+          flashSprite.material.opacity = flash * 0.8;
+          flashSprite.position.set(obs.x, 320, obs.z - 500);
+        }
       }
     } else {
       /* Fly worlds: the fixed sun never sets; clouds/motes don't exist. */

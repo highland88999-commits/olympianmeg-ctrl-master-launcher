@@ -36,6 +36,7 @@ const {
 const CH = await import('../characters.js');
 const VH = await import('../vehicles.js');
 const WC = await import('../../../lib/world/walk-controls.js');
+const { SW_STREAM } = await import('../../../lib/world/streaming.js');
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -182,7 +183,7 @@ describe('zone (walk)', () => {
     assert.ok(Array.isArray(z.colliders));
     assert.ok(z.colliders.length > 0);
     assert.deepEqual(z.spawn, { x: 0, z: 95, yaw: Math.PI });
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 115 });
+    assert.equal(z.bounds, null, 'endless: no bounds (Merlin, Nov 18, 2026)');
     assert.equal(typeof z.groundHeight, 'function');
     assert.equal(z.checkpoints.length, 1);
     assert.deepEqual(markerFields(z.checkpoints[0]), { x: 20, z: -20, r: 5, label: 'CP1' });
@@ -267,7 +268,7 @@ describe('zone (fly)', () => {
     }, T);
     assert.equal(z.kind, 'fly');
     assert.deepEqual(z.spawn, { x: 0, z: 120, yaw: Math.PI });
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 150 });
+    assert.equal(z.bounds, null, 'endless: no bounds (Merlin, Nov 18, 2026)');
     assert.equal(z.groundHeight(0, 0), 0);
     assert.equal(z.groundHeight(50, 50), 0);
     assert.ok(z.colliders.length >= 20, 'trench wall colliders missing');
@@ -354,9 +355,9 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
     assert.ok(distToPath(200, -200, PLANETS.tatooine.canyon.path) > 100);
   });
 
-  it('tatooine zone: big bounds, canyon under the gates, scatter + GLB colliders', () => {
+  it('tatooine zone: big home region, canyon under the gates, scatter + GLB colliders', () => {
     const z = buildZone(THREE, PLANETS.tatooine, T);
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 460 });
+    assert.equal(z.bounds, null, 'endless: no bounds (Merlin, Nov 18, 2026)');
     assert.deepEqual(z.spawn, { x: 0, z: 95, yaw: Math.PI });
     // the podrace circuit is untouched — gates re-seated on the canyon
     assert.deepEqual(z.checkpoints.map(markerFields), PLANETS.tatooine.beat.checkpoints);
@@ -399,15 +400,15 @@ describe('ever-expanding template + Tatooine (zone.js)', () => {
       ambient: [],
       beat: { target: { x: 0, z: -30, r: 10, label: 'Plaza' } },
     }, T);
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 115 });
+    assert.equal(z.bounds, null, 'endless: no bounds (Merlin, Nov 18, 2026)');
     assert.deepEqual(z.checkpoints, []); // target-only beat
     assert.deepEqual(markerFields(z.target), { x: 0, z: -30, r: 10, label: 'Plaza' });
     z.dispose();
   });
 
-  it('naboo zone: expanded to the full template (bounds, foliage, horizon)', () => {
+  it('naboo zone: expanded to the full template (foliage, horizon)', () => {
     const z = buildZone(THREE, PLANETS.naboo, T);
-    assert.deepEqual(z.bounds, { kind: 'circle', max: 460 });
+    assert.equal(z.bounds, null, 'endless: no bounds (Merlin, Nov 18, 2026)');
     assert.deepEqual(z.checkpoints, []); // Naboo's first mission is a target
     assert.deepEqual(markerFields(z.target), PLANETS.naboo.beat.target);
     let instanced = 0;
@@ -425,7 +426,7 @@ describe('saga expansion: modes + missions in the zone builder', () => {
       const z0 = buildZone(THREE, def, T);
       assert.equal(z0.checkpoints.length, (def.beat.checkpoints || []).length, def.id);
       if (def.beat.target) assert.ok(z0.target, def.id + ' target');
-      assert.equal(z0.bounds.max, def.boundsRadius || (def.kind === 'fly' ? 150 : 115), def.id);
+      assert.equal(z0.bounds, null, def.id + ' endless: no bounds');
       assert.doesNotThrow(() => z0.update(2, 0.016), def.id);
       z0.dispose();
       // free roam: same world, NO beat furniture at all
@@ -744,22 +745,26 @@ describe('QA item 1 — walker gravity: exact ground follow + terrain fidelity',
   });
 
   it('the rendered terrain mesh tracks the analytic heightfield (no visual float/clip)', () => {
+    // ENDLESS (Nov 18, 2026): the ground is a ring of chunk meshes
+    // now, not one disc — raycast the whole ring, same probes.
     const z = buildZone(THREE, PLANETS.tatooine, T);
     z.group.updateMatrixWorld(true);
-    let terrain = null, best = 0;
+    const chunks = [];
+    let verts = 0;
     z.group.traverse((o) => {
-      if (o.isMesh && o.geometry?.attributes?.position) {
-        const n = o.geometry.attributes.position.count;
-        if (n > best) { best = n; terrain = o; }
+      if (o.name === 'terrain-chunk') {
+        chunks.push(o);
+        verts += o.geometry.attributes.position.count;
       }
     });
-    assert.ok(terrain && best > 30000, `dense terrain mesh, got ${best} verts`);
+    assert.ok(chunks.length > 100, `chunk ring present, got ${chunks.length} chunks`);
+    assert.ok(verts > 30000, `dense chunked terrain, got ${verts} verts`);
     const ray = new THREE.Raycaster();
     const down = new THREE.Vector3(0, -1, 0);
     let maxDev = 0, samples = 0;
     const probe = (x, zz) => {
       ray.set(new THREE.Vector3(x, 200, zz), down);
-      const hits = ray.intersectObject(terrain, false);
+      const hits = ray.intersectObjects(chunks, false);
       if (!hits.length) return;
       samples++;
       const dev = Math.abs(hits[0].point.y - z.groundHeight(x, zz));
@@ -997,13 +1002,13 @@ describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
     z.dispose();
   });
 
-  it('world expansion (2026-10-26): playable bounds well past the old edge', () => {
+  it('world expansion (2026-10-26) + endless (2026-11-18): home region pushed out, no bounds at all', () => {
     assert.equal(PLANETS.tatooine.worldRadius, 520);
     assert.equal(PLANETS.tatooine.boundsRadius, 460);
     for (const def of Object.values(PLANETS)) {
       if (def.kind === 'walk') {
         assert.ok(def.worldRadius >= 500, `${def.id} terrain pushed out`);
-        assert.ok(def.boundsRadius >= 400, `${def.id} playable bounds pushed out`);
+        assert.ok(def.boundsRadius >= 400, `${def.id} home region pushed out`);
         assert.ok(def.horizon.radius > def.worldRadius, `${def.id} horizon beyond terrain`);
       }
     }
@@ -1011,6 +1016,16 @@ describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
     const beat = PLANETS.tatooine.missions[0];
     assert.equal(beat.checkpoints[0].label, 'Canyon Gate');
     assert.deepEqual([beat.checkpoints[0].x, beat.checkpoints[0].z], [25, 55]);
+    // ... and the endless convert removed the bound itself: the
+    // walker strides straight past the old 460 m edge
+    const z = buildZone(THREE, PLANETS.tatooine, T);
+    assert.equal(z.bounds, null, 'tatooine: no bounds');
+    const w = WC.createWalker({ x: 0, z: 95, yaw: -Math.PI / 2 });
+    const world = { groundHeight: z.groundHeight, colliders: [], bounds: z.bounds, snapY: true };
+    for (let i = 0; i < 60 * 70; i++) WC.stepWalker(w, { fwd: 1 }, 1 / 60, world);
+    assert.ok(Math.hypot(w.pos.x, w.pos.z) > 460,
+      `walker passed the old edge (r=${Math.hypot(w.pos.x, w.pos.z).toFixed(0)})`);
+    z.dispose();
   });
 
   it('mount/dismount state machine + prompt range', () => {
@@ -1113,71 +1128,71 @@ describe('QA item 6 — rideable vehicles (vehicles.js + zone wiring)', () => {
 const fs = await import('node:fs');
 
 describe('ALL-WORLDS QA 1 — gravity + ground truth, every world', () => {
-  /* Rebuild the rendered terrain's height at (x, z) from the built
-   * geometry's own ring/sector grid — exactly what the triangles
-   * interpolate — instead of raycasting (a ray misses hole-punched
-   * cells, which is how the first fidelity probe under-read the
-   * canyon hairpins). The mesh's -90° Y rotation is detected from
-   * the vertices themselves, not assumed. */
+  /* Rebuild the rendered terrain's height at (x, z) from the chunk
+   * ring's own grids — exactly what the triangles interpolate —
+   * instead of raycasting (a ray misses hole-punched cells, which
+   * is how the first fidelity probe under-read the disc). ENDLESS
+   * (Nov 18, 2026): the ground is a ring of chunk meshes now, not
+   * one radial disc — the sampler looks a chunk up by key and
+   * interpolates its regular grid with the same triangle rule the
+   * renderer draws. Points outside the live ring return null and
+   * the probe grid skips them; the whole-disc fidelity of the
+   * chunk LAW itself is pinned in the endless suite
+   * (tests/middle-earth-star-wars-endless.test.mjs), which probes
+   * chunkHeightField directly on every planet. */
   function terrainSampler(z) {
-    let terrain = null, best = 0;
+    const byKey = new Map();
+    let verts = 0;
     z.group.traverse((o) => {
-      if (o.isMesh && o.geometry?.attributes?.position) {
-        const n = o.geometry.attributes.position.count;
-        if (n > best) { best = n; terrain = o; }
+      if (o.name === 'terrain-chunk' && o.userData.chunk) {
+        byKey.set(`${o.userData.chunk.cx},${o.userData.chunk.cz}`, o);
+        verts += o.geometry.attributes.position.count;
       }
     });
-    assert.ok(terrain, 'terrain mesh present');
-    const pos = terrain.geometry.attributes.position;
-    let errA = 0, errB = 0, checked = 0;
-    for (let i = 0; i < pos.count; i += 977) {
-      const x = pos.getX(i), y = pos.getY(i), zz = pos.getZ(i);
-      errA += Math.abs(y - z.groundHeight(x, zz));
-      errB += Math.abs(y - z.groundHeight(-zz, x));
-      checked++;
+    assert.ok(byKey.size > 0, 'terrain chunks present');
+    assert.ok(verts > 30000, `dense chunked terrain, got ${verts} verts`);
+    // Chunk vertices sit exactly on the analytic surface — they are
+    // sampled from it.
+    let checked = 0, worst = 0;
+    for (const o of byKey.values()) {
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += 977) {
+        const wx = o.position.x + pos.getX(i), wz = o.position.z + pos.getZ(i);
+        const dev = Math.abs(pos.getY(i) - z.groundHeight(wx, wz));
+        if (dev > worst) worst = dev;
+        checked++;
+      }
     }
-    const rot = errB < errA;
-    assert.ok(Math.min(errA, errB) / checked < 0.05,
-      'one frame matches the analytic surface at the vertices');
-    /* Cluster radii with a 0.02 m tolerance: at the expanded 520 m
-     * worlds a ring can straddle a 1 cm bucket boundary (float32
-     * rounding) and split into two phantom radii — the old bucket
-     * method read a clean 348-row disc as 349 rows. Ring spacing is
-     * ~1.5 m, so 0.02 m clustering can never merge two real rings. */
-    const rawR = [];
-    for (let i = 0; i < pos.count; i++) rawR.push(Math.hypot(pos.getX(i), pos.getZ(i)));
-    rawR.sort((a, b) => a - b);
-    const ringR = [];
-    for (const r of rawR) {
-      if (!ringR.length || r - ringR[ringR.length - 1] > 0.02) ringR.push(r);
-    }
-    const rings = ringR.length - 1;
-    const segs = Math.round(pos.count / (rings + 1)) - 1;
-    assert.equal((rings + 1) * (segs + 1), pos.count, 'regular ring/sector grid');
-    const R = ringR[rings];
-    const yAt = (j, i) => pos.getY(j * (segs + 1) + i);
+    assert.ok(checked > 0 && worst < 1e-4,
+      `chunk vertices match the analytic surface (worst ${worst})`);
+    const n = SW_STREAM.tiles + 1, step = SW_STREAM.chunkM / SW_STREAM.tiles;
     const sample = (wx, wz) => {
-      const lx = rot ? wz : wx, lz = rot ? -wx : wz;
-      const r = Math.hypot(lx, lz);
-      if (r > R + 0.05) return null; // rim vertices carry float32 fuzz
-      let th = Math.atan2(lz, lx); if (th < 0) th += Math.PI * 2;
-      const jf = (Math.min(r, R) / R) * rings;
-      const j0 = Math.min(rings - 1, Math.floor(jf)), fr = jf - j0;
-      const tf = (th / (Math.PI * 2)) * segs;
-      const i0 = Math.floor(tf) % segs, fi = tf - Math.floor(tf);
+      const cx = Math.floor(wx / SW_STREAM.chunkM), cz = Math.floor(wz / SW_STREAM.chunkM);
+      const o = byKey.get(`${cx},${cz}`);
+      if (!o) return null;
+      const pos = o.geometry.attributes.position;
+      const lx = wx - o.position.x, lz = wz - o.position.z;
+      const fx = Math.min(n - 1 - 1e-9, Math.max(0, lx / step));
+      const fz = Math.min(n - 1 - 1e-9, Math.max(0, lz / step));
+      const ix = Math.floor(fx), iz = Math.floor(fz);
+      const u = fx - ix, v = fz - iz;
+      const yAt = (j, i) => pos.getY(j * n + i);
       /* interpolate the way the renderer draws: the quad's two
-       * triangles (a, b, c) and (b, d, c) from makeDiscGeometry's
+       * triangles (a, c, b) and (b, c, d) from chunkHeightField's
        * index order — bilinear across the quad would invent a
        * smoother surface than the one on screen */
-      const ya = yAt(j0, i0), yb = yAt(j0, i0 + 1);
-      const yc = yAt(j0 + 1, i0), yd = yAt(j0 + 1, i0 + 1);
-      if (fr + fi <= 1) return ya + (yb - ya) * fi + (yc - ya) * fr;
-      return yd + (yb - yd) * (1 - fr) + (yc - yd) * (1 - fi);
+      const ya = yAt(iz, ix), yb = yAt(iz, ix + 1);
+      const yc = yAt(iz + 1, ix), yd = yAt(iz + 1, ix + 1);
+      if (u + v <= 1) return ya + (yb - ya) * u + (yc - ya) * v;
+      return yd + (yb - yd) * (1 - v) + (yc - yd) * (1 - u);
     };
-    for (let i = 0; i < pos.count; i += 613) {
-      const x = pos.getX(i), y = pos.getY(i), zz = pos.getZ(i);
-      const s = sample(rot ? -zz : x, rot ? x : zz);
-      assert.ok(s != null && Math.abs(s - y) < 0.02, 'sampler self-check at a vertex');
+    for (const o of byKey.values()) {
+      const pos = o.geometry.attributes.position;
+      for (let i = 0; i < pos.count; i += 613) {
+        const wx = o.position.x + pos.getX(i), wz = o.position.z + pos.getZ(i);
+        const s = sample(wx, wz);
+        assert.ok(s != null && Math.abs(s - pos.getY(i)) < 0.02, 'sampler self-check at a vertex');
+      }
     }
     return sample;
   }

@@ -88,20 +88,24 @@ function zoneFor(podId, opts) {
   return buildZone(THREE, DATA.PODS[podId], T, { freeRoam: true, ...(opts || {}) });
 }
 
-test('every pod builds: terrain dense, colliders present, spawn inside bounds', () => {
+test('every pod builds: terrain dense (chunked), colliders present, spawn home, no bounds', () => {
   for (const id of DATA.POD_ORDER) {
     const z = zoneFor(id);
     assert.ok(z.group, `${id} group`);
     assert.ok(z.colliders.length >= 10, `${id} colliders (${z.colliders.length})`);
     assert.ok(typeof z.groundHeight === 'function', `${id} groundHeight`);
-    assert.ok(Math.hypot(z.spawn.x, z.spawn.z) <= z.bounds.max, `${id} spawn in bounds`);
-    // dense terrain mesh present (the saga density law)
-    let terrainVerts = 0;
+    assert.equal(z.bounds, null, `${id} endless: no bounds`);
+    assert.ok(Math.hypot(z.spawn.x, z.spawn.z) <= DATA.PODS[id].worldRadius, `${id} spawn in home region`);
+    // dense chunked terrain present (the streaming law): the 9x9
+    // ring of 4225-vert chunks around the spawn
+    let terrainVerts = 0, chunks = 0;
     z.group.traverse((o) => {
-      if (o.isMesh && o.geometry && o.geometry.attributes && o.geometry.attributes.position) {
-        terrainVerts = Math.max(terrainVerts, o.geometry.attributes.position.count);
+      if (o.name === 'terrain-chunk') {
+        chunks++;
+        terrainVerts += o.geometry.attributes.position.count;
       }
     });
+    assert.equal(chunks, 81, `${id} chunk ring (${chunks})`);
     assert.ok(terrainVerts > 10000, `${id} terrain verts (${terrainVerts})`);
     z.dispose();
   }
