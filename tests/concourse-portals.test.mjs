@@ -13,7 +13,9 @@
 //   drives a bare 2D-context stub without throwing
 // - static wiring: the portalroom tile (after Guide), its fireTile
 //   branch, the lazily-loaded panel, the ui-state pin whitelist, the
-//   instanced 3D hall with its single video texture discipline
+//   3D hall — instanced rings, per-portal video disc faces with
+//   phone-first gating (Merlin, 2026-11-17: minimized portals wear
+//   their videos, not the swirl)
 //
 // Run: node --test tests/concourse-portals.test.mjs   (from the repo root)
 
@@ -285,20 +287,28 @@ describe('the panel + hall (static)', () => {
     assert.ok(panel.includes('bg-[#070418]/75'), 'a scrim keeps the menu legible over the graphic');
   });
 
-  it('the hall is two instanced meshes over one shared swirl texture', () => {
+  it('the rings stay one instanced mesh; each minimized portal is its own disc face', () => {
     const instanced = scene.match(/args=\{\[null, null, WALL_PAGE_SIZE\]\}/g) || [];
-    assert.equal(instanced.length, 2, 'rings + discs instanced meshes');
+    assert.equal(instanced.length, 1, 'only the rings stay instanced — the discs are per-portal faces');
     assert.ok(scene.includes('paintPortalSwirl'), 'shared swirl painted once');
     assert.ok(scene.includes('new THREE.CanvasTexture'), 'one canvas texture');
-    assert.ok(scene.includes('setColorAt'), 'per-instance section hues');
+    assert.ok(!scene.includes('setColorAt'), 'no per-instance colours — each disc tints its own swirl by section');
+    assert.ok(scene.includes('WallDisc'), 'one disc component per minimized portal');
+    assert.ok(scene.includes('hueFor(item.section)'), 'swirl faces keep their section hue');
   });
 
-  it('exactly one video texture discipline: the expanded portal owns it', () => {
-    assert.ok(scene.includes('new THREE.VideoTexture'), 'video texture exists');
-    assert.equal((scene.match(/createElement\('video'\)/g) || []).length, 1, 'one video element path');
+  it('minimized portals wear their own videos, gated for the phone (Merlin, 2026-11-17)', () => {
+    assert.ok(scene.includes('new THREE.VideoTexture'), 'video textures exist');
+    assert.equal((scene.match(/createElement\('video'\)/g) || []).length, 2, 'two video element paths: wall disc + expanded portal');
     assert.ok(scene.includes('/videos/portals/'), 'per-program portal videos');
     assert.ok(scene.includes('failedKeysRef'), 'failed videos are never retried this session');
-    assert.ok(scene.includes('tex.dispose()'), 'video texture disposed on collapse/unmount');
+    assert.ok(scene.includes('tex.dispose()'), 'video textures disposed on collapse/unmount');
+    assert.ok(scene.includes('VIDEO_START_STAGGER_MS'), 'wall starts are staggered so 42 decodes never spin up on one frame');
+    assert.ok(scene.includes('visibilitychange'), 'every wall video pauses while the tab is hidden');
+    assert.ok(scene.includes("vid.muted = true"), 'wall videos are muted');
+    assert.ok(scene.includes("vid.loop = true"), 'wall videos loop');
+    assert.ok(scene.includes("vid.playsInline = true"), 'wall videos play inline');
+    assert.ok(scene.includes("vid.preload = 'none'"), 'a disc only starts loading in its stagger slot, while mounted');
   });
 
   it("the Canvas carries HomeScene's tuned GL props and reports context loss", () => {

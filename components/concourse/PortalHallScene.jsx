@@ -4,18 +4,28 @@
 // panel: a gently curved wall of MINIMIZED portals (one per program
 // in the active section, paged 42 at a time), each a mini Omega arch
 // (the 288° torus + bottom gap of lib/omega-arch.js, Merlin
-// 2026-10-21) cradling a swirling disc. Tap one and it EXPANDS — a
+// 2026-10-21) cradling its own video. Tap one and it EXPANDS — a
 // true Omega arch grows to center stage wearing that program's own
 // video, ready to step through. This is Merlin's spec: the 3D
 // objects (portals) live inside the Concourse, minimized until the
 // user expands them.
 //
+// Minimized portals wear their videos (Merlin, 2026-11-17: "I want
+// the portals with videos, not these ones" — the violet swirl
+// spheres). A portal with no video (earth-2, by design) or whose
+// video failed keeps the shared swirl as its face.
+//
 // Phone-first rendering discipline:
-//   · the whole crowd is TWO instanced meshes (rings + discs) sharing
-//     ONE swirl texture (lib/portal-swirl.js) — 2 draw calls, zero
-//     per-portal materials, zero per-portal textures;
-//   · exactly ONE video texture can be alive: the expanded portal's.
-//     Minimized portals never create a <video> element;
+//   · the rings stay ONE instanced mesh sharing one material; each
+//     minimized portal's disc is its own mesh so it can wear its
+//     own video texture (lib/portal-videos.js);
+//   · a video element exists ONLY while its disc is mounted — the
+//     wall mounts one page (42) at a time, so only the current
+//     section's current page ever holds videos; a page/section
+//     change, an expand, or the sheet closing unmounts the disc
+//     and its element is paused, unloaded and disposed. Starts are
+//     staggered across the wall, and every video pauses while the
+//     tab is hidden;
 //   · the Canvas exists only while the panel is open (the parent
 //     unmounts it on close), with HomeScene's tuned GL props.
 //
@@ -37,7 +47,7 @@
 // portal (10px / 500ms tap-vs-drag rule). Drags that start on empty
 // space still orbit the whole wall a little.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -73,6 +83,7 @@ const EXPAND_CENTER = new THREE.Vector3(0, 0, 3.4);
 const ARCH_SCALE = 0.021; // OMEGA_ARCH proportions -> ~3.7 units tall
 const SWIRL_SPIN_SPEED = 0.04; // rad/s — the turning cards' attract spin
 const SETTLE_SECONDS = 0.45; // a video card easing upright (the expand's pace)
+const VIDEO_START_STAGGER_MS = 120; // wall discs load/play one slot at a time
 
 const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
 
@@ -277,10 +288,134 @@ function ExpandedPortal({ program, fromPos, fromRotY, swirlTex, failedKeysRef })
   );
 }
 
+// One minimized portal's face: its own video when it has one (the
+// video texture rides this disc, muted + looping + inline), the
+// shared swirl while the video loads or when it has none / failed.
+// The video element lives only while this disc is mounted — the wall
+// mounts one page at a time, so only the current section's current
+// page ever holds video elements. Starts are staggered by slot so
+// 42 decodes never spin up on one frame; a failed key falls back to
+// the swirl and is never retried this session (shared with the
+// expanded portal). Reduced motion keeps the first frame, unmoving.
+// The wall positions this mesh every frame (WallGroup's frame loop),
+// so it mounts hidden and is shown by the loop.
+function WallDisc({ item, slotIndex, swirlTex, failedKeysRef, registerVideo, onVideoFailed, meshRef, onTapDown }) {
+  const [videoTex, setVideoTex] = useState(null);
+
+  useEffect(() => {
+    if (!portalHasVideo(item.key) || failedKeysRef.current.has(item.key)) return undefined;
+    const vid = document.createElement('video');
+    vid.src = `/videos/portals/${item.key}.mp4`;
+    vid.crossOrigin = 'Anonymous';
+    vid.loop = true;
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.preload = 'none';
+    const tex = new THREE.VideoTexture(vid);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    let disposed = false;
+    let loadTimer = null;
+    let playTimer = null;
+    const reduced =
+      typeof window !== 'undefined' && window.matchMedia
+        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        : false;
+    const onError = () => {
+      failedKeysRef.current.add(item.key);
+      if (!disposed) setVideoTex(null);
+      onVideoFailed(item.key);
+    };
+    const onCanPlay = () => {
+      if (disposed) return;
+      // A portrait video (astra is 720x1280) would stretch sideways
+      // on the square disc if mapped raw — crop it to cover instead,
+      // per lib/portal-videos.js. Landscape sources keep the raw
+      // mapping they have always worn here.
+      const fit = portalVideoCoverFit(vid.videoWidth, vid.videoHeight);
+      if (fit) {
+        tex.repeat.set(fit.repeat[0], fit.repeat[1]);
+        tex.offset.set(fit.offset[0], fit.offset[1]);
+      }
+      vid.dataset.wallReady = '1';
+      if (reduced) vid.dataset.wallStill = '1';
+      setVideoTex(tex);
+      if (reduced) return; // still face: the first frame, unmoving
+      playTimer = setTimeout(() => {
+        if (disposed || document.hidden) return;
+        vid.play().catch(() => {});
+      }, slotIndex * VIDEO_START_STAGGER_MS);
+    };
+    vid.addEventListener('error', onError);
+    vid.addEventListener('canplay', onCanPlay);
+    // Stagger the load itself so 42 fetches never burst on one
+    // frame — the list mode's preload="none" + set-src-when-visible
+    // pattern, in the wall's own terms: a disc's src only starts
+    // loading in its stagger slot, while the disc is mounted.
+    loadTimer = setTimeout(() => {
+      if (disposed) return;
+      vid.preload = 'auto';
+      vid.load();
+    }, slotIndex * VIDEO_START_STAGGER_MS);
+    registerVideo(item.key, vid);
+    return () => {
+      disposed = true;
+      if (loadTimer) clearTimeout(loadTimer);
+      if (playTimer) clearTimeout(playTimer);
+      vid.removeEventListener('error', onError);
+      vid.removeEventListener('canplay', onCanPlay);
+      vid.pause();
+      vid.removeAttribute('src');
+      try {
+        vid.load();
+      } catch {}
+      tex.dispose();
+      registerVideo(item.key, null);
+    };
+  }, [item.key, slotIndex, failedKeysRef, registerVideo, onVideoFailed]);
+
+  return (
+    <mesh
+      ref={meshRef}
+      visible={false}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onTapDown(e);
+      }}
+    >
+      <circleGeometry args={[0.8, 40]} />
+      {videoTex ? (
+        <meshBasicMaterial map={videoTex} toneMapped={false} />
+      ) : (
+        <meshBasicMaterial map={swirlTex} color={hueFor(item.section)} toneMapped={false} />
+      )}
+    </mesh>
+  );
+}
+
 function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, cardGestureRef, deviceTiltRef, onTap }) {
   const groupRef = useRef(null);
   const ringsRef = useRef(null);
-  const discsRef = useRef(null);
+  // One disc mesh per wall slot, positioned every frame by the loop
+  // (WallDisc mounts hidden; the loop shows and places it).
+  const discRefs = useRef([]);
+  // Live wall videos by program key — the tab-hidden pause below
+  // walks this map; a disc registers on mount, unregisters on
+  // unmount, so only the mounted page's videos are ever in it.
+  const videosRef = useRef(new Map());
+  // A failed wall video re-lays the wall (the card falls back to the
+  // swirl and turns again) — bumped by onVideoFailed.
+  const [failedTick, setFailedTick] = useState(0);
+  const registerVideo = useCallback((key, vid) => {
+    if (vid) videosRef.current.set(key, vid);
+    else videosRef.current.delete(key);
+  }, []);
+  const onVideoFailed = useCallback(
+    (key) => {
+      failedKeysRef.current.add(key);
+      setFailedTick((t) => t + 1);
+    },
+    [failedKeysRef]
+  );
   // Per-card tilt state (lib/portal-card-tilt.js): slot index -> the
   // card's current drag yaw. A released card's yaw springs back to
   // rest in the frame loop; the actively dragged card is exempt.
@@ -299,28 +434,50 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, car
   const settleRef = useRef(new Map());
   const lastTRef = useRef(0);
   const dummy = useMemo(() => new THREE.Object3D(), []);
-  const tmpColor = useMemo(() => new THREE.Color(), []);
 
-  // Compose every instance matrix for time t. Turning cards wear the
-  // shared spin phase in their disc's own rotation; standing cards
-  // unwind that spin to the nearest full turn and ease their yaw to
-  // square (rotY 0) — face to the viewer, straight up and down, in
-  // the slot they already hold. Rings never spin (the Omega gap
-  // stays at the bottom); they only share the standing yaw.
+  // Every wall video pauses while the tab is hidden and resumes on
+  // return — 42 decodes never run behind a hidden tab. Only videos
+  // that loaded (wallReady) and are not reduced-motion stills
+  // (wallStill) resume; a video whose stagger slot fell while hidden
+  // starts here instead.
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) {
+        for (const vid of videosRef.current.values()) vid.pause();
+      } else {
+        for (const vid of videosRef.current.values()) {
+          if (vid.dataset.wallReady === '1' && vid.dataset.wallStill !== '1') {
+            vid.play().catch(() => {});
+          }
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
+
+  // Compose the wall for time t. The rings keep their instance
+  // matrices; each disc is its own mesh, placed here. Turning cards
+  // wear the shared spin phase in their disc's own rotation;
+  // standing cards unwind that spin to the nearest full turn and
+  // ease their yaw to square (rotY 0) — face to the viewer, straight
+  // up and down, in the slot they already hold. Rings never spin
+  // (the Omega gap stays at the bottom); they only share the
+  // standing yaw.
   const composeInstances = (t) => {
     const rings = ringsRef.current;
-    const discs = discsRef.current;
-    if (!rings || !discs) return;
+    if (!rings) return;
     const spin = (t * SWIRL_SPIN_SPEED) % (Math.PI * 2);
     for (let i = 0; i < WALL_PAGE_SIZE; i += 1) {
       const cell = layoutRef.current[i] || null;
+      const discMesh = discRefs.current[i] || null;
       if (!cell) {
         dummy.position.set(0, 0, 0);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(0.0001, 0.0001, 0.0001);
         dummy.updateMatrix();
         rings.setMatrixAt(i, dummy.matrix);
-        discs.setMatrixAt(i, dummy.matrix);
+        if (discMesh) discMesh.visible = false;
         continue;
       }
       let rotY = cell.slot.rotY;
@@ -360,33 +517,42 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, car
       dummy.scale.set(1, 1.25, 1);
       dummy.updateMatrix();
       rings.setMatrixAt(i, dummy.matrix);
-      dummy.position.z += 0.04; // the disc rides just inside its ring
-      dummy.rotation.set(cardPitch, rotY, OMEGA_ARCH.rotationZ + discSpin);
-      dummy.updateMatrix();
-      discs.setMatrixAt(i, dummy.matrix);
+      // The disc rides just inside its ring, wearing the same slot
+      // yaw + spin on its own mesh (its video texture turns with it).
+      if (discMesh) {
+        discMesh.visible = true;
+        discMesh.position.copy(cell.slot.pos);
+        discMesh.position.z += 0.04;
+        discMesh.rotation.set(cardPitch, rotY, OMEGA_ARCH.rotationZ + discSpin);
+        discMesh.scale.set(1, 1.25, 1);
+      }
     }
     rings.instanceMatrix.needsUpdate = true;
-    discs.instanceMatrix.needsUpdate = true;
   };
 
   // Lay out the page: record each slot's transform and standing
-  // state, set the per-instance section hues, and paint the first
-  // frame. The expanded program's slot is collapsed to nothing —
-  // its real arch stands in its place.
+  // state, and paint the first frame. Each disc tints its own swirl
+  // by section (WallDisc); the layout carries no colours. The
+  // expanded program's slot is collapsed to nothing — its real arch
+  // stands in its place.
   useEffect(() => {
-    const discs = discsRef.current;
-    if (!discs) return;
+    const rings = ringsRef.current;
+    if (!rings) return;
     settleRef.current.clear();
     const layout = [];
     for (let i = 0; i < WALL_PAGE_SIZE; i += 1) {
       const item = pageItems[i] || null;
       const live = !!item && (!expanded || item.key !== expanded.key);
-      layout.push(live ? { slot: wallSlot(i), stands: portalHasVideo(item.key) } : null);
-      tmpColor.copy(item ? hueFor(item.section) : hueFor(null));
-      discs.setColorAt(i, tmpColor);
+      // A card stands when its video is present and has not failed
+      // this session — a failed video falls back to the swirl and
+      // turns again, the same attract state as a video still waiting.
+      layout.push(
+        live
+          ? { slot: wallSlot(i), stands: portalHasVideo(item.key) && !failedKeysRef.current.has(item.key) }
+          : null
+      );
     }
     layoutRef.current = layout;
-    if (discs.instanceColor) discs.instanceColor.needsUpdate = true;
     // A page/expand change retires collapsed slots: drop their
     // springing tilts (the live gesture, if any, is untouched — its
     // release resolves against the item stored at pointerdown).
@@ -394,7 +560,7 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, car
       if (!layout[idx]) tiltRef.current.delete(idx);
     }
     composeInstances(lastTRef.current);
-  }, [pageItems, expanded, tmpColor]);
+  }, [pageItems, expanded, failedKeysRef, failedTick]);
 
   // The living wall: a slow sway over the user's drag orbit, and
   // every turning disc carrying the swirl's spin (standing cards
@@ -462,20 +628,29 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, car
     };
   }, [onTap, cardGestureRef]);
 
-  const onCardPointerDown = (e) => {
+  // One card gesture at a time, whatever face it starts on: the
+  // ring reports its instanceId, a disc reports its slot index.
+  const beginCardGesture = (index, item, clientX, clientY) => {
     if (activeCardRef.current) return; // single gesture at a time
-    if (e.instanceId == null) return;
-    const item = pageItems[e.instanceId];
     if (!item) return;
     activeCardRef.current = {
-      index: e.instanceId,
+      index,
       item,
-      startX: e.clientX,
-      startY: e.clientY,
+      startX: clientX,
+      startY: clientY,
       startT: typeof performance !== 'undefined' ? performance.now() : 0,
       dragged: false,
     };
-    if (cardGestureRef) cardGestureRef.current = e.instanceId;
+    if (cardGestureRef) cardGestureRef.current = index;
+  };
+
+  const onCardPointerDown = (e) => {
+    if (e.instanceId == null) return;
+    beginCardGesture(e.instanceId, pageItems[e.instanceId], e.clientX, e.clientY);
+  };
+
+  const onDiscPointerDown = (index) => (e) => {
+    beginCardGesture(index, pageItems[index], e.clientX, e.clientY);
   };
 
   const expandedIndex = expanded ? pageItems.findIndex((p) => p.key === expanded.key) : -1;
@@ -498,15 +673,25 @@ function WallGroup({ pageItems, expanded, swirlTex, failedKeysRef, orbitRef, car
           metalness={0.6}
         />
       </instancedMesh>
-      <instancedMesh
-        ref={discsRef}
-        args={[null, null, WALL_PAGE_SIZE]}
-        frustumCulled={false}
-        onPointerDown={onCardPointerDown}
-      >
-        <circleGeometry args={[0.8, 40]} />
-        <meshBasicMaterial map={swirlTex} toneMapped={false} />
-      </instancedMesh>
+      {pageItems.map((item, i) => {
+        const live = !!item && (!expanded || item.key !== expanded.key);
+        if (!live) return null;
+        return (
+          <WallDisc
+            key={item.key}
+            item={item}
+            slotIndex={i}
+            swirlTex={swirlTex}
+            failedKeysRef={failedKeysRef}
+            registerVideo={registerVideo}
+            onVideoFailed={onVideoFailed}
+            meshRef={(el) => {
+              discRefs.current[i] = el;
+            }}
+            onTapDown={onDiscPointerDown(i)}
+          />
+        );
+      })}
       {expanded ? (
         <ExpandedPortal
           key={expanded.key}
