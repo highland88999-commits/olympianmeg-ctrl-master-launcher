@@ -10,9 +10,16 @@ import { getParticleTexture } from '@/lib/particles/sprites';
 import DayNightRig from '@/components/DayNightRig';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { mars2DayFactor, outpostSite, WORLD_RADIUS, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
+import {
+  outpostDoorAngle, outpostCollide,
+  OUTPOST_SCALE, OUTPOST_DOOR_WEDGE_RAD, OUTPOST_DOOR_THETA,
+  OUTPOST_WALKER_BODY_R_M, OUTPOST_ROVER_BODY_R_M,
+} from '@/lib/mars2/world';
+import { dayNightFor, dateMsForSolarTime, getDayNightPlace } from '@/lib/day-night';
+import { makeMoonTexture } from '../HubMoon';
 import { materialForHardware } from '@/lib/mars2/textures';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
-import { thuleWindAt, makeSandField, updateSandField, windCompass } from '@/lib/mars2/weather';
+import { thuleWindAt, makeSandField, updateSandField, windCompass, sandstormAt } from '@/lib/mars2/weather';
 import {
   ROVER_WHEEL_RADIUS_M, ROVER_WHEEL_COUNT,
   summonRover, updateRover, dismountRover, roverSpeedKmh, smoothRoverSpeedKmh,
@@ -223,18 +230,41 @@ function Mars2Cgi({ profile, dayF }) {
 // sand blows with it — 420 grains advected downwind, thicker in
 // gusts, thin in the lulls. One Points field, no new lights, no
 // per-frame allocations.
+//
+// Sandstorms (Merlin, Nov 17, 2026): a second, denser field wears
+// the sand-textured graphic and only reads while a storm is on —
+// its opacity rides the storm factor — while the ambient field
+// rides the storm harder too. The storm also closes the air: the
+// scene fog thickens with it (set every frame, so the rig's
+// once-a-second fog re-attach never holds the clear value).
 function Mars2Weather({ profile, dayF }) {
   const sand = useMemo(() => makeSandField({ seed: profile.seed + '-thule' }), [profile]);
+  const stormSand = useMemo(() => makeSandField({
+    count: 900, width: 170, height: 10, depth: 170, yBase: 0.2,
+    seed: profile.seed + '-storm', color: '#c98a5a', size: 0.3, opacity: 0.9, sprite: 'sand',
+  }), [profile]);
+  const { scene } = useThree();
   useEffect(() => () => {
     sand.geometry.dispose();
     sand.material.dispose();
-  }, [sand]);
+    stormSand.geometry.dispose();
+    stormSand.material.dispose();
+  }, [sand, stormSand]);
   useFrame((state, rawDt) => {
     const now = Date.now();
     const wind = thuleWindAt(now);
-    updateSandField(sand, wind, Math.min(rawDt, 0.05), now, 0.45 + 0.55 * dayF);
+    const storm = sandstormAt(now);
+    const dt = Math.min(rawDt, 0.05);
+    updateSandField(sand, wind, dt, now, 0.45 + 0.55 * dayF, storm.intensity);
+    updateSandField(stormSand, wind, dt, now, storm.intensity, storm.intensity);
+    if (scene.fog) scene.fog.density = 0.004 + storm.intensity * 0.016;
   });
-  return <primitive object={sand} />;
+  return (
+    <>
+      <primitive object={sand} />
+      <primitive object={stormSand} />
+    </>
+  );
 }
 
 // --- starfield ---------------------------------------------------------------
@@ -267,6 +297,47 @@ function Mars2Stars({ profile, opacity }) {
   return <primitive object={points} />;
 }
 
+// --- the red moon ------------------------------------------------------------
+// Mars's own moon, red (Merlin, Nov 17, 2026): Merlin's photo
+// surface — the same map the rig's grey moon wears — tinted
+// blood-red, with a red halo, on the rig's real moon direction,
+// so it hangs where the moonlight comes from. Its light IS the
+// rig's moonlight, tinted red via moonColor on the rig tag. Gone
+// by day and at new moon, like the moonlight it already drives —
+// a new moon gives no light, red or otherwise.
+function Mars2RedMoon({ timeOfDay }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const dn = useMemo(() => {
+    const place = getDayNightPlace();
+    const dateMs = Number.isFinite(timeOfDay)
+      ? dateMsForSolarTime(timeOfDay, place.lat, place.lon, now)
+      : now;
+    return dayNightFor(dateMs, place.lat, place.lon);
+  }, [now, timeOfDay]);
+  const moonMaps = useMemo(() => makeMoonTexture(), []);
+  const glowTex = useMemo(() => getParticleTexture('glow') || undefined, []);
+  const vis = dn.palette.night
+    * Math.max(0, Math.min(1, dn.moon.illum))
+    * Math.max(0, Math.min(1, dn.moon.altDeg / 20));
+  if (vis <= 0.01 || dn.moon.altDeg < -2) return null;
+  const pos = [dn.moonVec.x * 380, dn.moonVec.y * 380, dn.moonVec.z * 380];
+  return (
+    <group>
+      <mesh position={pos}>
+        <sphereGeometry args={[9, 32, 32]} />
+        <meshBasicMaterial map={moonMaps.map} color="#ff6a4a" fog={false} transparent opacity={0.95 * vis} depthWrite={false} />
+      </mesh>
+      <sprite position={pos} scale={[110, 110, 1]}>
+        <spriteMaterial map={glowTex} color="#ff4a2a" fog={false} transparent opacity={0.4 * vis} depthWrite={false} />
+      </sprite>
+    </group>
+  );
+}
+
 // --- ARES outpost ------------------------------------------------------------
 // The rovers' home: two habitat domes, a connector tube, a landing
 // pad, a comms mast and solar panels — procedural, no models.
@@ -297,8 +368,79 @@ function scratchedFallback(mat) {
   };
 }
 
+// A terrain-hugging interior floor: a radial fan centred on the
+// big dome whose vertices sit 8 cm over the dirt, so the floor
+// never floats over a dip or lets a dune poke through it. The
+// fan is in local coords; floorY converts local (lx, lz) to the
+// local floor height above the site.
+function buildInteriorFloor(floorY) {
+  const cx = -4;
+  const cz = 0;
+  const rings = [0, 0.8, 1.6, 2.4, 3.0];
+  const segs = 16;
+  const positions = [cx, floorY(cx, cz), cz];
+  const uvs = [0.5, 0.5];
+  const index = [];
+  for (let r = 1; r < rings.length; r++) {
+    for (let i = 0; i < segs; i++) {
+      const a = (i / segs) * Math.PI * 2;
+      const lx = cx + Math.cos(a) * rings[r];
+      const lz = cz + Math.sin(a) * rings[r];
+      positions.push(lx, floorY(lx, lz), lz);
+      uvs.push(0.5 + (Math.cos(a) * rings[r]) / 6, 0.5 + (Math.sin(a) * rings[r]) / 6);
+    }
+  }
+  for (let i = 0; i < segs; i++) {
+    index.push(0, 1 + ((i + 1) % segs), 1 + i);
+  }
+  for (let r = 1; r < rings.length - 1; r++) {
+    const base = 1 + (r - 1) * segs;
+    const next = base + segs;
+    for (let i = 0; i < segs; i++) {
+      const a = base + i;
+      const b = base + ((i + 1) % segs);
+      const c = next + i;
+      const d = next + ((i + 1) % segs);
+      index.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(index);
+  g.computeVertexNormals();
+  return g;
+}
+
+// A lit window on a dome: a warm plane on the shell at (phi,
+// theta) — the quaternion turns its +Z to the outward normal, so
+// it sits flush on the curve. Part of why the domes read at
+// night now (Merlin's Nov 17 phone check: pure black silhouettes).
+function DomeWindow({ cx, phi, theta, radius }) {
+  const q = useMemo(() => {
+    const n = new THREE.Vector3(
+      -Math.cos(phi) * Math.sin(theta),
+      Math.cos(theta),
+      Math.sin(phi) * Math.sin(theta),
+    ).normalize();
+    return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n);
+  }, [phi, theta]);
+  const pos = useMemo(() => ([
+    cx - Math.cos(phi) * Math.sin(theta) * radius,
+    Math.cos(theta) * radius,
+    Math.sin(phi) * Math.sin(theta) * radius,
+  ]), [cx, phi, theta, radius]);
+  return (
+    <mesh position={pos} quaternion={q}>
+      <planeGeometry args={[0.55, 0.38]} />
+      <meshBasicMaterial color="#ffca7a" />
+    </mesh>
+  );
+}
+
 function Outpost({ profile }) {
   const site = useMemo(() => outpostSite(profile), [profile]);
+  const angle = useMemo(() => outpostDoorAngle(site), [site]);
   const mats = useMemo(() => ({
     dome: materialForHardware('domeFabric', profile.seed),
     hull: materialForHardware('hullOrange', profile.seed),
@@ -306,6 +448,15 @@ function Outpost({ profile }) {
     pad: materialForHardware('padDeck', profile.seed),
     mast: materialForHardware('brushedMetal', profile.seed),
     solar: materialForHardware('solarCells', profile.seed),
+    // Interior: warm canvas floor, warm inner shell, wood-tone
+    // crates, brushed console, blue bunks, green plant corner.
+    floor: materialForHardware('domeFabric', profile.seed, '#d9b98a', { side: THREE.DoubleSide }),
+    interior: materialForHardware('domeFabric', profile.seed, '#f5e3c2', { side: THREE.BackSide }),
+    skirt: materialForHardware('hullGrey', profile.seed, '#8a6a4a', { side: THREE.DoubleSide }),
+    crate: materialForHardware('hullGrey', profile.seed, '#c9a06a'),
+    console: materialForHardware('brushedMetal', profile.seed, '#cfd6dd'),
+    bunk: materialForHardware('domeFabric', profile.seed, '#7a9cc9'),
+    plant: materialForHardware('domeFabric', profile.seed, '#5a8a4a'),
   }), [profile]);
   // Red scratched metal on the domes, the connector tube and the
   // mast; the fallback in each call is that part's exact existing
@@ -314,15 +465,220 @@ function Outpost({ profile }) {
   const redHull = useScratchedMaterial('red', scratchedFallback(mats.hull));
   const redTube = useScratchedMaterial('red', scratchedFallback(mats.tube));
   const redMast = useScratchedMaterial('red', scratchedFallback(mats.mast));
+  // Interior floor heights: local y for a local (lx, lz), hugging
+  // the dirt — the group's rotation is what maps local to world.
+  const floorY = useMemo(() => {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return (lx, lz) => {
+      const wx = site.x + (lx * c + lz * s) * OUTPOST_SCALE;
+      const wz = site.z + (-lx * s + lz * c) * OUTPOST_SCALE;
+      return (getTerrainHeight(wx, wz, profile) + 0.08 - site.y) / OUTPOST_SCALE;
+    };
+  }, [site, angle, profile]);
+  const floorGeo = useMemo(() => buildInteriorFloor(floorY), [floorY]);
+  useEffect(() => () => { floorGeo.dispose(); }, [floorGeo]);
+  // The portal ring faces -X (out of the door): +Z to -X.
+  const doorQ = useMemo(() => new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
+  ), []);
   return (
-    <group position={[site.x, site.y, site.z]} rotation={[0, site.angle, 0]}>
-      {/* habitat domes */}
+    <group position={[site.x, site.y, site.z]} rotation={[0, angle, 0]} scale={OUTPOST_SCALE}>
+      {/* habitat domes — the big one carries the doorway wedge.
+          The domes read at night now: a faint warm emissive lift
+          on the metal, so they never go pure black again. */}
       <mesh position={[-4, 0, 0]}>
-        <meshStandardMaterial {...redDome} />
-        <sphereGeometry args={[3.2, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <meshStandardMaterial {...redDome} emissive="#201009" />
+        <sphereGeometry args={[3.2, 32, 16, -OUTPOST_DOOR_WEDGE_RAD / 2, Math.PI * 2 - OUTPOST_DOOR_WEDGE_RAD, 0, Math.PI / 2]} />
       </mesh>
+      {/* wedge patch above the lintel: the doorway is door-high, not dome-high */}
+      <mesh position={[-4, 0, 0]}>
+        <meshStandardMaterial {...redDome} emissive="#201009" />
+        <sphereGeometry args={[3.2, 8, 6, -OUTPOST_DOOR_WEDGE_RAD / 2, OUTPOST_DOOR_WEDGE_RAD, 0, OUTPOST_DOOR_THETA]} />
+      </mesh>
+      {/* inner shell: what you see from inside (BackSide) + its patch */}
+      <mesh position={[-4, 0, 0]} material={mats.interior}>
+        <sphereGeometry args={[3.12, 32, 16, -OUTPOST_DOOR_WEDGE_RAD / 2, Math.PI * 2 - OUTPOST_DOOR_WEDGE_RAD, 0, Math.PI / 2]} />
+      </mesh>
+      <mesh position={[-4, 0, 0]} material={mats.interior}>
+        <sphereGeometry args={[3.12, 8, 6, -OUTPOST_DOOR_WEDGE_RAD / 2, OUTPOST_DOOR_WEDGE_RAD, 0, OUTPOST_DOOR_THETA]} />
+      </mesh>
+      {/* interior floor, hugging the dirt */}
+      <mesh geometry={floorGeo} material={mats.floor} />
+      {/* foundation skirts: the domes sit on the dirt, no daylight under the walls */}
+      <mesh position={[-4, 0.12, 0]} material={mats.skirt}>
+        <cylinderGeometry args={[3.35, 3.45, 0.7, 32, 1, true]} />
+      </mesh>
+      <mesh position={[4, 0.12, 0]} material={mats.skirt}>
+        <cylinderGeometry args={[2.55, 2.65, 0.7, 32, 1, true]} />
+      </mesh>
+      {/* glowing rims on the skirt tops — the outpost's feet read at night */}
+      <mesh position={[-4, 0.45, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[3.36, 0.035, 8, 48]} />
+        <meshBasicMaterial color="#ff8a3c" />
+      </mesh>
+      <mesh position={[4, 0.45, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[2.56, 0.035, 8, 48]} />
+        <meshBasicMaterial color="#ff8a3c" />
+      </mesh>
+      {/* airlock tunnel out of the big dome's door, facing the spawn */}
+      <mesh position={[-7.9, 0.87, -0.63]}>
+        <meshStandardMaterial {...redTube} />
+        <boxGeometry args={[1.4, 1.74, 0.12]} />
+      </mesh>
+      <mesh position={[-7.9, 0.87, 0.63]}>
+        <meshStandardMaterial {...redTube} />
+        <boxGeometry args={[1.4, 1.74, 0.12]} />
+      </mesh>
+      <mesh position={[-7.9, 1.8, 0]}>
+        <meshStandardMaterial {...redTube} />
+        <boxGeometry args={[1.4, 0.12, 1.38]} />
+      </mesh>
+      <mesh position={[-7.9, floorY(-7.9, 0) + 0.05, 0]} material={mats.floor}>
+        <boxGeometry args={[1.4, 0.1, 1.26]} />
+      </mesh>
+      {/* the portal: a glowing ring in the airlock mouth + frame posts */}
+      <mesh position={[-8.62, 0.95, 0]} quaternion={doorQ} scale={[1, 1.4, 1]}>
+        <torusGeometry args={[0.45, 0.05, 8, 24]} />
+        <meshBasicMaterial color="#ff7a2a" />
+      </mesh>
+      <mesh position={[-8.62, 0.9, -0.62]}>
+        <meshStandardMaterial {...redMast} />
+        <boxGeometry args={[0.1, 1.8, 0.1]} />
+      </mesh>
+      <mesh position={[-8.62, 0.9, 0.62]}>
+        <meshStandardMaterial {...redMast} />
+        <boxGeometry args={[0.1, 1.8, 0.1]} />
+      </mesh>
+      <mesh position={[-8.62, 1.8, 0]}>
+        <meshStandardMaterial {...redMast} />
+        <boxGeometry args={[0.1, 0.12, 1.34]} />
+      </mesh>
+      {/* lit windows — the domes read at night */}
+      <DomeWindow cx={-4} phi={1.1} theta={1.1} radius={3.22} />
+      <DomeWindow cx={-4} phi={2.2} theta={1.0} radius={3.22} />
+      <DomeWindow cx={-4} phi={-1.1} theta={1.15} radius={3.22} />
+      <DomeWindow cx={-4} phi={-2.2} theta={1.05} radius={3.22} />
+      <DomeWindow cx={4} phi={1.3} theta={1.0} radius={2.42} />
+      <DomeWindow cx={4} phi={-1.3} theta={1.0} radius={2.42} />
+      {/* interior decor: bunks, table + chairs, console, greenhouse, crates */}
+      {/* bunks — two stacked, against the -Z wall */}
+      <mesh position={[-5.2, floorY(-5.2, -1.9) + 0.35, -1.9]} material={mats.crate}>
+        <boxGeometry args={[1.9, 0.1, 0.85]} />
+      </mesh>
+      <mesh position={[-5.2, floorY(-5.2, -1.9) + 0.43, -1.9]} material={mats.bunk}>
+        <boxGeometry args={[1.85, 0.12, 0.8]} />
+      </mesh>
+      <mesh position={[-5.2, floorY(-5.2, -1.9) + 1.0, -1.9]} material={mats.crate}>
+        <boxGeometry args={[1.9, 0.1, 0.85]} />
+      </mesh>
+      <mesh position={[-5.2, floorY(-5.2, -1.9) + 1.08, -1.9]} material={mats.bunk}>
+        <boxGeometry args={[1.85, 0.12, 0.8]} />
+      </mesh>
+      <mesh position={[-6.05, floorY(-5.2, -1.9) + 0.65, -1.9]} material={mats.crate}>
+        <boxGeometry args={[0.08, 1.3, 0.08]} />
+      </mesh>
+      <mesh position={[-4.35, floorY(-5.2, -1.9) + 0.65, -1.9]} material={mats.crate}>
+        <boxGeometry args={[0.08, 1.3, 0.08]} />
+      </mesh>
+      {/* table + two chairs */}
+      <mesh position={[-3.2, floorY(-3.2, 1.2) + 0.72, 1.2]} material={mats.crate}>
+        <boxGeometry args={[1.4, 0.08, 0.9]} />
+      </mesh>
+      <mesh position={[-3.8, floorY(-3.2, 1.2) + 0.36, 0.85]} material={mats.crate}>
+        <boxGeometry args={[0.07, 0.72, 0.07]} />
+      </mesh>
+      <mesh position={[-2.6, floorY(-3.2, 1.2) + 0.36, 0.85]} material={mats.crate}>
+        <boxGeometry args={[0.07, 0.72, 0.07]} />
+      </mesh>
+      <mesh position={[-3.8, floorY(-3.2, 1.2) + 0.36, 1.55]} material={mats.crate}>
+        <boxGeometry args={[0.07, 0.72, 0.07]} />
+      </mesh>
+      <mesh position={[-2.6, floorY(-3.2, 1.2) + 0.36, 1.55]} material={mats.crate}>
+        <boxGeometry args={[0.07, 0.72, 0.07]} />
+      </mesh>
+      <mesh position={[-3.2, floorY(-3.2, 1.2) + 0.42, 0.35]} material={mats.crate}>
+        <boxGeometry args={[0.45, 0.06, 0.45]} />
+      </mesh>
+      <mesh position={[-3.2, floorY(-3.2, 1.2) + 0.67, 0.12]} material={mats.crate}>
+        <boxGeometry args={[0.45, 0.5, 0.06]} />
+      </mesh>
+      <mesh position={[-3.2, floorY(-3.2, 1.2) + 0.42, 2.05]} material={mats.crate}>
+        <boxGeometry args={[0.45, 0.06, 0.45]} />
+      </mesh>
+      <mesh position={[-3.2, floorY(-3.2, 1.2) + 0.67, 2.28]} material={mats.crate}>
+        <boxGeometry args={[0.45, 0.5, 0.06]} />
+      </mesh>
+      {/* console with two glowing screens, facing the room */}
+      <mesh position={[-2.8, floorY(-2.8, -1.6) + 0.78, -1.6]} rotation={[0, 0.6, 0]} material={mats.console}>
+        <boxGeometry args={[1.5, 0.08, 0.6]} />
+      </mesh>
+      <mesh position={[-3.35, floorY(-2.8, -1.6) + 0.39, -1.85]} material={mats.console}>
+        <boxGeometry args={[0.07, 0.78, 0.07]} />
+      </mesh>
+      <mesh position={[-2.25, floorY(-2.8, -1.6) + 0.39, -1.35]} material={mats.console}>
+        <boxGeometry args={[0.07, 0.78, 0.07]} />
+      </mesh>
+      <mesh position={[-3.05, floorY(-2.8, -1.6) + 1.18, -1.5]} rotation={[-0.35, 0.6, 0]}>
+        <planeGeometry args={[0.55, 0.35]} />
+        <meshBasicMaterial color="#7fd4ff" />
+      </mesh>
+      <mesh position={[-2.55, floorY(-2.8, -1.6) + 1.18, -1.75]} rotation={[-0.35, 0.6, 0]}>
+        <planeGeometry args={[0.55, 0.35]} />
+        <meshBasicMaterial color="#9dffb0" />
+      </mesh>
+      {/* greenhouse rack with grow-light strip */}
+      <mesh position={[-5.0, floorY(-5.0, 1.6) + 0.5, 1.6]} material={mats.crate}>
+        <boxGeometry args={[1.6, 0.06, 0.5]} />
+      </mesh>
+      <mesh position={[-5.0, floorY(-5.0, 1.6) + 1.1, 1.6]} material={mats.crate}>
+        <boxGeometry args={[1.6, 0.06, 0.5]} />
+      </mesh>
+      <mesh position={[-5.75, floorY(-5.0, 1.6) + 0.6, 1.6]} material={mats.crate}>
+        <boxGeometry args={[0.06, 1.2, 0.5]} />
+      </mesh>
+      <mesh position={[-4.25, floorY(-5.0, 1.6) + 0.6, 1.6]} material={mats.crate}>
+        <boxGeometry args={[0.06, 1.2, 0.5]} />
+      </mesh>
+      <mesh position={[-5.4, floorY(-5.0, 1.6) + 0.66, 1.6]} material={mats.plant}>
+        <sphereGeometry args={[0.13, 10, 8]} />
+      </mesh>
+      <mesh position={[-4.6, floorY(-5.0, 1.6) + 0.66, 1.6]} material={mats.plant}>
+        <sphereGeometry args={[0.13, 10, 8]} />
+      </mesh>
+      <mesh position={[-5.4, floorY(-5.0, 1.6) + 1.26, 1.6]} material={mats.plant}>
+        <sphereGeometry args={[0.13, 10, 8]} />
+      </mesh>
+      <mesh position={[-4.6, floorY(-5.0, 1.6) + 1.26, 1.6]} material={mats.plant}>
+        <sphereGeometry args={[0.13, 10, 8]} />
+      </mesh>
+      <mesh position={[-5.0, floorY(-5.0, 1.6) + 1.45, 1.6]}>
+        <boxGeometry args={[1.6, 0.04, 0.12]} />
+        <meshBasicMaterial color="#ff9dff" />
+      </mesh>
+      {/* storage crates, stacked by the door */}
+      <mesh position={[-6.4, floorY(-6.2, 0.8) + 0.3, 0.6]} material={mats.crate}>
+        <boxGeometry args={[0.6, 0.6, 0.6]} />
+      </mesh>
+      <mesh position={[-5.8, floorY(-6.2, 0.8) + 0.3, 1.0]} material={mats.crate}>
+        <boxGeometry args={[0.6, 0.6, 0.6]} />
+      </mesh>
+      <mesh position={[-6.1, floorY(-6.2, 0.8) + 0.9, 0.8]} material={mats.crate}>
+        <boxGeometry args={[0.6, 0.6, 0.6]} />
+      </mesh>
+      {/* interior lights: ceiling + console corner, warm; the porch
+          light over the door spills onto the dome's flank at night */}
+      <pointLight position={[-4, 2.3, 0]} color="#ffc98a" intensity={10} distance={12} decay={2} />
+      <pointLight position={[-2.6, 1.9, 1.5]} color="#ffd9a0" intensity={5} distance={8} decay={2} />
+      <pointLight position={[-9.2, 2.1, 0]} color="#ffb37a" intensity={6} distance={10} decay={2} />
+      {/* ceiling light strip — the visible source of the ceiling light */}
+      <mesh position={[-4, 2.55, 0]}>
+        <boxGeometry args={[2.2, 0.06, 0.3]} />
+        <meshBasicMaterial color="#ffd9a0" />
+      </mesh>
+      {/* smaller dome */}
       <mesh position={[4, 0, 0]}>
-        <meshStandardMaterial {...redHull} />
+        <meshStandardMaterial {...redHull} emissive="#201009" />
         <sphereGeometry args={[2.4, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
       </mesh>
       {/* connector tube between domes */}
@@ -498,7 +854,7 @@ function RoverModel({ roverRef }) {
 // throttle, left/right steer) and the camera chases 7.5 m behind
 // it; drag swings the chase angle. Dismount puts the walker back
 // on foot beside the rover, facing the same way.
-function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, roverRef, onRoverChange, jumpRef }) {
+function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, roverRef, onRoverChange, jumpRef, outpost }) {
   const { camera, gl } = useThree();
   const dragging = useRef(false);
   const last = useRef([0, 0]);
@@ -581,6 +937,14 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     const rover = roverRef.current;
     if (mode === 'drive' && rover && rover.active) {
       updateRover(rover, k, dt, groundHeight, WORLD_RADIUS);
+      // The outpost's domes and tube are solid to the rover too —
+      // it cannot drive through the habitat (or into the doorway,
+      // which is walker-sized). Re-ground after the push.
+      if (outpost) {
+        const c = outpostCollide(rover.x, rover.z, outpost, OUTPOST_ROVER_BODY_R_M);
+        rover.x = c.x; rover.z = c.z;
+        rover.y = groundHeight(rover.x, rover.z);
+      }
       // Chase camera: behind the rover on its heading + drag offset.
       const chaseYaw = rover.heading + chaseOffset.current;
       const bx = rover.x + Math.sin(chaseYaw) * 7.5;
@@ -635,6 +999,14 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
     p.set(next.pos.x, next.pos.y, next.pos.z);
     const r = Math.hypot(p.x, p.z);
     if (r > WORLD_RADIUS) { p.x *= WORLD_RADIUS / r; p.z *= WORLD_RADIUS / r; }
+    // The outpost's domes and tube are solid — the doorway is the
+    // way in, not through a wall. Re-ground after the push when
+    // the walker is on foot (a push can move them across a dune).
+    if (outpost) {
+      const c = outpostCollide(p.x, p.z, outpost, OUTPOST_WALKER_BODY_R_M);
+      p.x = c.x; p.z = c.z;
+      if (groundedRef.current) p.y = groundHeight(p.x, p.z) + EYE_HEIGHT;
+    }
     camera.position.copy(p);
     camera.rotation.set(pitchRef.current, yawRef.current, 0);
   });
@@ -677,7 +1049,7 @@ function LabelProjector({ profile, roverRef, labelRef }) {
       node.style.visibility = 'visible';
     };
     place('mons', mons.x, mons.y - mons.sink + mons.height + 3.5, mons.z);
-    place('outpost', outpost.x, outpost.y + 7.5, outpost.z);
+    place('outpost', outpost.x, outpost.y + 7.5 * OUTPOST_SCALE, outpost.z);
     const rover = roverRef.current;
     if (rover) place('rover', rover.x, rover.y + 3.1, rover.z);
     else if (nodes.rover) nodes.rover.style.visibility = 'hidden';
@@ -694,6 +1066,7 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
   const roverRef = useRef(null);
   const dayF = mars2DayFactor(timeOfDay);
   const groundHeight = (x, z) => getTerrainHeight(x, z, profile);
+  const outpost = useMemo(() => outpostSite(profile), [profile]);
 
   // Rover commands from the page: summon boards the rover at the
   // walker's side; dismount steps the walker out beside it and
@@ -707,6 +1080,11 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
         heading: yawRef.current,
       };
       const rover = summonRover(roverRef.current, walker);
+      rover.y = groundHeight(rover.x, rover.z);
+      // A summon never lands the rover inside the outpost's domes
+      // or tube — the walker may be standing in the doorway.
+      const c = outpostCollide(rover.x, rover.z, outpost, OUTPOST_ROVER_BODY_R_M);
+      rover.x = c.x; rover.z = c.z;
       rover.y = groundHeight(rover.x, rover.z);
       roverRef.current = rover;
       if (onRoverChange) onRoverChange({ active: true, speedKmh: 0 });
@@ -728,8 +1106,10 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       {/* The page's timeOfDay drives the rig's cycle (the TIME
           slider + presets move the real sun), and the rig draws
           the sun itself — core disc + glow halo — so it reads as
-          a sun. */}
-      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} sun />
+          a sun. moonColor red: Mars's nights are lit red by its
+          moon (the red moon disc below rides the same direction). */}
+      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} sun moonColor="#ff5040" />
+      <Mars2RedMoon timeOfDay={timeOfDay} />
       {/* cool fill from the opposite side so the night never goes
           black (the Mars 1 pattern — same light, same reason). */}
       <directionalLight position={[-40, 24, 40]} intensity={0.18} color="#7a86a8" />
@@ -752,6 +1132,7 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
           inputRef={inputRef} mode={mode} groundHeight={groundHeight}
           walkerRef={walkerRef} yawRef={yawRef} pitchRef={pitchRef}
           roverRef={roverRef} onRoverChange={onRoverChange} jumpRef={jumpRef}
+          outpost={outpost}
         />
       )}
     </>
@@ -763,11 +1144,16 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
 // under the roverbar and the fullscreen orb — never behind them):
 // the wind's speed and compass bearing, refreshed once a second.
 // "GUSTING" when the gust factor is high — so the weather is
-// readable, not just felt.
+// readable, not just felt. A sandstorm rides the same pill — no
+// new HUD chrome (orb law) — as "· SANDSTORM" while one is on.
 function ThuleWindPill() {
   const [wind, setWind] = useState(() => thuleWindAt(Date.now()));
+  const [storm, setStorm] = useState(() => sandstormAt(Date.now()));
   useEffect(() => {
-    const id = setInterval(() => setWind(thuleWindAt(Date.now())), 1000);
+    const id = setInterval(() => {
+      setWind(thuleWindAt(Date.now()));
+      setStorm(sandstormAt(Date.now()));
+    }, 1000);
     return () => clearInterval(id);
   }, []);
   return (
@@ -777,7 +1163,7 @@ function ThuleWindPill() {
       background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
       pointerEvents: 'none', whiteSpace: 'nowrap',
     }}>
-      🌬 THULE WIND {wind.speed.toFixed(0)} m/s {windCompass(wind.bearingDeg)}{wind.gust > 0.6 ? ' · GUSTING' : ''}
+      🌬 THULE WIND {wind.speed.toFixed(0)} m/s {windCompass(wind.bearingDeg)}{wind.gust > 0.6 ? ' · GUSTING' : ''}{storm.active ? ' · SANDSTORM' : ''}
     </div>
   );
 }

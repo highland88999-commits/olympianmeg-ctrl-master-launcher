@@ -32,10 +32,10 @@ function countOccurrences(text, needle) {
 
 // ── Library ──────────────────────────────────────────────────────────
 
-test('library exports all 14 sprite kinds', () => {
+test('library exports all 15 sprite kinds', () => {
   assert.deepEqual([...PARTICLE_SPRITE_KINDS].sort(), [
     'ash', 'bubble', 'drop', 'ember', 'firefly', 'flake', 'glow', 'grain',
-    'mist', 'petal', 'shard', 'spark', 'star', 'wisp',
+    'mist', 'petal', 'sand', 'shard', 'spark', 'star', 'wisp',
   ]);
 });
 

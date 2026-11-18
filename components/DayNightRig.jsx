@@ -52,6 +52,7 @@ import {
   pruneFires,
   STORM_MAX_FIRES,
 } from '@/lib/day-night';
+import { makeMoonTexture } from './HubMoon';
 
 const FIRE_COLORS = {
   red: { core: '#ff7a1a', outer: '#ff2a1a', glow: '#ff5a00' },
@@ -115,6 +116,19 @@ export default function DayNightRig({
   // so it reads as a sun instead of a flat disc (or nothing).
   // Worlds that do not opt in keep exactly their current sky.
   sun = false,
+  // moon (default false): render the moon itself — Merlin's photo
+  // wrapped on a sphere on the rig's real moon direction, with a
+  // pale halo — so the night sky carries the same moon everywhere.
+  // Gone by day and at new moon, like the moonlight it already
+  // drives. Worlds that do not opt in keep exactly their current
+  // sky. (Mars 2 does NOT opt in: its moon is red, built by a
+  // separate coordinator — never the grey photo here.)
+  moon = false,
+  // moonColor (default '#b8c4e8'): the tint of the moonlight the
+  // rig drives. Mars 2 passes its red moon's colour so the night
+  // is lit red by its own moon; every other world keeps
+  // moonlight blue. The photo moon's halo keeps its own blue.
+  moonColor = '#b8c4e8',
 }) {
   const placeRef = useRef(null);
   const accRef = useRef(99); // due at once: the sky is right from frame one
@@ -220,17 +234,26 @@ export default function DayNightRig({
     }
   });
 
-  const { pal, sunVec, moonVec, moon } = cycle;
-  const moonI = pal.night * Math.max(0, Math.min(1, moon.illum))
-    * Math.max(0, Math.min(1, moon.altDeg / 20)) * 0.85;
+  const { pal, sunVec, moonVec, moon: moonData } = cycle;
+  const moonI = pal.night * Math.max(0, Math.min(1, moonData.illum))
+    * Math.max(0, Math.min(1, moonData.altDeg / 20)) * 0.85;
   const fireColors = FIRE_COLORS[storm?.hue] || FIRE_COLORS.red;
   // The sun's visibility 0..1 from its own intensity — full by
   // late morning, gone at night (the terrain hides it below the
   // horizon anyway; this keeps the disc + halo from glowing
   // through the dark).
   const sunVis = Math.max(0, Math.min(1, pal.sunIntensity / 0.9));
-  const glowTex = useMemo(() => (sun ? makeGlowTexture() : null), [sun]);
+  const glowTex = useMemo(() => ((sun || moon) ? makeGlowTexture() : null), [sun, moon]);
   useEffect(() => () => { if (glowTex) glowTex.dispose(); }, [glowTex]);
+  // The moon's maps (Merlin's photo, shared with the hub moon and
+  // the /moon ground — one texture object, procedural fallback, so
+  // a failed photo load never leaves a blank moon).
+  const moonMaps = useMemo(() => (moon ? makeMoonTexture() : null), [moon]);
+  // The moon's visibility 0..1 — same law as the moonlight it
+  // already drives: full by night at full moon, gone by day and
+  // at new moon (the terrain hides it below the horizon anyway).
+  const moonVis = pal.night * Math.max(0, Math.min(1, moonData.illum))
+    * Math.max(0, Math.min(1, moonData.altDeg / 20));
 
   return (
     <group>
@@ -245,7 +268,7 @@ export default function DayNightRig({
       {pal.night > 0.05 && (
         <directionalLight
           position={[moonVec.x * 120, moonVec.y * 120, moonVec.z * 120]}
-          color="#b8c4e8"
+          color={moonColor}
           intensity={moonI}
         />
       )}
@@ -261,6 +284,22 @@ export default function DayNightRig({
           </mesh>
           <sprite position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]} scale={[64, 64, 1]}>
             <spriteMaterial map={glowTex} color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
+          </sprite>
+        </>
+      )}
+      {moon && moonMaps && glowTex && moonVis > 0.01 && (
+        <>
+          {/* the moon itself: Merlin's photo wrapped on a sphere on
+              the rig's real moon direction, with a pale halo — the
+              same moon in every world that opts in. Unlit (the
+              photo's own shading does the work); the halo is the
+              rig's glow texture in moonlight blue. */}
+          <mesh position={[moonVec.x * 380, moonVec.y * 380, moonVec.z * 380]}>
+            <sphereGeometry args={[6, 32, 32]} />
+            <meshBasicMaterial map={moonMaps.map} fog={false} transparent opacity={moonVis} depthWrite={false} />
+          </mesh>
+          <sprite position={[moonVec.x * 380, moonVec.y * 380, moonVec.z * 380]} scale={[48, 48, 1]}>
+            <spriteMaterial map={glowTex} color="#b8c4e8" fog={false} transparent opacity={0.3 * moonVis} depthWrite={false} />
           </sprite>
         </>
       )}
