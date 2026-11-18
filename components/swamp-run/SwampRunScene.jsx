@@ -11,14 +11,17 @@ import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { terrainHeight, WORLD_SIZE } from '@/lib/swamp-run/world';
+import {
+  chunkHeightField,
+  chunksAround,
+  chunkIsFar,
+  chunkVegetation,
+  CHUNK_M,
+} from '@/lib/swamp-run/streaming';
 import { MODEL_SLOTS, JAW_PARAMS, markSlotLoaded } from '@/lib/swamp-run/models';
 
 const dummy = new THREE.Object3D();
 const tmpColor = new THREE.Color();
-const MUD = new THREE.Color('#4a3d28');
-const WET = new THREE.Color('#5d4e30');
-const GRASS = new THREE.Color('#47602e');
-const DEEP_GRASS = new THREE.Color('#33491f');
 
 function groundY(seed, x, z) {
   const h = terrainHeight(seed, x, z);
@@ -206,47 +209,87 @@ function stepJaw(jaw, target, dt) {
   return e;
 }
 
-function Terrain({ stateRef }) {
-  const geo = useMemo(() => {
-    const s = stateRef.current;
-    if (!s) return null;
-    const g = new THREE.PlaneGeometry(WORLD_SIZE, WORLD_SIZE, 108, 108);
-    g.rotateX(-Math.PI / 2);
-    const pos = g.attributes.position;
-    const colors = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i);
-      const z = pos.getZ(i);
-      const h = terrainHeight(s.seed, x, z);
-      pos.setY(i, h <= 0 ? h * 0.6 - 0.5 : h);
-      if (h <= 0) tmpColor.copy(MUD).multiplyScalar(0.8 + ((x * 13 + z * 7) % 10) / 60);
-      else if (h <= 0.06) tmpColor.copy(WET);
-      else tmpColor.copy(GRASS).lerp(DEEP_GRASS, Math.min(1, h * 1.4));
-      colors[i * 3] = tmpColor.r;
-      colors[i * 3 + 1] = tmpColor.g;
-      colors[i * 3 + 2] = tmpColor.b;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    g.computeVertexNormals();
-    return g;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateRef.current?.seed]);
-
-  if (!geo) return null;
-  return (
-    <mesh geometry={geo} receiveShadow={false}>
-      <meshStandardMaterial vertexColors roughness={1} metalness={0} />
-    </mesh>
+// --- Streaming terrain (Merlin, Nov 18, 2026 — the swamp is endless):
+// the heightfield streams in 64 m chunks around the player, built from
+// the same seeded terrainHeight the old fixed 620 m plane used, so the
+// home region reads exactly as before and the ground never ends. At
+// most 2 chunks build per frame, centre first, so the ground under the
+// canoe appears before the far edge. The seed changes every run, so a
+// seed change drops every built chunk.
+function StreamingTerrain({ stateRef }) {
+  const groupRef = useRef(null);
+  const chunksRef = useRef(new Map());
+  const queueRef = useRef([]);
+  const seedRef = useRef(null);
+  const material = useMemo(
+    () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }),
+    []
   );
+  useEffect(() => () => {
+    for (const entry of chunksRef.current.values()) entry.geometry.dispose();
+    chunksRef.current.clear();
+    material.dispose();
+  }, [material]);
+  useFrame(() => {
+    const s = stateRef.current;
+    const group = groupRef.current;
+    if (!s || !group) return;
+    if (seedRef.current !== s.seed) {
+      seedRef.current = s.seed;
+      for (const entry of chunksRef.current.values()) {
+        group.remove(entry.mesh);
+        entry.geometry.dispose();
+      }
+      chunksRef.current.clear();
+      queueRef.current = [];
+    }
+    const wanted = chunksAround(s.player.x, s.player.z);
+    const wantedKeys = new Set(wanted.map((w) => w.key));
+    const chunks = chunksRef.current;
+    for (const [key, entry] of chunks) {
+      if (!wantedKeys.has(key)) {
+        group.remove(entry.mesh);
+        entry.geometry.dispose();
+        chunks.delete(key);
+      }
+    }
+    const queue = queueRef.current.filter((k) => wantedKeys.has(k));
+    for (const w of wanted) {
+      if (!chunks.has(w.key) && !queue.includes(w.key)) queue.push(w.key);
+    }
+    queueRef.current = queue;
+    let built = 0;
+    while (queue.length && built < 2) {
+      const key = queue.shift();
+      if (chunks.has(key)) continue;
+      const [cx, cz] = key.split(',').map(Number);
+      const field = chunkHeightField(s.seed, cx, cz);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(field.positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(field.colors, 3));
+      geometry.setIndex(new THREE.BufferAttribute(field.indices, 1));
+      geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(cx * CHUNK_M, 0, cz * CHUNK_M);
+      group.add(mesh);
+      chunks.set(key, { mesh, geometry });
+      built++;
+    }
+  });
+  return <group ref={groupRef} />;
 }
 
-function Water() {
+function Water({ stateRef }) {
   const ref = useRef(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     const t = clock.elapsedTime;
     ref.current.material.opacity = 0.82 + Math.sin(t * 0.6) * 0.05;
-    ref.current.position.y = Math.sin(t * 0.5) * 0.03;
+    // The water sheet rides under the player (Merlin, Nov 18, 2026 —
+    // endless swamp): the 992 m sheet is far wider than the fog, so
+    // the player never paddles off it.
+    const p = stateRef.current?.player;
+    ref.current.position.set(p ? p.x : 0, Math.sin(t * 0.5) * 0.03, p ? p.z : 0);
   });
   return (
     <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
@@ -479,6 +522,80 @@ function Trees({ stateRef }) {
         <TreesGlb stateRef={stateRef} url={url} />
       </Suspense>
     </SwampGlbErrorBoundary>
+  );
+}
+
+// Cypress for the streamed far chunks (endless swamp): the home square
+// keeps its own Trees above; these instanced stands cover only chunks
+// entirely past the home edge, grown from the same per-chunk law, so
+// the tree line never ends. Rebuilt only when the wanted chunk set (or
+// the run's seed) changes. Visual cover only — the engine's line of
+// sight + trunk collision still read the home tree list.
+function StreamedVegetation({ stateRef }) {
+  const treeRef = useRef(null);
+  const mossRef = useRef(null);
+  const geo = useCypressGeometry();
+  const builtFor = useRef('');
+  const CAP = 512;
+  useFrame(() => {
+    const s = stateRef.current;
+    const mesh = treeRef.current;
+    if (!s || !mesh) return;
+    const wanted = chunksAround(s.player.x, s.player.z).filter((w) => chunkIsFar(w.cx, w.cz));
+    const sig = `seed:${s.seed}|${wanted.map((w) => w.key).join(';')}`;
+    if (builtFor.current === sig) return;
+    builtFor.current = sig;
+    let i = 0;
+    let mi = 0;
+    const moss = mossRef.current;
+    for (const w of wanted) {
+      const { trees } = chunkVegetation(s.seed, w.cx, w.cz);
+      for (const t of trees) {
+        if (i >= CAP) break;
+        const baseY = t.water ? -0.5 : groundY(s.seed, t.x, t.z) - 0.25;
+        dummy.position.set(t.x, baseY, t.z);
+        const sc = t.water ? 0.62 : 0.85 + (t.h - 7) * 0.09;
+        dummy.scale.set(t.r * 1.15, sc, t.r * 1.15);
+        dummy.rotation.set(0, (t.x * 7 + t.z * 3) % Math.PI, 0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        tmpColor.setHSL(0.26 + ((i * 37) % 10) / 110, 0.38, 0.2 + ((i * 53) % 10) / 140);
+        mesh.setColorAt(i, tmpColor);
+        if (moss && (t.moss || 0) > 0.55) {
+          for (let k = 0; k < 3; k++) {
+            const a = (k / 3) * Math.PI * 2 + i;
+            dummy.position.set(
+              t.x + Math.cos(a) * 1.7 * sc,
+              baseY + 4.1 * sc,
+              t.z + Math.sin(a) * 1.7 * sc
+            );
+            dummy.scale.set(1, 0.8 + ((i + k) % 3) * 0.35, 1);
+            dummy.rotation.set(0.08 * Math.sin(i + k), 0, 0.08 * Math.cos(i * 2 + k));
+            dummy.updateMatrix();
+            moss.setMatrixAt(mi++, dummy.matrix);
+          }
+        }
+        i++;
+      }
+    }
+    mesh.count = i;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (moss) {
+      moss.count = mi;
+      moss.instanceMatrix.needsUpdate = true;
+    }
+  });
+  return (
+    <group>
+      <instancedMesh ref={treeRef} args={[geo, undefined, CAP]} frustumCulled={false}>
+        <meshStandardMaterial color="#ffffff" roughness={1} />
+      </instancedMesh>
+      <instancedMesh ref={mossRef} args={[undefined, undefined, CAP * 3]} frustumCulled={false}>
+        <cylinderGeometry args={[0.05, 0.015, 1.6, 4]} />
+        <meshStandardMaterial color="#8a9578" roughness={1} transparent opacity={0.85} />
+      </instancedMesh>
+    </group>
   );
 }
 
@@ -1013,7 +1130,7 @@ function Croc({ stateRef }) {
   );
 }
 
-function Fireflies() {
+function Fireflies({ stateRef }) {
   const ref = useRef(null);
   const seeds = useMemo(
     () =>
@@ -1028,11 +1145,15 @@ function Fireflies() {
     const mesh = ref.current;
     if (!mesh) return;
     const t = clock.elapsedTime;
+    // The swarm rides with the player (endless swamp) — the seeds are
+    // offsets around the player, not fixed points near the origin.
+    const px = stateRef.current?.player.x || 0;
+    const pz = stateRef.current?.player.z || 0;
     seeds.forEach((f, i) => {
       dummy.position.set(
-        f.x + Math.sin(t * 0.4 + f.ph) * 6,
+        px + f.x + Math.sin(t * 0.4 + f.ph) * 6,
         1.2 + Math.sin(t * 0.9 + f.ph * 2) * 0.5,
-        f.z + Math.cos(t * 0.3 + f.ph) * 6
+        pz + f.z + Math.cos(t * 0.3 + f.ph) * 6
       );
       dummy.scale.setScalar(0.5 + Math.sin(t * 2 + f.ph * 3) * 0.3);
       dummy.rotation.set(0, 0, 0);
@@ -1225,16 +1346,17 @@ export default function SwampRunScene({ stateRef, onCanoeClick }) {
       <hemisphereLight args={['#e8e4b0', '#1c2a14', 0.75]} />
       <directionalLight position={[70, 90, -40]} intensity={1.5} color="#ffb469" />
       <directionalLight position={[-50, 40, 60]} intensity={0.3} color="#9db98a" />
-      <Terrain stateRef={stateRef} />
-      <Water />
+      <StreamingTerrain stateRef={stateRef} />
+      <Water stateRef={stateRef} />
       <Trees stateRef={stateRef} />
+      <StreamedVegetation stateRef={stateRef} />
       <Reeds stateRef={stateRef} />
       <Knees stateRef={stateRef} />
       <Lilies stateRef={stateRef} />
       <PlayerAndCanoe stateRef={stateRef} onCanoeClick={onCanoeClick} />
       <Croc stateRef={stateRef} />
       <Gator stateRef={stateRef} />
-      <Fireflies />
+      <Fireflies stateRef={stateRef} />
       <CameraRig stateRef={stateRef} />
     </>
   );

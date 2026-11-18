@@ -189,9 +189,17 @@ export function createIslands(scene, islands) {
     emissive: new THREE.Color(0x6a4a00), emissiveIntensity: 0.5,
   });
   const islandLights = []; // { light, flames: [{s, phase, base}], phase }
+  const built = new Map(); // island id -> { objects, wisps, lights } (for sync)
   let nightFNow = 1; // last night factor handed to update(t, nightF)
 
-  for (const isl of islands) {
+  // Build ONE island's meshes (group children + wisp/light entries).
+  // Extracted from the old build-all loop so sync() can stream far
+  // islands in as the ship sails past the home ring (endless sea,
+  // Merlin Nov 18, 2026) — the home 8 build exactly as before.
+  function buildIsland(isl) {
+    const before = group.children.length;
+    const wispBefore = wisps.length;
+    const lightBefore = islandLights.length;
     const ig = new THREE.Group();
     ig.position.set(isl.x, 0, isl.z);
     const mesh = new THREE.Mesh(buildIslandGeometry(isl), mat);
@@ -337,11 +345,42 @@ export function createIslands(scene, islands) {
     }
 
     group.add(ig);
+    built.set(isl.id, {
+      objects: group.children.slice(before),
+      wisps: wisps.slice(wispBefore),
+      lights: islandLights.slice(lightBefore),
+    });
   }
+  for (const isl of islands) buildIsland(isl);
   scene.add(group);
   const api = {
     group,
     get nightF() { return nightFNow; },
+    // Stream islands in/out as the ship sails: build meshes for new
+    // isles (far islands past the home ring), drop ones no longer
+    // wanted. Sectors are never pruned by the engine, so in practice
+    // this only ever adds — the removal path is there for correctness.
+    sync(list) {
+      const want = new Set();
+      for (const isl of list || []) {
+        if (!isl || typeof isl.id !== 'string') continue;
+        want.add(isl.id);
+        if (!built.has(isl.id)) buildIsland(isl);
+      }
+      for (const [id, entry] of built) {
+        if (want.has(id)) continue;
+        for (const o of entry.objects) group.remove(o);
+        for (const w of entry.wisps) {
+          const i = wisps.indexOf(w);
+          if (i >= 0) wisps.splice(i, 1);
+        }
+        for (const l of entry.lights) {
+          const i = islandLights.indexOf(l);
+          if (i >= 0) islandLights.splice(i, 1);
+        }
+        built.delete(id);
+      }
+    },
     update(t, nightF = 1) {
       nightFNow = typeof nightF === 'number' ? Math.max(0, Math.min(1, nightF)) : 1;
       for (const w of wisps) {
@@ -429,18 +468,22 @@ function buildChestMesh() {
 export function createChests(scene, chests) {
   const group = new THREE.Group();
   const meshes = new Map();
-  for (const c of chests) {
+  // Build one chest's mesh. Extracted so sync() can stream far-island
+  // chests in as the ship sails (endless sea, Merlin Nov 18, 2026).
+  function addChest(c) {
     const m = buildChestMesh();
     m.group.position.set(c.x, 0.3, c.z);
     m.group.userData.phase = (c.id.charCodeAt(c.id.length - 1) || 0) * 0.7;
     group.add(m.group);
     meshes.set(c.id, m);
   }
+  for (const c of chests) addChest(c);
   scene.add(group);
   return {
     group,
     sync(list, t) {
       for (const c of list) {
+        if (!meshes.has(c.id)) addChest(c);
         const m = meshes.get(c.id);
         if (!m) continue;
         const wh = waveHeight(c.x, c.z, t);

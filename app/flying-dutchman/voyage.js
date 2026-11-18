@@ -8,7 +8,7 @@
 
 import {
   makeShip, makeRng, SHIP, clamp, wrapAngle, dist2, TAU,
-  damageShip, stepAI, stepShip,
+  damageShip, stepAI, stepShip, allIslands,
 } from './engine.js';
 
 // ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ export function respawnPlayer(world, rng) {
     const x = wx + Math.sin(bearing) * 100;
     const z = wz + Math.cos(bearing) * 100;
     let islandClear = Infinity;
-    for (const isl of world.islands) {
+    for (const isl of allIslands(world)) {
       islandClear = Math.min(islandClear, Math.hypot(x - isl.x, z - isl.z) - (isl.r + 30));
     }
     let enemyClear = Infinity;
@@ -665,6 +665,36 @@ export function dressIslands(islands) {
     isl.hasSlotMachine = isl === largest;
   });
   return islands;
+}
+
+/**
+ * Dress a generated far island (endless sea, Merlin Nov 18, 2026):
+ * a name and beach torches so it reads through the fog — but NO dock,
+ * NO merchant, NO slot machine. Ports stay in the home archipelago.
+ * The name comes from the island seed, so the same isle always bears
+ * the same name; a second isle in one sector takes the ' II' suffix.
+ */
+const FAR_ISLAND_NAMES = [
+  ...ISLAND_NAMES,
+  'Uncharted Isle',
+  'The Long Dark',
+  'Widowmaker Rock',
+  'Salt Tooth',
+  'Hunger Reef',
+];
+
+export function dressFarIsland(isl) {
+  const base = FAR_ISLAND_NAMES[Math.abs(isl.seed || 0) % FAR_ISLAND_NAMES.length];
+  const suffix = typeof isl.id === 'string' && isl.id.endsWith('-1') ? ' II' : '';
+  isl.name = base + suffix;
+  const a0 = (((isl.seed || 0) % 1000) / 1000) * TAU;
+  isl.torches = [0, 1, 2, 3].map((k) => {
+    const a = a0 + (k / 4) * TAU;
+    return { x: isl.x + Math.sin(a) * (isl.r + 7), z: isl.z + Math.cos(a) * (isl.r + 7) };
+  });
+  isl.hasMerchant = false;
+  isl.hasSlotMachine = false;
+  return isl;
 }
 
 // ---------------------------------------------------------------------------

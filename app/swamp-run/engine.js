@@ -16,7 +16,8 @@ import {
   isWater,
   lineOfSight,
   collideTrees,
-  clampToWorld,
+  nearestWater,
+  WORLD_HALF,
   dist,
 } from '../../lib/swamp-run/world.js';
 import { computeScore } from '../../lib/swamp-run/board.js';
@@ -231,8 +232,8 @@ function stepPlayer(state, dt) {
 
   if (p.speed !== 0) {
     const stepLen = p.speed * dt;
-    let nx = clampToWorld(p.x + Math.sin(p.heading) * stepLen);
-    let nz = clampToWorld(p.z + Math.cos(p.heading) * stepLen);
+    let nx = p.x + Math.sin(p.heading) * stepLen;
+    let nz = p.z + Math.cos(p.heading) * stepLen;
     const pushed = collideTrees(state.world.trees, nx, nz, p.mode === 'canoe' ? 0.9 : 0.45);
     nx = pushed.x;
     nz = pushed.z;
@@ -383,8 +384,8 @@ function stepGator(state, dt) {
 
 function moveGator(state, dt) {
   const g = state.gator;
-  g.x = clampToWorld(g.x + Math.sin(g.heading) * g.speed * dt);
-  g.z = clampToWorld(g.z + Math.cos(g.heading) * g.speed * dt);
+  g.x = g.x + Math.sin(g.heading) * g.speed * dt;
+  g.z = g.z + Math.cos(g.heading) * g.speed * dt;
 }
 
 /** A new ambush spot: shallow water near a bank, safely away from the player. */
@@ -396,8 +397,8 @@ function gatorLurkSpot(state) {
   for (let i = 0; i < 24; i++) {
     const a = (i / 24) * Math.PI * 2 + state.seed;
     const r = 40 + ((i * 37) % 50);
-    const x = clampToWorld(p.x + Math.cos(a) * r);
-    const z = clampToWorld(p.z + Math.sin(a) * r);
+    const x = p.x + Math.cos(a) * r;
+    const z = p.z + Math.sin(a) * r;
     if (dist(x, z, p.x, p.z) < 30) continue;
     if (isWater(state.seed, x, z)) return { x, z };
   }
@@ -413,9 +414,23 @@ function stepCroc(state, dt) {
   const escalation = Math.min(1.3, state.survival / 240); // it learns you
 
   if (c.mode === 'patrol') {
-    const wp = state.world.waypoints[c.waypoint % state.world.waypoints.length];
-    if (dist(c.x, c.z, wp.x, wp.z) < 6) c.waypoint += 1;
-    const target = state.world.waypoints[c.waypoint % state.world.waypoints.length];
+    // Endless world: when the player has paddled far from the home
+    // region, the croc patrols the water near the player instead of
+    // the home waypoints — otherwise fleeing far out would end the
+    // hunt for good. The far waypoint refreshes on arrival.
+    const farOut = Math.hypot(p.x, p.z) > WORLD_HALF + 100;
+    let target;
+    if (farOut) {
+      if (!c.farWp || dist(c.x, c.z, c.farWp.x, c.farWp.z) < 6) {
+        c.farWp = nearestWater(state.seed, p.x + 60, p.z + 40);
+      }
+      target = c.farWp;
+    } else {
+      c.farWp = null;
+      const wp = state.world.waypoints[c.waypoint % state.world.waypoints.length];
+      if (dist(c.x, c.z, wp.x, wp.z) < 6) c.waypoint += 1;
+      target = state.world.waypoints[c.waypoint % state.world.waypoints.length];
+    }
     turnToward(c, headingTo(c.x, c.z, target.x, target.z), 1.2, dt);
     c.speed = TUNING.crocPatrolSpeed;
     moveCroc(state, dt);
@@ -448,7 +463,7 @@ function stepCroc(state, dt) {
     c.circleAngle += dt * 0.85;
     const tx = p.x + Math.sin(c.circleAngle) * TUNING.circleRadius;
     const tz = p.z + Math.cos(c.circleAngle) * TUNING.circleRadius;
-    const spot = { x: clampToWorld(tx), z: clampToWorld(tz) };
+    const spot = { x: tx, z: tz };
     turnToward(c, headingTo(c.x, c.z, spot.x, spot.z), 2.2, dt);
     c.speed = 4.2;
     moveCroc(state, dt);
@@ -470,8 +485,8 @@ function stepCroc(state, dt) {
 
 function moveCroc(state, dt) {
   const c = state.croc;
-  c.x = clampToWorld(c.x + Math.sin(c.heading) * c.speed * dt);
-  c.z = clampToWorld(c.z + Math.cos(c.heading) * c.speed * dt);
+  c.x = c.x + Math.sin(c.heading) * c.speed * dt;
+  c.z = c.z + Math.cos(c.heading) * c.speed * dt;
 }
 
 function ramPlayer(state) {

@@ -11,7 +11,6 @@
 import {
   WORLD,
   isLand,
-  clampToWorld,
   threatConfig,
   mulberry32,
 } from '../../lib/crocodile-swamp/levels.js';
@@ -121,7 +120,6 @@ function stepPlayer(state, dt) {
   const oz = p.z;
   p.x += p.vx * dt;
   p.z += p.vz * dt;
-  clampToWorld(p);
   const moved = Math.hypot(p.x - ox, p.z - oz);
   state.distance += moved;
   if (Math.hypot(p.vx, p.vz) > 0.4) p.dir = Math.atan2(p.vx, p.vz);
@@ -145,7 +143,6 @@ function stepPlayer(state, dt) {
     state.canoe.z += state.canoe.vz * dt;
     state.canoe.vx *= 1 - 0.8 * dt;
     state.canoe.vz *= 1 - 0.8 * dt;
-    clampToWorld(state.canoe);
   }
   return cfg;
 }
@@ -166,10 +163,19 @@ function stepCroc(state, dt, cfg) {
         if (!c.wanderTarget || state.time >= c.wanderAt) {
           const a = state.rand() * Math.PI * 2;
           const r = 0.35 + state.rand() * 0.5;
-          c.wanderTarget = {
-            x: Math.cos(a) * WORLD.waterRx * r,
-            z: Math.sin(a) * WORLD.waterRz * r,
-          };
+          // Endless swamp: far from home the croc patrols the water
+          // around the player instead of the home basin — otherwise
+          // paddling away would end the hunt for good.
+          const farOut = Math.hypot(p.x, p.z) > 120;
+          c.wanderTarget = farOut
+            ? {
+              x: p.x + Math.cos(a) * (20 + state.rand() * 25),
+              z: p.z + Math.sin(a) * (20 + state.rand() * 25),
+            }
+            : {
+              x: Math.cos(a) * WORLD.waterRx * r,
+              z: Math.sin(a) * WORLD.waterRz * r,
+            };
           c.wanderAt = state.time + 4 + state.rand() * 4;
         }
         moveToward(c, c.wanderTarget, 1.6, dt);
@@ -189,7 +195,6 @@ function stepCroc(state, dt, cfg) {
         state.canoe.vz = Math.cos(p.dir) * push + p.vz * 0.4;
         p.x += Math.sin(p.dir + Math.PI / 2) * 2.2;
         p.z += Math.cos(p.dir + Math.PI / 2) * 2.2;
-        clampToWorld(p);
         p.onLand = isLand(p.x, p.z);
         emit(state, 'bump');
       }

@@ -17,7 +17,7 @@ import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { Stars } from '@react-three/drei';
 import * as THREE from 'three';
 import { barrierLoops, startPose, isBumpTrack } from './tracks';
-import { roamSpawn, isRoam } from './roam';
+import { roamSpawn, isRoam, gridChunksAround, gridChunkBounds, GRID_CHUNK_M } from './roam';
 import { LapTracker, resolveBarrier } from './race';
 import { schemeByKey, vehicleByKey, skinArtFor } from './schemes';
 import Bots from './Bots';
@@ -174,11 +174,22 @@ function moonTexture() {
 }
 
 function NightSky() {
+  const groupRef = useRef();
+  const camera = useThree((s) => s.camera);
   const moonPos = useMemo(() => new THREE.Vector3(-320, 210, -520), []);
   const tex = useMemo(() => moonTexture(), []);
   const haloPos = useMemo(() => moonPos.clone().add(new THREE.Vector3(0, 0, -1.5)), [moonPos]);
+  // The sky rides with the camera (endless grid, Merlin Nov 18, 2026):
+  // the 1500 m dome + 900 m stars are origin-anchored, so a rider past
+  // ~1500 m would leave the sky behind and stare at the void. The moon
+  // keeps its offset inside the group, so the whole sky moves as one.
+  useFrame(() => {
+    if (groupRef.current && camera) {
+      groupRef.current.position.set(camera.position.x, 0, camera.position.z);
+    }
+  });
   return (
-    <group>
+    <group ref={groupRef}>
       <mesh>
         <sphereGeometry args={[1500, 24, 16]} />
         <meshBasicMaterial color="#030612" side={THREE.BackSide} fog={false} />
@@ -210,17 +221,85 @@ function NightSky() {
   );
 }
 
-function GridGround() {
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]}>
-        <planeGeometry args={[2400, 2400]} />
-        <meshBasicMaterial color="#04060e" />
-      </mesh>
-      <gridHelper args={[1400, 70, '#1e4d8f', '#0b1e3f']} position={[0, 0, 0]} />
-      <gridHelper args={[1400, 14, '#2f6fd0', '#12305e']} position={[0, 0.02, 0]} />
-    </group>
+function disposeGridChunk(entry) {
+  entry.group.traverse((o) => {
+    if (o.geometry) o.geometry.dispose();
+    if (o.material) {
+      const ms = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of ms) m.dispose();
+    }
+  });
+}
+
+// One grid chunk: dark plane + the fine 20 m grid + the coarse 100 m
+// grid, in the old GridGround's colours. Built imperatively (the ring
+// manager below owns the meshes, never React).
+function buildGridChunk(cx, cz) {
+  const group = new THREE.Group();
+  const { x0, z0 } = gridChunkBounds(cx, cz);
+  const ccx = x0 + GRID_CHUNK_M / 2;
+  const ccz = z0 + GRID_CHUNK_M / 2;
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(GRID_CHUNK_M, GRID_CHUNK_M),
+    new THREE.MeshBasicMaterial({ color: '#04060e' })
   );
+  plane.rotation.x = -Math.PI / 2;
+  plane.position.set(ccx, -0.05, ccz);
+  group.add(plane);
+  const fine = new THREE.GridHelper(GRID_CHUNK_M, GRID_CHUNK_M / 20, '#1e4d8f', '#0b1e3f');
+  fine.position.set(ccx, 0, ccz);
+  group.add(fine);
+  const coarse = new THREE.GridHelper(GRID_CHUNK_M, GRID_CHUNK_M / 100, '#2f6fd0', '#12305e');
+  coarse.position.set(ccx, 0.02, ccz);
+  group.add(coarse);
+  return { group };
+}
+
+// The grid streams in 400 m chunks around the camera (Merlin,
+// Nov 18, 2026 — the grid is endless): the old fixed 2400 m plane +
+// 1400 m grids ended at ±1200 m, and the bike rode off the edge. At
+// most 2 chunks build per frame, centre first. Race mode rides the
+// same ground — the track, its barrier walls and lap logic are
+// untouched; only the floor under everything streams.
+function GridGround() {
+  const groupRef = useRef();
+  const chunksRef = useRef(new Map());
+  const queueRef = useRef([]);
+  const camera = useThree((s) => s.camera);
+  useEffect(() => () => {
+    for (const entry of chunksRef.current.values()) disposeGridChunk(entry);
+    chunksRef.current.clear();
+  }, []);
+  useFrame(() => {
+    const group = groupRef.current;
+    if (!group || !camera) return;
+    const wanted = gridChunksAround(camera.position.x, camera.position.z);
+    const wantedKeys = new Set(wanted.map((w) => w.key));
+    const chunks = chunksRef.current;
+    for (const [key, entry] of chunks) {
+      if (!wantedKeys.has(key)) {
+        group.remove(entry.group);
+        disposeGridChunk(entry);
+        chunks.delete(key);
+      }
+    }
+    const queue = queueRef.current.filter((k) => wantedKeys.has(k));
+    for (const w of wanted) {
+      if (!chunks.has(w.key) && !queue.includes(w.key)) queue.push(w.key);
+    }
+    queueRef.current = queue;
+    let built = 0;
+    while (queue.length && built < 2) {
+      const key = queue.shift();
+      if (chunks.has(key)) continue;
+      const [cx, cz] = key.split(',').map(Number);
+      const entry = buildGridChunk(cx, cz);
+      group.add(entry.group);
+      chunks.set(key, entry);
+      built++;
+    }
+  });
+  return <group ref={groupRef} />;
 }
 
 function PylonRing() {

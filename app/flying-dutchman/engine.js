@@ -12,7 +12,7 @@ export const TAU = Math.PI * 2;
 // is safe in ESM.
 import {
   levelFor, applyLevelStats, stepMegaSouls, stepKraken,
-  respawnPlayer, syncCaptain, dressIslands,
+  respawnPlayer, syncCaptain, dressIslands, dressFarIsland,
 } from './voyage.js';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 // The shared wind law (lib/wind.js): the wind reads 10–80 km/h and
@@ -640,6 +640,133 @@ export function makeChests(rng, islands) {
   return chests;
 }
 
+// ---------------------------------------------------------------------------
+// Far islands — the endless sea (Merlin, Nov 18, 2026). The ocean mesh
+// already follows the camera, so the sea never ends; the boundary was
+// the 8-island home ring. Past it, the sea grows new isles in 1600 m
+// sectors, seeded by the voyage seed + sector coords — the same isle
+// in the same place on every voyage, and no two sectors repeat the
+// same layout. Ports, the Caleuche Rock slot machine and the merchant
+// stay in the home ring: far isles are wild (dressFarIsland gives
+// them a name and beach torches, no dock, no merchant, no slot).
+// ---------------------------------------------------------------------------
+
+export const FAR_SECTOR_M = 1600;
+// Sectors within this many of the player's sector get generated.
+export const FAR_SECTOR_RADIUS = 2;
+
+/** Deterministic 0..1 hash of integer coords + salt. */
+function hash01(ix, iz, salt) {
+  let h = (Math.imul(ix + 0x9e37, 374761393) ^ Math.imul(iz + 0x9e37, 668265263) ^ Math.imul(salt | 0, 974634211)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (((h ^ (h >>> 16)) >>> 0) % 100000) / 100000;
+}
+
+export function farSectorFor(x, z) {
+  return { sx: Math.floor(x / FAR_SECTOR_M), sz: Math.floor(z / FAR_SECTOR_M) };
+}
+
+export function farSectorKey(sx, sz) {
+  return `${sx},${sz}`;
+}
+
+// True when a sector overlaps the home archipelago: the 8-island ring
+// reaches 1400 m + 95 m island radius, so anything whose nearest
+// point is under 1600 m from the origin stays home-only.
+export function farSectorIsHome(sx, sz) {
+  const x0 = sx * FAR_SECTOR_M;
+  const z0 = sz * FAR_SECTOR_M;
+  const x1 = x0 + FAR_SECTOR_M;
+  const z1 = z0 + FAR_SECTOR_M;
+  const nx = x0 <= 0 && 0 <= x1 ? 0 : Math.min(Math.abs(x0), Math.abs(x1));
+  const nz = z0 <= 0 && 0 <= z1 ? 0 : Math.min(Math.abs(z0), Math.abs(z1));
+  return Math.hypot(nx, nz) < 1600;
+}
+
+/** The seeded far islands of one sector: 0, 1 or 2 isles. */
+export function farIslandsForSector(seed, sx, sz) {
+  if (farSectorIsHome(sx, sz)) return [];
+  const s = (Number(seed) >>> 0) || 1;
+  const countRoll = hash01(sx, sz, s);
+  const count = countRoll < 0.25 ? 0 : countRoll < 0.8 ? 1 : 2;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const salt = (s ^ Math.imul(sx + 11, 7919) ^ Math.imul(sz + 13, 104729) ^ Math.imul(i + 1, 1299709)) >>> 0;
+    const span = FAR_SECTOR_M - 400; // 200 m margin inside the sector
+    let x = sx * FAR_SECTOR_M + 200 + hash01(sx, sz, salt + 1) * span;
+    const z = sz * FAR_SECTOR_M + 200 + hash01(sx, sz, salt + 2) * span;
+    const r = ISLAND.minR + hash01(sx, sz, salt + 3) * (ISLAND.maxR - ISLAND.minR);
+    const h = ISLAND.minH + hash01(sx, sz, salt + 4) * (ISLAND.maxH - ISLAND.minH);
+    // Two isles in one sector never overlap: nudge the second along
+    // x (wrapping inside the sector) until clear.
+    for (let nudge = 0; nudge < 4 && out.length > 0; nudge++) {
+      const other = out[0];
+      if (Math.hypot(x - other.x, z - other.z) >= r + other.r + 60) break;
+      x = sx * FAR_SECTOR_M + 200 + (((x - (sx * FAR_SECTOR_M + 200) + 300) % span + span) % span);
+    }
+    out.push({
+      id: `far-${sx}-${sz}-${i}`,
+      x,
+      z,
+      r,
+      h,
+      seed: Math.floor(hash01(sx, sz, salt + 5) * 1e9),
+    });
+  }
+  return out;
+}
+
+/** 1–2 chests per far island, deterministic from the island seed. */
+export function farChestsForIsland(isl) {
+  const rng = makeRng((isl.seed >>> 0) || 1);
+  const count = 1 + (rng() < 0.5 ? 1 : 0);
+  const chests = [];
+  for (let k = 0; k < count; k++) {
+    const a = rng() * TAU;
+    const d = isl.r + 8 + rng() * 6;
+    chests.push({
+      id: `chest-${isl.id}-${k}`,
+      x: isl.x + Math.sin(a) * d,
+      z: isl.z + Math.cos(a) * d,
+      opened: false,
+      openT: 0,
+      islandId: isl.id,
+    });
+  }
+  return chests;
+}
+
+/** Generate the far islands (and their chests) for the sectors around
+ *  (x, z). Called every stepWorld tick; generation is a hash per
+ *  sector, and sectors are never pruned — a sailed-past isle stays
+ *  where it was, with its chest state kept. */
+export function ensureFarIslands(world, x, z) {
+  if (!world.farIslandSectors) {
+    world.farIslandSectors = new Set();
+    world.farIslands = world.farIslands || [];
+  }
+  const { sx, sz } = farSectorFor(x, z);
+  for (let dz = -FAR_SECTOR_RADIUS; dz <= FAR_SECTOR_RADIUS; dz++) {
+    for (let dx = -FAR_SECTOR_RADIUS; dx <= FAR_SECTOR_RADIUS; dx++) {
+      const key = farSectorKey(sx + dx, sz + dz);
+      if (world.farIslandSectors.has(key)) continue;
+      world.farIslandSectors.add(key);
+      const isles = farIslandsForSector(world.seed, sx + dx, sz + dz);
+      for (const isl of isles) {
+        dressFarIsland(isl);
+        world.farIslands.push(isl);
+        for (const c of farChestsForIsland(isl)) world.chests.push(c);
+      }
+    }
+  }
+  return world.farIslands;
+}
+
+/** Home islands + generated far islands — everything solid. */
+export function allIslands(world) {
+  return world.islands.concat(world.farIslands || []);
+}
+
 /** Push a ship out of island circles (simple radial collision). */
 export function collideIslands(ship, islands) {
   if (!ship.alive) return;
@@ -683,6 +810,7 @@ export function makeWorld(seed = 1234) {
   const chests = makeChests(rng, islands);
   return {
     t: 0,
+    seed,
     wind: makeWind(seed),
     player: makeShip({ name: 'Flying Dutchman', isPlayer: true, crew: 8 }),
     enemies: [],
@@ -691,6 +819,10 @@ export function makeWorld(seed = 1234) {
     events: [],
     rng,
     islands,
+    // Endless sea: far islands stream in as the ship sails past the
+    // home ring (ensureFarIslands, called every stepWorld tick).
+    farIslands: [],
+    farIslandSectors: new Set(),
     chests,
     wave: 0, // difficulty wave
     // Voyage state (voyage.js): the per-voyage captain, the fleet,
@@ -736,7 +868,10 @@ export function stepWorld(world, input, dt) {
   p.throttle = input.throttle == null ? 1 : clamp(input.throttle, -1, 1);
   p.anchored = !!input.anchored;
   stepShip(p, dt, world.wind);
-  collideIslands(p, world.islands);
+  // Endless sea: grow the far islands around the ship, then collide
+  // against home + far isles alike — the ship never sails through one.
+  ensureFarIslands(world, p.x, p.z);
+  collideIslands(p, allIslands(world));
 
   if (input.fire && p.alive) {
     const { balls, fired } = fireBroadside(p, input.fire, world.t);
@@ -752,7 +887,7 @@ export function stepWorld(world, input, dt) {
   const ballShips = [p, ...(world.fleet || []), ...world.enemies];
   for (const e of world.enemies) {
     const side = stepAI(e, p, world.wind, dt);
-    collideIslands(e, world.islands);
+    collideIslands(e, allIslands(world));
     if (side) {
       const { balls, fired } = fireBroadside(e, side, world.t);
       if (fired) {

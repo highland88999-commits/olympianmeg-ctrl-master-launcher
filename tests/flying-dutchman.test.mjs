@@ -514,7 +514,10 @@ test('page.jsx wires the world: builds isles + chests, syncs them, pays chests',
   assert.ok(pageSrc.includes('G.islands.update(t, G.nightF)'), 'must sync islands with the night factor for torches');
   assert.ok(pageSrc.includes('dutchmanNightFactor()'), 'must drive the night factor from the shared day/night law');
   assert.ok(pageSrc.includes("e.type === 'chest'"), 'must handle the chest event');
-  assert.ok(pageSrc.includes('collideIslands(p, world.islands)'));
+  // Endless sea (Nov 18, 2026): collision runs against home + far
+  // isles, and the island meshes stream in as the ship sails.
+  assert.ok(pageSrc.includes('collideIslands(p, allIslands(world))'));
+  assert.ok(pageSrc.includes('G.islands.sync(allIslands(world))'), 'must stream far islands in');
   assert.ok(pageSrc.includes('stepChests(world, ev)'));
 });
 

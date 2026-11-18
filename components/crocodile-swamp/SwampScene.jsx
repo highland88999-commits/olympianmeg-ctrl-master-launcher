@@ -6,10 +6,17 @@
 // muddy banks, cypress trees with hanging moss silhouettes, lily pads, a
 // wooden canoe, and a long green shape that wants you dead.
 
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { WORLD, mulberry32 } from '@/lib/crocodile-swamp/levels';
+import {
+  WORLD,
+  isLand,
+  tileFor,
+  tileBounds,
+  tileParams,
+  tileVegetation,
+} from '@/lib/crocodile-swamp/levels';
 
 const V3 = new THREE.Vector3();
 
@@ -27,28 +34,37 @@ function CameraRig({ stateRef }) {
   return null;
 }
 
-function CypressTrees() {
-  const trees = useMemo(() => {
-    const rand = mulberry32(4242);
-    const out = [];
-    for (let i = 0; i < 46; i++) {
-      const a = rand() * Math.PI * 2;
-      const rx = WORLD.waterRx + 4 + rand() * 12;
-      const rz = WORLD.waterRz + 4 + rand() * 9;
-      out.push({
-        x: Math.cos(a) * rx,
-        z: Math.sin(a) * rz,
-        h: 5 + rand() * 4,
-        s: 0.8 + rand() * 0.7,
-        r: rand() * Math.PI * 2,
-      });
-    }
-    return out;
-  }, []);
+// One swamp tile: land base + water basin + muddy shoreline ring +
+// cypress trees + lily pads, all from the tile's seeded law
+// (lib/crocodile-swamp/levels.js). The home tile (0,0) renders exactly
+// as the old fixed arena did.
+function SwampTile({ tx, tz }) {
+  const veg = useMemo(() => tileVegetation(tx, tz), [tx, tz]);
+  const p = useMemo(() => tileParams(tx, tz), [tx, tz]);
+  const b = tileBounds(tx, tz);
+  const ccx = (b.x0 + b.x1) / 2;
+  const ccz = (b.z0 + b.z1) / 2;
+  const wx = ccx + p.cx;
+  const wz = ccz + p.cz;
   return (
     <group>
-      {trees.map((t, i) => (
-        <group key={i} position={[t.x, 0, t.z]} rotation={[0, t.r, 0]} scale={t.s}>
+      {/* land base */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[ccx, -0.06, ccz]}>
+        <planeGeometry args={[WORLD.width, WORLD.depth]} />
+        <meshStandardMaterial color="#1c2b12" roughness={1} />
+      </mesh>
+      {/* the water basin */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[wx, 0, wz]} scale={[p.rx, p.rz, 1]}>
+        <circleGeometry args={[1, 48]} />
+        <meshStandardMaterial color="#0a2e1e" roughness={0.35} metalness={0.25} />
+      </mesh>
+      {/* muddy shoreline ring */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[wx, -0.02, wz]} scale={[p.rx + 2.5, p.rz + 2.5, 1]}>
+        <ringGeometry args={[0.94, 1, 48]} />
+        <meshStandardMaterial color="#3a2c17" roughness={1} />
+      </mesh>
+      {veg.trees.map((t, i) => (
+        <group key={`t${i}`} position={[t.x, 0, t.z]} rotation={[0, t.r, 0]} scale={t.s}>
           <mesh position={[0, t.h / 2, 0]}>
             <cylinderGeometry args={[0.24, 0.5, t.h, 7]} />
             <meshStandardMaterial color="#2e2118" roughness={0.95} />
@@ -64,33 +80,42 @@ function CypressTrees() {
           </mesh>
         </group>
       ))}
+      {veg.pads.map((pd, i) => (
+        <mesh key={`p${i}`} position={[pd.x, 0.04, pd.z]} rotation={[-Math.PI / 2, 0, pd.r]} scale={pd.s}>
+          <circleGeometry args={[0.55, 10]} />
+          <meshStandardMaterial color="#1e4d22" roughness={0.8} />
+        </mesh>
+      ))}
     </group>
   );
 }
 
-function LilyPads() {
-  const pads = useMemo(() => {
-    const rand = mulberry32(777);
-    const out = [];
-    for (let i = 0; i < 60; i++) {
-      const a = rand() * Math.PI * 2;
-      const r = Math.sqrt(rand()) * 0.92;
-      out.push({
-        x: Math.cos(a) * WORLD.waterRx * r,
-        z: Math.sin(a) * WORLD.waterRz * r,
-        s: 0.5 + rand() * 0.9,
-        r: rand() * Math.PI * 2,
-      });
+// The swamp streams in a 3x3 tile ring around the player (Merlin,
+// Nov 18, 2026 — the swamp is endless). The ring re-centres only when
+// the player crosses a tile border, so tiles never rebuild mid-frame;
+// fog (45–95 m) hides the ring edge, which sits 124+ m out.
+function SwampTiles({ stateRef }) {
+  const [center, setCenter] = useState({ tx: 0, tz: 0 });
+  const centerRef = useRef(center);
+  useFrame(() => {
+    const s = stateRef.current;
+    if (!s) return;
+    const t = tileFor(s.player.x, s.player.z);
+    if (t.tx !== centerRef.current.tx || t.tz !== centerRef.current.tz) {
+      centerRef.current = t;
+      setCenter(t);
     }
-    return out;
-  }, []);
+  });
+  const tiles = [];
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      tiles.push({ tx: center.tx + dx, tz: center.tz + dz });
+    }
+  }
   return (
     <group>
-      {pads.map((p, i) => (
-        <mesh key={i} position={[p.x, 0.04, p.z]} rotation={[-Math.PI / 2, 0, p.r]} scale={p.s}>
-          <circleGeometry args={[0.55, 10]} />
-          <meshStandardMaterial color="#1e4d22" roughness={0.8} />
-        </mesh>
+      {tiles.map((t) => (
+        <SwampTile key={`${t.tx},${t.tz}`} tx={t.tx} tz={t.tz} />
       ))}
     </group>
   );
@@ -178,7 +203,7 @@ function Crocodile({ stateRef }) {
     if (!s || !g) return;
     const c = s.croc;
     const t = clock.elapsedTime;
-    const onLand = Math.hypot(c.x / WORLD.waterRx, c.z / WORLD.waterRz) >= 1;
+    const onLand = isLand(c.x, c.z);
     const lurking = c.mode === 'lurk';
     // Lurking: just eyes and ridges above the surface. Hunting: full body up.
     const y = lurking ? -0.28 : onLand ? 0.28 : -0.02;
@@ -248,23 +273,7 @@ export default function SwampScene({ stateRef }) {
       <ambientLight intensity={0.55} />
       <directionalLight position={[10, 18, 6]} intensity={0.75} color="#ffe9b8" />
       <CameraRig stateRef={stateRef} />
-      {/* land base */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]}>
-        <planeGeometry args={[150, 120]} />
-        <meshStandardMaterial color="#1c2b12" roughness={1} />
-      </mesh>
-      {/* the water basin */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} scale={[WORLD.waterRx, WORLD.waterRz, 1]}>
-        <circleGeometry args={[1, 48]} />
-        <meshStandardMaterial color="#0a2e1e" roughness={0.35} metalness={0.25} />
-      </mesh>
-      {/* muddy shoreline ring */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.02, 0]} scale={[WORLD.waterRx + 2.5, WORLD.waterRz + 2.5, 1]}>
-        <ringGeometry args={[0.94, 1, 48]} />
-        <meshStandardMaterial color="#3a2c17" roughness={1} />
-      </mesh>
-      <CypressTrees />
-      <LilyPads />
+      <SwampTiles stateRef={stateRef} />
       <CanoeAndPlayer stateRef={stateRef} />
       <Crocodile stateRef={stateRef} />
     </>

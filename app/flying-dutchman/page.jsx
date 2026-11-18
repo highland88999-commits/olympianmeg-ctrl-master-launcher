@@ -14,6 +14,7 @@ import {
   fireBroadside, stepBalls, stepSouls, stepWind, stepShip,
   SHIP, SAILS, reloadTime, waveHeight, clamp, wrapAngle,
   collideIslands, stepChests, sinkDropK,
+  allIslands, ensureFarIslands,
 } from './engine.js';
 import { buildShip, buildGhostShip, animateShip, setSkin as setSkinVisual, buildLegendaryShip } from './ship3d.js';
 import {
@@ -1199,7 +1200,7 @@ export default function DutchmanPage() {
             // wreck from the fleet once it has gone under.
             const side = stepFleetShip(f, world.player, world.enemies, world.wind, step, world.rng);
             if (!f.alive) continue;
-            collideIslands(f, world.islands);
+            collideIslands(f, allIslands(world));
             if (side && f.alive) {
               const r = fireBroadside(f, side, world.t);
               if (r.fired) {
@@ -1226,7 +1227,9 @@ export default function DutchmanPage() {
       p.throttle = clamp(G.input.throttle == null ? 1 : G.input.throttle, -1, 1);
       p.anchored = !!G.input.anchored;
       stepShip(p, step, world.wind);
-      collideIslands(p, world.islands);
+      // Duel mode has no stepWorld tick: grow the far islands here too.
+      ensureFarIslands(world, p.x, p.z);
+      collideIslands(p, allIslands(world));
       if (fire && p.alive) {
         const r = fireBroadside(p, fire, world.t);
         if (r.fired) {
@@ -1248,7 +1251,7 @@ export default function DutchmanPage() {
       remote.reloadPort = Math.max(0, remote.reloadPort - step);
       remote.reloadStbd = Math.max(0, remote.reloadStbd - step);
       if (!remote.alive && remote.sinking) remote.sinkT += step;
-      collideIslands(remote, world.islands);
+      collideIslands(remote, allIslands(world));
       stepBalls(world.balls, [p, remote], world.souls, step, world.t, ev, world.rng);
       stepSouls(world.souls, [p, remote], step, world.t, ev);
       stepChests(world, ev);
@@ -1496,6 +1499,7 @@ export default function DutchmanPage() {
         G.lastNightSec = nowSec;
         G.nightF = dutchmanNightFactor();
       }
+      G.islands.sync(allIslands(world));
       G.islands.update(t, G.nightF);
       G.chests.sync(world.chests, t);
 
