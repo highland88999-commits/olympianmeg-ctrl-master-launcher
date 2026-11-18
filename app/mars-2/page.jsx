@@ -89,6 +89,13 @@ export default function Mars2Page() {
   // the orb drops it back. The R3F canvas resizes itself when
   // the stage changes size.
   const [fullscreen, setFullscreen] = useState(false);
+  // The merged panel (Merlin, Nov 18, 2026 — phone check): the
+  // hint strip + the time/mode controls are ONE panel, and it
+  // collapses into a single orb top-left under the hint line.
+  // Default open — the controls stay reachable on first entry,
+  // as they were; one tap on MIN hides them, one tap on the orb
+  // brings them back.
+  const [panelMinimized, setPanelMinimized] = useState(false);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -157,6 +164,16 @@ export default function Mars2Page() {
   // fullscreen the fixed stage covers the page below it, so the
   // TIME slider, presets and WALK/RIDE/ORBIT were unreachable).
   // Same handlers, same orbs — only where they live changes.
+  // The status line — the "information script" that already
+  // sits top-left (the roverbar's text). One fragment, two homes:
+  // the roverbar itself (normal layout, and fullscreen while the
+  // merged panel is minimized) and the merged panel's header row
+  // (fullscreen while it is open). Same words either way.
+  const statusLine = rover.active ? (
+    <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h</span>
+  ) : (
+    <span><b>○ ON FOOT</b> · walk {WALK_SPEED_MPS.toFixed(0)} m/s — summon the rover to drive</span>
+  );
   const timeSlider = (
     <div className="ctl">
       <span>TIME</span>
@@ -237,6 +254,9 @@ export default function Mars2Page() {
           display: flex; flex-direction: column; gap: 10px; align-items: center; pointer-events: auto;
           background: linear-gradient(rgba(16,7,3,0.93), rgba(16,7,3,0.93)); border: 1px solid ${ACCENT}; border-radius: 14px; padding: 10px 12px; }
         .mars2 .fs-controls .fs-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; width: 100%; }
+        .mars2 .fs-controls .fs-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; width: 100%; }
+        .mars2 .fs-controls .fs-status { flex: 1 1 auto; text-align: left; font-size: 0.8rem; letter-spacing: 1px; color: #f0dcc8; }
+        .mars2 .fs-controls .fs-status b { color: ${ACCENT}; }
         .mars2 .fs-controls .ctl { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; }
         .mars2 .fs-controls input[type="range"] { flex: 1 1 120px; min-width: 100px; width: auto; }
       `}</style>
@@ -271,13 +291,18 @@ export default function Mars2Page() {
           onJump={mode === "walk" && !rover.active ? () => { jumpRef.current = true; } : undefined}
           fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen((f) => !f)}
         />
-        <div className="roverbar" aria-live="polite">
-          {rover.active ? (
-            <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h</span>
-          ) : (
-            <span><b>○ ON FOOT</b> · walk {WALK_SPEED_MPS.toFixed(0)} m/s — summon the rover to drive</span>
-          )}
-        </div>
+        {/* The roverbar — the information script, top-left. It
+            shows whenever the merged panel is NOT open in
+            fullscreen: in the normal layout always, and in
+            fullscreen while the panel is minimized (the orb sits
+            directly under it). While the panel is open, the same
+            status line is the panel's header row, so the roverbar
+            hides — one status line, never two. */}
+        {(!fullscreen || panelMinimized) && (
+          <div className="roverbar" aria-live="polite">
+            {statusLine}
+          </div>
+        )}
         {/* Fullscreen controls (Merlin, Nov 17 ~22:09): the fixed
             stage covers the page below it, so the under-screen
             controls move INSIDE the stage while fullscreen is on —
@@ -288,11 +313,24 @@ export default function Mars2Page() {
             Thule pill or the fullscreen orb. Normal layout keeps
             them below the stage, exactly as before. */}
         {fullscreen && (
-          <div className="fs-controls" role="group" aria-label="Mars 2 controls">
-            <div className="fs-row">{timeSlider}</div>
-            <div className="fs-row">{timeOrbs}</div>
-            <div className="fs-row">{modeOrbs}</div>
-          </div>
+          <>
+            {!panelMinimized && (
+              <div className="fs-controls" role="group" aria-label="Mars 2 controls">
+                <div className="fs-head">
+                  <span className="fs-status">{statusLine}</span>
+                  <OrbButton fn="minimize" size={40} ariaLabel="Minimize panel" title="Minimize panel" onClick={() => setPanelMinimized(true)} />
+                </div>
+                <div className="fs-row">{timeSlider}</div>
+                <div className="fs-row">{timeOrbs}</div>
+                <div className="fs-row">{modeOrbs}</div>
+              </div>
+            )}
+            {panelMinimized && (
+              <OrbButton fn="expand" ariaLabel="Expand Mars 2 controls" title="Expand Mars 2 controls" onClick={() => setPanelMinimized(false)} style={{ position: "absolute", left: 12, top: 88, zIndex: 6 }}>
+                <OrbLabel>PANEL</OrbLabel>
+              </OrbButton>
+            )}
+          </>
         )}
       </div>
 
