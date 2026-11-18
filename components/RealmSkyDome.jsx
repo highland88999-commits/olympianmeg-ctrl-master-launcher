@@ -28,6 +28,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { skyUrlForRealm } from '@/lib/portal/realm-surfaces';
 import { skyVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
@@ -35,7 +36,18 @@ import { skyVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/v
 /** Encloses the whole walkable world (ground disc radius 400). */
 export const REALM_SKY_DOME_RADIUS = 520;
 
-export default function RealmSkyDome({ realmKey }) {
+// ENDLESS FREE ROAM (Merlin, Nov 18, 2026): the dome is 520 m
+// around the ORIGIN — a walker past ~520 m steps outside their
+// own sky. followRef (the scene's playerRef, {x, z}) rides the
+// dome along with the walker so the sky stays overhead anywhere.
+// Absent, the dome stays origin-anchored exactly as before.
+export default function RealmSkyDome({ realmKey, followRef = null }) {
+  const meshRef = useRef(null);
+  useFrame(() => {
+    const m = meshRef.current;
+    const p = followRef && followRef.current;
+    if (m && p) m.position.set(p.x, 0, p.z);
+  });
   const videoTex = useNetherVideoTexture(skyVideoUrlForRealm(realmKey));
   const [tex, setTex] = useState(null);
   const texRef = useRef(null);
@@ -70,7 +82,7 @@ export default function RealmSkyDome({ realmKey }) {
   const map = videoTex ?? tex;
   if (!map) return null;
   return (
-    <mesh>
+    <mesh ref={meshRef}>
       <sphereGeometry args={[REALM_SKY_DOME_RADIUS, 32, 24]} />
       <meshBasicMaterial map={map} side={THREE.BackSide} fog={false} toneMapped={false} />
     </mesh>

@@ -59,6 +59,7 @@ import DayNightRig from '@/components/DayNightRig';
 import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import RealmSkyDome from '@/components/RealmSkyDome';
+import StreamingGround from '@/components/afterlife/StreamingGround';
 import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
 import {
   LAVA_GLOW_CRACK_OPACITY,
@@ -138,7 +139,7 @@ const lavaLabelStyle = {
 
 // --- static pieces ----------------------------------------------------------
 
-function Ground() {
+function Ground({ playerRef }) {
   const floor = useMemo(() => floorSurface('hades', 6), []);
   // VIDEO WRAP (Merlin, Nov 15 ~15:03, batch 1): the lava floor video
   // when it is live; the painted floorSurface() until then.
@@ -146,11 +147,15 @@ function Ground() {
   const mat = videoTex
     ? { map: videoTex, emissiveMap: videoTex, emissive: '#ffffff', emissiveIntensity: FLOOR_EMISSIVE_INTENSITY }
     : floor;
+  // ENDLESS (Merlin, Nov 18, 2026): the fixed r=400 disc is gone —
+  // the same floor streams in chunks around the walker (the shared
+  // StreamingGround samples the old disc's UVs, so the home region
+  // reads byte-identical). The material props are unchanged.
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial {...mat} color="#ffffff" roughness={1} metalness={0} />
-    </mesh>
+    <StreamingGround
+      materialProps={{ ...mat, color: '#ffffff', roughness: 1, metalness: 0 }}
+      followRef={playerRef}
+    />
   );
 }
 
@@ -1465,7 +1470,7 @@ export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegio
   };
   return (
     <>
-      <DayNightRig sun moon
+      <DayNightRig sun moon followRef={playerRef}
         shade={NETHER_REALM_SHADE.hades}
         storm={{
           hue: 'red',
@@ -1475,8 +1480,8 @@ export function NetherRealmScene({playerRef, inputRef, onPortal, onLava, onRegio
           seed: 7101,
         }}
       />
-      <RealmSkyDome realmKey="hades" />
-      <Ground />
+      <RealmSkyDome realmKey="hades" followRef={playerRef} />
+      <Ground playerRef={playerRef} />
       <LavaPools pools={world.lavaPools} reduced={reduced} />
       <River reduced={reduced} />
       <Bridge />

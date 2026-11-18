@@ -19,7 +19,6 @@ import {
   RUN_SPEED,
   forward,
   right,
-  clampPosition,
   stepPosition,
   regionAt,
   nearRider,
@@ -123,11 +122,13 @@ test('nearRider: talk range is 6 m', () => {
   assert.equal(nearRider(0, -53), false);
 });
 
-test('movement: forward/right, clamp at the edge, no river to block', () => {
+test('movement: forward/right, no edge, no river to block (endless)', () => {
   assert.deepEqual(forward(0), { x: -0, z: -1 });
   assert.deepEqual(right(0), { x: 1, z: -0 });
-  const c = clampPosition(300, 0);
-  assert.ok(approx(dist(c.x, c.z, 0, 0), WORLD_RADIUS));
+  // ENDLESS (Merlin, Nov 18, 2026): a step past the old 260 m rim
+  // lands where it lands — no clamp, no wall, no turn-back.
+  const past = stepPosition(250, 0, 30, 0);
+  assert.deepEqual({ x: past.x, z: past.z, blocked: past.blocked }, { x: 280, z: 0, blocked: false });
   const s = stepPosition(0, 0, 10, 0);
   assert.deepEqual({ x: s.x, z: s.z, blocked: s.blocked }, { x: 10, z: 0, blocked: false });
   assert.equal(nearestPortal(-40, 120, PORTAL_TRIGGER_RADIUS).key, 'hell');

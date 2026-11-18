@@ -37,6 +37,7 @@ import {
   stepPosition,
 } from '@/lib/valhalla/world';
 import DayNightRig from '@/components/DayNightRig';
+import StreamingGround from '@/components/afterlife/StreamingGround';
 
 const STONE = '#5d4126';
 const PALE_STONE = '#8a8a92';
@@ -132,13 +133,17 @@ const regionLabelStyle = {
 
 // --- static pieces ----------------------------------------------------------
 
-function Ground() {
+function Ground({ playerRef }) {
   const tex = useMemo(() => groundTexture(), []);
+  // ENDLESS (Merlin, Nov 18, 2026): the fixed r=400 disc is gone —
+  // the same floor streams in chunks around the walker (the shared
+  // StreamingGround samples the old disc's UVs, so the home region
+  // reads byte-identical). The material props are unchanged.
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial map={tex} color="#ffffff" roughness={1} metalness={0} />
-    </mesh>
+    <StreamingGround
+      materialProps={{ map: tex, color: '#ffffff', roughness: 1, metalness: 0 }}
+      followRef={playerRef}
+    />
   );
 }
 
@@ -679,8 +684,8 @@ export function ValhallaScene({playerRef, inputRef, onPortal, onRegion, reduced,
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig sun moon shade="earth" />
-      <Ground />
+      <DayNightRig sun moon followRef={playerRef} shade="earth" />
+      <Ground playerRef={playerRef} />
       <LightPools pools={world.pools} />
       <River reduced={reduced} />
       <Bridge />

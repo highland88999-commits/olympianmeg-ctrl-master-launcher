@@ -149,7 +149,7 @@ for (const [dir, key, floorN, stoneN] of REALMS) {
     assert.ok(src.includes("from '@/lib/portal/realm-surfaces'"), 'imports realm-surfaces');
     assert.ok(src.includes("import RealmSkyDome from '@/components/RealmSkyDome';"), 'imports RealmSkyDome');
     assert.equal(count(src, /<RealmSkyDome/g), 1, 'one dome mount');
-    assert.ok(src.includes(`<RealmSkyDome realmKey="${key}" />`), 'dome mounted with the realm key');
+    assert.ok(src.includes(`<RealmSkyDome realmKey="${key}" followRef={playerRef} />`), 'dome mounted with the realm key');
     // Ground uses the shared floor texture at repeat 6; region discs at 2.
     assert.ok(src.includes(`floorSurface('${key}', 6)`), 'Ground repeat 6');
     assert.ok(src.includes(`floorSurface('${key}', 2)`), 'region discs repeat 2');
@@ -162,7 +162,11 @@ for (const [dir, key, floorN, stoneN] of REALMS) {
     // Batch-1 video grounds (Merlin, Nov 15 ~15:03) spread {...mat} —
     // the video texture when live, the painted floor when it is not —
     // instead of {...floor}; the total wrapped-floor count is unchanged.
-    assert.equal(count(src, /\{\.\.\.floor\}/g) + count(src, /\{\.\.\.mat\}/g), floorN, 'wrapped floor spreads');
+    // Endless (Nov 18, 2026): the Ground spread moved into the shared
+    // StreamingGround's materialProps ({{ ...floor, ... }}), so the
+    // count also matches a spread followed by a comma, with the JSX
+    // space after the brace.
+    assert.equal(count(src, /\{\s*\.\.\.floor[,\}]/g) + count(src, /\{\s*\.\.\.mat[,\}]/g), floorN, 'wrapped floor spreads');
     assert.equal(count(src, /\{\.\.\.stone\}/g), stoneN, `{...stone} count`);
 
     // LIGHT BUDGET: zero new real lights. One <pointLight JSX tag in

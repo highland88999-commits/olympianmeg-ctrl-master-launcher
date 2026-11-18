@@ -56,7 +56,7 @@ test('the shared rig exists and is the default export', () => {
 });
 
 for (const realm of HIGHER_REALMS) {
-  test(`${realm}: mounts <DayNightRig sun moon shade="earth" /> and nothing else drives the sky`, () => {
+  test(`${realm}: mounts <DayNightRig sun moon followRef={playerRef} shade="earth" /> and nothing else drives the sky`, () => {
     const path = `app/${realm}/world3d.js`;
     assert.ok(existsSync(path), `${path} missing`);
     const src = readFileSync(path, 'utf8');
@@ -71,9 +71,10 @@ for (const realm of HIGHER_REALMS) {
     // Exactly one mount, earth shade, sun + moon wrap, no storm prop
     // — higher realms get NO lightning storms; their skies stay clean.
     // The fog density is the realm's own (0.0035 default, thinner
-    // where it was thinner).
+    // where it was thinner). followRef rides the sun/moon visuals
+    // with the walker (endless, Nov 18, 2026).
     assert.equal(
-      count(src, /<DayNightRig sun moon shade="earth"(?: fogDensity=\{0\.00\d\d\})? \/>/g),
+      count(src, /<DayNightRig sun moon followRef=\{playerRef\} shade="earth"(?: fogDensity=\{0\.00\d\d\})? \/>/g),
       1,
       `${realm}: expected exactly one <DayNightRig sun moon shade="earth" />`,
     );
@@ -86,7 +87,7 @@ for (const realm of HIGHER_REALMS) {
       );
     } else {
       assert.ok(
-        src.includes(`<DayNightRig sun moon shade="earth" fogDensity={${wantFog}} />`),
+        src.includes(`<DayNightRig sun moon followRef={playerRef} shade="earth" fogDensity={${wantFog}} />`),
         `${realm}: expected fogDensity={${wantFog}} (its own thinness, kept)`,
       );
     }

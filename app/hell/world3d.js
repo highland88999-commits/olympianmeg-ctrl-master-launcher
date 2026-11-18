@@ -39,6 +39,7 @@ import { FloorDropDisc } from '@/components/world/FloorDrop';
 import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import StreamingGround from '@/components/afterlife/StreamingGround';
 import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import RealmSkyDome from '@/components/RealmSkyDome';
@@ -120,7 +121,7 @@ const regionLabelStyle = {
 
 // --- static pieces ----------------------------------------------------------
 
-function Ground() {
+function Ground({ playerRef }) {
   const floor = useMemo(() => floorSurface('hell', 6), []);
   // VIDEO WRAP (Merlin, Nov 15 ~15:03, batch 1): the lava/fire floor
   // video when it is live; the painted floorSurface() until then.
@@ -128,11 +129,15 @@ function Ground() {
   const mat = videoTex
     ? { map: videoTex, emissiveMap: videoTex, emissive: '#ffffff', emissiveIntensity: FLOOR_EMISSIVE_INTENSITY }
     : floor;
+  // ENDLESS (Merlin, Nov 18, 2026): the fixed r=400 disc is gone —
+  // the same floor streams in chunks around the walker (the shared
+  // StreamingGround samples the old disc's UVs, so the home region
+  // reads byte-identical). The material props are unchanged.
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial {...mat} color="#ffffff" roughness={1} metalness={0} />
-    </mesh>
+    <StreamingGround
+      materialProps={{ ...mat, color: '#ffffff', roughness: 1, metalness: 0 }}
+      followRef={playerRef}
+    />
   );
 }
 
@@ -884,7 +889,7 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, gui
   };
   return (
     <>
-      <DayNightRig sun moon
+      <DayNightRig sun moon followRef={playerRef}
         shade={NETHER_REALM_SHADE.hell}
         storm={{
           hue: 'red',
@@ -894,8 +899,8 @@ export function HellScene({playerRef, inputRef, onPortal, onRegion, reduced, gui
           seed: 7102,
         }}
       />
-      <RealmSkyDome realmKey="hell" />
-      <Ground />
+      <RealmSkyDome realmKey="hell" followRef={playerRef} />
+      <Ground playerRef={playerRef} />
       <FirePools pools={world.lavaPools} reduced={reduced} />
       <River reduced={reduced} />
       <Bridge />

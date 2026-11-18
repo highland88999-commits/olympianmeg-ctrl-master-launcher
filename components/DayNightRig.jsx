@@ -135,8 +135,21 @@ export default function DayNightRig({
   // and the night reads black; 2.5 lifts the red moonlight until
   // the dunes read moonlit. Every other world keeps 1.
   moonIntensity = 1,
+  // followRef (default null): ENDLESS FREE ROAM (Merlin, Nov 18,
+  // 2026) — the sun/moon visual discs sit at sunVec*380 /
+  // moonVec*380 from the ORIGIN, so a walker far from home sees
+  // the sun slide off its true direction (overhead at noon reads
+  // near the horizon 800 m out). Passing the scene's playerRef
+  // ({x, z}) rides ONLY the two visual discs along with the
+  // walker; the lights stay put (directional light is parallel —
+  // position→origin — so the light direction is already correct
+  // everywhere), and the storm fires, bolts and flash stay home
+  // where their bounds live. Absent, the rig behaves exactly as
+  // before — every world that does not pass it is untouched.
+  followRef = null,
 }) {
   const placeRef = useRef(null);
+  const sunMoonGroupRef = useRef(null);
   const accRef = useRef(99); // due at once: the sky is right from frame one
   const flashRef = useRef(0);
   const flashLightRef = useRef(null);
@@ -176,6 +189,10 @@ export default function DayNightRig({
 
   useFrame((state, dt) => {
     const now = Date.now();
+    // Endless worlds: the sun/moon visuals ride with the walker.
+    const sm = sunMoonGroupRef.current;
+    const fp = followRef && followRef.current;
+    if (sm && fp) sm.position.set(fp.x, 0, fp.z);
     // The flash decays every frame (imperative — no re-render).
     if (flashRef.current > 0.01) {
       flashRef.current = Math.max(0, flashRef.current - dt * 5);
@@ -279,37 +296,42 @@ export default function DayNightRig({
           intensity={moonI}
         />
       )}
-      {sun && glowTex && (
-        <>
-          {/* the sun itself: a bright core disc on the rig's real
-              sun direction, with a glow/haze halo — fog:false, so
-              the fog never swallows it; the terrain still hides
-              it below the horizon. */}
-          <mesh position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]}>
-            <sphereGeometry args={[6, 20, 20]} />
-            <meshBasicMaterial color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.95 * sunVis} depthWrite={false} />
-          </mesh>
-          <sprite position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]} scale={[64, 64, 1]}>
-            <spriteMaterial map={glowTex} color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
-          </sprite>
-        </>
-      )}
-      {moon && moonMaps && glowTex && moonVis > 0.01 && (
-        <>
-          {/* the moon itself: Merlin's photo wrapped on a sphere on
-              the rig's real moon direction, with a pale halo — the
-              same moon in every world that opts in. Unlit (the
-              photo's own shading does the work); the halo is the
-              rig's glow texture in moonlight blue. */}
-          <mesh position={[moonVec.x * 380, moonVec.y * 380, moonVec.z * 380]}>
-            <sphereGeometry args={[6, 32, 32]} />
-            <meshBasicMaterial map={moonMaps.map} fog={false} transparent opacity={moonVis} depthWrite={false} />
-          </mesh>
-          <sprite position={[moonVec.x * 380, moonVec.y * 380, moonVec.z * 380]} scale={[48, 48, 1]}>
-            <spriteMaterial map={glowTex} color="#b8c4e8" fog={false} transparent opacity={0.3 * moonVis} depthWrite={false} />
-          </sprite>
-        </>
-      )}
+      {/* The sun + moon visuals ride one group so followRef moves
+          them together; the group mounts always (empty when neither
+          is opted in), so the ref is never stale. */}
+      <group ref={sunMoonGroupRef}>
+        {sun && glowTex && (
+          <>
+            {/* the sun itself: a bright core disc on the rig's real
+                sun direction, with a glow/haze halo — fog:false, so
+                the fog never swallows it; the terrain still hides
+                it below the horizon. */}
+            <mesh position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]}>
+              <sphereGeometry args={[6, 20, 20]} />
+              <meshBasicMaterial color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.95 * sunVis} depthWrite={false} />
+            </mesh>
+            <sprite position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]} scale={[64, 64, 1]}>
+              <spriteMaterial map={glowTex} color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
+            </sprite>
+          </>
+        )}
+        {moon && moonMaps && glowTex && moonVis > 0.01 && (
+          <>
+            {/* the moon itself: Merlin's photo wrapped on a sphere on
+                the rig's real moon direction, with a pale halo — the
+                same moon in every world that opts in. Unlit (the
+                photo's own shading does the work); the halo is the
+                rig's glow texture in moonlight blue. */}
+            <mesh position={[moonVec.x * 380, moonVec.y * 380, moonVec.z * 380]}>
+              <sphereGeometry args={[6, 32, 32]} />
+              <meshBasicMaterial map={moonMaps.map} fog={false} transparent opacity={moonVis} depthWrite={false} />
+            </mesh>
+            <sprite position={[moonVec.x * 380, moonVec.y * 380, moonVec.z * 380]} scale={[48, 48, 1]}>
+              <spriteMaterial map={glowTex} color="#b8c4e8" fog={false} transparent opacity={0.3 * moonVis} depthWrite={false} />
+            </sprite>
+          </>
+        )}
+      </group>
       {storm && (
         <directionalLight
           ref={flashLightRef}

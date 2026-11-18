@@ -52,6 +52,7 @@ import {
 import { isOnAntiLifePortal } from '@/lib/afterlife/anti-life-portal';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import StreamingGround from '@/components/afterlife/StreamingGround';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
 
 const STONE = '#2a2a32';
@@ -149,13 +150,17 @@ const riderLabelStyle = {
 
 // --- static pieces ----------------------------------------------------------
 
-function Ground() {
+function Ground({ playerRef }) {
   const tex = useMemo(() => groundTexture(), []);
+  // ENDLESS (Merlin, Nov 18, 2026): the fixed r=400 disc is gone —
+  // the same floor streams in chunks around the walker (the shared
+  // StreamingGround samples the old disc's UVs, so the home region
+  // reads byte-identical). The material props are unchanged.
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial map={tex} color="#ffffff" roughness={1} metalness={0} />
-    </mesh>
+    <StreamingGround
+      materialProps={{ map: tex, color: '#ffffff', roughness: 1, metalness: 0 }}
+      followRef={playerRef}
+    />
   );
 }
 
@@ -727,7 +732,7 @@ export function GhostRiderScene({ playerRef, inputRef, onPortal, onRegion, reduc
   };
   return (
     <>
-      <DayNightRig sun moon
+      <DayNightRig sun moon followRef={playerRef}
         shade={NETHER_REALM_SHADE.hell}
         storm={{
           hue: 'red',
@@ -737,7 +742,7 @@ export function GhostRiderScene({ playerRef, inputRef, onPortal, onRegion, reduc
           seed: 7103,
         }}
       />
-      <Ground />
+      <Ground playerRef={playerRef} />
       <Rider reduced={reduced} />
       <DamnedField damned={damned} chainFx={chainFx} reduced={reduced} />
       <Foes foes={foes} />

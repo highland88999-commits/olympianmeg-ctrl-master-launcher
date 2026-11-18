@@ -55,7 +55,7 @@ for (const key of REALM_SURFACE_KEYS) {
   test(`${key}: dome mounted and its sky URL resolves to the landed file`, () => {
     const dir = key === 'hades' ? 'nether-realm' : key;
     const src = readFileSync(`app/${dir}/world3d.js`, 'utf8');
-    assert.ok(src.includes(`<RealmSkyDome realmKey="${key}" />`), 'dome mounted');
+    assert.ok(src.includes(`<RealmSkyDome realmKey="${key}" followRef={playerRef} />`), 'dome mounted');
     const url = skyUrlForRealm(key);
     assert.ok(url.startsWith('/art/realms/') && url.endsWith('-sky.jpg'), 'sky URL shape');
     assert.ok(existsSync(`public${url}`), `landed file for ${url}`);

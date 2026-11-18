@@ -42,6 +42,7 @@ import { FloorDropDisc } from '@/components/world/FloorDrop';
 import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import StreamingGround from '@/components/afterlife/StreamingGround';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
@@ -104,13 +105,17 @@ const regionLabelStyle = {
 
 // --- static pieces ----------------------------------------------------------
 
-function Ground() {
+function Ground({ playerRef }) {
   const floor = useMemo(() => floorSurface('kur', 6), []);
+  // ENDLESS (Merlin, Nov 18, 2026): the fixed r=400 disc is gone —
+  // the same floor streams in chunks around the walker (the shared
+  // StreamingGround samples the old disc's UVs, so the home region
+  // reads byte-identical). The material props are unchanged.
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
-    </mesh>
+    <StreamingGround
+      materialProps={{ ...floor, color: '#ffffff', roughness: 1, metalness: 0 }}
+      followRef={playerRef}
+    />
   );
 }
 
@@ -690,7 +695,7 @@ export function KurScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
   };
   return (
     <>
-      <DayNightRig sun moon
+      <DayNightRig sun moon followRef={playerRef}
         shade={NETHER_REALM_SHADE.kur}
         storm={{
           hue: 'purple',
@@ -700,8 +705,8 @@ export function KurScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
           seed: 7105,
         }}
       />
-      <RealmSkyDome realmKey="kur" />
-      <Ground />
+      <RealmSkyDome realmKey="kur" followRef={playerRef} />
+      <Ground playerRef={playerRef} />
       <DustDrifts drifts={world.dustDrifts} />
       <River reduced={reduced} />
       <Bridge />

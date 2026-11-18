@@ -39,6 +39,7 @@ import { FloorDropDisc } from '@/components/world/FloorDrop';
 import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire } from '@/lib/world/floor-drop';
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
+import StreamingGround from '@/components/afterlife/StreamingGround';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
@@ -101,13 +102,17 @@ const regionLabelStyle = {
 
 // --- static pieces ----------------------------------------------------------
 
-function Ground() {
+function Ground({ playerRef }) {
   const floor = useMemo(() => floorSurface('nav', 6), []);
+  // ENDLESS (Merlin, Nov 18, 2026): the fixed r=400 disc is gone —
+  // the same floor streams in chunks around the walker (the shared
+  // StreamingGround samples the old disc's UVs, so the home region
+  // reads byte-identical). The material props are unchanged.
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-      <circleGeometry args={[400, 64]} />
-      <meshStandardMaterial {...floor} color="#ffffff" roughness={1} metalness={0} />
-    </mesh>
+    <StreamingGround
+      materialProps={{ ...floor, color: '#ffffff', roughness: 1, metalness: 0 }}
+      followRef={playerRef}
+    />
   );
 }
 
@@ -669,9 +674,9 @@ export function NavScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
   const world = useMemo(() => makeWorld(1337), []);
   return (
     <>
-      <DayNightRig sun moon shade={NETHER_REALM_SHADE.nav} storm={null} />
-      <RealmSkyDome realmKey="nav" />
-      <Ground />
+      <DayNightRig sun moon followRef={playerRef} shade={NETHER_REALM_SHADE.nav} storm={null} />
+      <RealmSkyDome realmKey="nav" followRef={playerRef} />
+      <Ground playerRef={playerRef} />
       <RootTangles tangles={world.rootTangles} />
       <River reduced={reduced} />
       <Bridge />

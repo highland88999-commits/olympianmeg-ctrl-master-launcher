@@ -151,15 +151,16 @@ describe('the petrify gaze', () => {
     assert.deepEqual(foesInPetrifyCone(0, 0, 0, foes, 0), []);
   });
 
-  it('respawns the victim exactly 100 m away, inside the world', () => {
+  it('respawns the victim exactly 100 m away — no edge to clamp to any more', () => {
     assert.equal(PETRIFY_RESPAWN_M, 100);
     const spot = petrifyRespawnSpot(0, 0, 0);
     assert.deepEqual(spot, { x: 100, z: 0 });
     const d = Math.hypot(petrifyRespawnSpot(10, 10, Math.PI).x - 10, petrifyRespawnSpot(10, 10, Math.PI).z - 10);
     assert.ok(Math.abs(d - 100) < 1e-9);
-    // A statue at the world edge still wakes its victim inside.
+    // ENDLESS (Merlin, Nov 18, 2026): a statue anywhere wakes its
+    // victim 100 m away — the raw offset, no world-edge clamp.
     const edge = petrifyRespawnSpot(370, 0, 0);
-    assert.ok(Math.hypot(edge.x, edge.z) <= 380);
+    assert.deepEqual(edge, { x: 470, z: 0 });
   });
 });
 

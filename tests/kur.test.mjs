@@ -20,7 +20,6 @@ import {
   forward,
   makeTorches,
   right,
-  clampPosition,
   stepBlockedByRiver,
   stepPosition,
   regionAt,
@@ -138,15 +137,22 @@ test('the bridge is the only river crossing', () => {
   assert.equal(stepBlockedByRiver(0, 150, 100, 150), false);
 });
 
-test('stepPosition enforces the river and the world edge', () => {
+test('stepPosition enforces the river, not the world edge (endless)', () => {
   const over = stepPosition(50, 30, 0, -60);
   assert.equal(over.blocked, true);
   assert.deepEqual({ x: over.x, z: over.z }, { x: 50, z: 30 });
   const free = stepPosition(0, 150, 0, -10);
   assert.equal(free.blocked, false);
   assert.ok(approx(free.z, 140));
-  const edge = clampPosition(400, 0);
-  assert.ok(approx(dist(edge.x, edge.z, 0, 0), WORLD_RADIUS));
+  // ENDLESS (Merlin, Nov 18, 2026): a step past the old 380 m rim
+  // lands where it lands — no clamp, no wall, no turn-back.
+  const past = stepPosition(370, 100, 30, 0);
+  assert.equal(past.blocked, false);
+  assert.ok(approx(past.x, 400));
+  assert.ok(approx(past.z, 100));
+  const far = stepPosition(5000, 100, 100, 0);
+  assert.equal(far.blocked, false);
+  assert.ok(approx(far.x, 5100));
 });
 
 test('regionAt names every place in plain English', () => {
