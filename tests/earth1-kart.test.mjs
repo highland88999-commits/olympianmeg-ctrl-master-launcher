@@ -10,7 +10,10 @@
 // the smallest roster vehicle (a 2.2 m bike); the HEAT-SEEKER lock
 // rule — the missile ALWAYS tracks the CLOSEST vehicle TO THE
 // MISSILE ITSELF, re-evaluated continuously, retargeting on a
-// closer pass; torpedo hit = 3 flips then explosion; respawn is at
+// closer pass; the seeker never arms inside 100 display m
+// (TORPEDO_MIN_SEEK_DISTANCE_M) — inside that distance the
+// torpedo flies straight dumb-fire, with no lock and no target
+// switching; torpedo hit = 3 flips then explosion; respawn is at
 // the blast spot, in-vehicle, speed 0, integrity restored; the
 // integrity meter is hidden (kartHud carries no integrity field);
 // collision damage numbers + pair cooldown; 5 deterministic rivals;
@@ -54,6 +57,7 @@ import {
   TORPEDO_MIN_SPEED_MPS,
   TORPEDO_SPEED_FACTOR,
   TORPEDO_HIT_RADIUS_M,
+  TORPEDO_MIN_SEEK_DISTANCE_M,
   FLIP_TURNS,
   FLIP_MS,
   EXPLODE_MS,
@@ -349,13 +353,106 @@ const IDENTITY_QUAT = { x: 0, y: 0, z: 0, w: 1 };
   }
   t('torpedo has moved north toward A', torp.lat > 4 / 60);
   eq('lock is still A before anyone crosses closer', torp.targetId, 'rival-a');
-  // B crosses in close — 40 m east of the missile's current spot,
-  // while A is still ~250 m away.
+  // B crosses in close — 150 m east of the missile's current spot,
+  // while A is still ~250 m away. 150 m is inside the 600 m range
+  // and outside the 100 m seek floor, so the steal still happens;
+  // at 40 m (the old geometry) the floor would forbid it.
   b.lat = torp.lat;
-  b.lon = torp.lon + 40 / 60; // 40 display m east at the equator
+  b.lon = torp.lon + 150 / 60; // 150 display m east at the equator
   stepTorpedoes(state, { dt: 0.016, nowMs: 2000, vehicles: [player, a, b] });
   eq('a closer passer-by STEALS the lock mid-flight', torp.targetId, 'rival-b');
   eq('the stolen lock carries the new kind too', torp.targetKind, 'rival');
+  resetKartStateForTests();
+  setKartClientId(null);
+}
+
+// --- Minimum seek distance (Merlin, 2026-11-17): the seeker only
+// arms at or beyond 100 display m — the turn radius at the
+// missile's minimum speed (300 m/s ÷ 3 rad/s). Inside the floor
+// the torpedo flies straight dumb-fire: no lock, no switching.
+// ---
+{
+  eq('the seek floor is 100 display m', TORPEDO_MIN_SEEK_DISTANCE_M, 100);
+  setKartClientId('test-driver');
+  const player = { kind: 'player', id: 'test-driver', lat: 0, lon: 0, yawDeg: 0, speedMps: 0 };
+
+  // nearestTarget honours the floor only when asked: the default
+  // (no minDistM) still returns the closest vehicle at any range.
+  const near50 = { kind: 'rival', id: 'rival-near', lat: 50 / 60, lon: 0, speedMps: 0 };
+  const far300 = { kind: 'rival', id: 'rival-far', lat: 300 / 60, lon: 0, speedMps: 0 };
+  const ungated = nearestTarget({ lat: 0, lon: 0, vehicles: [player, near50, far300], excludeKind: 'player', excludeId: 'test-driver' });
+  eq('without minDistM the closest vehicle still wins', ungated.id, 'rival-near');
+  const gated = nearestTarget({ lat: 0, lon: 0, vehicles: [player, near50, far300], excludeKind: 'player', excludeId: 'test-driver', minDistM: TORPEDO_MIN_SEEK_DISTANCE_M });
+  eq('with the floor the 50 m vehicle is skipped', gated.id, 'rival-far');
+
+  // Fire: a target at 99 m gets no lock; at 101 m it locks.
+  const state = createKartState();
+  state.missiles = 2;
+  const close99 = { kind: 'rival', id: 'rival-99', lat: 99 / 60, lon: 0, speedMps: 0 };
+  const dumb = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, close99] });
+  eq('a target at 99 m gets no lock', dumb.targetId, null);
+  eq('a lockless torpedo flies at the 300 floor speed', dumb.speedMps, TORPEDO_MIN_SPEED_MPS);
+  const open101 = { kind: 'rival', id: 'rival-101', lat: 101 / 60, lon: 0, speedMps: 0 };
+  const locked = fireTorpedo(state, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, open101] });
+  eq('a target at 101 m locks', locked.targetId, 'rival-101');
+
+  // A lockless torpedo flying at a target inside the floor NEVER
+  // arms the lock as it closes in — it flies straight, and still
+  // hits a target dead ahead (the 8 m hit check is independent
+  // of the lock).
+  const state2 = createKartState();
+  state2.missiles = 1;
+  const deadAhead = { kind: 'rival', id: 'rival-ahead', lat: 50 / 60, lon: 0, speedMps: 0 };
+  const straight = fireTorpedo(state2, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, deadAhead] });
+  eq('a 50 m target dead ahead gets no lock', straight.targetId, null);
+  let hit = null;
+  let armedInFlight = false;
+  let yawHeld = true;
+  for (let i = 0; i < 10 && !hit; i++) {
+    const evs = stepTorpedoes(state2, { dt: 0.05, nowMs: 1000 + i * 50, vehicles: [player, deadAhead] });
+    if (straight.targetId !== null) armedInFlight = true;
+    if (straight.yawDeg !== 0) yawHeld = false;
+    hit = evs.find((e) => e.type === 'hit');
+  }
+  t('no lock arms as the missile closes in', !armedInFlight);
+  t('the lockless missile flies straight (yaw never changes)', yawHeld);
+  t('the dumb-fire missile still hits a dead-ahead target', !!hit);
+  eq('the dumb-fire hit names the target', hit && hit.targetId, 'rival-ahead');
+
+  // A lock already held is KEPT as the missile closes inside the
+  // floor — the gate is on arming, not holding — and it still
+  // lands the hit.
+  const state3 = createKartState();
+  state3.missiles = 1;
+  const hold = { kind: 'rival', id: 'rival-hold', lat: 300 / 60, lon: 0, speedMps: 0 };
+  const chaser = fireTorpedo(state3, { lat: 0, lon: 0, yawDeg: 0, nowMs: 1000, vehicles: [player, hold] });
+  eq('a 300 m target locks', chaser.targetId, 'rival-hold');
+  for (let i = 0; i < 14; i++) {
+    stepTorpedoes(state3, { dt: 0.05, nowMs: 1000 + i * 50, vehicles: [player, hold] });
+  }
+  t('the missile has closed inside the floor (~90 m out)', haversineDisplayM(chaser.lat, chaser.lon, hold.lat, hold.lon) < 100);
+  eq('the lock is held inside the floor', chaser.targetId, 'rival-hold');
+  let heldHit = null;
+  for (let i = 0; i < 10 && !heldHit; i++) {
+    const evs = stepTorpedoes(state3, { dt: 0.05, nowMs: 2000 + i * 50, vehicles: [player, hold] });
+    heldHit = evs.find((e) => e.type === 'hit');
+  }
+  t('the held lock still lands the hit', !!heldHit);
+
+  // The rival path honours the same floor — both the direct
+  // player fallback (stepRivals) and the vehicles list.
+  const state4 = createKartState();
+  const rivalClose = { id: 'rival-c', lat: 50 / 60, lon: 0, yawDeg: 180, missiles: 1, missileColors: ['red'], lastOrbColor: 'red' };
+  const rtClose = fireRivalTorpedo(state4, rivalClose, { nowMs: 1000, player: { lat: 0, lon: 0, speedMps: 0 } });
+  eq('a rival 50 m from the player fires dumb (no lock)', rtClose.targetKind, null);
+  const rivalFar = { id: 'rival-f', lat: 300 / 60, lon: 0, yawDeg: 180, missiles: 1, missileColors: ['red'], lastOrbColor: 'red' };
+  const rtFar = fireRivalTorpedo(state4, rivalFar, { nowMs: 1000, player: { lat: 0, lon: 0, speedMps: 0 } });
+  eq('a rival 300 m from the player locks the player', rtFar.targetKind, 'player');
+  const rivalList = { id: 'rival-l', lat: 0, lon: 0, yawDeg: 0, missiles: 1, missileColors: ['red'], lastOrbColor: 'red' };
+  const nearPlayer = { kind: 'player', id: 'player', lat: 50 / 60, lon: 0, speedMps: 0 };
+  const farRival = { kind: 'rival', id: 'rival-other', lat: 300 / 60, lon: 0, speedMps: 0 };
+  const rtList = fireRivalTorpedo(state4, rivalList, { nowMs: 1000, vehicles: [nearPlayer, farRival] });
+  eq('with a list, the 50 m player is skipped for the 300 m rival', rtList.targetId, 'rival-other');
   resetKartStateForTests();
   setKartClientId(null);
 }
