@@ -197,7 +197,7 @@ function Rider({ reduced }) {
       lightRef.current.intensity = 26 * (0.85 + 0.15 * Math.sin(t * 9) * Math.sin(t * 5.3));
     }
     if (ringRef.current) {
-      ringRef.current.material.opacity = 0.45 + 0.25 * Math.sin(t * 2.2);
+      ringRef.current.opacity = 0.45 + 0.25 * Math.sin(t * 2.2);
     }
   });
   return (
