@@ -17,15 +17,16 @@ import { fileURLToPath } from 'node:url';
 import { generateMarsProfile, getTerrainHeight } from '../lib/mars/engine.js';
 import { monsSite, MONS_HEIGHT, MONS_RADIUS, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '../lib/mars/cgi.js';
 import { makeDustField, devilFor } from '../lib/planet-cgi/motion.js';
-import { dayNightFor, timeOfDay01 } from '../lib/day-night.js';
+import { dayNightFor, dateMsForSolarTime, timeOfDay01 } from '../lib/day-night.js';
 import {
   MARS2_ROUTE_KEY, MARS2_ROUTE_PATH, MARS2_SEED, WORLD_RADIUS, WALKER_SPAWN,
   mars2DayFactor, outpostSite,
   OUTPOST_SCALE, OUTPOST_BIG_DOME_R_M, OUTPOST_SMALL_DOME_R_M,
   OUTPOST_DOOR_WEDGE_RAD, OUTPOST_DOOR_HALF_ANGLE_RAD, OUTPOST_DOOR_PASSAGE_M,
   OUTPOST_DOOR_CORRIDOR_HALF_M, OUTPOST_WALKER_BODY_R_M, OUTPOST_ROVER_BODY_R_M,
-  OUTPOST_DECOR_COLLIDERS, outpostDoorAngle, outpostTransform,
-  outpostLocalToWorld, outpostCollide,
+  OUTPOST_DECOR_COLLIDERS, OUTPOST_TUBE_X0_LOCAL, OUTPOST_TUBE_X1_LOCAL,
+  outpostDoorAngle, outpostTransform,
+  outpostLocalToWorld, outpostCollide, isShelteredAt,
 } from '../lib/mars2/world.js';
 import {
   ROVER_NAME, ROVER_ID, WALK_SPEED_MPS, ROVER_TOP_SPEED_MPS,
@@ -46,7 +47,12 @@ import {
   thuleWindAt, windCompass, windVector, sandIntensity,
   makeSandField, updateSandField,
   SANDSTORM_PERIOD_S, SANDSTORM_DURATION_MIN_S, SANDSTORM_DURATION_MAX_S, sandstormAt,
+  SANDSTORM_WARNING_LEAD_S, sandstormWarningAt,
 } from '../lib/mars2/weather.js';
+import {
+  MARS2_MAX_HP, MARS2_STORM_DRAIN_HP_PER_S, MARS2_SHELTER_REGEN_HP_PER_S,
+  stormDrainPerSecond, tickMars2Health,
+} from '../lib/mars2/health.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(__dirname, '..');
@@ -349,8 +355,13 @@ describe('mars-2 hardware textures (outpost + rover wrapped)', () => {
     const stdMats = [...scene.matchAll(/<meshStandardMaterial([^>]*)\/>/g)];
     assert.ok(stdMats.length > 0, 'scene uses standard materials');
     for (const m of stdMats) {
-      assert.ok(/^\s*\{\.\.\.red/.test(m[1]), `standard material carries a texture spread: <meshStandardMaterial${m[1]} />`);
+      // ...red* spreads, or the door's doorMat — the redHull spread
+      // passed down as a prop (round 2: the airlock door wears the
+      // same red scratched hull, it just arrives via props).
+      assert.ok(/^\s*\{\.\.\.red/.test(m[1]) || /^\s*\{\.\.\.doorMat/.test(m[1]),
+        `standard material carries a texture spread: <meshStandardMaterial${m[1]} />`);
     }
+    assert.ok(scene.includes('doorMat={redHull}'), 'the door wears the red hull spread');
     // Outpost: every part carries its texture.
     for (const part of ['mats.dome', 'mats.hull', 'mats.tube', 'mats.pad', 'mats.mast', 'mats.solar']) {
       assert.ok(scene.includes(part), `outpost must use ${part}`);
@@ -621,7 +632,7 @@ describe('mars-2 outpost interior + red moon + sandstorms (Merlin, Nov 17, 2026)
     assert.ok(scene.includes('airlock tunnel'), 'an airlock tunnel stands outside the door');
     assert.ok(scene.includes('the portal: a glowing ring'), 'the portal ring marks the entry');
     assert.ok(scene.includes('#ff7a2a'), 'the ring glows orange');
-    assert.ok(scene.includes('torusGeometry args={[0.45, 0.05, 8, 24]}'), 'the ring is a torus');
+    assert.ok(scene.includes('torusGeometry args={[0.6, 0.06, 8, 24]}'), 'the ring is a torus (round 2: bigger, 0.6 m, framing the doorway)');
     assert.ok(scene.includes('OUTPOST_DOOR_THETA'), 'a patch closes the wedge above the lintel');
   });
   it('outpostCollide: the walker walks in through the door, not through a wall', () => {
@@ -635,20 +646,35 @@ describe('mars-2 outpost interior + red moon + sandstorms (Merlin, Nov 17, 2026)
     const pushed = outpostCollide(wall.x, wall.z, site);
     assert.ok(Math.abs(dist(pushed, big) - (OUTPOST_BIG_DOME_R_M + OUTPOST_WALKER_BODY_R_M)) < 1e-9,
       `wall must push to ${OUTPOST_BIG_DOME_R_M + OUTPOST_WALKER_BODY_R_M}, got ${dist(pushed, big)}`);
-    // Inside near the far wall: held at R − 0.5.
-    const inside = at(big, -(OUTPOST_BIG_DOME_R_M - 1));
-    const held = outpostCollide(inside.x, inside.z, site);
-    assert.ok(Math.abs(dist(held, big) - (OUTPOST_BIG_DOME_R_M - 0.5)) < 1e-9,
-      `far wall must hold at ${OUTPOST_BIG_DOME_R_M - 0.5}, got ${dist(held, big)}`);
+    // Inside the room, off the door line: free — the walker can
+    // stand anywhere in the room, not just on the door line.
+    // (Round 2: the old far-wall branch was inverted and shoved
+    // every inside walker out to the wall ring, then outside the
+    // dome — the room was uninhabitable off the door line.)
+    const inside = at(big, 0, 3);
+    assert.deepEqual(outpostCollide(inside.x, inside.z, site), { x: inside.x, z: inside.z },
+      'inside the room, off the door line, the walker stands free');
+    // In the wall band (inside the shell, away from the door):
+    // the far wall holds the walker inside at R − 0.5.
+    const band = at(big, -4, 2);
+    const bandHeld = outpostCollide(band.x, band.z, site);
+    assert.ok(Math.abs(dist(bandHeld, big) - (OUTPOST_BIG_DOME_R_M - 0.5)) < 1e-9,
+      `wall band must hold inside at ${OUTPOST_BIG_DOME_R_M - 0.5}, got ${dist(bandHeld, big)}`);
     // The small dome is solid (no door, no interior): a walker
     // inside it is pushed out to the wall face.
     const sIn = { x: small.x + 2, z: small.z };
     const sPushed = outpostCollide(sIn.x, sIn.z, site);
     assert.ok(Math.abs(dist(sPushed, small) - (OUTPOST_SMALL_DOME_R_M + OUTPOST_WALKER_BODY_R_M)) < 1e-9,
       'small dome pushes the walker out to its wall face');
-    // The bunks block: standing on them pushes out to the collider edge.
+    // The bunks block: standing 1 m off their centre (toward the
+    // room) pushes out to the collider edge. (Round 2: the point
+    // used to sit exactly on the centre, where the decor push has
+    // no direction — it only moved because the old inverted
+    // far-wall branch shoved it first.)
     const bunks = outpostLocalToWorld(-5.2, -1.9, site);
-    const bPushed = outpostCollide(bunks.x, bunks.z, site);
+    const toBig = { x: (big.x - bunks.x) / dist(big, bunks), z: (big.z - bunks.z) / dist(big, bunks) };
+    const nearBunks = { x: bunks.x + toBig.x * 1.0, z: bunks.z + toBig.z * 1.0 };
+    const bPushed = outpostCollide(nearBunks.x, nearBunks.z, site);
     assert.ok(Math.abs(dist(bPushed, bunks) - (0.9 * OUTPOST_SCALE + OUTPOST_WALKER_BODY_R_M)) < 1e-9,
       'decor pushes the walker to its edge');
   });
@@ -733,6 +759,174 @@ describe('mars-2 outpost interior + red moon + sandstorms (Merlin, Nov 17, 2026)
     assert.ok(scene.includes("sprite: 'sand'"), 'the storm field wears the sand-textured graphic');
     assert.ok(scene.includes('scene.fog.density = 0.004 + storm.intensity * 0.016'), 'the storm closes the air');
     assert.ok(scene.includes('· SANDSTORM'), 'the Thule pill names the storm');
-    assert.ok(!scene.includes('SANDSTORM PILL') && !scene.includes('StormWarning'), 'no new HUD chrome was invented');
+    // Round 2 (Nov 17 ~23:37) supersedes the old "no new HUD chrome"
+    // line: Merlin ordered a 2-minute storm warning banner, so the
+    // banner is required now — pinned in the round-2 block below.
+    assert.ok(scene.includes('StormWarningBanner'), 'the 2-minute warning banner exists');
+  });
+});
+
+describe('mars-2 outpost round 2 (Merlin, Nov 17, 2026 — phone video ~23:37)', () => {
+  const site = outpostSite(profile);
+  const big = outpostLocalToWorld(-4, 0, site);
+  const ang = outpostDoorAngle(site);
+  const door = { x: -Math.cos(ang), z: Math.sin(ang) };
+  const perp = { x: -door.z, z: door.x };
+  const at = (c, along, side = 0) => ({
+    x: c.x + door.x * along + perp.x * side,
+    z: c.z + door.z * along + perp.z * side,
+  });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+  it('the connector tube is wall-to-wall: nothing pokes into either room', () => {
+    // Big dome wall at local -4 + 3.2 = -0.8, small dome wall at
+    // 4 - 2.4 = +1.6 — the tube spans exactly that.
+    assert.ok(Math.abs(OUTPOST_TUBE_X0_LOCAL - (-0.8)) < 1e-9, 'tube starts at the big dome wall');
+    assert.ok(Math.abs(OUTPOST_TUBE_X1_LOCAL - 1.6) < 1e-9, 'tube ends at the small dome wall');
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('OUTPOST_TUBE_X1_LOCAL - OUTPOST_TUBE_X0_LOCAL'), 'the mesh length comes from the wall-to-wall constants');
+    assert.ok(scene.includes('(OUTPOST_TUBE_X0_LOCAL + OUTPOST_TUBE_X1_LOCAL) / 2'), 'the mesh centres on the wall-to-wall span');
+    assert.ok(!scene.includes('cylinderGeometry args={[0.9, 0.9, 5.4, 16]}'), 'the old 5.4 m tube is gone');
+    // The old protrusion: local (-2.5, 0) sat ON the old capsule
+    // (and read as a dark red dome inside the room). With the
+    // wall-to-wall capsule it is free — the walker stands there.
+    const oldSpot = outpostLocalToWorld(-2.5, 0, site);
+    assert.deepEqual(outpostCollide(oldSpot.x, oldSpot.z, site), { x: oldSpot.x, z: oldSpot.z },
+      'the old tube intrusion point is no longer solid');
+  });
+
+  it('the airlock door: closed by default, opens on approach, bigger ring + lit lintel', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('AirlockDoor'), 'a real door hangs in the airlock mouth');
+    assert.ok(scene.includes('walkerRef={walkerRef}'), 'the door watches the walker');
+    assert.ok(scene.includes('<Outpost profile={profile} walkerRef={walkerRef} />'), 'the outpost gets the walker ref');
+    assert.ok(scene.includes('AIRLOCK_DOOR_OPEN_M'), 'the door opens on approach (1.5 m — tight, so it is closed at the 2.1 m spawn)');
+    assert.ok(scene.includes('AIRLOCK_DOOR_OPEN_RAD'), 'the door swings open, flat to the wall');
+    assert.ok(scene.includes('torusGeometry args={[0.6, 0.06, 8, 24]}'), 'the portal ring is bigger (0.6 m) and frames the doorway');
+    assert.ok(scene.includes('lit lintel strip'), 'a lit lintel marks the entry after dark');
+    assert.ok(scene.includes('#ffb37a'), 'the door strip + lintel glow amber');
+  });
+
+  it('day sky: the shared law is bright blue at noon (the render is the proof)', () => {
+    // Redwater (Merlin) and Sydney (fallback): solar noon must read
+    // as day — blue top, sun up, night 0.
+    for (const [lat, lon] of [[53.95, -113.12], [-33.87, 151.21]]) {
+      const dn = dayNightFor(dateMsForSolarTime(0.5, lat, lon, Date.now()), lat, lon);
+      assert.ok(dn.sun.elevationDeg > 10, `noon sun is up at ${lat}, got ${dn.sun.elevationDeg}`);
+      assert.equal(dn.palette.night, 0, 'noon is not night');
+      assert.ok(dn.palette.top[2] > 0.8 && dn.palette.top[2] > dn.palette.top[0], 'noon sky top is blue');
+      assert.ok(dn.palette.sunIntensity > 1.5, 'the noon sun drives real light');
+    }
+    // The rig paints the background from that palette, and the
+    // space layer lerps from the same law colour — nothing in the
+    // chain may substitute black at ground level.
+    const rig = read('components/DayNightRig.jsx');
+    assert.ok(rig.includes('<color attach="background" args={[rgbStr(pal.top)]} />'), 'the rig backgrounds the law colour');
+    // (The space layer's sky lerp is another coordinator's file —
+    // this push pins the law + the rig, which are round 2's own.)
+  });
+
+  it('moonlight: the red moon drives real light onto the terrain at night', () => {
+    // Night (tod 0.95): the moon is up at both places, so the
+    // rig's moon directional light runs — red, on the dunes.
+    for (const [lat, lon] of [[53.95, -113.12], [-33.87, 151.21]]) {
+      const dn = dayNightFor(dateMsForSolarTime(0.95, lat, lon, Date.now()), lat, lon);
+      assert.ok(dn.moon.altDeg > 0, `the moon is up at night at ${lat}, got ${dn.moon.altDeg}`);
+      const moonI = dn.palette.night * dn.moon.illum * Math.min(1, dn.moon.altDeg / 20) * 0.85;
+      assert.ok(moonI > 0.3, `moonlight intensity must read, got ${moonI.toFixed(2)}`);
+    }
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('moonColor="#ff5040"'), 'Mars 2 moonlight stays red');
+    // Round 2: the raw moonlight grazes the dunes (low moon, 14° at
+    // Redwater) and the night reads black — Mars 2 multiplies the
+    // rig's moonlight 2.5× so the red moonlight reads on the dunes.
+    assert.ok(scene.includes('moonIntensity={2.5}'), 'Mars 2 drives its moonlight 2.5×');
+    const rig = read('components/DayNightRig.jsx');
+    assert.ok(rig.includes('moonIntensity = 1'), 'the rig defaults the multiplier to 1 (other worlds unchanged)');
+    assert.ok(rig.includes('* Math.max(0, moonIntensity)'), 'the multiplier scales the moon light');
+  });
+
+  it('storm warning: 120 s lead, exact, on both sides of every storm', () => {
+    assert.equal(SANDSTORM_WARNING_LEAD_S, 120, 'the warning lead is 2 minutes');
+    const cycleMs = SANDSTORM_PERIOD_S * 1000;
+    const base = 1780000000000;
+    const cycleBase = Math.floor(base / cycleMs) * cycleMs;
+    // Walk three whole cycles at 1 s steps: find each storm's
+    // first sand, then pin the warning around it.
+    for (let c = 0; c < 3; c++) {
+      const start0 = cycleBase + c * cycleMs;
+      let stormStart = null;
+      for (let t = 0; t < cycleMs; t += 1000) {
+        if (sandstormAt(start0 + t).intensity > 0) { stormStart = start0 + t; break; }
+      }
+      assert.ok(stormStart !== null, `cycle ${c} must contain a storm`);
+      const atLead = sandstormWarningAt(stormStart - SANDSTORM_WARNING_LEAD_S * 1000);
+      assert.equal(atLead.warning, true, 'warning fires at exactly the 120 s lead');
+      assert.ok(Math.abs(atLead.secondsUntil - SANDSTORM_WARNING_LEAD_S) <= 1,
+        `countdown reads ~120 s, got ${atLead.secondsUntil}`);
+      const before = sandstormWarningAt(stormStart - (SANDSTORM_WARNING_LEAD_S + 5) * 1000);
+      assert.equal(before.warning, false, 'no warning 5 s before the lead');
+      const mid = sandstormWarningAt(stormStart + 30000);
+      assert.equal(mid.warning, false, 'no warning while the storm is on');
+      assert.equal(mid.active, true, 'the storm reads active while it is on');
+      const near = sandstormWarningAt(stormStart - 60000);
+      assert.equal(near.warning, true, 'warning still up 60 s out');
+      assert.ok(Math.abs(near.secondsUntil - 60) <= 1, `countdown reads ~60 s, got ${near.secondsUntil}`);
+    }
+    // The banner is mounted and says to get inside.
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('StormWarningBanner'), 'the warning banner is mounted');
+    assert.ok(scene.includes('GET INSIDE THE OUTPOST'), 'the banner says to get inside');
+    assert.ok(scene.includes('SANDSTORM IN'), 'the banner counts down to the storm');
+    assert.ok(scene.includes('sandstormWarningAt'), 'the banner reads the warning law');
+  });
+
+  it('storm health: HP 100, drain 2/s at full storm, shelter stops it', () => {
+    assert.equal(MARS2_MAX_HP, 100, 'house pattern: HP 100');
+    assert.equal(MARS2_STORM_DRAIN_HP_PER_S, 2, '2 HP/s at full storm intensity');
+    assert.equal(stormDrainPerSecond(1), 2, 'full storm drains 2/s');
+    assert.equal(stormDrainPerSecond(0.5), 1, 'half storm drains 1/s');
+    assert.equal(stormDrainPerSecond(0), 0, 'calm drains nothing');
+    // 10 s exposed at full storm: 100 -> 80.
+    assert.deepEqual(tickMars2Health(100, { dt: 10, stormIntensity: 1, sheltered: false }), { hp: 80, died: false });
+    // Sheltered in the same storm: no drain, and recovery.
+    assert.deepEqual(tickMars2Health(80, { dt: 10, stormIntensity: 1, sheltered: true }), { hp: 100, died: false });
+    assert.deepEqual(tickMars2Health(50, { dt: 4, stormIntensity: 1, sheltered: true }), { hp: 70, died: false });
+    // No storm, exposed: nothing happens.
+    assert.deepEqual(tickMars2Health(77, { dt: 10, stormIntensity: 0, sheltered: false }), { hp: 77, died: false });
+    // Crossing 0 dies exactly once.
+    assert.deepEqual(tickMars2Health(3, { dt: 10, stormIntensity: 1, sheltered: false }), { hp: 0, died: true });
+    assert.deepEqual(tickMars2Health(100, { dt: 60, stormIntensity: 1, sheltered: false }), { hp: 0, died: true });
+  });
+
+  it('shelter: the room + the airlock shelter; the dunes + the spawn do not', () => {
+    assert.equal(isShelteredAt(big.x, big.z, site), true, 'the middle of the room shelters');
+    assert.equal(isShelteredAt(at(big, 2).x, at(big, 2).z, site), true, 'just inside the door shelters');
+    assert.equal(isShelteredAt(at(big, OUTPOST_BIG_DOME_R_M + 1).x, at(big, OUTPOST_BIG_DOME_R_M + 1).z, site), true,
+      'the airlock passage (1 m out on the door line) shelters');
+    assert.equal(isShelteredAt(WALKER_SPAWN.x, WALKER_SPAWN.z, site), false, 'the spawn by the door does not shelter');
+    assert.equal(isShelteredAt(at(big, -(OUTPOST_BIG_DOME_R_M + 1)).x, at(big, -(OUTPOST_BIG_DOME_R_M + 1)).z, site), false,
+      'the far side of the dome (outside) does not shelter');
+    assert.equal(isShelteredAt(big.x + 100, big.z + 100, site), false, 'the open dunes do not shelter');
+    // Beside the airlock (not in the corridor) does not shelter.
+    assert.equal(isShelteredAt(at(big, OUTPOST_BIG_DOME_R_M + 1, 2).x, at(big, OUTPOST_BIG_DOME_R_M + 1, 2).z, site), false,
+      'standing beside the airlock does not shelter');
+  });
+
+  it('the scene wires the drain: ticker, HP pill, respawn on foot at the outpost', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('Mars2HealthTicker'), 'the health ticker runs inside the Canvas');
+    assert.ok(scene.includes('tickMars2Health'), 'the ticker uses the health law');
+    assert.ok(scene.includes('isShelteredAt'), 'the ticker checks shelter at the walker');
+    assert.ok(scene.includes("mode === 'fly'"), 'the ship shelters (enclosed orb)');
+    assert.ok(scene.includes("mode !== 'walk' && mode !== 'drive' && mode !== 'fly'"), 'orbit mode is a spectator: no drain');
+    assert.ok(scene.includes('Mars2HpPill'), 'an HP pill shows the walker’s health');
+    assert.ok(scene.includes('p.set(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z)'), 'death respawns at the outpost spawn');
+    assert.ok(scene.includes('onRespawn'), 'the ticker tells the page on death');
+    assert.ok(scene.includes('onHpChange'), 'HP reaches the HUD');
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('handleRespawn'), 'the page handles the respawn');
+    assert.ok(page.includes('setMode("walk")'), 'death drops the mode to walk');
+    assert.ok(page.includes('onRespawn={handleRespawn}'), 'the page wires the respawn callback');
   });
 });

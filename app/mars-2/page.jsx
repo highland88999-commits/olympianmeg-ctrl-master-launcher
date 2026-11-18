@@ -134,6 +134,15 @@ export default function Mars2Page() {
     setMode("walk");
   }
 
+  // Storm death (outpost round 2, Merlin, Nov 17, 2026): a
+  // sandstorm caught the walker exposed and their health hit 0 —
+  // the scene already put them back on foot at the outpost spawn
+  // with HP restored; the mode drops to walk here so the rover
+  // does not carry a dead walker on.
+  function handleRespawn() {
+    setMode("walk");
+  }
+
   // Touch stick (the universal controls core): the scene reads
   // these keys for walking AND for driving the rover, so the
   // stick drives both. 0.2 dead zone, so a resting thumb never
@@ -277,6 +286,7 @@ export default function Mars2Page() {
           roverCmd={roverCmd}
           onRoverChange={setRover}
           jumpRef={jumpRef}
+          onRespawn={handleRespawn}
         />
         {/* Universal controls core (Merlin, Nov 16 ~03:49): the
             fixed joystick bottom-left + the docked JUMP orb (walk

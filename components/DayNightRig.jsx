@@ -129,6 +129,12 @@ export default function DayNightRig({
   // is lit red by its own moon; every other world keeps
   // moonlight blue. The photo moon's halo keeps its own blue.
   moonColor = '#b8c4e8',
+  // moonIntensity (default 1): a multiplier on the moonlight the
+  // rig drives. Mars 2 passes 2.5 — its red moon rides low (14°
+  // at Redwater), so the raw 0.37 light grazes the dunes at ~0.09
+  // and the night reads black; 2.5 lifts the red moonlight until
+  // the dunes read moonlit. Every other world keeps 1.
+  moonIntensity = 1,
 }) {
   const placeRef = useRef(null);
   const accRef = useRef(99); // due at once: the sky is right from frame one
@@ -236,7 +242,8 @@ export default function DayNightRig({
 
   const { pal, sunVec, moonVec, moon: moonData } = cycle;
   const moonI = pal.night * Math.max(0, Math.min(1, moonData.illum))
-    * Math.max(0, Math.min(1, moonData.altDeg / 20)) * 0.85;
+    * Math.max(0, Math.min(1, moonData.altDeg / 20)) * 0.85
+    * Math.max(0, moonIntensity);
   const fireColors = FIRE_COLORS[storm?.hue] || FIRE_COLORS.red;
   // The sun's visibility 0..1 from its own intensity — full by
   // late morning, gone at night (the terrain hides it below the

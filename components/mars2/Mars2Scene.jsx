@@ -11,15 +11,17 @@ import DayNightRig from '@/components/DayNightRig';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { mars2DayFactor, outpostSite, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
 import {
-  outpostDoorAngle, outpostCollide,
+  outpostDoorAngle, outpostCollide, outpostLocalToWorld, isShelteredAt,
   OUTPOST_SCALE, OUTPOST_DOOR_WEDGE_RAD, OUTPOST_DOOR_THETA,
+  OUTPOST_TUBE_X0_LOCAL, OUTPOST_TUBE_X1_LOCAL,
   OUTPOST_WALKER_BODY_R_M, OUTPOST_ROVER_BODY_R_M,
 } from '@/lib/mars2/world';
 import { dayNightFor, dateMsForSolarTime, getDayNightPlace, rgbStr } from '@/lib/day-night';
 import { makeMoonTexture } from '../HubMoon';
 import { materialForHardware } from '@/lib/mars2/textures';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
-import { thuleWindAt, makeSandField, updateSandField, windCompass, sandstormAt } from '@/lib/mars2/weather';
+import { thuleWindAt, makeSandField, updateSandField, windCompass, sandstormAt, sandstormWarningAt } from '@/lib/mars2/weather';
+import { MARS2_MAX_HP, tickMars2Health } from '@/lib/mars2/health';
 // Endless free roam (Merlin, Nov 18, 2026): the ground streams in
 // chunks around the camera — lib/mars2/streaming.js.
 import { CHUNK_M, chunksAround, chunkHeightField } from '@/lib/mars2/streaming';
@@ -582,7 +584,65 @@ function DomeWindow({ cx, phi, theta, radius }) {
   );
 }
 
-function Outpost({ profile }) {
+// --- the airlock door --------------------------------------------------------
+// OUTPOST ROUND 2 (Merlin, Nov 17, 2026): "One should not be able to
+// see inside unless they are inside the outpost." The doorway stood
+// open — from outside, at the right angle, the lit room showed
+// straight through the airlock. The door closes that: a real panel
+// in the airlock mouth, closed by default, swinging open (inward,
+// flat against the corridor wall) when the walker comes within
+// 1.5 m, closing again when they leave. The trigger is tight on
+// purpose: the walker spawns ~2.1 m from the mouth, so a 3 m
+// trigger would leave the door standing open from the first
+// frame — and the room visible from outside, the thing this
+// door exists to stop. At 1.5 m it is closed at spawn and opens
+// as the walker steps up to it. It is visual only — the
+// collision law already blocks wall-passing, and the door opens
+// before the walker reaches it, so it never traps anyone. The
+// panel is the outpost's own red scratched hull, with an amber
+// strip so the door reads at night.
+const AIRLOCK_DOOR_OPEN_M = 1.5; // walker this close swings the door open
+const AIRLOCK_DOOR_CLOSE_M = 2.0; // ...and this far lets it close again
+// Swung exactly 90°: the panel lies flat against the corridor's
+// -Z wall, fully inside the 1.4 m corridor — any further and its
+// tip would clip through the wall.
+const AIRLOCK_DOOR_OPEN_RAD = Math.PI / 2;
+
+function AirlockDoor({ site, walkerRef, doorMat }) {
+  const pivotRef = useRef();
+  const angleRef = useRef(0);
+  const openRef = useRef(false);
+  const mouth = useMemo(() => outpostLocalToWorld(-8.62, 0, site), [site]);
+  useFrame((state, dt) => {
+    const p = walkerRef && walkerRef.current;
+    const pivot = pivotRef.current;
+    if (!p || !pivot) return;
+    const d = Math.hypot(p.x - mouth.x, p.z - mouth.z);
+    if (d < AIRLOCK_DOOR_OPEN_M) openRef.current = true;
+    else if (d > AIRLOCK_DOOR_CLOSE_M) openRef.current = false;
+    const target = openRef.current ? AIRLOCK_DOOR_OPEN_RAD : 0;
+    const cur = angleRef.current;
+    angleRef.current = cur + (target - cur) * Math.min(1, Math.max(0, dt) * 5);
+    pivot.rotation.y = angleRef.current;
+  });
+  return (
+    <group position={[-8.55, 0, -0.57]} ref={pivotRef}>
+      {/* the panel: 1.14 m wide, 1.74 m tall, hinged on the -Z post;
+          it spans the doorway (z -0.57..+0.57 from the hinge) */}
+      <mesh position={[0, 0.87, 0.57]}>
+        <meshStandardMaterial {...doorMat} />
+        <boxGeometry args={[0.08, 1.74, 1.14]} />
+      </mesh>
+      {/* amber strip on the panel — the door reads after dark */}
+      <mesh position={[-0.05, 1.2, 0.57]}>
+        <boxGeometry args={[0.02, 0.06, 0.7]} />
+        <meshBasicMaterial color="#ffb37a" />
+      </mesh>
+    </group>
+  );
+}
+
+function Outpost({ profile, walkerRef }) {
   const site = useMemo(() => outpostSite(profile), [profile]);
   const angle = useMemo(() => outpostDoorAngle(site), [site]);
   const mats = useMemo(() => ({
@@ -681,14 +741,25 @@ function Outpost({ profile }) {
       <mesh position={[-7.9, floorY(-7.9, 0) + 0.05, 0]} material={mats.floor}>
         <boxGeometry args={[1.4, 0.1, 1.26]} />
       </mesh>
-      {/* the portal: a glowing ring in the airlock mouth + frame posts */}
+      {/* the portal: a glowing ring in the airlock mouth + frame posts.
+          Round 2: the ring is bigger (0.6 m) so it frames the doorway
+          instead of floating inside it, and a lit lintel strip marks
+          the entry after dark — the portal must read as a door. */}
       <mesh position={[-8.62, 0.95, 0]} quaternion={doorQ} scale={[1, 1.4, 1]}>
-        <torusGeometry args={[0.45, 0.05, 8, 24]} />
+        <torusGeometry args={[0.6, 0.06, 8, 24]} />
         <meshBasicMaterial color="#ff7a2a" />
       </mesh>
+      {/* the airlock door: closed by default, opens on approach —
+          the interior is visible only from inside (or at the door). */}
+      <AirlockDoor site={site} walkerRef={walkerRef} doorMat={redHull} />
       <mesh position={[-8.62, 0.9, -0.62]}>
         <meshStandardMaterial {...redMast} />
         <boxGeometry args={[0.1, 1.8, 0.1]} />
+      </mesh>
+      {/* lit lintel strip under the header — the doorway reads after dark */}
+      <mesh position={[-8.62, 1.72, 0]}>
+        <boxGeometry args={[0.04, 0.04, 1.2]} />
+        <meshBasicMaterial color="#ffb37a" />
       </mesh>
       <mesh position={[-8.62, 0.9, 0.62]}>
         <meshStandardMaterial {...redMast} />
@@ -825,10 +896,13 @@ function Outpost({ profile }) {
         <meshStandardMaterial {...redHull} emissive="#201009" />
         <sphereGeometry args={[2.4, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
       </mesh>
-      {/* connector tube between domes */}
-      <mesh position={[0, 0.9, 0]} rotation={[0, 0, Math.PI / 2]}>
+      {/* connector tube between domes — wall-to-wall only
+          (OUTPOST_TUBE_X0/X1_LOCAL): it must not poke into either
+          room. Round 2: the old 5.4 m tube stuck 1.9 local into
+          the big dome and read as a dark red dome inside the room. */}
+      <mesh position={[(OUTPOST_TUBE_X0_LOCAL + OUTPOST_TUBE_X1_LOCAL) / 2, 0.9, 0]} rotation={[0, 0, Math.PI / 2]}>
         <meshStandardMaterial {...redTube} />
-        <cylinderGeometry args={[0.9, 0.9, 5.4, 16]} />
+        <cylinderGeometry args={[0.9, 0.9, OUTPOST_TUBE_X1_LOCAL - OUTPOST_TUBE_X0_LOCAL, 16]} />
       </mesh>
       {/* landing pad + ring */}
       <mesh position={[0, 0.12, 9]} material={mats.pad}>
@@ -1201,13 +1275,63 @@ function LabelProjector({ profile, roverRef, labelRef }) {
   return null;
 }
 
+// --- storm health ------------------------------------------------------------
+// OUTPOST ROUND 2 (Merlin, Nov 17, 2026): being exposed to a
+// sandstorm drains health. The ticker runs inside the Canvas (it
+// needs the walker's live position): every half-second it reads
+// the storm, checks shelter — inside the outpost (big dome room
+// or airlock passage) or in the ship's enclosed orb — and ticks
+// the health law (lib/mars2/health.js). The rover does NOT
+// shelter: it is open, so driving through a storm still drains.
+// Orbit mode is a spectator camera, not a body — the ticker
+// skips it entirely. At 0 HP the walker respawns on foot at the
+// back to 100, and the page is told (onRespawn) to drop the mode
+// to walk. HP changes reach the HUD through onHpChange (throttled
+// to whole points, like the rover telemetry).
+function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, onHpChange, onRespawn }) {
+  const hpRef = useRef(MARS2_MAX_HP);
+  const accRef = useRef(0);
+  const lastSentRef = useRef(MARS2_MAX_HP);
+  useFrame((state, dt) => {
+    accRef.current += Math.min(Math.max(dt, 0), 0.05);
+    if (accRef.current < 0.5) return;
+    const step = accRef.current;
+    accRef.current = 0;
+    const p = walkerRef.current;
+    if (!p) return;
+    const storm = sandstormAt(Date.now());
+    // Orbit mode is a spectator camera, not a body on the dunes:
+    // no drain and no regen while orbiting. Walk/drive are bodies
+    // (the rover does not shelter — it is open); fly is the
+    // ship's enclosed orb, which shelters.
+    const mode = modeRef.current;
+    if (mode !== 'walk' && mode !== 'drive' && mode !== 'fly') return;
+    const sheltered = mode === 'fly' || isShelteredAt(p.x, p.z, outpost);
+    const next = tickMars2Health(hpRef.current, { dt: step, stormIntensity: storm.intensity, sheltered });
+    hpRef.current = next.hp;
+    if (next.died) {
+      hpRef.current = MARS2_MAX_HP;
+      p.set(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z);
+      yawRef.current = 0.6;
+      if (onRespawn) onRespawn();
+    }
+    if (Math.abs(hpRef.current - lastSentRef.current) >= 1 || next.died) {
+      lastSentRef.current = hpRef.current;
+      if (onHpChange) onHpChange({ hp: Math.round(hpRef.current), maxHp: MARS2_MAX_HP });
+    }
+  });
+  return null;
+}
+
 // --- scene composition ---------------------------------------------------------
-function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef }) {
+function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, onHpChange, onRespawn }) {
   const orbitRef = useRef();
   const walkerRef = useRef(new THREE.Vector3(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z));
   const yawRef = useRef(0.6);
   const pitchRef = useRef(-0.05);
   const roverRef = useRef(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   const dayF = mars2DayFactor(timeOfDay);
   const groundHeight = (x, z) => getTerrainHeight(x, z, profile);
   const outpost = useMemo(() => outpostSite(profile), [profile]);
@@ -1254,7 +1378,7 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
           direction at any distance. moonColor red: Mars's nights
           are lit red by its moon (the red moon disc below rides
           the same direction). */}
-      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} moonColor="#ff5040" />
+      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} moonColor="#ff5040" moonIntensity={2.5} />
       <Mars2Sun timeOfDay={timeOfDay} />
       <Mars2RedMoon timeOfDay={timeOfDay} />
       {/* cool fill from the opposite side so the night never goes
@@ -1265,7 +1389,10 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       <OlympusMons profile={profile} />
       <Mars2Cgi profile={profile} dayF={dayF} />
       <Mars2Weather profile={profile} dayF={dayF} />
-      <Outpost profile={profile} />
+      <Outpost profile={profile} walkerRef={walkerRef} />
+      {/* Storm health: the ticker watches the storm + shelter and
+          reports HP to the page; death respawns at the outpost. */}
+      <Mars2HealthTicker walkerRef={walkerRef} yawRef={yawRef} modeRef={modeRef} outpost={outpost} onHpChange={onHpChange} onRespawn={onRespawn} />
       <RoverModel roverRef={roverRef} />
       <LabelProjector profile={profile} roverRef={roverRef} labelRef={labelRef} />
 
@@ -1318,12 +1445,68 @@ function ThuleWindPill() {
   );
 }
 
+// --- storm warning + health pills -------------------------------------------
+// OUTPOST ROUND 2 (Merlin, Nov 17, 2026): "a warning before
+// windstorms to get inside should occur, with a 2 minute warning."
+// The banner polls the same 1 s clock as the Thule pill and shows
+// only inside the 120 s lead: a countdown to the storm's first
+// sand and the words GET INSIDE THE OUTPOST. It sits centred
+// below the Thule + HP pills (top 172), so it never covers them.
+// The HP pill sits under the Thule pill (top 132): the walker's
+// health, green to red as it falls.
+function StormWarningBanner() {
+  const [warn, setWarn] = useState(() => sandstormWarningAt(Date.now()));
+  useEffect(() => {
+    const id = setInterval(() => setWarn(sandstormWarningAt(Date.now())), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (!warn.warning) return null;
+  const s = Math.max(0, Math.ceil(warn.secondsUntil || 0));
+  const mm = String(Math.floor(s / 60)).padStart(1, '0');
+  const ss = String(s % 60).padStart(2, '0');
+  return (
+    <div style={{
+      position: 'absolute', top: 172, left: '50%', transform: 'translateX(-50%)', zIndex: 6,
+      color: '#fff3e0', fontSize: 12, fontWeight: 700, letterSpacing: 1.5,
+      textShadow: '0 1px 4px #000', textAlign: 'center',
+      background: 'rgba(160, 40, 0, 0.72)', padding: '8px 14px', borderRadius: 8,
+      border: '1px solid #ff8a3c', pointerEvents: 'none',
+      maxWidth: '92%', lineHeight: 1.4,
+    }}>
+      ⚠ SANDSTORM IN {mm}:{ss} — GET INSIDE THE OUTPOST
+    </div>
+  );
+}
+
+function Mars2HpPill({ hp, maxHp }) {
+  const pct = maxHp > 0 ? hp / maxHp : 1;
+  const color = pct > 0.5 ? '#ffe3cc' : pct > 0.25 ? '#ffb37a' : '#ff6a5a';
+  return (
+    <div style={{
+      position: 'absolute', top: 132, right: 10, zIndex: 5,
+      color, fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
+      background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
+      pointerEvents: 'none', whiteSpace: 'nowrap', fontWeight: 700,
+    }}>
+      ♥ {hp}
+    </div>
+  );
+}
+
 export default function Mars2Scene({
   profile, worldKey, timeOfDay = 0.32, mode = 'orbit',
   inputRef, roverCmd, onRoverChange, jumpRef,
+  onRespawn,
 }) {
   useKeys(inputRef);
   const [ready, setReady] = useState(false);
+  // Storm health (round 2): the in-Canvas ticker reports HP here;
+  // the pill above the stage shows it, and death drops the mode
+  // to walk at the page (onRespawn).
+  const [hp, setHp] = useState(MARS2_MAX_HP);
+  const handleHpChange = (next) => {
+    if (next && Number.isFinite(next.hp)) setHp(Math.round(next.hp));
+  };
   // The world labels' DOM nodes, shared with the projector
   // inside the Canvas (it positions them every frame).
   const labelRef = useRef({ nodes: {} });
@@ -1350,6 +1533,7 @@ export default function Mars2Scene({
           profile={profile} timeOfDay={timeOfDay} mode={mode}
           inputRef={inputRef} roverCmd={roverCmd} onRoverChange={onRoverChange} jumpRef={jumpRef}
           labelRef={labelRef}
+          onHpChange={handleHpChange} onRespawn={onRespawn}
         />
       </Canvas>
       {/* World labels — screen-space, clamped inside the stage by
@@ -1380,6 +1564,10 @@ export default function Mars2Scene({
           stick is gone, so there is exactly one joystick and it
           is the one wired to the walker and the rover. */}
       <ThuleWindPill />
+      {/* Round 2: walker health (from the storm ticker) + the
+          2-minute storm warning — get inside before the sand hits. */}
+      <Mars2HpPill hp={hp} maxHp={MARS2_MAX_HP} />
+      <StormWarningBanner />
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
         <BackpackHud realm="mars" realmLabel="Mars 2" docked
           displayNote="Mars keeps its own arms — the pack rides along." />
