@@ -13,6 +13,7 @@ import {
   skyPalette,
   dayNightFor,
   timeOfDay01,
+  dateMsForSolarTime,
   moonPhaseDaylight,
   getDayNightPlace,
   FALLBACK_PLACE,
@@ -65,6 +66,27 @@ describe('the shared cycle is Earth 2’s law', () => {
     assert.ok(noon > 0.48 && noon < 0.52, `noon ${noon}`);
     const mid = timeOfDay01(MIDNIGHT_EQUINOX, 0, 0);
     assert.ok(mid < 0.02 || mid > 0.98, `midnight ${mid}`);
+  });
+
+  it('dateMsForSolarTime inverts timeOfDay01: the round trip lands on the target', () => {
+    // Mars 2's TIME slider drives the rig through this — the
+    // slider's 0..1 must become a real sun position, not just a
+    // label. Round-trip each target through the same law.
+    for (const target of [0.0, 0.26, 0.5, 0.72, 0.95]) {
+      const dateMs = dateMsForSolarTime(target, -33.8688, 151.2093, NOON_EQUINOX);
+      const back = timeOfDay01(dateMs, -33.8688, 151.2093);
+      const diff = Math.min(Math.abs(back - target), 1 - Math.abs(back - target));
+      assert.ok(diff < 0.002, `target ${target} round-trips to ${back}`);
+    }
+  });
+
+  it('dateMsForSolarTime puts the sun up at noon and down at midnight', () => {
+    const noon = dayNightFor(dateMsForSolarTime(0.5, 0, 0, NOON_EQUINOX), 0, 0);
+    assert.ok(noon.sun.elevationDeg > 60, `noon elevation ${noon.sun.elevationDeg}`);
+    assert.equal(noon.phase, 'day');
+    const night = dayNightFor(dateMsForSolarTime(0.0, 0, 0, NOON_EQUINOX), 0, 0);
+    assert.ok(night.sun.elevationDeg < -10, `midnight elevation ${night.sun.elevationDeg}`);
+    assert.equal(night.phase, 'night');
   });
 
   it('lunar daylight is the moon’s illuminated fraction', () => {

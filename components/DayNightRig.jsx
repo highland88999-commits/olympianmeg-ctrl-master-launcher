@@ -30,11 +30,12 @@
 // engine stay silent.
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   dayNightFor,
+  dateMsForSolarTime,
   netherPalette,
   getDayNightPlace,
   requestDayNightPlace,
@@ -58,6 +59,24 @@ const FIRE_COLORS = {
 };
 const BOLT_COLORS = { red: '#ff4d2e', purple: '#b06bff' };
 const FLASH_COLORS = { red: '#ff3b1a', purple: '#a855f7' };
+
+// A soft radial glow (white core fading to transparent) for the
+// sun halo — drawn once on a canvas, tinted by the sprite's
+// colour, so the sun carries haze instead of a hard edge.
+function makeGlowTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
 
 function boltGeometry(x, z, seed) {
   const rng = seededRand(seed);
@@ -84,6 +103,18 @@ export default function DayNightRig({
   fogDensity = 0.0035,
   lat = null,
   lon = null,
+  // timeOfDay (0..1, optional): when a world drives the cycle
+  // from its own time control instead of the real clock (Mars 2's
+  // TIME slider + presets), the rig runs the same law for that
+  // solar time — the slider moves the real sun, not just a label.
+  // When it is not a finite number, the real clock drives the
+  // cycle exactly as before.
+  timeOfDay = null,
+  // sun (default false): render the sun itself — a bright core
+  // disc plus a glow/haze halo on the rig's real sun direction —
+  // so it reads as a sun instead of a flat disc (or nothing).
+  // Worlds that do not opt in keep exactly their current sky.
+  sun = false,
 }) {
   const placeRef = useRef(null);
   const accRef = useRef(99); // due at once: the sky is right from frame one
@@ -93,17 +124,27 @@ export default function DayNightRig({
   const strikeIndexRef = useRef(0);
   const nextStrikeAtRef = useRef(0);
   const fireIdRef = useRef(0);
-  const [cycle, setCycle] = useState(() => {
+  const timeOfDayRef = useRef(timeOfDay);
+  timeOfDayRef.current = timeOfDay;
+  if (placeRef.current === null) {
     const place = getDayNightPlace();
-    const p = { lat: lat ?? place.lat, lon: lon ?? place.lon };
-    placeRef.current = p;
-    const dn = dayNightFor(Date.now(), p.lat, p.lon);
+    placeRef.current = { lat: lat ?? place.lat, lon: lon ?? place.lon };
+  }
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  // The cycle recomputes when the real clock ticks (~1 s) AND
+  // the moment a timeOfDay override moves — the slider's light
+  // follows the slider, not the next tick.
+  const cycle = useMemo(() => {
+    const p = placeRef.current;
+    const t = timeOfDayRef.current;
+    const dn = Number.isFinite(t)
+      ? dayNightFor(dateMsForSolarTime(t, p.lat, p.lon, nowTick), p.lat, p.lon)
+      : dayNightFor(nowTick, p.lat, p.lon);
     const pal = shade === 'earth' ? dn.palette : netherPalette(dn.sun.elevationDeg, shade);
     return { ...dn, pal };
-  });
+  }, [nowTick, timeOfDay, shade, lat, lon]);
   const [fires, setFires] = useState([]);
   const [bolt, setBolt] = useState(null); // { geo, color, x, z } or null
-  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const stormSeed = useMemo(() => {
     if (!storm) return 0;
@@ -123,8 +164,9 @@ export default function DayNightRig({
     } else if (bolt) {
       setBolt(null);
     }
-    // The cycle refreshes about once a second; any failure keeps
-    // the last sky.
+    // The cycle refreshes about once a second (nowTick drives
+    // the useMemo above); any failure keeps the last sky. A
+    // timeOfDay override recomputes the moment it moves.
     accRef.current += dt;
     if (accRef.current < 1) return;
     accRef.current = 0;
@@ -133,14 +175,6 @@ export default function DayNightRig({
       const place = getDayNightPlace();
       placeRef.current = { lat: lat ?? place.lat, lon: lon ?? place.lon };
       requestDayNightPlace();
-    }
-    try {
-      const p = placeRef.current;
-      const dn = dayNightFor(now, p.lat, p.lon);
-      const pal = shade === 'earth' ? dn.palette : netherPalette(dn.sun.elevationDeg, shade);
-      setCycle({ ...dn, pal });
-    } catch {
-      // Keep the last sky.
     }
     // Storm schedule: strikes on the seeded clock.
     if (storm) {
@@ -190,6 +224,13 @@ export default function DayNightRig({
   const moonI = pal.night * Math.max(0, Math.min(1, moon.illum))
     * Math.max(0, Math.min(1, moon.altDeg / 20)) * 0.85;
   const fireColors = FIRE_COLORS[storm?.hue] || FIRE_COLORS.red;
+  // The sun's visibility 0..1 from its own intensity — full by
+  // late morning, gone at night (the terrain hides it below the
+  // horizon anyway; this keeps the disc + halo from glowing
+  // through the dark).
+  const sunVis = Math.max(0, Math.min(1, pal.sunIntensity / 0.9));
+  const glowTex = useMemo(() => (sun ? makeGlowTexture() : null), [sun]);
+  useEffect(() => () => { if (glowTex) glowTex.dispose(); }, [glowTex]);
 
   return (
     <group>
@@ -207,6 +248,21 @@ export default function DayNightRig({
           color="#b8c4e8"
           intensity={moonI}
         />
+      )}
+      {sun && glowTex && (
+        <>
+          {/* the sun itself: a bright core disc on the rig's real
+              sun direction, with a glow/haze halo — fog:false, so
+              the fog never swallows it; the terrain still hides
+              it below the horizon. */}
+          <mesh position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]}>
+            <sphereGeometry args={[6, 20, 20]} />
+            <meshBasicMaterial color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.95 * sunVis} depthWrite={false} />
+          </mesh>
+          <sprite position={[sunVec.x * 380, sunVec.y * 380, sunVec.z * 380]} scale={[64, 64, 1]}>
+            <spriteMaterial map={glowTex} color={rgbStr(pal.sunColor)} fog={false} transparent opacity={0.55 * sunVis} depthWrite={false} />
+          </sprite>
+        </>
       )}
       {storm && (
         <directionalLight

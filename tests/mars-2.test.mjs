@@ -460,3 +460,64 @@ describe('mars-2 Thule wind weather', () => {
     assert.ok(scene.includes('GUSTING'), 'pill calls out gusts');
   });
 });
+
+describe('mars-2 fix round (Merlin, Nov 17, 2026 — all 10 findings)', () => {
+  it('exactly one joystick: the scene carries no second stick of its own', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(!scene.includes('<TouchControls'), 'the Mars 1 stick is not rendered in Mars 2');
+    assert.ok(!scene.includes('TouchControls }'), 'the Mars 1 stick is not imported into Mars 2');
+    assert.ok(!scene.includes("from '@/components/mars/MarsScene'"), 'no Mars 1 scene import left');
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('ControlsCore'), 'the one stick is the controls core');
+  });
+  it('the TIME slider drives the real light: the rig gets timeOfDay + the sun', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('timeOfDay={timeOfDay}'), 'scene passes its time into the rig');
+    assert.ok(scene.includes('<DayNightRig') && scene.includes('sun'), 'rig draws the sun (core + glow)');
+    const rig = read('components/DayNightRig.jsx');
+    assert.ok(rig.includes('dateMsForSolarTime'), 'rig runs the slider through the shared law');
+    assert.ok(rig.includes('timeOfDay'), 'rig takes a timeOfDay override');
+  });
+  it('the labels stay screen-sized and inside the frame: projected + clamped, never drei Html', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(!scene.includes('distanceFactor={'), 'no distance scaling anywhere in the scene');
+    assert.ok(!scene.includes('<Html'), 'no drei Html labels left');
+    assert.ok(scene.includes('LabelProjector'), 'a projector positions the labels every frame');
+    assert.ok(scene.includes('WORLD_LABELS'), 'the three labels live in one list');
+    assert.ok(scene.includes('ARES-2 ROVER') && scene.includes('ARES OUTPOST') && scene.includes('OLYMPUS MONS'), 'all three labels still named');
+    assert.ok(scene.includes('offsetWidth'), 'the clamp measures the real label width');
+    assert.ok(scene.includes("nodes.rover.style.visibility = 'hidden'"), 'the rover label only exists while a rover does');
+  });
+  it('the top strip cannot overlap: roverbar clears the fullscreen orb, Thule sits below it', () => {
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('max-width: calc(100% - 92px)'), 'roverbar leaves room for the fullscreen orb');
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('top: 96'), 'Thule pill sits in the second row, under the roverbar');
+    assert.ok(!scene.includes('STICK / WASD'), 'no centred hint pill left to hide behind the roverbar');
+  });
+  it('fullscreen is wired: the core gets the toggle and the stage goes fixed inset-0', () => {
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('onToggleFullscreen'), 'page passes the fullscreen toggle to the core');
+    assert.ok(page.includes('position: "fixed", inset: 0'), 'stage takes over the screen when entered');
+    assert.ok(page.includes('Escape'), 'Escape drops out of fullscreen');
+  });
+  it('walk mode never carries an active rover: leaving for foot dismounts first', () => {
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('if (m === "walk" && rover.active)'), 'toggleMode dismounts before walking');
+    assert.ok(page.includes('dismountRover();'), 'the dismount runs the shared rover path');
+  });
+  it('JUMP hides while riding: the orb only exists on foot with the rover parked', () => {
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('mode === "walk" && !rover.active'), 'onJump is gated on walk + rover parked');
+  });
+  it('orbit opens pulled back: the camera starts wide, the outpost and label sit clear', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('position: [46, 26, 62]'), 'orbit camera starts pulled back');
+    assert.ok(scene.includes('maxDistance={200}'), 'orbit lets the user pull back further');
+  });
+  it('the night never goes black: the Mars 1 cool fill rides in the scene', () => {
+    const scene = read('components/mars2/Mars2Scene.jsx');
+    assert.ok(scene.includes('position={[-40, 24, 40]}'), 'cool fill from the opposite side');
+    assert.ok(scene.includes('color="#7a86a8"'), 'the fill is the cool Mars 1 blue');
+  });
+});

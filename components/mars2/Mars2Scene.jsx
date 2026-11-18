@@ -1,14 +1,13 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Html } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
 import { terrainMaterial, disposeTerrainMaterial, monsSite, monsSlopeMaterial, monsCapMaterial, hazeSpriteTexture, devilStreakTexture, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '@/lib/mars/cgi';
 import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import DayNightRig from '@/components/DayNightRig';
-import { TouchControls } from '@/components/mars/MarsScene';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { mars2DayFactor, outpostSite, WORLD_RADIUS, WALKER_SPAWN, EYE_HEIGHT } from '@/lib/mars2/world';
 import { materialForHardware } from '@/lib/mars2/textures';
@@ -125,13 +124,6 @@ function OlympusMons({ profile }) {
       <mesh position={[0, site.capY, 0]} material={capMat}>
         <coneGeometry args={[site.capRadius, site.capHeight, 64]} />
       </mesh>
-      <Html position={[0, site.height + 3.5, 0]} center distanceFactor={60}
-        style={{ pointerEvents: 'none' }}>
-        <div style={{
-          fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap',
-          color: '#ffe3cc', textShadow: '0 1px 6px #000', fontWeight: 700,
-        }}>OLYMPUS MONS</div>
-      </Html>
     </group>
   );
 }
@@ -362,12 +354,6 @@ function Outpost({ profile }) {
       <mesh position={[7.5, 1.1, 2.5]} rotation={[0, 0.4, -0.5]} material={mats.solar}>
         <boxGeometry args={[3.4, 0.08, 2.2]} />
       </mesh>
-      <Html position={[0, 7.5, 0]} center distanceFactor={60} style={{ pointerEvents: 'none' }}>
-        <div style={{
-          fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap',
-          color: '#ffe3cc', textShadow: '0 1px 6px #000', fontWeight: 700,
-        }}>ARES OUTPOST</div>
-      </Html>
     </group>
   );
 }
@@ -414,7 +400,10 @@ function RoverModel({ roverRef }) {
     const g = groupRef.current;
     const rover = roverRef.current;
     if (!g) return;
-    if (!rover) { g.visible = false; return; }
+    if (!rover) {
+      g.visible = false;
+      return;
+    }
     g.visible = true;
     g.position.set(rover.x, rover.y, rover.z);
     g.rotation.y = rover.heading;
@@ -496,12 +485,6 @@ function RoverModel({ roverRef }) {
           </mesh>
         </group>
       ))}
-      <Html position={[0, 3.1, 0]} center distanceFactor={46} style={{ pointerEvents: 'none' }}>
-        <div style={{
-          fontSize: 11, letterSpacing: 2, whiteSpace: 'nowrap',
-          color: '#ffe3cc', textShadow: '0 1px 6px #000', fontWeight: 700,
-        }}>ARES-2 ROVER</div>
-      </Html>
     </group>
   );
 }
@@ -658,8 +641,52 @@ function WalkerRig({ inputRef, mode, groundHeight, walkerRef, yawRef, pitchRef, 
   return null;
 }
 
+// --- screen-space world labels (clamped inside the stage) --------
+// Merlin, Nov 17: the 3D labels must stay inside the frame and
+// clear of the controls. drei Html centres on the anchor, so an
+// anchor at the frame's edge clipped half the label (and
+// distanceFactor blew it up at close range). These project the
+// anchor to screen space every frame and clamp the label's
+// centre inside the stage, so the whole label always reads.
+// The rover label only exists while a rover does.
+const WORLD_LABELS = [
+  { key: 'mons', text: 'OLYMPUS MONS' },
+  { key: 'outpost', text: 'ARES OUTPOST' },
+  { key: 'rover', text: 'ARES-2 ROVER' },
+];
+
+function LabelProjector({ profile, roverRef, labelRef }) {
+  const { camera, size } = useThree();
+  const mons = useMemo(() => monsSite(profile), [profile]);
+  const outpost = useMemo(() => outpostSite(profile), [profile]);
+  const tmp = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => {
+    const nodes = labelRef.current.nodes || {};
+    const place = (key, x, y, z) => {
+      const node = nodes[key];
+      if (!node) return;
+      tmp.set(x, y, z).project(camera);
+      if (tmp.z > 1) { node.style.visibility = 'hidden'; return; }
+      const sx = (tmp.x * 0.5 + 0.5) * size.width;
+      const sy = (-tmp.y * 0.5 + 0.5) * size.height;
+      const w = node.offsetWidth || 120;
+      const h = node.offsetHeight || 17;
+      const cx = Math.max(w / 2 + 6, Math.min(size.width - w / 2 - 6, sx));
+      const cy = Math.max(h / 2 + 6, Math.min(size.height - h / 2 - 6, sy));
+      node.style.transform = `translate(${cx}px, ${cy}px) translate(-50%, -50%)`;
+      node.style.visibility = 'visible';
+    };
+    place('mons', mons.x, mons.y - mons.sink + mons.height + 3.5, mons.z);
+    place('outpost', outpost.x, outpost.y + 7.5, outpost.z);
+    const rover = roverRef.current;
+    if (rover) place('rover', rover.x, rover.y + 3.1, rover.z);
+    else if (nodes.rover) nodes.rover.style.visibility = 'hidden';
+  });
+  return null;
+}
+
 // --- scene composition ---------------------------------------------------------
-function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef }) {
+function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef }) {
   const orbitRef = useRef();
   const walkerRef = useRef(new THREE.Vector3(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z));
   const yawRef = useRef(0.6);
@@ -698,7 +725,14 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
 
   return (
     <>
-      <DayNightRig shade="earth" fogDensity={0.004} />
+      {/* The page's timeOfDay drives the rig's cycle (the TIME
+          slider + presets move the real sun), and the rig draws
+          the sun itself — core disc + glow halo — so it reads as
+          a sun. */}
+      <DayNightRig shade="earth" fogDensity={0.004} timeOfDay={timeOfDay} sun />
+      {/* cool fill from the opposite side so the night never goes
+          black (the Mars 1 pattern — same light, same reason). */}
+      <directionalLight position={[-40, 24, 40]} intensity={0.18} color="#7a86a8" />
       <Mars2Stars profile={profile} opacity={1 - dayF} />
       <Mars2Terrain profile={profile} />
       <OlympusMons profile={profile} />
@@ -706,10 +740,11 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       <Mars2Weather profile={profile} dayF={dayF} />
       <Outpost profile={profile} />
       <RoverModel roverRef={roverRef} />
+      <LabelProjector profile={profile} roverRef={roverRef} labelRef={labelRef} />
 
       {mode === 'orbit' && (
         <OrbitControls ref={orbitRef} makeDefault enableDamping dampingFactor={0.08}
-          maxPolarAngle={Math.PI * 0.52} minDistance={5} maxDistance={170}
+          maxPolarAngle={Math.PI * 0.52} minDistance={5} maxDistance={200}
           target={[0, 6, 0]} />
       )}
       {mode !== 'orbit' && (
@@ -724,9 +759,11 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
 }
 
 // --- Thule wind readout ------------------------------------------------------
-// A small live pill (top-right of the stage): the wind's speed and
-// compass bearing, refreshed once a second. "GUSTING" when the
-// gust factor is high — so the weather is readable, not just felt.
+// A small live pill down the right side of the stage (second row,
+// under the roverbar and the fullscreen orb — never behind them):
+// the wind's speed and compass bearing, refreshed once a second.
+// "GUSTING" when the gust factor is high — so the weather is
+// readable, not just felt.
 function ThuleWindPill() {
   const [wind, setWind] = useState(() => thuleWindAt(Date.now()));
   useEffect(() => {
@@ -735,7 +772,7 @@ function ThuleWindPill() {
   }, []);
   return (
     <div style={{
-      position: 'absolute', top: 10, right: 10, zIndex: 5,
+      position: 'absolute', top: 96, right: 10, zIndex: 5,
       color: '#ffe3cc', fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
       background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
       pointerEvents: 'none', whiteSpace: 'nowrap',
@@ -751,39 +788,62 @@ export default function Mars2Scene({
 }) {
   useKeys(inputRef);
   const [ready, setReady] = useState(false);
+  // The world labels' DOM nodes, shared with the projector
+  // inside the Canvas (it positions them every frame).
+  const labelRef = useRef({ nodes: {} });
+  // The Canvas props are constants — memoised so a page
+  // re-render (rover telemetry every 0.25 s) never hands R3F a
+  // fresh camera object and re-applies the start position over
+  // the chase camera. The start sits pulled back (46, 26, 62)
+  // so orbit mode opens on the whole reach — outpost and label
+  // clear in frame — instead of parked against them.
+  const cameraProps = useMemo(() => ({ position: [46, 26, 62], fov: 55, near: 0.1, far: 900 }), []);
+  const dprProps = useMemo(() => [1, 1.75], []);
+  const glProps = useMemo(() => ({ antialias: true, powerPreference: 'high-performance' }), []);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
-        dpr={[1, 1.75]}
-        camera={{ position: [34, 20, 46], fov: 55, near: 0.1, far: 900 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        dpr={dprProps}
+        camera={cameraProps}
+        gl={glProps}
         onCreated={() => setReady(true)}
       >
         <SceneContent
           key={worldKey || profile.seed}
           profile={profile} timeOfDay={timeOfDay} mode={mode}
           inputRef={inputRef} roverCmd={roverCmd} onRoverChange={onRoverChange} jumpRef={jumpRef}
+          labelRef={labelRef}
         />
       </Canvas>
+      {/* World labels — screen-space, clamped inside the stage by
+          the projector (see LabelProjector above). Plain divs, no
+          z-index, so they sit under the HUD pills. */}
+      {WORLD_LABELS.map(({ key, text }) => (
+        <div key={key}
+          ref={(el) => { labelRef.current.nodes[key] = el; }}
+          style={{
+            position: 'absolute', left: 0, top: 0, pointerEvents: 'none',
+            fontSize: 11, letterSpacing: 3, whiteSpace: 'nowrap',
+            color: '#ffe3cc', textShadow: '0 1px 6px #000', fontWeight: 700,
+            visibility: 'hidden', willChange: 'transform',
+          }}>
+          {text}
+        </div>
+      ))}
       {!ready && (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
           justifyContent: 'center', color: '#ffa658', letterSpacing: 3, fontSize: 12,
         }}>SYNTHESIZING MARS 2…</div>
       )}
-      {mode !== 'orbit' && (
-        <div style={{
-          position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)',
-          color: '#ffe3cc', fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
-          background: 'rgba(0,0,0,0.35)', padding: '6px 14px', borderRadius: 8,
-          pointerEvents: 'none', whiteSpace: 'nowrap',
-        }}>
-          {mode === 'walk' ? 'STICK / WASD MOVE · DRAG LOOK · SPACE / JUMP' : 'STICK / WASD DRIVE · DRAG TO SWING CAMERA'}
-        </div>
-      )}
+      {/* No hint pill here: the roverbar above already carries the
+          instructions, and a centred pill at the top only ever
+          hid behind it. The one stick is the core's WalkJoystick
+          (bottom-left, fixed) — the scene's own TouchControls
+          stick is gone, so there is exactly one joystick and it
+          is the one wired to the walker and the rover. */}
       <ThuleWindPill />
-      {mode !== 'orbit' && <TouchControls inputRef={inputRef} fly={false} />}
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
         <BackpackHud realm="mars" realmLabel="Mars 2" docked
           displayNote="Mars keeps its own arms — the pack rides along." />

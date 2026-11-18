@@ -82,6 +82,20 @@ export default function Mars2Page() {
   const [mode, setMode] = useState("orbit"); // orbit | walk | drive
   const [roverCmd, setRoverCmd] = useState(null); // { action: 'summon' | 'dismount', nonce }
   const [rover, setRover] = useState({ active: false, speedKmh: 0 });
+  // Fullscreen (Merlin, Nov 16 — circle orb law: the maximize
+  // orb sits at the very top right): the Earth 3 / Earth 4
+  // mechanism — a fixed inset-0 stage at z-80, no Fullscreen API
+  // (iPhone Safari has none for arbitrary elements). Escape or
+  // the orb drops it back. The R3F canvas resizes itself when
+  // the stage changes size.
+  const [fullscreen, setFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!fullscreen) return undefined;
+    const down = (e) => { if (e.key === "Escape") setFullscreen(false); };
+    window.addEventListener("keydown", down);
+    return () => window.removeEventListener("keydown", down);
+  }, [fullscreen]);
 
   const profile = useMemo(() => generateMarsProfile(MARS2_SEED), []);
 
@@ -90,6 +104,16 @@ export default function Mars2Page() {
   }, []);
 
   function toggleMode(m) {
+    // Leaving the rover for foot always steps out of it first:
+    // walk mode must never carry an active rover, or the stick
+    // moves the walker while the roverbar still says ROVER ACTIVE
+    // (and its speedo freezes at the last value) and the JUMP orb
+    // shows as if the rover could jump. The dismount parks the
+    // rover where it stands; RIDE summons it back.
+    if (m === "walk" && rover.active) {
+      dismountRover();
+      return;
+    }
     setMode((prev) => (prev === m ? "orbit" : m));
   }
 
@@ -142,6 +166,7 @@ export default function Mars2Page() {
         .mars2 .stage { position: relative; margin: 10px 16px 0; border: 1px solid #5a3220; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
         .mars2 .stage canvas { touch-action: none; }
         .mars2 .roverbar { position: absolute; left: 12px; top: 12px; z-index: 5;
+          max-width: calc(100% - 92px);
           background: linear-gradient(rgba(16,7,3,0.93), rgba(16,7,3,0.93)); border: 1px solid ${ACCENT}; border-radius: 10px; padding: 10px 14px;
           font-size: 0.8rem; letter-spacing: 1px; color: #f0dcc8; }
         .mars2 .roverbar b { color: ${ACCENT}; }
@@ -164,7 +189,7 @@ export default function Mars2Page() {
         <div className="sub">{MARS2_WORLD_NAME} — the successor world. Same red Mars, a new reason to be here: rovers. Walk the dunes, or summon the {ROVER_NAME} and drive them — Olympus Mons on the horizon, dust devils crossing the flats, the ARES outpost waiting at the end of the track.</div>
       </header>
 
-      <div className="stage">
+      <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
         <Mars2Scene
           profile={profile}
           worldKey={MARS2_SEED}
@@ -177,18 +202,20 @@ export default function Mars2Page() {
         />
         {/* Universal controls core (Merlin, Nov 16 ~03:49): the
             fixed joystick bottom-left + the docked JUMP orb (walk
-            mode only — the rover has no jump). The roverbar above
-            already carries the instructions, so no hint pill here.
-            Mars 2 has no backpack, no weapon and no merchant, so
-            those core slots stay off — nothing invented. No
-            fullscreen mode on Mars 2, so no maximize orb either. */}
+            mode only, and only while the rover is parked — the
+            rover has no jump) + the fullscreen orb at the very
+            top right. The roverbar above already carries the
+            instructions, so no hint pill here. Mars 2 has no
+            backpack, no weapon and no merchant, so those core
+            slots stay off — nothing invented. */}
         <ControlsCore world="mars-2" accent={ACCENT}
           onMove={mode === "orbit" ? undefined : onMarsMove}
-          onJump={mode === "walk" ? () => { jumpRef.current = true; } : undefined}
+          onJump={mode === "walk" && !rover.active ? () => { jumpRef.current = true; } : undefined}
+          fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen((f) => !f)}
         />
         <div className="roverbar" aria-live="polite">
           {rover.active ? (
-            <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h — stick / WASD to drive</span>
+            <span><b>◉ ROVER ACTIVE</b> · {rover.speedKmh.toFixed(0)} km/h · top {roverSpeedKmh(ROVER_TOP_SPEED_MPS).toFixed(0)} km/h</span>
           ) : (
             <span><b>○ ON FOOT</b> · walk {WALK_SPEED_MPS.toFixed(0)} m/s — summon the rover to drive</span>
           )}
@@ -198,9 +225,8 @@ export default function Mars2Page() {
       {/* Under-screen controls — circle orbs only (Merlin, Nov 16 —
           standing law). The TIME slider stays a slider: a continuous
           range input has no orb form, and its thumb is already a
-          circle. Mars 2 has no fullscreen mode, so there is no
-          maximize orb to place top-right — adding fullscreen would
-          be new function, not a shape change. */}
+          circle. The maximize orb lives on the stage itself, top
+          right, via the controls core. */}
       <div className="controls">
         <div className="ctl">
           <span>TIME</span>
