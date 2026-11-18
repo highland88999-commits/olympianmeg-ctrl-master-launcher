@@ -167,13 +167,15 @@ export default function ControlsCore({
         </div>
       )}
 
-      {/* Fullscreen orb — the very top right OF the game screen. */}
+      {/* Fullscreen orb — the very top right OF the game screen.
+          The TRON face already carries the expand glyph (corner
+          brackets / square), so no text glyph rides with it — the
+          same face + label shape as the JUMP / FIRE orbs. */}
       {config.showFullscreen && (
         <OrbButton fn={fullscreen ? 'fullscreen-exit' : 'fullscreen'} accent={config.accent}
           ariaLabel={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           onClick={onToggleFullscreen}
           style={{ position: 'absolute', right: 14, top: 14, zIndex: 9, pointerEvents: 'auto' }}>
-          <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>⛶</span>
           <OrbLabel>{fullscreen ? 'EXIT' : 'FULL'}</OrbLabel>
         </OrbButton>
       )}

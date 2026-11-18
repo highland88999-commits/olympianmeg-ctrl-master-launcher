@@ -151,6 +151,58 @@ export default function Mars2Page() {
     }
   }, [time]);
 
+  // The under-screen controls, as shared fragments: the same
+  // controls render below the stage in the normal layout and
+  // inside the stage in fullscreen (Merlin, Nov 17 ~22:09 — in
+  // fullscreen the fixed stage covers the page below it, so the
+  // TIME slider, presets and WALK/RIDE/ORBIT were unreachable).
+  // Same handlers, same orbs — only where they live changes.
+  const timeSlider = (
+    <div className="ctl">
+      <span>TIME</span>
+      <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
+        onChange={(e) => setManualTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
+      <span className="clock">{timeString(time)} · {timeLabel(time)}{liveTime ? " · LIVE" : " · MANUAL"}{clock ? ` · ${clock}` : ""}</span>
+    </div>
+  );
+  const timeOrbs = (
+    <>
+      {presets.map(([label, t], i) => {
+        const Icon = PRESET_ICONS[i % PRESET_ICONS.length];
+        return (
+          <OrbButton key={label} accent="#e07840" onClick={() => setManualTime(t)} ariaLabel={`Set time to ${label}`}>
+            <Icon /><OrbLabel>{label.toUpperCase()}</OrbLabel>
+          </OrbButton>
+        );
+      })}
+      <OrbButton accent="#e07840" active={liveTime} onClick={resumeLiveTime} aria-pressed={liveTime} ariaLabel="Follow real time">
+        <IcSun /><OrbLabel>LIVE</OrbLabel>
+      </OrbButton>
+    </>
+  );
+  const modeOrbs = (
+    <>
+      <OrbButton accent="#e07840" active={mode === "walk"} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"} ariaLabel={mode === "walk" ? "Walking" : "Walk"}>
+        <IcRoute /><OrbLabel>WALK</OrbLabel>
+      </OrbButton>
+      {rover.active ? (
+        <OrbButton accent="#e07840" onClick={dismountRover} ariaLabel="Dismount rover">
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
+          <OrbLabel>OUT</OrbLabel>
+        </OrbButton>
+      ) : (
+        <OrbButton accent="#e07840" onClick={summonRover} ariaLabel="Summon rover">
+          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬆</span>
+          <OrbLabel>RIDE</OrbLabel>
+        </OrbButton>
+      )}
+      <OrbButton accent="#e07840" active={mode === "orbit"} onClick={() => setMode("orbit")} aria-pressed={mode === "orbit"} ariaLabel={mode === "orbit" ? "Orbiting" : "Orbit"}>
+        <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>◍</span>
+        <OrbLabel>ORBIT</OrbLabel>
+      </OrbButton>
+    </>
+  );
+
   return (
     <main className="mars2">
       <div className="mars2-bg" aria-hidden="true" />
@@ -181,6 +233,12 @@ export default function Mars2Page() {
         .mars2 .world h3 { margin: 0 0 4px; font-size: 0.95rem; letter-spacing: 3px; color: ${ACCENT}; }
         .mars2 .world .biome { color: #e8b48a; font-size: 0.85rem; letter-spacing: 1px; margin-bottom: 10px; }
         .mars2 .vitals { font-size: 0.82rem; color: #c99a78; letter-spacing: 1px; line-height: 1.7; }
+        .mars2 .fs-controls { position: absolute; left: 10px; right: 10px; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+          display: flex; flex-direction: column; gap: 10px; align-items: center; pointer-events: auto;
+          background: linear-gradient(rgba(16,7,3,0.93), rgba(16,7,3,0.93)); border: 1px solid ${ACCENT}; border-radius: 14px; padding: 10px 12px; }
+        .mars2 .fs-controls .fs-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; width: 100%; }
+        .mars2 .fs-controls .ctl { flex: 1 1 100%; flex-wrap: wrap; justify-content: center; }
+        .mars2 .fs-controls input[type="range"] { flex: 1 1 120px; min-width: 100px; width: auto; }
       `}</style>
 
       <header>
@@ -220,53 +278,43 @@ export default function Mars2Page() {
             <span><b>○ ON FOOT</b> · walk {WALK_SPEED_MPS.toFixed(0)} m/s — summon the rover to drive</span>
           )}
         </div>
+        {/* Fullscreen controls (Merlin, Nov 17 ~22:09): the fixed
+            stage covers the page below it, so the under-screen
+            controls move INSIDE the stage while fullscreen is on —
+            the same fragments, parked above the joystick row (the
+            stick's top edge sits 138 px + safe-area off the floor,
+            so the panel's 150 px + safe-area floor clears it by
+            12 px) where they never cover the stick, JUMP, roverbar,
+            Thule pill or the fullscreen orb. Normal layout keeps
+            them below the stage, exactly as before. */}
+        {fullscreen && (
+          <div className="fs-controls" role="group" aria-label="Mars 2 controls">
+            <div className="fs-row">{timeSlider}</div>
+            <div className="fs-row">{timeOrbs}</div>
+            <div className="fs-row">{modeOrbs}</div>
+          </div>
+        )}
       </div>
 
       {/* Under-screen controls — circle orbs only (Merlin, Nov 16 —
           standing law). The TIME slider stays a slider: a continuous
           range input has no orb form, and its thumb is already a
           circle. The maximize orb lives on the stage itself, top
-          right, via the controls core. */}
-      <div className="controls">
-        <div className="ctl">
-          <span>TIME</span>
-          <input type="range" min="0" max="1000" value={Math.round(time * 1000)}
-            onChange={(e) => setManualTime(Number(e.target.value) / 1000)} aria-label="Time of day" />
-          <span className="clock">{timeString(time)} · {timeLabel(time)}{liveTime ? " · LIVE" : " · MANUAL"}{clock ? ` · ${clock}` : ""}</span>
-        </div>
-        {presets.map(([label, t], i) => {
-          const Icon = PRESET_ICONS[i % PRESET_ICONS.length];
-          return (
-            <OrbButton key={label} accent="#e07840" onClick={() => setManualTime(t)} ariaLabel={`Set time to ${label}`}>
-              <Icon /><OrbLabel>{label.toUpperCase()}</OrbLabel>
-            </OrbButton>
-          );
-        })}
-        <OrbButton accent="#e07840" active={liveTime} onClick={resumeLiveTime} aria-pressed={liveTime} ariaLabel="Follow real time">
-          <IcSun /><OrbLabel>LIVE</OrbLabel>
-        </OrbButton>
-      </div>
+          right, via the controls core. In fullscreen these live
+          inside the stage instead (see .fs-controls above) — the
+          fixed stage covers this part of the page. */}
+      {!fullscreen && (
+        <>
+          <div className="controls">
+            {timeSlider}
+            {timeOrbs}
+          </div>
 
-      <div className="controls" style={{ paddingTop: 0 }}>
-        <OrbButton accent="#e07840" active={mode === "walk"} onClick={() => toggleMode("walk")} aria-pressed={mode === "walk"} ariaLabel={mode === "walk" ? "Walking" : "Walk"}>
-          <IcRoute /><OrbLabel>WALK</OrbLabel>
-        </OrbButton>
-        {rover.active ? (
-          <OrbButton accent="#e07840" onClick={dismountRover} ariaLabel="Dismount rover">
-            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬇</span>
-            <OrbLabel>OUT</OrbLabel>
-          </OrbButton>
-        ) : (
-          <OrbButton accent="#e07840" onClick={summonRover} ariaLabel="Summon rover">
-            <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⬆</span>
-            <OrbLabel>RIDE</OrbLabel>
-          </OrbButton>
-        )}
-        <OrbButton accent="#e07840" active={mode === "orbit"} onClick={() => setMode("orbit")} aria-pressed={mode === "orbit"} ariaLabel={mode === "orbit" ? "Orbiting" : "Orbit"}>
-          <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>◍</span>
-          <OrbLabel>ORBIT</OrbLabel>
-        </OrbButton>
-      </div>
+          <div className="controls" style={{ paddingTop: 0 }}>
+            {modeOrbs}
+          </div>
+        </>
+      )}
 
       <section className="world" aria-label="World profile">
         <h3>{MARS2_WORLD_NAME}</h3>

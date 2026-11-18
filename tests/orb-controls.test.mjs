@@ -122,7 +122,8 @@ test('Mars 2 under-screen controls are orbs; JUMP comes from the universal core'
   assert.match(mars2, /world="mars-2"/);
   assert.match(mars2, /\(\) => \{ jumpRef\.current = true; \}/);
   assert.doesNotMatch(mars2, /<OrbButton ariaLabel="Jump" size=\{76\}/);
-  assert.match(mars2, /ariaLabel="Summon rover"/);
+  assert.match(mars2, /ariaLabel="Summon rover or ship"/);
+  assert.match(mars2, /setVehicleMenuOpen\(true\)/);
   assert.match(mars2, /ariaLabel="Dismount rover"/);
 });
 
@@ -148,6 +149,18 @@ test('Earth 3 and Earth 4 fullscreen orbs sit top-right of the stage; HUD button
   assert.match(earth3, /ariaLabel="Previous stop"/);
   assert.match(earth4, /ariaLabel="Go to where I am"/);
   assert.match(earth4, /ariaLabel="Go to Redwater"/);
+});
+
+test('the shared fullscreen orb wears one face: the TRON art already carries the expand glyph', () => {
+  // Merlin, Nov 17 ~22:09 (phone check): on Mars 2 the fullscreen
+  // orb's face looked busy — it wore the TRON face (corner
+  // brackets / square) AND a ⛶ text glyph AND the FULL / EXIT
+  // label, two glyphs saying the same thing. The face stays, the
+  // text glyph goes — the same face + label shape as JUMP / FIRE.
+  assert.doesNotMatch(core, /⛶/);
+  assert.match(core, /fn=\{fullscreen \? 'fullscreen-exit' : 'fullscreen'\}/);
+  assert.match(core, /ariaLabel=\{fullscreen \? 'Exit fullscreen' : 'Enter fullscreen'\}/);
+  assert.match(core, /\{fullscreen \? 'EXIT' : 'FULL'\}/);
 });
 
 test('Moon and Earth-walk back-to-hub controls are orbs', () => {
