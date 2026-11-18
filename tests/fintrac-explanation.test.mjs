@@ -121,13 +121,13 @@ describe('wiring: modal, host, and menu entries', () => {
     const p = src('app/page.jsx');
     assert.equal(p.includes('FintracExplanationMenuButton'), false);
   });
-  it('the 3D hall carries the entry at the head of its SHOPPING section, not as a roster row', () => {
+  it('the flat grid carries the entry at the head of its SHOPPING section, not as a roster row', () => {
     const p = src('components/ConcoursePortals.jsx');
     assert.match(p, /import \{ FintracExplanationMenuButton \} from '\.\/FintracExplanation';/);
     assert.ok(p.includes("wallSection === 'SHOPPING'"), 'entry sits in the SHOPPING section (payments & creator earnings)');
     assert.ok(
-      p.indexOf('<FintracExplanationMenuButton') < p.indexOf('<PortalHallScene'),
-      'entry must sit above the wall, never inside the roster'
+      p.indexOf('<FintracExplanationMenuButton') < p.indexOf('<PortalFlatGrid'),
+      'entry must sit above the grid, never inside the roster'
     );
     assert.match(p, /buildPortalRoster\(/);
   });

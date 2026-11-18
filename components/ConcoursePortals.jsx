@@ -8,41 +8,29 @@
 // Room is gone; this sheet is the menu now). It carries the room's
 // front door in the room's order: the Arch wrap video on top, then
 // the categories as the room showed them (the ALL tab + section
-// tabs) over the 3D portal wall. The wall keeps its
+// tabs) over the flat portal grid. The grid keeps its
 // one-section-at-a-time paging — the categories are the navigation
-// over the wall, not a second wall. The room's extras live here too,
+// over the grid, not a second grid. The room's extras live here too,
 // each under the section it fits best: the Social Media Cheat Code
 // feature at the head of TOOLS (its registry section), the FINTRAC
 // explanation at the head of SHOPPING (payments & creator earnings),
 // the owner-only and signed-in portals inside the roster itself
 // (Earth 2 under OBSERVATORY), and the search above the tabs.
 //
-// The sheet opens on the 3D hall (Merlin, 2026-11-17: "no more
-// switching" — the List/3D switch and the list are gone; the hall IS
-// the menu). The categories ride a single horizontal carousel row so
-// the wall sits directly under them. The sheet wears the Concourse
+// The sheet opens on the flat grid (Merlin, 2026-11-18: the 3D hall
+// is gone — "I don't want the 3d version of portals as seen in the
+// video"). The grid is 3 across, one circular video face per program
+// with the destination name in BOLD underneath, scrolling
+// vertically, one page at a time. Tap a portal and the user is
+// sucked into its video fullscreen; when the video finishes, the
+// portal system engages (the vortex tube ride, then the realm).
+// The categories ride a single horizontal carousel row so the grid
+// sits directly under them. The sheet wears the Concourse
 // background graphic (the concourse_bg preference, default art on a
 // bad value) behind a scrim, so the menu feels like the Concourse.
-// If WebGL is unavailable or its context dies, the sheet shows an
-// honest retry fallback instead of a wall.
-//
-// Inside it, the menu's portals live as 3D objects — a curved wall of
-// minimized portal rings, one per program (the same roster as the
-// Portal Room, from lib/portal-roster.js), paged by section. Tap a
-// mini portal and it expands into a full Omega arch wearing that
-// program's video; Step through enters the realm. Minimized until
-// expanded — Merlin's spec (2026-10-21): "the 3d objects (portals)
-// live inside the program minimized until the user expands them… 3d
-// version of our menu — or concourse."
-//
-// The 3D hall (components/concourse/PortalHallScene.jsx) loads
-// lazily and exists only while this sheet is open. The hall is the
-// menu — no list, no switch (Merlin, 2026-11-17: "no more
-// switching"). If WebGL is unavailable or its context dies, the
-// sheet shows an honest retry fallback instead of a wall.
+// No WebGL, no 3D — the grid is plain DOM.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import { SATELLITES } from '@/lib/i18n/satellites';
 import { useI18n } from '@/lib/i18n';
@@ -61,28 +49,23 @@ import {
   withOwnerPortals,
   withSignedInPortals,
 } from '@/lib/portal-roster';
-import { probeWebGL } from '@/lib/webgl-support';
-import { PortalStyles } from './portal/PortalCard';
+import PortalFlatGrid from './concourse/PortalFlatGrid';
+import PortalSuckOverlay from './concourse/PortalSuckOverlay';
 import PortalEnterOverlay from './portal/PortalEnterOverlay';
 import { useRiderPrefs } from '@/lib/use-rider-prefs';
-
-const PortalHallScene = dynamic(() => import('./concourse/PortalHallScene'), { ssr: false });
 
 export default function ConcoursePortals({ open, onClose }) {
   const router = useRouter();
   const { t } = useI18n();
-  // The repo's shared WebGL probe (memoized; its throwaway context is
-  // released, never counted against the live-context limit) decides
-  // whether the hall can mount at all. A failed hall shows the retry
-  // fallback below.
-  const [glFailed, setGlFailed] = useState(() => !probeWebGL());
-  const [hallKey, setHallKey] = useState(0);
   const [query, setQuery] = useState('');
-  // The WALL keeps its own section — one section at a time, GAMES
-  // first — so the ALL tab never turns the wall into a second list.
+  // The GRID keeps its own section — one section at a time, GAMES
+  // first — so the ALL tab never turns the grid into a second list.
   const [wallSection, setWallSection] = useState('GAMES');
   const [page, setPage] = useState(0);
-  const [expandedKey, setExpandedKey] = useState(null);
+  // Being sucked into a portal: { program, rect } while the
+  // fullscreen video plays; cleared when travel engages or Esc
+  // cancels it.
+  const [sucking, setSucking] = useState(null);
   const [entering, setEntering] = useState(null);
   // Preloaded so the tube ride starts instantly on tap, with the
   // rider's character in front of them in 3rd person.
@@ -195,52 +178,51 @@ export default function ConcoursePortals({ open, onClose }) {
     if (searching) return filterPortals(programs, { section: 'ALL', query });
     return programs.filter((p) => p.section === wallSection);
   }, [programs, searching, query, wallSection]);
-  // The results chip counts what the wall is showing.
+  // The results chip counts what the grid is showing.
   const resultsCount = searching ? wallItems.length : 0;
 
   const pages = useMemo(() => paginateWall(wallItems), [wallItems]);
   const safePage = Math.min(page, Math.max(0, pages.length - 1));
   const pageItems = pages[safePage] || [];
-  const expanded = expandedKey
-    ? programs.find((p) => p.key === expandedKey) || null
-    : null;
 
   const handleClose = useCallback(() => {
-    setExpandedKey(null);
+    setSucking(null);
     setEntering(null);
     onClose();
   }, [onClose]);
 
-  // Esc: collapse an expanded portal first, then close the sheet.
+  // Esc: cancel a suck-in first, then close the sheet. (The
+  // suck-in overlay also listens for Esc itself; this one covers
+  // the sheet while no overlay is up.)
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => {
       if (e.key !== 'Escape') return;
       if (entering) return;
-      if (expandedKey) setExpandedKey(null);
+      if (sucking) setSucking(null);
       else handleClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, entering, expandedKey, handleClose]);
+  }, [open, entering, sucking, handleClose]);
 
-  // A section tab picks the wall's section; ALL leaves the wall's
-  // section alone, so the wall never stops being one section at a
+  // A section tab picks the grid's section; ALL leaves the grid's
+  // section alone, so the grid never stops being one section at a
   // time.
   const changeSection = (s) => {
     if (s !== 'ALL') setWallSection(s);
     setQuery('');
     setPage(0);
-    setExpandedKey(null);
+    setSucking(null);
   };
   const changeQuery = (v) => {
     setQuery(v);
     setPage(0);
-    setExpandedKey(null);
+    setSucking(null);
   };
   const changePage = (n) => {
     setPage(n);
-    setExpandedKey(null);
+    setSucking(null);
   };
 
   const enterProgram = (program) => {
@@ -256,18 +238,39 @@ export default function ConcoursePortals({ open, onClose }) {
     setEntering(program);
   };
 
+  // Tap a portal in the grid: the user is sucked into its video.
+  // Reduced motion skips the video and the travel engages at once.
+  const handlePortalTap = useCallback((program, rect) => {
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      enterProgram(program);
+      return;
+    }
+    setSucking({ program, rect });
+  }, [enterProgram]);
+
+  // The suck-in video finished: the portal system engages.
+  const handleSuckDone = useCallback(() => {
+    if (!sucking) return;
+    const program = sucking.program;
+    setSucking(null);
+    enterProgram(program);
+  }, [sucking, enterProgram]);
+
   if (!open) return null;
 
   return (
     <div
       className="fixed inset-0 z-[62] flex items-center justify-center p-4"
       role="dialog"
-      aria-label="Portals 3D"
+      aria-label="Portals"
     >
-      <PortalStyles />
       <button
         type="button"
-        aria-label="Close Portals 3D"
+        aria-label="Close Portals"
         onClick={handleClose}
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
@@ -303,21 +306,21 @@ export default function ConcoursePortals({ open, onClose }) {
           <div className="absolute inset-0 bg-[#070418]/75" />
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
-        {/* Header: title + count, close. No switch — the hall IS the
-            menu (Merlin, 2026-11-17: "no more switching"). */}
+        {/* Header: title + count, close. No switch — the grid IS the
+            menu (Merlin, 2026-11-18: the 3D hall is gone). */}
         <div className="flex items-center justify-between gap-2 px-5 pt-4">
           <div className="flex items-baseline gap-2.5">
             <span aria-hidden="true" className="text-xl text-amber-200 drop-shadow-[0_0_10px_rgba(255,190,80,0.8)]">
               Ω
             </span>
             <span className="text-[11px] font-black tracking-[0.3em] uppercase text-cyan-100">
-              Portals 3D
+              Portals
             </span>
             <span className="text-[11px] tracking-widest text-zinc-500">{programs.length} realms</span>
           </div>
           <button
             type="button"
-            aria-label="Close Portals 3D"
+            aria-label="Close Portals"
             onClick={handleClose}
             className="ui-element pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 text-zinc-300 transition hover:border-cyan-300/60 hover:text-white"
           >
@@ -328,7 +331,7 @@ export default function ConcoursePortals({ open, onClose }) {
         {/* The Arch itself, wearing its wrap video — the merged
             menu's front door (the 2D Portal Room's top video, kept
             here now that the room is gone). A compact strip so the
-            wall keeps its room on a phone. */}
+            grid keeps its room on a phone. */}
         <div className="mx-5 mt-3 overflow-hidden rounded-2xl border border-amber-300/30 shadow-[0_0_24px_rgba(255,180,60,0.15)]">
           <div className="relative h-[92px] w-full">
             <video
@@ -363,9 +366,9 @@ export default function ConcoursePortals({ open, onClose }) {
         </div>
         {/* Categories as the Portal Room showed them: ALL first, then
             one tab per section — on ONE horizontal carousel row
-            (Merlin, 2026-11-17), never a wrapped grid, so the wall
-            sits directly under them. The active tab is the wall's
-            section; ALL leaves the wall's section alone. */}
+            (Merlin, 2026-11-17), never a wrapped grid, so the grid
+            sits directly under them. The active tab is the grid's
+            section; ALL leaves the grid's section alone. */}
         <div className="flex flex-nowrap gap-1.5 overflow-x-auto px-5 pt-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {['ALL', ...SECTION_ORDER.filter((s) => counts.has(s))].map((s) => (
             <button
@@ -393,8 +396,8 @@ export default function ConcoursePortals({ open, onClose }) {
             (its registry section); the FINTRAC explanation heads
             SHOPPING (payments & creator earnings). They used to live
             in the list; the list is gone, so they ride as a banner
-            above the wall on their section (hidden while searching,
-            when the wall is showing cross-section results). Tapping
+            above the grid on their section (hidden while searching,
+            when the grid is showing cross-section results). Tapping
             either closes the sheet on the way in. */}
         {!searching && wallSection === 'TOOLS' && (
           <div className="px-5 pt-3" onClick={handleClose}>
@@ -407,50 +410,34 @@ export default function ConcoursePortals({ open, onClose }) {
           </div>
         )}
 
-        {/* The stage: the 3D hall. */}
-        <div className="relative mt-3 flex-1 overflow-hidden">
-          {glFailed ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
-              <p className="text-sm leading-relaxed text-zinc-400">
-                The 3D hall needs WebGL, which this device isn&apos;t offering right now.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setGlFailed(false);
-                  setHallKey((k) => k + 1);
-                }}
-                className="rounded-full border border-cyan-300/50 bg-cyan-300/10 px-4 py-2 text-xs font-bold tracking-wide text-cyan-100 transition hover:bg-cyan-300/20"
-              >
-                Retry 3D
-              </button>
-            </div>
-          ) : (
-            <div className="absolute inset-0" role="img" aria-label="A curved wall of miniature portals, one for each realm in this section">
-              <PortalHallScene
-                key={hallKey}
-                pageItems={pageItems}
-                expanded={expanded}
-                onTap={(program) => setExpandedKey(program.key)}
-                onGlFail={() => setGlFailed(true)}
-              />
-            </div>
-          )}
-          {!glFailed && wallItems.length === 0 && (
-            <p className="absolute inset-0 flex items-center justify-center text-sm text-zinc-500">
+        {/* The grid: flat 2D, 3 across, one circular video face per
+            program with the destination name in BOLD underneath
+            (Merlin, 2026-11-18: the 3D hall is gone — "I don't want
+            the 3d version of portals as seen in the video"). It
+            scrolls vertically, one page at a time. Tap a portal and
+            the user is sucked into its video fullscreen; when the
+            video finishes, the portal system engages. */}
+        <div className="relative mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-2 pt-1">
+          <PortalFlatGrid
+            pageItems={pageItems}
+            onTap={handlePortalTap}
+            paused={Boolean(sucking)}
+          />
+          {wallItems.length === 0 && (
+            <p className="flex items-center justify-center py-16 text-sm text-zinc-500">
               No realm matches that search yet.
             </p>
           )}
         </div>
 
-        {/* Wall pages — the wall shows one section at a time. */}
-        {!glFailed && pages.length > 1 && (
+        {/* Grid pages — the grid shows one section at a time. */}
+        {pages.length > 1 && (
           <div className="flex items-center justify-center gap-1.5 pb-1 pt-1">
             {pages.map((_, i) => (
               <button
                 key={i}
                 type="button"
-                aria-label={`Wall page ${i + 1}`}
+                aria-label={`Portal page ${i + 1}`}
                 aria-current={i === safePage}
                 onClick={() => changePage(i)}
                 className={`h-2 rounded-full transition-all ${
@@ -461,45 +448,26 @@ export default function ConcoursePortals({ open, onClose }) {
           </div>
         )}
 
-        {/* Caption bar: the expanded portal's name and doors — or a
-            hint naming what a tap does. */}
+        {/* Hint bar: what a tap does. */}
         <div className="border-t border-white/10 bg-black/30 px-5 py-3">
-          {expanded ? (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold tracking-wide text-zinc-50">
-                  {expanded.title}
-                </div>
-                <div className="truncate text-xs text-zinc-400">
-                  {expanded.subtitle ? `${expanded.subtitle} · ` : ''}
-                  {expanded.section}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setExpandedKey(null)}
-                  className="rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-semibold text-zinc-200 transition hover:border-cyan-300/50"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => enterProgram(expanded)}
-                  className="rounded-full border border-amber-300/70 bg-amber-300/15 px-3.5 py-2 text-xs font-bold tracking-wide text-amber-100 transition hover:bg-amber-300/25"
-                >
-                  Step through
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-center text-xs leading-relaxed text-zinc-500">
-              Tap a portal to expand it — hold a card and pull to tilt it, or drag empty space to look around the hall.
-            </p>
-          )}
+          <p className="text-center text-xs leading-relaxed text-zinc-500">
+            Tap a portal to be sucked in — its video plays, then the portal takes you through.
+          </p>
         </div>
         </div>
       </div>
+
+      {/* The suck-in: tap a grid portal and its video zooms to
+          fullscreen; when the video finishes, the portal system
+          engages (handleSuckDone → enterProgram → vortex ride). */}
+      {sucking && (
+        <PortalSuckOverlay
+          program={sucking.program}
+          fromRect={sucking.rect}
+          onDone={handleSuckDone}
+          onCancel={() => setSucking(null)}
+        />
+      )}
 
       {/* Step-through: the vortex tube ride to the realm, shared with
           the Portal Room. */}

@@ -1,21 +1,24 @@
 // tests/concourse-portals.test.mjs
-// Portals 3D — the Concourse's 3D portal hall (Merlin, 2026-10-21:
-// the 3D portal objects live inside the Concourse, minimized until
-// the user expands them) — and, since the Nov 16, 2026 merge, THE
-// ONE portal menu (the 2D Portal Room is gone; this sheet carries
-// its top video, its ALL + section categories, and its extras):
+// Portals — the Concourse's FLAT portal grid (Merlin, 2026-11-18:
+// the 3D hall is gone — "I don't want the 3d version of portals
+// as seen in the video" — the portals look like the wall discs
+// did, but BIGGER and flat, 3 across, bold name underneath, and a
+// tap sucks the user into the video; travel engages when the video
+// finishes) — and, since the Nov 16, 2026 merge, THE ONE portal
+// menu (the 2D Portal Room is gone; this sheet carries its top
+// video, its ALL + section categories, and its extras):
 // - the shared roster derivation (lib/portal-roster.js): the real
-//   registry yields exactly the merged menu's 214, deduped by route,
+//   registry yields exactly the merged menu's 215, deduped by route,
 //   title/subtitle fallbacks honored
-// - wall paging (42 per wall; GAMES' 53 -> 2 pages), section hues,
+// - grid paging (42 per page; GAMES' 85 -> 3 pages), section hues,
 //   the shared section/search filtering and grouping
 // - the swirl painter (lib/portal-swirl.js) is deterministic and
 //   drives a bare 2D-context stub without throwing
 // - static wiring: the portalroom tile (after Guide), its fireTile
 //   branch, the lazily-loaded panel, the ui-state pin whitelist, the
-//   3D hall — instanced rings, per-portal video disc faces with
-//   phone-first gating (Merlin, 2026-11-17: minimized portals wear
-//   their videos, not the swirl)
+//   flat grid — 3 across, video faces with phone-first gating
+//   (Merlin, 2026-11-17: portals wear their videos, not the swirl),
+//   bold names underneath, tap -> suck-in -> travel on video end
 //
 // Run: node --test tests/concourse-portals.test.mjs   (from the repo root)
 
@@ -46,15 +49,16 @@ const en = JSON.parse(read('lib/i18n/locales/en.json'));
 
 const concourse = read('components/Concourse.jsx');
 const panel = read('components/ConcoursePortals.jsx');
-const scene = read('components/concourse/PortalHallScene.jsx');
+const grid = read('components/concourse/PortalFlatGrid.jsx');
+const suck = read('components/concourse/PortalSuckOverlay.jsx');
 const uiState = read('app/api/ui-state/route.js');
 
 const enRoster = () =>
   buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
 
 describe('buildPortalRoster (the shared derivation)', () => {
-  it('yields exactly 214 portals from the real registry — the merged menu count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card); Portal Room seat removed from the registry: 214→213, Nov 16, 2026 (portal menu merge — the roster stays 213 because the room was already skipped by the builder; Keepsake seat: 213→214, Nov 17, 2026))', () => {
-    assert.equal(enRoster().length, 214);
+  it('yields exactly 214 portals from the real registry — the merged menu count (Monsterverse seat adcdb3cd: 174→175; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209, Nov 12, 2026; Earth 4 seat: 209→210, Nov 14, 2026; Moon + Sun Base seats: 210→212, Nov 14, 2026; Jupiter 2 + Mars 2 seats: 212→214, Nov 15, 2026; Ghost Rider seat: 214→215, Nov 15, 2026; Weapons Forge seat removed: 215→214, Nov 15, 2026; Land of the Dead seat added: 214→215, Nov 16, 2026; ARES seat removed: 215→214, Nov 16, 2026; Land of the Dead seat removed: 214→213, Nov 16, 2026 (Merlin: floor drop only, no portal card); Portal Room seat removed from the registry: 214→213, Nov 16, 2026 (portal menu merge — the roster stays 213 because the room was already skipped by the builder; Keepsake seat: 213→214, Nov 17, 2026; Red Moon seat: 214→215, Nov 17, 2026))', () => {
+    assert.equal(enRoster().length, 215);
   });
 
   it('skips the Portal Room itself', () => {
@@ -102,7 +106,7 @@ describe('buildPortalRoster (the shared derivation)', () => {
   });
 });
 
-describe('wall paging + hues', () => {
+describe('grid paging + hues', () => {
   it('WALL_PAGE_SIZE is 42 and GAMES (85) spans 3 pages, 42 + 42 + 1', () => {
     assert.equal(WALL_PAGE_SIZE, 42);
     const games = enRoster().filter((p) => p.section === 'GAMES');
@@ -148,12 +152,12 @@ describe('filterPortals + groupBySection (room/panel shared semantics)', () => {
   it('grouping follows SECTION_ORDER and drops empty sections', () => {
     const grouped = groupBySection(roster);
     assert.deepEqual(grouped.map((g) => g.section), SECTION_ORDER);
-    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 214); // Keepsake seat: 213→214, Nov 17, 2026; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026); Portal Room seat removed from the registry (Nov 16, 2026, portal menu merge) — roster stays 213, the room was already skipped
+    assert.equal(grouped.reduce((n, g) => n + g.items.length, 0), 215); // Red Moon seat: 214→215, Nov 17, 2026; Keepsake seat: 213→214, Nov 17, 2026; Social Media Cheat Code seat: 175→176; Dodgeball seat: 176→177; Request a Billboard seat: 177→178; Omega 500 seat: 194→195; Hades seats: 195→197; nether-realms homes: 197→209 (Nov 12, 2026); Earth 4 seat: 209→210 (Nov 14, 2026); Moon + Sun Base seats: 210→212 (Nov 14, 2026); Jupiter 2 + Mars 2 seats: 212→214 (Nov 15, 2026); Ghost Rider seat: 214→215 (Nov 15, 2026); Weapons Forge seat removed: 215→214 (Nov 15, 2026); Land of the Dead seat added: 214→215 (Nov 16, 2026); ARES seat removed: 215→214 (Nov 16, 2026); Land of the Dead seat removed: 214→213 (Nov 16, 2026); Portal Room seat removed from the registry (Nov 16, 2026, portal menu merge) — roster stays 213, the room was already skipped
     assert.deepEqual(groupBySection([]), []);
   });
 });
 
-describe('paintPortalSwirl (the shared minimized-portal face)', () => {
+describe('paintPortalSwirl (the shared no-video face)', () => {
   function stubCtx() {
     const calls = [];
     const ctx = {
@@ -212,7 +216,7 @@ describe('Concourse wiring (static)', () => {
     assert.ok(concourse.includes('setPortal3dOpen(true)'), 'branch opens the panel');
     assert.ok(
       concourse.includes("dynamic(() => import('./ConcoursePortals'), { ssr: false })"),
-      'panel chunk (and three.js) stays out of the eager bundle'
+      'panel chunk stays out of the eager bundle'
     );
     assert.ok(concourse.includes('<ConcoursePortals open={portal3dOpen}'), 'panel mounted');
   });
@@ -228,45 +232,55 @@ describe('Concourse wiring (static)', () => {
     assert.ok(panel.includes("from '@/lib/i18n/satellites'"), 'panel feeds the registry');
   });
 
-  it('the ?portals3d=1 deep link opens the hall (and consumes the param)', () => {
+  it('the ?portals3d=1 deep link opens the menu (and consumes the param)', () => {
     assert.ok(concourse.includes('Portals3dDeepLink'), 'deep-link reader mounted');
     assert.ok(concourse.includes("searchParams?.get('portals3d') !== '1'"), 'param gate');
-    assert.ok(concourse.includes('setPortal3dOpen(true)'), 'deep link opens the hall');
-    assert.ok(concourse.includes("url.searchParams.delete('portals3d')"), 'param consumed so a reload never re-opens the hall');
+    assert.ok(concourse.includes('setPortal3dOpen(true)'), 'deep link opens the menu');
+    assert.ok(concourse.includes("url.searchParams.delete('portals3d')"), 'param consumed so a reload never re-opens the menu');
   });
 });
 
-describe('the panel + hall (static)', () => {
-  it('the panel is a PhoneFrame-family Layer 3 sheet at z-[62]', () => {
+describe('the panel + grid (static)', () => {
+  it('the panel is a PhoneFrame-family Layer 3 sheet at z-[62], headed "Portals"', () => {
     assert.ok(panel.includes('fixed inset-0 z-[62]'), 'sheet layer');
-    assert.ok(panel.includes("useState('GAMES')"), 'lands on the GAMES wall');
-    assert.ok(panel.includes('Step through'), 'step-through action');
-    assert.ok(panel.includes('>Back<') || panel.includes('Back'), 'back action');
+    assert.ok(panel.includes("useState('GAMES')"), 'lands on the GAMES grid');
+    assert.ok(panel.includes("aria-label=\"Portals\""), 'dialog labelled Portals, not Portals 3D');
+    assert.ok(panel.includes('>Portals<') || panel.includes('Portals\n'), 'header reads Portals');
+    assert.ok(!panel.includes('Portals 3D'), 'no 3D label left in the panel');
+    assert.ok(panel.includes('<PortalFlatGrid'), 'the flat grid is the menu');
+    assert.ok(panel.includes('<PortalSuckOverlay'), 'the suck-in overlay is mounted');
     assert.ok(panel.includes('<PortalEnterOverlay'), 'shares the room step-through');
-    assert.ok(panel.includes('onGlFail'), 'WebGL failure reported to the panel (retry fallback instead of a wall)');
-    assert.ok(panel.includes("from '@/lib/webgl-support'"), 'uses the shared WebGL probe');
-    assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
   });
 
-  it('the minimized portals are mini Omega arches (arc + bottom gap)', () => {
-    assert.ok(scene.includes('OMEGA_ARCH.arc'), 'instanced torus carries the Omega arc');
-    assert.ok(scene.includes('OMEGA_ARCH.rotationZ'), 'instances wear the gap-at-bottom tilt');
+  it('there is no 3D hall left: no scene, no probe, no retry fallback, no expand state', () => {
+    assert.ok(!existsSync(join(repo, 'components', 'concourse', 'PortalHallScene.jsx')), 'hall file deleted');
+    assert.ok(!panel.includes('<PortalHallScene'), 'no hall mount');
+    assert.ok(!panel.includes('PortalHallScene'), 'no hall reference at all');
+    assert.ok(!panel.includes('probeWebGL'), 'no WebGL probe — the grid is plain DOM');
+    assert.ok(!panel.includes("from '@/lib/webgl-support'"), 'no WebGL import');
+    assert.ok(!panel.includes('glFailed'), 'no GL failure state');
+    assert.ok(!panel.includes('Retry 3D'), 'no retry fallback');
+    assert.ok(!panel.includes('expandedKey'), 'no tap-to-expand state — a tap sucks the user in');
+    assert.ok(!panel.includes('Step through'), 'no step-through button — travel engages on video end');
+    assert.ok(!panel.includes('>Back<'), 'no back button — there is nothing to collapse from');
+    assert.ok(!panel.includes('tilt'), 'no tilt language left in the panel');
+    assert.ok(!panel.includes('drag empty space'), 'no drag-to-look hint');
   });
 
-  it('the menu is 3D-only: no switch, no list; the wall keeps its own GAMES section', () => {
-    assert.ok(!panel.includes("useState('list')"), 'no list default — the hall IS the menu');
+  it('the menu is flat: no switch, no list; the grid keeps its own GAMES section', () => {
+    assert.ok(!panel.includes("useState('list')"), 'no list default — the grid IS the menu');
     assert.ok(!panel.includes('setMode('), 'no view switching');
     assert.ok(!panel.includes('aria-label="View"'), 'no switch group in the header');
     assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
-    assert.ok(panel.includes("useState('GAMES')"), 'wall default is GAMES, one section at a time');
+    assert.ok(panel.includes("useState('GAMES')"), 'grid default is GAMES, one section at a time');
     assert.ok(panel.includes('OMEGA_WRAP_VIDEO'), 'the room\'s top video lives over the categories');
     assert.ok(panel.includes("`All · ${programs.length}`"), 'the ALL tab carries the whole count');
     assert.ok(panel.includes("wallSection === 'TOOLS'"), 'the Cheat Code feature heads TOOLS');
     assert.ok(panel.includes('<CheatCodeFeatured />'), 'the feature banner is in the sheet');
     assert.ok(panel.includes("wallSection === 'SHOPPING'"), 'the FINTRAC entry heads SHOPPING');
     assert.ok(panel.includes('<FintracExplanationMenuButton />'), 'the FINTRAC button is in the sheet');
-    assert.ok(panel.indexOf('<CheatCodeFeatured />') < panel.indexOf('<PortalHallScene'), 'feature banner sits above the wall');
-    assert.ok(panel.indexOf('<FintracExplanationMenuButton />') < panel.indexOf('<PortalHallScene'), 'FINTRAC button sits above the wall');
+    assert.ok(panel.indexOf('<CheatCodeFeatured />') < panel.indexOf('<PortalFlatGrid'), 'feature banner sits above the grid');
+    assert.ok(panel.indexOf('<FintracExplanationMenuButton />') < panel.indexOf('<PortalFlatGrid'), 'FINTRAC button sits above the grid');
     assert.ok(!existsSync(join(repo, 'components', 'portal-room', 'PortalRoom.jsx')), 'room file deleted');
     assert.ok(!existsSync(join(repo, 'app', 'portal-room', 'page.jsx')), 'room route deleted');
   });
@@ -287,34 +301,39 @@ describe('the panel + hall (static)', () => {
     assert.ok(panel.includes('bg-[#070418]/75'), 'a scrim keeps the menu legible over the graphic');
   });
 
-  it('the rings stay one instanced mesh; each minimized portal is its own disc face', () => {
-    const instanced = scene.match(/args=\{\[null, null, WALL_PAGE_SIZE\]\}/g) || [];
-    assert.equal(instanced.length, 1, 'only the rings stay instanced — the discs are per-portal faces');
-    assert.ok(scene.includes('paintPortalSwirl'), 'shared swirl painted once');
-    assert.ok(scene.includes('new THREE.CanvasTexture'), 'one canvas texture');
-    assert.ok(!scene.includes('setColorAt'), 'no per-instance colours — each disc tints its own swirl by section');
-    assert.ok(scene.includes('WallDisc'), 'one disc component per minimized portal');
-    assert.ok(scene.includes('hueFor(item.section)'), 'swirl faces keep their section hue');
+  it('the grid scrolls vertically, one page at a time, under the hint bar', () => {
+    assert.ok(panel.includes('overflow-y-auto'), 'the grid stage scrolls vertically');
+    assert.ok(panel.includes('Portal page'), 'page dots are portal pages now');
+    assert.ok(panel.includes('Tap a portal to be sucked in'), 'the hint names the tap');
+    assert.ok(panel.includes('its video plays, then the portal takes you through'), 'the hint names the travel-on-end');
   });
 
-  it('minimized portals wear their own videos, gated for the phone (Merlin, 2026-11-17)', () => {
-    assert.ok(scene.includes('new THREE.VideoTexture'), 'video textures exist');
-    assert.equal((scene.match(/createElement\('video'\)/g) || []).length, 2, 'two video element paths: wall disc + expanded portal');
-    assert.ok(scene.includes('/videos/portals/'), 'per-program portal videos');
-    assert.ok(scene.includes('failedKeysRef'), 'failed videos are never retried this session');
-    assert.ok(scene.includes('tex.dispose()'), 'video textures disposed on collapse/unmount');
-    assert.ok(scene.includes('VIDEO_START_STAGGER_MS'), 'wall starts are staggered so 42 decodes never spin up on one frame');
-    assert.ok(scene.includes('visibilitychange'), 'every wall video pauses while the tab is hidden');
-    assert.ok(scene.includes("vid.muted = true"), 'wall videos are muted');
-    assert.ok(scene.includes("vid.loop = true"), 'wall videos loop');
-    assert.ok(scene.includes("vid.playsInline = true"), 'wall videos play inline');
-    assert.ok(scene.includes("vid.preload = 'none'"), 'a disc only starts loading in its stagger slot, while mounted');
+  it('the grid is 3 across, one circular video face per portal, bold name underneath', () => {
+    assert.ok(grid.includes('export const FLAT_GRID_COLS = 3'), '3 across — Merlin\'s call ("Maybe 3")');
+    assert.ok(grid.includes('grid-cols-3'), 'three columns in the layout');
+    assert.ok(grid.includes('max-w-[520px]'), 'the grid caps at 520 px on desktop');
+    assert.ok(grid.includes('max-w-[148px]'), 'faces cap at 148 px — big, not the wall\'s tiny discs');
+    assert.ok(grid.includes('aspect-square'), 'faces are square');
+    assert.ok(grid.includes('rounded-full'), 'faces are circles');
+    assert.ok(grid.includes('role="list"'), 'the grid is a list of portals');
+    assert.ok(grid.includes('font-bold'), 'the name under each portal is BOLD');
+    assert.ok(grid.includes('{item.title}'), 'the name is the destination title');
+    assert.ok(grid.indexOf('data-face') < grid.indexOf('{item.title}'), 'the name sits under the face');
   });
 
-  it("the Canvas carries HomeScene's tuned GL props and reports context loss", () => {
-    assert.ok(scene.includes("gl={{ alpha: true, antialias: false, powerPreference: 'default' }}"), 'GL props');
-    assert.ok(scene.includes('dpr={[1, 1.75]}'), 'dpr clamp');
-    assert.ok(scene.includes('webglcontextlost'), 'context loss reported to the panel');
+  it('grid faces wear their own videos, gated for the phone (Merlin, 2026-11-17)', () => {
+    assert.ok(grid.includes('/videos/portals/'), 'per-program portal videos');
+    assert.ok(grid.includes('portalHasVideo(item.key)'), 'video presence read from the data source');
+    assert.ok(grid.includes('VIDEO_START_STAGGER_MS'), 'grid starts are staggered so 42 decodes never spin up on one frame');
+    assert.ok(grid.includes('visibilitychange'), 'every grid video pauses while the tab is hidden');
+    assert.ok(grid.includes('muted'), 'grid videos are muted');
+    assert.ok(grid.includes('loop'), 'grid videos loop');
+    assert.ok(grid.includes('playsInline'), 'grid videos play inline');
+    assert.ok(grid.includes("preload=\"none\"") || grid.includes("preload = 'none'") || grid.includes("video.preload = 'auto'"), 'a face only starts loading in its stagger slot, while mounted');
+    assert.ok(grid.includes('removeAttribute(\'src\')'), 'unmount unloads the video — a video element exists only while its portal is mounted');
+    assert.ok(grid.includes('getSwirlDataUrl'), 'the shared swirl is the face for portals without a video');
+    assert.ok(grid.includes('SECTION_HUES[item.section]'), 'faces keep their section hue');
+    assert.ok(grid.includes('paused'), 'the grid pauses while the user is sucked into a video');
   });
 });
 
@@ -326,7 +345,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 215, 'two hundred and fifteen portal videos wired (concourse videos batch 1: mars-moon generated — the Red Moon video is wired ahead of its registry seat, which lands with the Mars 2 space round)');
+    assert.equal(onDisk.length, 215, 'two hundred and fifteen portal videos wired (concourse videos batch 1: mars-moon generated — all 215 roster portals have videos)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {
@@ -337,7 +356,10 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('roster portals without a video on disk resolve as still waiting', () => {
     const waiting = enRoster().filter((p) => !onDisk.includes(p.key));
-    assert.equal(waiting.length, 0, 'no roster portal still awaits its video (batch 26: 214 wired of 214; sun-base was the last)');
+    // The Red Moon's video was wired Nov 18, 2026 (concourse videos
+    // batch 1) — no roster portal waits any more. earth-2 still has
+    // no video by design (it is not in the roster; see below).
+    assert.equal(waiting.length, 0, 'no roster portal still awaits its video');
     for (const p of waiting.slice(0, 12)) {
       assert.equal(portalHasVideo(p.key), false, `${p.key} has no video yet`);
     }
@@ -358,41 +380,56 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
   });
 });
 
-describe('standing vs turning in the 3D hall (Merlin, 2026-10-22)', () => {
-  it('the hall reads video presence from the data source, never a key list of its own', () => {
-    assert.ok(
-      scene.includes("from '@/lib/portal-videos'"),
-      'scene imports the file-presence module'
-    );
-    assert.ok(scene.includes('portalHasVideo(item.key)'), 'standing state derives per portal');
-    for (const key of PORTAL_VIDEO_KEYS) {
-      assert.ok(!scene.includes(`'${key}'`), `no hard-coded '${key}' in the scene`);
-      assert.ok(!scene.includes(`"${key}"`), `no hard-coded "${key}" in the scene`);
-    }
+describe('the suck-in: tap -> fullscreen video -> travel on video end (Merlin, 2026-11-18)', () => {
+  it('a tap hands the tapped face rect to the panel (the zoom starts at the portal)', () => {
+    assert.ok(grid.includes('getBoundingClientRect()'), 'the face rect is measured on tap');
+    assert.ok(grid.includes('onTap(item,'), 'tap hands the program and its rect up');
+    assert.ok(panel.includes('handlePortalTap'), 'the panel owns the tap');
+    assert.ok(panel.includes('setSucking({ program, rect })'), 'tap opens the suck-in with program + rect');
+    assert.ok(suck.includes('fromRect'), 'the overlay starts at the tapped rect');
+    assert.ok(suck.includes('ZOOM_MS'), 'the zoom has a duration — a hard cut is not a suck-in');
+    assert.ok(suck.includes('cubic-bezier(0.22, 1, 0.36, 1)'), 'the zoom eases out of the slot');
   });
 
-  it('a video card does not turn: no shared-texture spin remains to turn it', () => {
-    assert.ok(!scene.includes('swirlTex.rotation'), 'the global texture spin is gone');
-    assert.ok(scene.includes('discSpin'), 'the spin lives in each disc instance rotation');
-    assert.ok(scene.includes('SWIRL_SPIN_SPEED'), 'turning cards keep the attract spin rate');
+  it('the fullscreen video plays once, muted and inline, and travel engages on its end', () => {
+    assert.ok(suck.includes('autoPlay'), 'the video starts itself — no second tap');
+    assert.ok(suck.includes('muted'), 'the fullscreen video is muted');
+    assert.ok(suck.includes('playsInline'), 'the fullscreen video plays inline');
+    assert.ok(suck.includes('onEnded={engage}'), 'video end engages travel');
+    assert.ok(panel.includes('handleSuckDone'), 'the panel engages travel from the overlay');
+    assert.ok(panel.includes('enterProgram(program)'), 'travel is the existing enterProgram — vortex ride, then the realm');
+    assert.ok(!suck.includes('loop'), 'the suck-in video plays ONCE — it must end for travel to engage');
   });
 
-  it('a video card stands straight up and down: yaw settles to square, spin unwinds', () => {
-    assert.ok(scene.includes('settleRef'), 'standing cards carry a settle state');
-    assert.ok(scene.includes('SETTLE_SECONDS'), 'the settle has the expand’s pace');
-    assert.ok(
-      scene.includes('THREE.MathUtils.lerp(s.fromRotY, 0, e)'),
-      'yaw eases from the wall slot to square (rotY 0)'
-    );
-    assert.ok(
-      scene.includes('Math.round(s.fromSpin / (Math.PI * 2)) * Math.PI * 2'),
-      'spin unwinds to the nearest full turn — the face lands upright'
-    );
+  it('travel does NOT engage before the video ends: no skip, no early call', () => {
+    assert.ok(!suck.includes('Skip'), 'no skip button — the video runs to its end (per brief)');
+    assert.ok(suck.includes('doneRef'), 'travel engages exactly once');
+    assert.ok(!suck.includes('onDone()') || suck.includes('onDoneRef.current()'), 'onDone only fires through the once-guard');
+    assert.ok(panel.includes('if (!sucking) return;'), 'a stray done with no suck-in travels nowhere');
   });
 
-  it('the expanded portal cover-fits a portrait video instead of stretching it', () => {
-    assert.ok(scene.includes('portalVideoCoverFit'), 'fit helper consulted on canplay');
-    assert.ok(scene.includes('tex.repeat.set'), 'repeat cropped for portrait sources');
-    assert.ok(scene.includes('tex.offset.set'), 'crop centered for portrait sources');
+  it('Esc cancels the suck-in before travel engages', () => {
+    assert.ok(suck.includes("'Escape'"), 'Esc is the cancel');
+    assert.ok(suck.includes('onCancel'), 'cancel returns to the grid');
+    assert.ok(panel.includes("onCancel={() => setSucking(null)}"), 'cancel clears the suck-in');
+  });
+
+  it('reduced motion skips the video and travel engages at once', () => {
+    assert.ok(panel.includes("matchMedia('(prefers-reduced-motion: reduce)')"), 'the panel checks reduced motion on tap');
+    assert.ok(suck.includes("matchMedia('(prefers-reduced-motion: reduce)')"), 'the overlay checks it too');
+    assert.ok(suck.includes('if (reduced) return null;'), 'no overlay at all under reduced motion');
+  });
+
+  it('a portal with no video is never stranded: swirl fullscreen for a beat, then travel', () => {
+    assert.ok(suck.includes('portalHasVideo(program.key)'), 'video presence decides the face');
+    assert.ok(suck.includes('NO_VIDEO_BEAT_MS'), 'the swirl holds for a beat');
+    assert.ok(suck.includes('onError={engage}'), 'a video that fails to load still travels');
+    assert.ok(suck.includes('STALL_SLACK_MS'), 'a stalled video still travels (safety timeout)');
+    assert.ok(suck.includes('getSwirlDataUrl'), 'the no-video face is the shared swirl');
+  });
+
+  it('earth-2 keeps the swirl by design — no video invented for it', () => {
+    assert.equal(portalHasVideo('earth-2'), false, 'signed-in portal has no portal video');
+    assert.equal(portalHasVideo('mars-moon'), true, 'the Red Moon video is wired (concourse videos batch 1)');
   });
 });

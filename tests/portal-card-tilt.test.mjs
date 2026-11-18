@@ -1,9 +1,5 @@
 // tests/portal-card-tilt.test.mjs
-// Per-card tilt for the Portal Room's single card view (Merlin,
-// 2026-10-27: the card view with per-card rotation IS the room's
-// standard; the PORTALS 3D panel is 3D-only since 2026-11-17 —
-// Merlin: "no more switching", the List/3D switch and the list are
-// gone, the hall IS the menu):
+// Per-card tilt math (pure, headless-testable):
 // - drag distance -> rotation angle + direction (right pull yaws
 //   the face screen-right, left pull the other way), clamped
 // - spring-back on release (exponential decay to rest)
@@ -12,19 +8,10 @@
 // - deviceorientation -> per-card tilt mapping (gamma -> yaw,
 //   beta -> pitch, ±8° dead-zone, full deflection at ±45°)
 // - motion-denied/unavailable -> drag-only, no crash, no nag
-// - static: the room card view is untouched; the panel is the hall,
-//   no switch, no list
-//
-// - drag distance -> rotation angle + direction (right pull yaws
-//   the face screen-right, left pull the other way), clamped
-// - spring-back on release (exponential decay to rest)
-// - tap-vs-drag threshold (10px / 500ms) so quick taps still open
-//   and tilt-drags never open
-// - deviceorientation -> per-card tilt mapping (gamma -> yaw,
-//   beta -> pitch, ±8° dead-zone, full deflection at ±45°)
-// - motion-denied/unavailable -> drag-only, no crash, no nag
-// - static: the room card view is untouched; the panel opens on the
-//   list with a List/3D switch
+// - static: the portal menu is FLAT since Nov 18, 2026 (Merlin:
+//   "I don't want the 3d version of portals") — the tilt math no
+//   longer serves the menu at all; its one live consumer is
+//   Molly's head (components/molly/MollyHead3D.jsx).
 //
 // Run: node --test tests/portal-card-tilt.test.mjs (from the repo root)
 
@@ -49,7 +36,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
 const read = (p) => readFileSync(join(repo, p), 'utf8');
 const panel = read('components/ConcoursePortals.jsx');
-const scene = read('components/concourse/PortalHallScene.jsx');
 
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 
@@ -142,38 +128,22 @@ describe('springTiltStep (release springs back to rest)', () => {
   });
 });
 
-describe('the panel is the hall (3D-only; the room card view is untouched)', () => {
-  it('the panel is 3D-only: no switch, no list', () => {
-    assert.ok(!panel.includes("useState('list')"), 'no list default — the hall IS the menu');
-    assert.ok(!panel.includes("setMode('list')"), 'no switch to the list');
-    assert.ok(!panel.includes("setMode('3d')"), 'no switch to the hall either');
-    assert.ok(!panel.includes('aria-label="View"'), 'no switch group in the header');
-    assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
-    assert.ok(panel.includes('<PortalHallScene'), 'the hall is the menu');
+describe('the tilt math is no longer the portal menu (flat grid; the math lives on for Molly\'s head)', () => {
+  it('the panel is flat: no hall, no probe, no retry fallback', () => {
+    assert.ok(!panel.includes('<PortalHallScene'), 'no hall in the panel');
+    assert.ok(panel.includes('<PortalFlatGrid'), 'the flat grid is the menu');
+    assert.ok(!panel.includes('glFailed'), 'no GL failure state');
+    assert.ok(!panel.includes('Retry 3D'), 'no retry action');
+    assert.ok(!panel.includes('onGlFail'), 'no context-loss reporting — plain DOM needs none');
+    assert.ok(!panel.includes('probeWebGL()'), 'no probe decides whether the grid mounts');
   });
 
-  it('the panel renders the hall, with a retry fallback for WebGL loss', () => {
-    assert.ok(panel.includes('<PortalHallScene'), 'the hall is the 3D view');
-    assert.ok(panel.includes('glFailed'), 'GL failure state exists');
-    assert.ok(panel.includes('Retry 3D'), 'retry action exists');
-    assert.ok(panel.includes('onGlFail'), 'context loss still reported to the panel');
-    assert.ok(panel.includes('probeWebGL()'), 'the probe decides whether the hall mounts');
-  });
-
-  it('the hall applies one shared tilt behavior, not two motion systems', () => {
-    assert.ok(scene.includes("from '@/lib/portal-card-tilt'"), 'tilt math imported once');
-    assert.ok(scene.includes('tiltFromDrag'), 'drag tilt applied');
-    assert.ok(scene.includes('tiltFromOrientation'), 'motion tilt applied');
-    assert.ok(scene.includes('classifyCardGesture'), 'tap-vs-drag classified');
-    assert.ok(scene.includes('springTiltStep'), 'spring-back applied');
-    assert.ok(scene.includes('cardGestureRef'), 'card gestures gate the wall orbit');
-    assert.ok(scene.includes('deviceTiltRef'), 'device tilt rides a ref, not state');
-  });
-
-  it('motion-denied means drag-only: the hall listens, never nags, never crashes', () => {
-    assert.ok(scene.includes("addEventListener('deviceorientation'"), 'motion listener exists');
-    assert.ok(!scene.includes('Tilt denied'), 'no denial toast in the hall');
-    assert.ok(!scene.includes('TAP_SLOP_PX'), 'the old slop-only tap rule is replaced');
-    assert.ok(scene.includes("from '@/lib/tilt-control'"), 'permission classification reused');
+  it('the tilt math still has exactly one live consumer: Molly\'s head', () => {
+    const molly = read('components/molly/MollyHead3D.jsx');
+    assert.ok(molly.includes("from '@/lib/portal-card-tilt'"), 'tilt math imported once, by Molly\'s head');
+    assert.ok(molly.includes('tiltFromOrientation'), 'motion tilt applied to the head');
+    assert.ok(!panel.includes("from '@/lib/portal-card-tilt'"), 'the portal menu no longer tilts');
+    assert.ok(!panel.includes('tiltFromDrag'), 'no drag tilt in the menu');
+    assert.ok(!panel.includes('classifyCardGesture'), 'no tap-vs-drag classifier in the menu — a tap just opens');
   });
 });

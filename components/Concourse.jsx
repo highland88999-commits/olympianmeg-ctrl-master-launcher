@@ -23,7 +23,7 @@
 //   Tiles          — ALL the same 56×56, in composed order:
 //                    Hub (→ /, every page — the way home, Merlin
 //                    2026-10-22), Portals, Tour, Intro, Guide,
-//                    Portals 3D (the 3D portal hall), Night Grid,
+//                    Portals (the flat portal grid), Night Grid,
 //                    Bike, Renewal (hub-only set), Muse, Phone,
 //                    Calls (Holographic Calls → /order-67), Radio,
 //                    Store, Alerts, Profile, Settings, Bug, FINTRAC
@@ -67,8 +67,8 @@ import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, r
 import { AnnouncementsBell, AnnouncementsMenu, useAnnouncementUnread } from './concourse/AnnouncementsPanel';
 import { useVortexTravel } from './VortexTravel';
 
-// Layer 3 · Portals 3D — loaded only when its tile is first tapped,
-// so three.js never enters the layout's eager bundle (Concourse
+// Layer 3 · Portals — loaded only when its tile is first tapped,
+// so the portal menu never enters the layout's eager bundle (Concourse
 // ships on every page).
 const ConcoursePortals = dynamic(() => import('./ConcoursePortals'), { ssr: false });
 const Travelator = dynamic(() => import('./tour/Travelator'), { ssr: false });
@@ -118,7 +118,7 @@ const TILES = [
   { id: 'intro', label: 'Intro', icon: '↺', art: '/concourse-icons/intro.webp', hubOnly: true },
   { id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true },
   // Portals — the ONE Portals entry (Nov 16, 2026 merge: the 2D
-  // Portal Room is gone). Opens the Portals 3D hall, the one menu.
+  // Portal Room is gone). Opens the Portals menu, the one menu.
   { id: 'portalroom', label: 'Portals', icon: 'Ω' },
   { id: 'night', label: 'Night', icon: '🌑', art: '/concourse-icons/night.webp', hubOnly: true },
   { id: 'bike', label: 'Bike', icon: '🏍️', art: '/concourse-icons/bike.webp', hubOnly: true },
@@ -316,15 +316,16 @@ function ConcourseBackdrop({ bg }) {
   return <img src={src} alt="" aria-hidden="true" draggable={false} className="h-full w-full object-cover" />;
 }
 
-// Portals 3D deep link (?portals3d=1 — Nov 16, 2026 merge): the
+// Portals deep link (?portals3d=1 — Nov 16, 2026 merge; the param
+// is kept as-is by the Nov 18 flat rework): the
 // Omega Arch, the Earth 2 back link, the oblivion waiting page,
 // the floor-drop fallback and the /portal-room redirect all land
 // here instead of a page that no longer exists. The Concourse is
 // mounted in the root layout, so it is the one place that can open
-// the hall from any entry point — including a same-page ride, where
+// the menu from any entry point — including a same-page ride, where
 // the hub page never remounts. useSearchParams lives in this tiny
 // Suspense-wrapped child so the layout itself stays static; the
-// param is consumed (history.replaceState) once the hall opens, so
+// param is consumed (history.replaceState) once the menu opens, so
 // a reload never re-opens it.
 function Portals3dDeepLink({ onOpen }) {
   const searchParams = useSearchParams();
@@ -372,7 +373,7 @@ export default function Concourse() {
   const [bgPref, setBgPref] = useState({ kind: 'default' });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [portal3dOpen, setPortal3dOpen] = useState(false);
-  // Deep link (?portals3d=1): open the hall straight from the URL.
+  // Deep link (?portals3d=1): open the menu straight from the URL.
   const openPortals3d = useCallback(() => {
     setOpen(false);
     setPortal3dOpen(true);
@@ -1023,8 +1024,8 @@ export default function Concourse() {
       {/* Layer 3 · Concourse Settings sheet */}
       <ConcourseSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} bg={bgPref} onApplyBg={applyBg} settings={uiSettings} onApplySettings={applySettings} />
 
-      {/* Layer 3 · Portals 3D — the 3D portal hall (minimized
-          portals, expanded on tap) */}
+      {/* Layer 3 · Portals — the flat portal grid (tap a portal to
+          be sucked into its video) */}
       <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
       <Suspense fallback={null}>
         <Portals3dDeepLink onOpen={openPortals3d} />
