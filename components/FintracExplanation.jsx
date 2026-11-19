@@ -223,6 +223,37 @@ function DeviceControlsFrame() {
   );
 }
 
+// Step-1 light backdrops (Merlin, 2026-11-18): a house TRON emblem
+// behind each symbol inside its circle — cooler than the flat disc,
+// colour-matched per light. The emblems are neon-on-black, so they
+// ride mix-blend-screen over the flat disc colour: the black drops
+// out and the neon ring + motif shows. Red reticle and gold dawn are
+// native; the green ascend is a hue-shifted copy of tron-ascend.
+// All three are the *-light variants: the neon lines are lightened
+// toward white so the line work actually reads over the saturated
+// disc (the raw emblems in their own colour wash out on the disc).
+const LIGHT_BACKDROPS = {
+  red: '/images/shadow-realm/ui/tron-reticle-light.webp',
+  gold: '/images/shadow-realm/ui/tron-time-dawn-light.webp',
+  green: '/images/shadow-realm/ui/tron-ascend-green-light.webp',
+};
+
+// The emblem layer: absolute, edge to edge, screen-blended so only
+// the neon line work paints over the disc colour. aria-hidden:
+// decoration only — the button's aria-label carries the meaning.
+function LightBackdrop({ src }) {
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      className="pointer-events-none absolute inset-0 h-full w-full object-cover mix-blend-screen"
+    />
+  );
+}
+
 // Step 1 — the traffic light (Merlin, 2026-10-29). Three circular
 // buttons stacked like a street light: red picks the camera
 // perspective for the landing (taps toggle 1st/3rd), yellow opens
@@ -295,7 +326,93 @@ function LandingSetupFrame({ onContinue }) {
   const preview = CHARACTERS.find((c) => c.id === previewId) || character || null;
 
   const lightBase =
-    'ui-element pointer-events-auto flex h-16 w-16 items-center justify-center rounded-full border-4 transition-all active:scale-95 sm:h-20 sm:w-20';
+    'ui-element pointer-events-auto relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-4 transition-all active:scale-95 sm:h-20 sm:w-20';
+
+  // The picker sits IN FLOW under its heading while open (Merlin,
+  // 2026-11-18): it replaces the orb stack instead of floating over
+  // it as an absolute overlay, so it is always anchored at the top
+  // of the step and can never drift mid-panel or leave a gap below.
+  // The root is h-full of the modal content area, so the grid takes
+  // the remaining height and scrolls inside the panel.
+  if (pickerOpen) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pick your character"
+          className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-3xl bg-zinc-950"
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
+            <span className="text-xs font-black uppercase tracking-widest text-amber-200">
+              Pick your character
+            </span>
+            <button
+              type="button"
+              aria-label="Close character picker"
+              onClick={() => setPickerOpen(false)}
+              className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:border-amber-300/60 hover:text-white"
+            >
+              <span aria-hidden="true" className="text-xs leading-none">×</span>
+            </button>
+          </div>
+          {/* Preview above the grid: tapping a character shows
+              them here and selects them on the spot. The img and
+              the name are keyed by character id, so a change
+              remounts both: no stale portrait can keep painting
+              under the new name (the name ghost in Merlin's video —
+              the old portrait held while the new src loaded). */}
+          <div className="flex shrink-0 flex-col items-center border-b border-zinc-800 px-4 py-3">
+            {preview ? (
+              <>
+                <img
+                  key={`preview-img-${preview.id}`}
+                  src={preview.preview}
+                  alt={preview.name}
+                  draggable={false}
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  className="h-24 w-24 rounded-2xl border border-amber-400/40 object-cover"
+                />
+                <span key={`preview-name-${preview.id}`} className="mt-2 text-sm font-black text-zinc-100">{preview.name}</span>
+              </>
+            ) : (
+              <span className="py-6 text-xs uppercase tracking-widest text-zinc-500">
+                Tap a character below
+              </span>
+            )}
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-3 overflow-y-auto p-4">
+            {CHARACTERS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => pickCharacter(c.id)}
+                aria-label={c.name}
+                title={c.name}
+                // aspect-square lives on the BUTTON: the track sizes
+                // to it, so every tile is a real square the portrait
+                // fills. (Before: the ratio was on the img only, the
+                // tracks sized to ~0, buttons collapsed to 4 px and
+                // every portrait clipped invisible — the empty grid
+                // and the moving gold strip in Merlin's video.)
+                className={`ui-element pointer-events-auto aspect-square overflow-hidden rounded-xl border-2 bg-zinc-900 transition-all active:scale-95 ${c.id === characterId ? 'border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.5)]' : 'border-transparent hover:border-zinc-600'}`}
+              >
+                <img
+                  src={c.preview}
+                  alt=""
+                  aria-hidden="true"
+                  draggable={false}
+                  loading="lazy"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex flex-col items-center">
@@ -319,7 +436,8 @@ function LandingSetupFrame({ onContinue }) {
             title="Camera perspective — tap to switch"
             className={`${lightBase} border-red-900 bg-red-600 shadow-[0_0_24px_rgba(220,38,38,0.55)] hover:bg-red-500`}
           >
-            <span aria-hidden="true" className="text-2xl leading-none">🎥</span>
+            <LightBackdrop src={LIGHT_BACKDROPS.red} />
+            <span aria-hidden="true" className="relative z-10 text-2xl leading-none">🎥</span>
           </button>
           <span className="text-[10px] font-black uppercase tracking-widest text-red-300">
             {LANDING_PERSPECTIVE_LABELS[perspective]}
@@ -332,19 +450,25 @@ function LandingSetupFrame({ onContinue }) {
             onClick={() => { setPreviewId(characterId); setPickerOpen(true); }}
             aria-label={character ? `Character: ${character.name}. Tap to change.` : 'Pick your character'}
             title="Pick your character"
-            className={`${lightBase} overflow-hidden border-yellow-900 ${character ? 'bg-yellow-500 shadow-[0_0_24px_rgba(234,179,8,0.55)]' : 'bg-zinc-800 shadow-[0_0_12px_rgba(234,179,8,0.25)]'} hover:bg-yellow-400`}
+            className={`${lightBase} border-yellow-900 ${character ? 'bg-yellow-500 shadow-[0_0_24px_rgba(234,179,8,0.55)]' : 'bg-zinc-800 shadow-[0_0_12px_rgba(234,179,8,0.25)]'} hover:bg-yellow-400`}
           >
+            <LightBackdrop src={LIGHT_BACKDROPS.gold} />
             {character ? (
               <img
+                key={character.id}
                 src={character.preview}
                 alt=""
                 aria-hidden="true"
                 draggable={false}
                 onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                className="h-full w-full object-cover"
+                // Inset so the gold dawn ring frames the portrait instead
+                // of the portrait hiding the backdrop outright. The key
+                // remounts the img on change: no stale portrait can paint
+                // under the new name (the name ghost in Merlin's video).
+                className="relative z-10 h-[78%] w-[78%] rounded-full object-cover"
               />
             ) : (
-              <span aria-hidden="true" className="text-2xl leading-none">❔</span>
+              <span aria-hidden="true" className="relative z-10 text-2xl leading-none">❔</span>
             )}
           </button>
           <span className="max-w-[7rem] text-center text-[10px] font-black uppercase leading-tight tracking-widest text-yellow-300">
@@ -360,7 +484,8 @@ function LandingSetupFrame({ onContinue }) {
             title="Continue"
             className={`${lightBase} border-green-900 bg-green-600 shadow-[0_0_24px_rgba(22,163,74,0.55)] hover:bg-green-500`}
           >
-            <span aria-hidden="true" className="text-2xl leading-none">➡️</span>
+            <LightBackdrop src={LIGHT_BACKDROPS.green} />
+            <span aria-hidden="true" className="relative z-10 text-2xl leading-none">➡️</span>
           </button>
           <span className="text-[10px] font-black uppercase tracking-widest text-green-300">
             Continue
@@ -375,72 +500,6 @@ function LandingSetupFrame({ onContinue }) {
           read as half-hidden behind the NEXT button. The yellow
           light already shows the character in 1st and 3rd person. */}
 
-      {/* Character picker: preview above, the roster grid below —
-          sized to land inside the card (Merlin, 2026-10-29). */}
-      {pickerOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Pick your character"
-          className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-3xl bg-zinc-950"
-        >
-          <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
-            <span className="text-xs font-black uppercase tracking-widest text-amber-200">
-              Pick your character
-            </span>
-            <button
-              type="button"
-              aria-label="Close character picker"
-              onClick={() => setPickerOpen(false)}
-              className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:border-amber-300/60 hover:text-white"
-            >
-              <span aria-hidden="true" className="text-xs leading-none">×</span>
-            </button>
-          </div>
-          {/* Preview above the grid: tapping a character shows
-              them here and selects them on the spot. */}
-          <div className="flex shrink-0 flex-col items-center border-b border-zinc-800 px-4 py-3">
-            {preview ? (
-              <>
-                <img
-                  src={preview.preview}
-                  alt={preview.name}
-                  draggable={false}
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  className="h-24 w-24 rounded-2xl border border-amber-400/40 object-cover"
-                />
-                <span className="mt-2 text-sm font-black text-zinc-100">{preview.name}</span>
-              </>
-            ) : (
-              <span className="py-6 text-xs uppercase tracking-widest text-zinc-500">
-                Tap a character below
-              </span>
-            )}
-          </div>
-          <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-3 overflow-y-auto p-4">
-            {CHARACTERS.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => pickCharacter(c.id)}
-                aria-label={c.name}
-                title={c.name}
-                className={`ui-element pointer-events-auto overflow-hidden rounded-xl border-2 transition-all active:scale-95 ${c.id === characterId ? 'border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.5)]' : 'border-transparent hover:border-zinc-600'}`}
-              >
-                <img
-                  src={c.preview}
-                  alt=""
-                  aria-hidden="true"
-                  draggable={false}
-                  loading="lazy"
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  className="aspect-square w-full bg-zinc-900 object-cover"
-                />
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
