@@ -15,6 +15,7 @@ import {
   PORTALS,
   PORTAL_TRIGGER_RADIUS,
   TALK_RANGE_M,
+  RIDER_PUSH_OUT_M,
   WALK_SPEED,
   RUN_SPEED,
   forward,
@@ -22,6 +23,7 @@ import {
   stepPosition,
   regionAt,
   nearRider,
+  pushOutOfRider,
   nearestPortal,
   makeDamned,
   damnedWanderTarget,
@@ -115,11 +117,27 @@ test('regionAt names the circle, the field, the approach', () => {
   assert.equal(regionAt(SPAWN.x, SPAWN.z), 'The Approach');
 });
 
-test('nearRider: talk range is 6 m', () => {
-  assert.equal(TALK_RANGE_M, 6);
+test('nearRider: talk range is 10 m', () => {
+  assert.equal(TALK_RANGE_M, 10);
   assert.equal(nearRider(0, -60), true);
   assert.equal(nearRider(0, -54), true);
-  assert.equal(nearRider(0, -53), false);
+  assert.equal(nearRider(0, -50), true);
+  assert.equal(nearRider(0, -49), false);
+});
+
+test('pushOutOfRider: never inside his body, always inside talk range', () => {
+  assert.equal(RIDER_PUSH_OUT_M, 2);
+  assert.ok(RIDER_PUSH_OUT_M < TALK_RANGE_M, 'the ring stays inside talk range');
+  // Outside the ring: untouched.
+  assert.deepEqual(pushOutOfRider(0, -50), { x: 0, z: -50, pushed: false });
+  // Inside the ring: clamped to the 2 m circle.
+  const close = pushOutOfRider(0, -59);
+  assert.equal(close.pushed, true);
+  assert.ok(Math.abs(Math.hypot(close.x - RIDER.x, close.z - RIDER.z) - 2) < 1e-9);
+  // Dead centre: pushed out due south.
+  const centre = pushOutOfRider(0, -60);
+  assert.equal(centre.pushed, true);
+  assert.deepEqual({ x: centre.x, z: centre.z }, { x: 0, z: -58 });
 });
 
 test('movement: forward/right, no edge, no river to block (endless)', () => {
@@ -445,12 +463,45 @@ test('page wires the talk, the battle, the chain, and its upgrade', () => {
   assert.ok(src.includes('ghost-rider'), 'presence sector');
 });
 
+test('page: the talk + battle UI never fades with the realm intro', () => {
+  const src = readFileSync('app/ghost-rider/page.jsx', 'utf8');
+  const fadeAt = src.indexOf('style={infoStyle}');
+  assert.ok(fadeAt >= 0, 'the intro still fades');
+  // The fading block closes before any fight UI appears: the first
+  // </div> after the fade opens is the intro's own close (it holds
+  // no nested divs).
+  const fadeClose = src.indexOf('</div>', fadeAt);
+  assert.ok(fadeClose > fadeAt, 'the fading block closes');
+  for (const marker of ['Talk to the Ghost Rider', 'THE FIGHT', 'dialogue.rider']) {
+    const at = src.indexOf(marker);
+    assert.ok(at > fadeClose, `${marker} sits outside the fading block`);
+  }
+  assert.ok(src.includes('The Ghost Rider is waiting'), 'the in-range notice');
+});
+
+test('page: losing to the Rider incinerates you to the Lake of Fire', () => {
+  const src = readFileSync('app/ghost-rider/page.jsx', 'utf8');
+  assert.ok(src.includes("battle.phase === 'lost'"), 'the lost branch');
+  assert.ok(src.includes('setLakeLanding'), 'the lake flag is set on a loss');
+  assert.ok(src.includes("travel('/hell'"), 'the loss travels to Hell');
+  assert.ok(src.includes('You wake in the Lake of Fire'), 'the notice says where you wake');
+});
+
 test('scene is procedural CGI — no GLB, no Tripo', () => {
   const src = readFileSync('app/ghost-rider/world3d.js', 'utf8');
   assert.ok(!/\.glb/i.test(src), 'no GLB in the scene');
   assert.ok(!/tripo/i.test(src), 'no Tripo in the scene');
   assert.ok(src.includes('ChainFx') || src.includes('chain'), 'the chain effect renders');
   assert.ok(src.includes('Rider') || src.includes('RIDER'), 'the Rider renders');
+});
+
+test('scene: labels are fixed-size and fade out up close — no distanceFactor', () => {
+  const src = readFileSync('app/ghost-rider/world3d.js', 'utf8');
+  assert.ok(!/distanceFactor=\{/.test(src), 'no distanceFactor scaling left on any label');
+  assert.ok(src.includes('FadingLabel'), 'labels go through the fading label');
+  assert.ok(src.includes('The Ghost Rider'), 'the Rider keeps his name');
+  assert.ok(src.includes('The Damned Field'), 'the field keeps its name');
+  assert.ok(src.includes('pushOutOfRider'), 'the camera rig pushes out of his body');
 });
 
 test('registries: ghost-rider in BOTH, plus all 34 locales', () => {

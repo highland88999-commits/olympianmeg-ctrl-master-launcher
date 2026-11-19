@@ -430,7 +430,12 @@ export default function GhostRiderPage() {
 
   // The battle's end: a win grants the chain (once — the guard
   // survives re-renders, and resets when a new talk starts); a
-  // loss hands the talk button straight back, no penalty.
+  // loss INCINERATES you (Merlin, Nov 18, 2026): his fire takes
+  // you and you wake in the Lake of Fire in Hell. The lake-landing
+  // flag + the travel are the whole law — the same shape as the
+  // victim poll above — and no incineration record is posted: the
+  // incinerations route drops any record naming its own caller
+  // (the self-burn guard), and the respawn needs no record.
   useEffect(() => {
     if (!battle || battle.phase === 'player') return;
     if (battle.phase === 'won') {
@@ -447,10 +452,12 @@ export default function GhostRiderPage() {
       return;
     }
     if (battle.phase === 'lost') {
-      showNotice(RIDER_WIN_LINE, 'bad');
+      try { setLakeLanding(window.localStorage); } catch { /* the travel still happens */ }
+      showNotice(`${RIDER_WIN_LINE} You wake in the Lake of Fire.`, 'bad');
       setBattle(null);
+      travel('/hell', 'the Lake of Fire');
     }
-  }, [battle, showNotice, claimChain]);
+  }, [battle, showNotice, claimChain, travel]);
 
   // --- the chain ------------------------------------------------------------
   const onUseChain = useCallback(async () => {
@@ -812,27 +819,43 @@ export default function GhostRiderPage() {
 
       {/* HUD — plain English, nothing overlaps anything else. The title
           sits below the Leave button (pt-16); the hint sits above the
-          global radio bar (bottom-20); the stick sits above it too. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center px-4 pt-16 text-center" style={infoStyle} aria-hidden={infoHidden}>
-        <h1 className="text-2xl font-bold tracking-[0.3em] text-red-100 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
-          GHOST RIDER
-        </h1>
-        <p className="mt-1 text-sm text-stone-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
-          The reckoning waits in the fire — walk north and meet him.
-        </p>
-        <p className="mt-1 text-sm font-semibold text-amber-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
-          You are in: {region}
-        </p>
-        {chainLabel && (
-          <p className="mt-1 text-sm text-orange-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
-            {chainLabel}
+          global radio bar (bottom-20); the stick sits above it too.
+          SPLIT (Merlin, Nov 18, 2026): only the realm intro fades —
+          the talk + battle used to live inside the fading block, so
+          the TALK orb was invisible by the time you reached the
+          Rider. The intro keeps its place in layout when faded
+          (opacity only), so nothing below it ever jumps. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center px-4 pt-16 text-center">
+        {/* The realm intro: the only part that fades. */}
+        <div style={infoStyle} aria-hidden={infoHidden} className="flex flex-col items-center">
+          <h1 className="text-2xl font-bold tracking-[0.3em] text-red-100 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+            GHOST RIDER
+          </h1>
+          <p className="mt-1 text-sm text-stone-300 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+            The reckoning waits in the fire — walk north and meet him.
+          </p>
+          <p className="mt-1 text-sm font-semibold text-amber-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+            You are in: {region}
+          </p>
+          {chainLabel && (
+            <p className="mt-1 text-sm text-orange-200 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+              {chainLabel}
+            </p>
+          )}
+          <p className="mt-3 rounded-full bg-black/55 px-4 py-2 text-xs text-stone-200">
+            {touchUI
+              ? 'Left stick to walk · drag the right side to look around · walk through the glowing arch to return to Hell · step onto the dark Anti-Life disc to fall through'
+              : 'WASD or arrows to walk · drag to look around · Shift to run · walk through the glowing arch to return to Hell · step onto the dark Anti-Life disc to fall through'}
+          </p>
+          <RealmLifeLine realmKey="ghost-rider" />
+        </div>
+        {/* Talk / battle / chain — NEVER fades: the fight must be
+            reachable the moment you step into range. */}
+        {near && !dialogue && !battle && (
+          <p className="mt-3 rounded-full bg-black/55 px-4 py-2 text-xs text-orange-200">
+            The Ghost Rider is waiting — tap 💬 TALK
           </p>
         )}
-        <p className="mt-3 rounded-full bg-black/55 px-4 py-2 text-xs text-stone-200">
-          {touchUI
-            ? 'Left stick to walk · drag the right side to look around · walk through the glowing arch to return to Hell · step onto the dark Anti-Life disc to fall through'
-            : 'WASD or arrows to walk · drag to look around · Shift to run · walk through the glowing arch to return to Hell · step onto the dark Anti-Life disc to fall through'}
-        </p>
         {/* Talk / battle / chain — one plain circle orb per deed, in
             a row, only where the deed lives. */}
         <div className="pointer-events-auto mt-3 flex flex-row items-center justify-center gap-3">
@@ -931,7 +954,6 @@ export default function GhostRiderPage() {
             {notice.text}
           </p>
         )}
-        <RealmLifeLine realmKey="ghost-rider" />
       </div>
 
       <div className="absolute left-4 top-4 z-30">

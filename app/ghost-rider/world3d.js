@@ -45,6 +45,7 @@ import {
   WORLD_RADIUS,
   forward,
   nearestPortal,
+  pushOutOfRider,
   regionAt,
   right,
   stepPosition,
@@ -147,6 +148,37 @@ const riderLabelStyle = {
   background: 'rgba(40, 8, 0, 0.82)',
   border: '1px solid rgba(251, 146, 60, 0.65)',
 };
+
+// Fixed-size labels that fade out as you walk up to them (Merlin,
+// Nov 18, 2026): the old distanceFactor scaling blew the Rider's
+// name across the whole screen at arm's length. Without a
+// distanceFactor the drei Html renders at one fixed screen size;
+// a per-frame fade (direct DOM opacity, no re-render) takes it
+// from full at 12 m to gone at 2 m. `position` is the Html anchor
+// (local to the parent group); `world` is the same anchor in world
+// coordinates, for the distance.
+const LABEL_FADE_NEAR_M = 2;
+const LABEL_FADE_FAR_M = 12;
+
+function FadingLabel({ position, world, style, children }) {
+  const wrapRef = useRef(null);
+  useFrame(({ camera }) => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const d = Math.hypot(
+      camera.position.x - world[0],
+      camera.position.y - world[1],
+      camera.position.z - world[2],
+    );
+    const o = Math.min(1, Math.max(0, (d - LABEL_FADE_NEAR_M) / (LABEL_FADE_FAR_M - LABEL_FADE_NEAR_M)));
+    el.style.opacity = o.toFixed(3);
+  });
+  return (
+    <Html center position={position} zIndexRange={[20, 0]} style={style}>
+      <div ref={wrapRef}>{children}</div>
+    </Html>
+  );
+}
 
 // --- static pieces ----------------------------------------------------------
 
@@ -270,9 +302,9 @@ function Rider({ reduced }) {
           </mesh>
         </group>
       ))}
-      <Html center distanceFactor={80} position={[0, 4.8, 0]} zIndexRange={[20, 0]} style={riderLabelStyle}>
+      <FadingLabel position={[0, 4.8, 0]} world={[RIDER.x, 4.8, RIDER.z]} style={riderLabelStyle}>
         The Ghost Rider
-      </Html>
+      </FadingLabel>
     </group>
   );
 }
@@ -337,9 +369,9 @@ function DamnedField({ damned, chainFx, reduced }) {
           />
         </mesh>
       ))}
-      <Html center distanceFactor={120} position={[DAMNED_FIELD.x, 9, DAMNED_FIELD.z]} zIndexRange={[20, 0]} style={regionLabelStyle}>
+      <FadingLabel position={[DAMNED_FIELD.x, 9, DAMNED_FIELD.z]} world={[DAMNED_FIELD.x, 9, DAMNED_FIELD.z]} style={regionLabelStyle}>
         The Damned Field
-      </Html>
+      </FadingLabel>
     </group>
   );
 }
@@ -360,9 +392,9 @@ function Foes({ foes }) {
             <sphereGeometry args={[0.3, 10, 10]} />
             <meshStandardMaterial color="#e8e8ee" roughness={0.6} />
           </mesh>
-          <Html center distanceFactor={60} position={[0, 3.6, 0]} zIndexRange={[20, 0]} style={regionLabelStyle}>
+          <FadingLabel position={[0, 3.6, 0]} world={[f.x, 3.6, f.z]} style={regionLabelStyle}>
             {f.label || 'Traveller'}
-          </Html>
+          </FadingLabel>
         </group>
       ))}
     </group>
@@ -534,9 +566,9 @@ function PortalArches() {
             <circleGeometry args={[1.5, 24]} />
             <meshBasicMaterial color="#c084fc" transparent opacity={0.4} side={THREE.DoubleSide} />
           </mesh>
-          <Html center distanceFactor={80} position={[0, 10.4, 0]} zIndexRange={[20, 0]} style={portalLabelStyle}>
+          <FadingLabel position={[0, 10.4, 0]} world={[p.x, 10.4, p.z]} style={portalLabelStyle}>
             {p.label}
-          </Html>
+          </FadingLabel>
         </group>
       ))}
     </group>
@@ -675,6 +707,14 @@ export function CameraRig({ playerRef, inputRef, onPortal, onRegion, reduced, on
       player.x = next.x;
       player.z = next.z;
     }
+
+    // The Rider's push-out: never stand inside his body — closer
+    // than 2 m the camera clips through his skull (Merlin, Nov 18,
+    // 2026). Runs every frame, not only while moving, so a teleport
+    // inside the ring is pushed out too.
+    const pushed = pushOutOfRider(player.x, player.z);
+    player.x = pushed.x;
+    player.z = pushed.z;
 
     camera.position.set(player.x, 2.4, player.z);
     camera.rotation.set(0, player.yaw, 0);
