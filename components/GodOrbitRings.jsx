@@ -6,16 +6,25 @@
 //   OPPOSITE Earth's spin (Earth: +0.05 rad/s; rings: rotation.y goes
 //   negative at RING_SPIN). The analytic orbitPositionFor() in
 //   lib/god-orbits.js mirrors this exactly.
-// - Each satellite hull is UV-mapped with its god menu's self-hosted banner
-//   art (public/textures/menus/<god>/banner.*) — proper exterior graphics,
-//   never plain glowing orbs. Lighting is kept modest so the wraps read.
+// - Each satellite hull wears its own INVENTED wrap (Merlin, Nov 18,
+//   2026 — "Invent planet wraps for them"): a procedural surface
+//   generated per god in its god colour (lib/hub-planet-wraps.js),
+//   one of 12 pattern families, seeded by the god's name — proper
+//   surface texture with bump relief, never plain glowing orbs and
+//   never a flat colour. The old banner-art hulls are gone: the 14
+//   nether-realm planets had no banner (texture: null), so they fell
+//   back to flat colour and read as flat discs from hub distance.
+//   Lighting is kept modest so the wraps read.
+// - Each satellite's rings match its planet (Merlin, Nov 18 ~20:58):
+//   the orbit ring and the equatorial accent ring wear the god colour
+//   the wrap itself is generated from, so ring + planet read as one thing.
 // - Satellites are solid: each registers a sphere collider in the hub
 //   collision registry (bounce/deflect, never kill).
 // - VISUAL/PHYSICAL ONLY. Program navigation lives in the floating
 //   satellite menu; the rings no longer launch anything.
 
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
@@ -28,6 +37,7 @@ import {
   orbitTime,
   menuSatellitePosition,
 } from '@/lib/god-orbits';
+import { godPlanetWrap } from '@/lib/hub-planet-wraps';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 
 // 2026-10-20 (Merlin): satellites baked 1.5× bigger (was 2.6) so the
@@ -65,41 +75,14 @@ const _wp = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _ec = new THREE.Vector3();
 
-function useBannerTexture(url) {
-  const [tex, setTex] = useState(null);
-  useEffect(() => {
-    if (!url) return;
-    let alive = true;
-    const loader = new THREE.TextureLoader();
-    loader.load(
-      url,
-      (t) => {
-        if (!alive) {
-          t.dispose();
-          return;
-        }
-        t.colorSpace = THREE.SRGBColorSpace;
-        t.anisotropy = 4;
-        setTex(t);
-      },
-      undefined,
-      () => {
-        if (alive) setTex(null);
-      }
-    );
-    return () => {
-      alive = false;
-      setTex((prev) => {
-        if (prev) prev.dispose();
-        return null;
-      });
-    };
-  }, [url]);
-  return tex;
-}
-
 function HubSatellite({ band, index }) {
-  const tex = useBannerTexture(band.texture);
+  // Invented wrap for this god (Merlin, Nov 18, 2026): generated in
+  // its god colour, cached per god, deterministic — no network fetch,
+  // no flat-colour fallback possible.
+  const wrap = useMemo(
+    () => godPlanetWrap(band.god, band.color, index),
+    [band.god, band.color, index]
+  );
   const angle = band.phase;
   const R = band.radius;
   const satRef = useRef();
@@ -163,15 +146,17 @@ function HubSatellite({ band, index }) {
   const hullMat = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        map: tex || null,
-        color: tex ? '#ffffff' : band.color,
-        roughness: 0.65,
-        metalness: 0.15,
+        map: wrap.map,
+        bumpMap: wrap.bumpMap,
+        bumpScale: wrap.bumpScale,
+        color: '#ffffff',
+        roughness: wrap.roughness,
+        metalness: 0.05,
         // Gentle god-color sheen — never enough to wash out the wrap.
         emissive: new THREE.Color(band.color),
-        emissiveIntensity: tex ? 0.12 : 0.55,
+        emissiveIntensity: 0.12,
       }),
-    [tex, band.color]
+    [wrap, band.color]
   );
   useEffect(() => () => hullMat.dispose(), [hullMat]);
 
