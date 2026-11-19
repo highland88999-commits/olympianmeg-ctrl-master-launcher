@@ -351,7 +351,7 @@ function loadEsriOverlay(ctx) {
 /* ============================================================
    Procedural species models — built from the anatomy plan.
    Earth 4's creatures are real species, but their anatomy plans
-   are prose, not GLBs, and real GLBs for all 1,262 species would
+   are prose, not GLBs, and real GLBs for all 2,408 species would
    be ~1.5–2.5 GB — far too much GPU-side for a phone. So each
    creature is built at runtime from its compiled numeric plan
    (lib/earth4/creature-plans.json, compiled from the anatomy

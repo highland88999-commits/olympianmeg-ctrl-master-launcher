@@ -2,7 +2,7 @@
 // EARTH 4 — WHERE SPECIES LIVE (Merlin, 2026-11-14): the region
 // dataset in lib/earth4/species-regions.js — crude lat/lon boxes
 // per biogeographic realm, and the per-species map that says which
-// realms each of the 1,262 catalogue species may spawn in, honestly
+// realms each of the 2,408 catalogue species may spawn in, honestly
 // sourced ('listed' / 'inferred-from-distribution' / 'unrestricted').
 //
 // Run: node --test tests/earth4-species-regions.test.mjs   (from the repo root)
@@ -68,9 +68,9 @@ describe('the realm boxes', () => {
 });
 
 describe('the per-species map', () => {
-  it('covers all 1,262 catalogue species, and nothing else', () => {
+  it('covers all 2,408 catalogue species, and nothing else', () => {
     const names = Object.keys(REGIONS_FOR_SPECIES);
-    assert.equal(names.length, 1262);
+    assert.equal(names.length, 2408);
     for (const s of SPECIES_CATALOGUE) {
       assert.ok(REGIONS_FOR_SPECIES[s.name], `no region entry for ${s.name}`);
     }
@@ -90,13 +90,14 @@ describe('the per-species map', () => {
         assert.ok(v.regions.length >= 1, `${name} is ${v.source} with no regions`);
       }
     }
-    // Measured from the dataset (Nov 14): the realms column holds
-    // 17 species, distribution text another 177, the rest — 1,068 —
-    // have nothing usable anywhere and stay unrestricted.
+    // Measured from the dataset (Nov 14 batch 1, Nov 19 batch 2):
+    // the realms column holds 33 species, distribution text
+    // another 349, the rest — 2,026 — have nothing usable anywhere
+    // and stay unrestricted.
     assert.deepEqual(counts, {
-      listed: 17,
-      'inferred-from-distribution': 177,
-      unrestricted: 1068,
+      listed: 33,
+      'inferred-from-distribution': 349,
+      unrestricted: 2026,
     });
   });
 

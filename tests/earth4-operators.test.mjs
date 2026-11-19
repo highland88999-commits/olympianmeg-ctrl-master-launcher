@@ -104,7 +104,7 @@ describe('life-clock', () => {
 describe('compiled life data', () => {
   it('covers every catalogue species exactly once, by exact name', () => {
     const names = SPECIES_CATALOGUE.map((s) => s.name);
-    assert.equal(Object.keys(SPECIES_LIFE).length, 1262);
+    assert.equal(Object.keys(SPECIES_LIFE).length, 2408);
     for (const n of names) assert.ok(SPECIES_LIFE[n], `missing ${n}`);
     for (const n of Object.keys(SPECIES_LIFE)) assert.ok(names.includes(n), `extra ${n}`);
   });

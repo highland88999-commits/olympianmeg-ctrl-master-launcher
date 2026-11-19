@@ -358,10 +358,10 @@ describe('fallback plans', () => {
 });
 
 describe('compiled creature-plans.json', () => {
-  it('covers all 1,262 catalogue species', () => {
+  it('covers all 2,408 catalogue species', () => {
     assert.equal(PLANS.version, 2);
-    assert.equal(PLANS.count, 1262);
-    assert.equal(Object.keys(PLANS.plans).length, 1262);
+    assert.equal(PLANS.count, 2408);
+    assert.equal(Object.keys(PLANS.plans).length, 2408);
     const catalogueNames = new Set(CATALOGUE.map((s) => s.name));
     for (const name of Object.keys(PLANS.plans)) {
       assert.ok(catalogueNames.has(name), `${name} not in catalogue`);
@@ -412,9 +412,9 @@ describe('compiled creature-plans.json', () => {
     assert.ok(withSurface >= 1200, `only ${withSurface} records carry a surface`);
   });
 
-  it('all 7 measured birds carry AVONET numbers', () => {
+  it('all 14 measured birds carry AVONET numbers', () => {
     const measured = Object.entries(PLANS.plans).filter(([, r]) => r.m);
-    assert.equal(measured.length, 7);
+    assert.equal(measured.length, 14);
     for (const [name, rec] of measured) {
       assert.ok(rec.m.mass_g > 0, `${name}: no mass`);
       assert.ok(rec.m.wing_mm > 0, `${name}: no wing`);

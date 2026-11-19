@@ -68,10 +68,10 @@ describe('the spawn catalogue', () => {
       perClass[s.class] = (perClass[s.class] || 0) + 1;
     }
     for (const [cls, n] of Object.entries(perClass)) {
-      assert.ok(n <= 8, `${cls} has ${n} entries — the cap is 8`);
+      assert.ok(n <= 16, `${cls} has ${n} entries — the cap is 16`);
     }
-    // Insecta is 48% of the living list but only 8 of ~1,262 here.
-    assert.ok((perClass.Insecta || 0) <= 8);
+    // Insecta is 48% of the living list but only 16 of 2,408 here.
+    assert.ok((perClass.Insecta || 0) <= 16);
   });
 
   it('every species carries a size — spot checks from the Nov 14 order', () => {

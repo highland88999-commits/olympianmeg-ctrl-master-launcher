@@ -549,15 +549,18 @@ test('population: crews and duellists meet the rule; merchants and duel-foes are
 // 8. EARTH 4 + HUB — verified, not built
 // ===========================================================================
 
-test('earth 4: no humanoids — 1,262 species, no Hominidae, no Homo, only non-human primates', () => {
-  assert.equal(SPECIES_CATALOGUE.length, 1262);
-  assert.equal(Object.keys(SPECIES_LIFE).length, 1262);
+test('earth 4: no humanoids — 2,408 species, no Hominidae, no Homo, only non-human primates', () => {
+  assert.equal(SPECIES_CATALOGUE.length, 2408);
+  assert.equal(Object.keys(SPECIES_LIFE).length, 2408);
   assert.equal(SPECIES_CATALOGUE.filter((s) => s.family === 'Hominidae').length, 0);
   assert.equal(SPECIES_CATALOGUE.filter((s) => s.name.startsWith('Homo ')).length, 0);
   const primates = SPECIES_CATALOGUE.filter((s) => s.order === 'Primates').map((s) => s.name);
   assert.deepEqual(primates, [
-    'Aotus zonalis', 'Cebus versicolor', 'Cheracebus lugens',
-    'Eulemur albifrons', 'Leontocebus leucogenys', 'Propithecus deckenii',
+    'Aotus zonalis', 'Carlito syrichta', 'Cebus versicolor',
+    'Cheracebus lugens', 'Eulemur albifrons', 'Eulemur collaris',
+    'Leontocebus lagonotus', 'Leontocebus leucogenys',
+    'Presbytis siberu', 'Propithecus deckenii', 'Sapajus cay',
+    'Trachypithecus germaini',
   ]);
   // The "Homo" string hits are Homoscleromorpha sponges, not humans.
   assert.ok(SPECIES_CATALOGUE.filter((s) => s.class === 'Homoscleromorpha').length > 0);
