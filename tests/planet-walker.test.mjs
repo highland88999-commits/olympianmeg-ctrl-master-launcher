@@ -44,6 +44,7 @@ import {
 import {
   EARTH_WALK_ROUTE,
   EARTH_WALK_PLANET,
+  EARTH_WALK_LANDING_DIR,
   EARTH_WALK_SPAWN_FEET,
   EARTH_WALK_MOON_RADIUS,
   EARTH_WALK_MOON_DISTANCE,
@@ -339,7 +340,11 @@ test('earth walk constants: route, gravity, walk, spawn on the 55 m sphere', () 
   assert.equal(earthWalkPebblePlacements().length, EARTH_WALK_PEBBLE_COUNT, '24 Earth pebbles');
   for (const p of earthWalkRockPlacements()) {
     assert.ok(approx(vlen(p.pos), 55 - p.size * 0.3, 1e-9), 'Earth rock on the sphere');
-    assert.ok(p.pos.y / vlen(p.pos) <= Math.cos(EARTH_WALK_EXCLUDE_RAD) + 1e-9, 'Earth rock clear of the landing site');
+    // Clear of the landing site (New York City now, not the old pole):
+    // the rock's direction must stay outside the exclusion cone
+    // around the landing direction.
+    const d = (p.pos.x * EARTH_WALK_LANDING_DIR.x + p.pos.y * EARTH_WALK_LANDING_DIR.y + p.pos.z * EARTH_WALK_LANDING_DIR.z) / vlen(p.pos);
+    assert.ok(d <= Math.cos(EARTH_WALK_EXCLUDE_RAD) + 1e-9, 'Earth rock clear of the landing site');
   }
 });
 

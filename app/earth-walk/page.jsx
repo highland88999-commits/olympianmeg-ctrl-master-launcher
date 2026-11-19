@@ -19,7 +19,7 @@
 // NEW route, NEW files — the Earth 1 Mario Kart world (vehicles,
 // orbs, missiles) is untouched: nothing here imports it.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Canvas } from '@react-three/fiber';
 import { createClient } from '@supabase/supabase-js';
@@ -27,7 +27,9 @@ import EarthWalkScene from '@/components/EarthWalkScene';
 import WalkJoystick from '@/components/world/WalkJoystick';
 import OrbButton from '@/components/world/OrbButton';
 import { useVortexTravel } from '@/components/VortexTravel';
-import { EARTH_WALK_PLANET, EARTH_WALK_SPAWN_FEET } from '@/lib/earth-walk';
+import { EARTH_WALK_PLANET, EARTH_WALK_DEFAULT_LANDING, earthWalkSpawnFeet } from '@/lib/earth-walk';
+import { fetchDevicePrefs, LOCATION_ENABLED_KEY } from '@/lib/device-prefs';
+import { getUserPosition } from '@/lib/geo';
 // The Oblivion cycle (Merlin's canon, Nov 19 ~00:16): anyone
 // walking Earth when the lever is pulled is evacuated to the hub
 // to witness it. The watcher rides the same 60 s poll the hub
@@ -59,6 +61,41 @@ export default function EarthWalkPage() {
       cancelled = true;
     };
   }, []);
+
+  // Landing spot (Merlin, Nov 19, 2026): New York City by default;
+  // the user's own position when location is on and a fix is
+  // available. The scene mounts at the default immediately — entry
+  // never waits on a fix — and re-seats if one arrives.
+  const [landing, setLanding] = useState({ ...EARTH_WALK_DEFAULT_LANDING });
+  const spawnFeet = useMemo(
+    () => earthWalkSpawnFeet(landing.lat, landing.lon),
+    [landing.lat, landing.lon]
+  );
+
+  useEffect(() => {
+    if (auth !== 'open') return;
+    let cancelled = false;
+    (async () => {
+      // The onboarding location toggle is the master switch: off
+      // means New York City, and the browser is never even asked —
+      // no permission prompt for someone who turned location off.
+      const prefs = await fetchDevicePrefs(async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          return session?.access_token || null;
+        } catch { return null; }
+      });
+      if (cancelled || !prefs[LOCATION_ENABLED_KEY]) return;
+      // Session-memoized, never rejects: null on denial or when
+      // the device has no fix — the New York City default stands.
+      const pos = await getUserPosition();
+      if (cancelled || !pos) return;
+      setLanding({ lat: pos.lat, lon: pos.lon, label: 'Your location' });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth]);
 
   // Live altitude readout (200 ms — cheap DOM text, no canvas re-render).
   useEffect(() => {
@@ -127,14 +164,14 @@ export default function EarthWalkPage() {
 
   // Spawn camera: feet + surface normal · eye height at the spawn site.
   const spawnUp = {
-    x: EARTH_WALK_SPAWN_FEET.x / 55,
-    y: EARTH_WALK_SPAWN_FEET.y / 55,
-    z: EARTH_WALK_SPAWN_FEET.z / 55,
+    x: spawnFeet.x / 55,
+    y: spawnFeet.y / 55,
+    z: spawnFeet.z / 55,
   };
   const spawnCam = [
-    EARTH_WALK_SPAWN_FEET.x + spawnUp.x * EARTH_WALK_PLANET.eyeHeight,
-    EARTH_WALK_SPAWN_FEET.y + spawnUp.y * EARTH_WALK_PLANET.eyeHeight,
-    EARTH_WALK_SPAWN_FEET.z + spawnUp.z * EARTH_WALK_PLANET.eyeHeight,
+    spawnFeet.x + spawnUp.x * EARTH_WALK_PLANET.eyeHeight,
+    spawnFeet.y + spawnUp.y * EARTH_WALK_PLANET.eyeHeight,
+    spawnFeet.z + spawnUp.z * EARTH_WALK_PLANET.eyeHeight,
   ];
 
   return (
@@ -148,7 +185,7 @@ export default function EarthWalkPage() {
         // (Merlin, Nov 16, 2026 — looking down reloaded the page).
         style={{ touchAction: 'none' }}
       >
-        <EarthWalkScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} onMoonClick={goMoon} />
+        <EarthWalkScene moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} onMoonClick={goMoon} landing={landing} spawnFeet={spawnFeet} />
       </Canvas>
 
       <div
@@ -162,6 +199,9 @@ export default function EarthWalkPage() {
           <div style={{ fontSize: 20, fontWeight: 800 }}>🌍 THE EARTH</div>
           <div style={{ fontSize: 12, color: '#cfe8ff', marginTop: 4 }}>
             On foot · gravity {EARTH_WALK_PLANET.gravity.toFixed(2)} m/s² — the Moon&rsquo;s is a sixth of this
+          </div>
+          <div style={{ fontSize: 12, color: '#cfe8ff', marginTop: 4 }}>
+            📍 Landed: {landing.label}
           </div>
           <div style={{ fontSize: 12, color: '#ffd700', marginTop: 4, fontWeight: 700 }}>
             HEIGHT {hud.height.toFixed(1)} m · {hud.grounded ? 'GROUNDED' : 'AIRBORNE'}

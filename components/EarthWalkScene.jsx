@@ -34,10 +34,14 @@ import { EARTH_RADIUS } from '@/lib/god-orbits';
 import {
   EARTH_WALK_PLANET,
   EARTH_WALK_GROUND_PHOTO_URL,
+  EARTH_WALK_DEFAULT_LANDING,
   EARTH_WALK_MOON_DIR,
   EARTH_WALK_MOON_DISTANCE,
   EARTH_WALK_MOON_RADIUS,
+  EARTH_WALK_SPAWN_FEET,
+  earthWalkLandingDirFor,
   earthWalkLandingState,
+  earthWalkMoonDir,
   earthWalkRockPlacements,
   earthWalkPebblePlacements,
 } from '@/lib/earth-walk';
@@ -52,8 +56,12 @@ import {
 } from '@/lib/planet-walker';
 import { planetMaps, materialForPlanet } from '@/lib/planet-cgi/textures';
 
-// The Moon as seen from Earth: radius 14 at 180 away, 26° up.
-const MOON_POS = {
+// The Moon as seen from Earth: radius 14 at 180 away, 30° up
+// ahead of the arrival facing. The position follows the landing
+// site (lib/earth-walk.js earthWalkMoonDir): from New York City
+// the old fixed Moon sat below the horizon. Default = the New York
+// City landing.
+const DEFAULT_MOON_POS = {
   x: EARTH_WALK_MOON_DIR.x * EARTH_WALK_MOON_DISTANCE,
   y: EARTH_WALK_MOON_DIR.y * EARTH_WALK_MOON_DISTANCE,
   z: EARTH_WALK_MOON_DIR.z * EARTH_WALK_MOON_DISTANCE,
@@ -126,7 +134,7 @@ export function makeEarthDayTexture() {
   return out;
 }
 
-function MoonInSky({ onMoonClick }) {
+function MoonInSky({ onMoonClick, moonPos = DEFAULT_MOON_POS }) {
   const moonMaps = useMemo(makeMoonTexture, []);
   // Tapping the Moon lands back on it on foot (Merlin, Nov 15,
   // 2026): the hop is a plain route change, no hub detour. The
@@ -141,7 +149,7 @@ function MoonInSky({ onMoonClick }) {
       }
     : {};
   return (
-    <group position={[MOON_POS.x, MOON_POS.y, MOON_POS.z]} {...moonClick}>
+    <group position={[moonPos.x, moonPos.y, moonPos.z]} {...moonClick}>
       <mesh>
         <sphereGeometry args={[EARTH_WALK_MOON_RADIUS, 48, 32]} />
         <meshStandardMaterial map={moonMaps.map} bumpMap={moonMaps.bumpMap} bumpScale={moonMaps.bumpScale} roughness={moonMaps.roughness} metalness={0} />
@@ -150,10 +158,10 @@ function MoonInSky({ onMoonClick }) {
   );
 }
 
-function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
+function EarthWalkRig({ moveRef, jumpRef, hudRef, spawnFeet = EARTH_WALK_SPAWN_FEET }) {
   const { camera, gl } = useThree();
   // Arrive facing north (-Z, toward the Moon's azimuth) and
-  // slightly up (pitch 0.35 ≈ 20°) — the Moon hangs 26° up ahead
+  // slightly up (pitch 0.35 ≈ 20°) — the Moon hangs 30° up ahead
   // on arrival.
   const yaw = useRef(0);
   const pitch = useRef(0.35);
@@ -163,7 +171,13 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
   // arrival view.
   const yawTarget = useRef(0);
   const pitchTarget = useRef(0.35);
-  const walker = useRef(earthWalkLandingState());
+  const walker = useRef(earthWalkLandingState(spawnFeet));
+  // Re-seat when the landing spot resolves (New York City default →
+  // the user's own position). The camera rides the walker state
+  // every frame, so the view follows the re-seat on its own.
+  useEffect(() => {
+    walker.current = earthWalkLandingState(spawnFeet);
+  }, [spawnFeet]);
   const keys = useRef(new Set());
   const dragging = useRef(null);
   // Auto-center (Merlin, Nov 16, 2026 — UNIFY): on release after a
@@ -328,14 +342,30 @@ function EarthWalkRig({ moveRef, jumpRef, hudRef }) {
   return null;
 }
 
-export default function EarthWalkScene({ moveRef, jumpRef, hudRef, onMoonClick }) {
+export default function EarthWalkScene({ moveRef, jumpRef, hudRef, onMoonClick, landing = EARTH_WALK_DEFAULT_LANDING, spawnFeet = EARTH_WALK_SPAWN_FEET }) {
   // One source of truth with the hub orb (HubMoon makeMoonTexture):
   // the shared lunar maps now carry a real bump map. The maps and
   // the rock materials are cache-owned by lib/planet-cgi — never
   // disposed by a consumer.
   const earthMaps = useMemo(makeEarthDayTexture, []);
-  const rocks = useMemo(earthWalkRockPlacements, []);
-  const pebbles = useMemo(earthWalkPebblePlacements, []);
+  // The Moon and the scatter exclusion follow the landing site:
+  // the Moon hangs ahead of wherever the walker lands, and the
+  // ground stays clear there. Both re-derive when the spot
+  // resolves from the New York City default to the user's position.
+  const landingDir = useMemo(
+    () => earthWalkLandingDirFor(landing.lat, landing.lon),
+    [landing.lat, landing.lon]
+  );
+  const moonPos = useMemo(() => {
+    const d = earthWalkMoonDir(landing.lat, landing.lon);
+    return {
+      x: d.x * EARTH_WALK_MOON_DISTANCE,
+      y: d.y * EARTH_WALK_MOON_DISTANCE,
+      z: d.z * EARTH_WALK_MOON_DISTANCE,
+    };
+  }, [landing.lat, landing.lon]);
+  const rocks = useMemo(() => earthWalkRockPlacements(landingDir), [landingDir]);
+  const pebbles = useMemo(() => earthWalkPebblePlacements(landingDir), [landingDir]);
   const rockMatA = useMemo(() => materialForPlanet('rock', 'earth-rock-a'), []);
   const rockMatB = useMemo(() => materialForPlanet('rock', 'earth-rock-b'), []);
 
@@ -356,8 +386,8 @@ export default function EarthWalkScene({ moveRef, jumpRef, hudRef, onMoonClick }
 
       {/* The Moon hanging in the sky, hub scene scale (r14 at 180) —
           tap it and you land back on the Moon on foot. */}
-      <MoonInSky onMoonClick={onMoonClick} />
-      <Billboard position={[MOON_POS.x, MOON_POS.y + EARTH_WALK_MOON_RADIUS + 6, MOON_POS.z]}>
+      <MoonInSky onMoonClick={onMoonClick} moonPos={moonPos} />
+      <Billboard position={[moonPos.x, moonPos.y + EARTH_WALK_MOON_RADIUS + 6, moonPos.z]}>
         <VanGoghText fontSize={4} color="#cfe8ff" anchorX="center" anchorY="middle" outlineWidth={0.4} outlineColor="#000000">
           ◈ MOON
         </VanGoghText>
@@ -379,7 +409,7 @@ export default function EarthWalkScene({ moveRef, jumpRef, hudRef, onMoonClick }
         </mesh>
       ))}
 
-      <EarthWalkRig moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} />
+      <EarthWalkRig moveRef={moveRef} jumpRef={jumpRef} hudRef={hudRef} spawnFeet={spawnFeet} />
     </>
   );
 }
