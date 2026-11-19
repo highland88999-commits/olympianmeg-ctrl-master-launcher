@@ -13,6 +13,8 @@ import {
   TEMPLE_POSITION, TEMPLE_RISE,
   agoraDayFactor, stallSites, STOA_SIDES, STOA_COLUMN_COUNT,
   STOA_COLUMN_SPACING, STOA_COLUMN_HEIGHT, oliveTreeSites,
+  streetLampSites, STREET_LAMP_HEIGHT,
+  STREET_LAMP_LIGHT_INTENSITY, STREET_LAMP_LIGHT_DISTANCE,
 } from '@/lib/agora/world';
 import { materialForAgora } from '@/lib/agora/textures';
 import {
@@ -30,10 +32,14 @@ import StreamingGround from '@/components/infinite/StreamingGround';
 // day/night rig, crowd operators as pure functions of the device
 // clock, the Meltemi breeze. Modes: 'orbit' overview, 'walk'
 // (WASD + stick, flat square, eye 1.7 m). No vehicles in a
-// market square — this world is walked, not driven. No new real
-// lights anywhere: window and temple glow are unlit
-// MeshBasicMaterial (emissive only), and the only lights are the
-// shared DayNightRig's, exactly as Mars 2 runs it.
+// market square — this world is walked, not driven. Street lamps
+// (Merlin, Nov 19, 2026): eight iron lamps ring the square
+// between the stalls; every head glows warm after dark, and
+// every other lamp carries a real warm point light (four in
+// all) — the Nov 3 real-lights rule, kept to the house
+// compromise (Babel: many emissive lamps, few real lights),
+// because the forward renderer pays every light in every
+// fragment. The only other lights are the shared DayNightRig's.
 
 // ENDLESS (Wave 4, Nov 18, 2026): the old WALK_RADIUS = 40 clamp
 // is gone — the walker roams on while the cobbled ground streams
@@ -482,6 +488,60 @@ function Stalls() {
   );
 }
 
+// --- street lamps -----------------------------------------------------------
+// Eight iron lamps ring the square between the stalls (lib/agora/
+// world.js streetLampSites): pole, glowing head, cap. Every head
+// is warm emissive, brighter after dark — the same night drive
+// as the temple glow and the lit windows. Every other lamp also
+// carries a REAL warm point light (four in all, the Nov 3 rule):
+// a pool of real light on the cobbles around it, dark by day
+// (intensity rides 1 - dayF), full at night. No shadows on the
+// lamp lights — the rig's sun owns shadows; four more shadow
+// maps would cost the phone for nothing.
+function StreetLamps({ dayF }) {
+  const sites = useMemo(() => streetLampSites(), []);
+  const poleMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#2a2d33', roughness: 0.6, metalness: 0.5,
+  }), []);
+  const headMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#fff2cc', emissive: '#ffb35a', emissiveIntensity: 0.25,
+  }), []);
+  useFrame(() => {
+    headMat.emissiveIntensity = 0.25 + 1.6 * (1 - dayF);
+  });
+  useEffect(() => () => { poleMat.dispose(); headMat.dispose(); }, [poleMat, headMat]);
+  const nightF = 1 - dayF;
+  return (
+    <group>
+      {sites.map((s) => (
+        <group key={s.key} position={[s.x, 0, s.z]}>
+          {/* iron pole */}
+          <mesh position={[0, STREET_LAMP_HEIGHT / 2, 0]} material={poleMat}>
+            <cylinderGeometry args={[0.09, 0.14, STREET_LAMP_HEIGHT, 8]} />
+          </mesh>
+          {/* glowing head */}
+          <mesh position={[0, STREET_LAMP_HEIGHT + 0.25, 0]} material={headMat}>
+            <sphereGeometry args={[0.32, 12, 10]} />
+          </mesh>
+          {/* cap */}
+          <mesh position={[0, STREET_LAMP_HEIGHT + 0.58, 0]} material={poleMat}>
+            <coneGeometry args={[0.42, 0.32, 8]} />
+          </mesh>
+          {s.realLight && (
+            <pointLight
+              position={[0, STREET_LAMP_HEIGHT + 0.25, 0]}
+              color="#ffb35a"
+              intensity={nightF * STREET_LAMP_LIGHT_INTENSITY}
+              distance={STREET_LAMP_LIGHT_DISTANCE}
+              decay={2}
+            />
+          )}
+        </group>
+      ))}
+    </group>
+  );
+}
+
 // --- the crowd ---------------------------------------------------------------
 // Procedural people — capsule tunic, sphere head — driven by the
 // operators (lib/agora/operators.js): vendors at their stalls,
@@ -720,6 +780,7 @@ function SceneContent({ timeOfDay, mode, inputRef }) {
       <Houses dayF={dayF} />
       <OliveTrees />
       <Stalls />
+      <StreetLamps dayF={dayF} />
       <Crowd />
       <AgoraWeather dayF={dayF} />
 

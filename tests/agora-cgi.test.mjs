@@ -338,12 +338,22 @@ describe('agora mechanics still wired', () => {
     assert.ok(read('app/agora/profile/[id]/page.jsx').includes("from('agora_profiles').upsert"), 'profile saving still wired');
   });
 
-  it('the scene adds no new real lights — glow is emissive only, light comes from the shared rig', () => {
+  it('the street lamps carry real light — four point lights on alternating lamps, nothing else new', () => {
+    // The scene's original "no new real lights" design (Nov 15)
+    // is OVERRIDDEN for the lamps by Merlin's Nov 3 real-lights
+    // rule + his Nov 19 order to add street lights: every lamp
+    // head glows, and every other lamp carries a real warm
+    // point light (four in all, the Babel compromise). No other
+    // new light of any kind — the window and temple glow stay
+    // emissive-only, and light otherwise comes from the rig.
     const scene = read('components/agora/AgoraScene.jsx');
-    assert.ok(!scene.includes('PointLight'), 'no point lights');
-    assert.ok(!scene.includes('SpotLight'), 'no spot lights');
-    assert.ok(!scene.includes('DirectionalLight'), 'no directional lights');
-    assert.ok(!scene.includes('new THREE') || !scene.match(/new THREE\.(Point|Spot|Directional|Hemisphere)Light/), 'no THREE light constructors');
+    assert.ok(scene.includes('StreetLamps'), 'lamps mounted');
+    assert.ok(scene.includes('streetLampSites'), 'lamp sites from the world');
+    assert.ok(scene.includes('pointLight'), 'four real lamp lights');
+    assert.ok(!scene.includes('spotLight'), 'no spot lights');
+    assert.ok(!scene.includes('directionalLight'), 'no directional lights');
+    assert.ok(!scene.includes('new THREE.PointLight'), 'no imperative point-light constructors');
+    assert.ok(!scene.includes('new THREE.SpotLight'), 'no imperative spot-light constructors');
     for (const needle of [
       'DayNightRig', 'materialForAgora', 'lifeFor', 'meltemiWindAt',
       'makePollenField', 'OrbitControls', 'TouchControls',
