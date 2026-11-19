@@ -381,7 +381,7 @@ function LandingSetupFrame({ onContinue }) {
               </span>
             )}
           </div>
-          <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-3 overflow-y-auto p-4">
+          <div className="grid min-h-0 flex-1 auto-rows-max grid-cols-3 content-start gap-3 overflow-y-auto p-4">
             {CHARACTERS.map((c) => (
               <button
                 key={c.id}
@@ -389,12 +389,16 @@ function LandingSetupFrame({ onContinue }) {
                 onClick={() => pickCharacter(c.id)}
                 aria-label={c.name}
                 title={c.name}
-                // aspect-square lives on the BUTTON: the track sizes
-                // to it, so every tile is a real square the portrait
-                // fills. (Before: the ratio was on the img only, the
-                // tracks sized to ~0, buttons collapsed to 4 px and
-                // every portrait clipped invisible — the empty grid
-                // and the moving gold strip in Merlin's video.)
+                // Rows size to their content: `auto-rows-max` makes
+                // each track take the tile's max-content height.
+                // (Before: the default `auto` tracks sized to the
+                // buttons' MINIMUM contribution — and a button with
+                // `overflow-hidden` has an automatic minimum of ~0,
+                // so the rows sized to ~5 px and every tile
+                // overlapped the next, even though the aspect-ratio
+                // paints each tile square. The tile img is `h-auto`
+                // so its height comes from its own 1:1 ratio, not a
+                // percentage of the track.)
                 className={`ui-element pointer-events-auto aspect-square overflow-hidden rounded-xl border-2 bg-zinc-900 transition-all active:scale-95 ${c.id === characterId ? 'border-amber-300 shadow-[0_0_12px_rgba(251,191,36,0.5)]' : 'border-transparent hover:border-zinc-600'}`}
               >
                 <img
@@ -404,7 +408,7 @@ function LandingSetupFrame({ onContinue }) {
                   draggable={false}
                   loading="lazy"
                   onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                  className="h-full w-full object-cover"
+                  className="w-full h-auto object-cover"
                 />
               </button>
             ))}

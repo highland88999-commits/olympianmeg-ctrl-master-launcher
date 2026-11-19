@@ -85,19 +85,27 @@ describe('landing setup step 1: picker sits in flow under its heading', () => {
   it('heading, preview, then grid — in that order, top-anchored', () => {
     const f = src('components/FintracExplanation.jsx');
     const heading = f.indexOf('Pick your character');
-    const grid = f.indexOf('grid min-h-0 flex-1 grid-cols-3');
+    const grid = f.indexOf('grid min-h-0 flex-1 auto-rows-max grid-cols-3');
     assert.ok(heading > 0 && grid > heading, 'heading must come before the grid');
     // The grid takes the remaining height and scrolls inside the panel.
-    assert.match(f, /grid min-h-0 flex-1 grid-cols-3 content-start gap-3 overflow-y-auto p-4/);
+    // auto-rows-max: each row takes the tile's max-content height —
+    // the default auto tracks sized to the buttons' ~0 minimum
+    // (overflow-hidden) and every tile overlapped the next.
+    assert.match(f, /grid min-h-0 flex-1 auto-rows-max grid-cols-3 content-start gap-3 overflow-y-auto p-4/);
   });
 });
 
 describe('landing setup step 1: grid tiles are real squares', () => {
-  it('the ratio lives on the button, so the track sizes to a square', () => {
+  it('the rows size to the tiles (auto-rows-max) and the ratio paints the button square', () => {
     const f = src('components/FintracExplanation.jsx');
     assert.match(f, /aspect-square overflow-hidden rounded-xl border-2 bg-zinc-900/);
-    // The img fills the button instead of carrying the ratio itself.
-    assert.match(f, /className="h-full w-full object-cover"/);
+    // The rows take the tile's max-content height — default auto
+    // tracks sized to the buttons' ~0 minimum (overflow-hidden)
+    // and every row overlapped the next by ~70 px.
+    assert.match(f, /auto-rows-max grid-cols-3/);
+    // The img fills the button from its own 1:1 ratio, not a
+    // percentage of the track.
+    assert.match(f, /className="w-full h-auto object-cover"/);
     // A tile with no preview file still reads as a dark square.
     assert.match(f, /rounded-xl border-2 bg-zinc-900/);
   });
