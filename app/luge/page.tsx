@@ -9,6 +9,8 @@ import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { LUGE_COURSES, LUGE_SLEDS, LUGE_PREMIUM_IDS, LUGE_PREMIUM_COUNT } from '@/lib/luge_data';
 import {
   generateZones,
@@ -858,6 +860,8 @@ export default function LugeEngine() {
   // run could not be recorded server-side (it was silently swallowed before).
   const [recordError, setRecordError] = useState('');
 
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
   // ---------- PvP race state ----------
   // Solo flow ('menu' -> 'pre_race_calibrate' -> 'racing' -> 'podium') is
   // untouched: every PvP field below is null/inactive unless a race room
@@ -912,6 +916,43 @@ export default function LugeEngine() {
   // recording once per run and ignores the rest. Re-armed on race start.
   const finishGuardRef = useRef(null);
   if (finishGuardRef.current === null) finishGuardRef.current = createFinishGuard();
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+
+  // Pack Leader (PvP): rank 1 in a race. pvpOutcome settles once per race
+  // (every beacon finished or timeout), so this effect fires once per race;
+  // the server dedupes repeat grants.
+  // NOTE: the grant route verifies PvP wins via pvp_matches — no match
+  // records are written anywhere yet, so this 403s until that path exists.
+  useEffect(() => {
+    if (!pvpOutcome) return;
+    if (pvpOutcome.results?.[0]?.userId === userIdRef.current) {
+      award('luge-pack-leader');
+    }
+  }, [pvpOutcome]);
+
+  // Ice Bullet: a top-10 leaderboard time on any track. The board is
+  // refreshed after every finish (with this run's row on it), so the rank
+  // is read straight off it. Matched by callsign + exact penalised time.
+  useEffect(() => {
+    if (!lastRun || !pvpBoard.length) return;
+    const me = pvpCallsignRef.current || 'Rider';
+    const idx = pvpBoard.findIndex((e) => e.player === me && e.timeMs === lastRun.runMs);
+    if (idx >= 0 && idx < 10) award('luge-ice-bullet');
+  }, [pvpBoard, lastRun]);
   // Obstacle hits this run (mirrors the track's per-race tracker; the
   // finish adds +2 s per hit to the recorded time).
   const hitCountRef = useRef(0);
@@ -1528,6 +1569,11 @@ export default function LugeEngine() {
     });
     const finishSledId = isPvp ? pvpSledIdRef.current : selectedSled.id;
 
+    // Achievements: any finish counts as a first run (the server dedupes
+    // repeats). Ice Bullet is a top-10 board time — evaluated by the
+    // board effect below, once the refreshed board lands.
+    award('luge-first-run');
+
     if (isPvp) {
       pvpFinishedRef.current = true;
       if (pvpBeaconTimerRef.current) { clearInterval(pvpBeaconTimerRef.current); pvpBeaconTimerRef.current = null; }
@@ -1602,11 +1648,14 @@ export default function LugeEngine() {
     } catch {
       // Eligibility is a display refresh, never a blocker.
     }
-    void submitGlobalTime();
+    // The leaderboard POST is awaited before the board refreshes, so the
+    // board the rider sees (and the Ice Bullet check below) includes this
+    // run's row — previously both fired at once and the row often missed.
+    await submitGlobalTime();
     // The board used to refresh only when the course changed, so a rider
     // who had just finished still saw the pre-race board. Refresh it now
     // so the new time is visible immediately.
-    void refreshBoard(selectedCourse.id);
+    await refreshBoard(selectedCourse.id);
 
     if (isPvp) {
       // The beacon poll keeps running: the results board fills in live as
@@ -2324,6 +2373,11 @@ export default function LugeEngine() {
         </div>
         );
       })}
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </>
   );
 }

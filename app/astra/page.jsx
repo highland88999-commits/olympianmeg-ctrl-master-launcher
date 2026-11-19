@@ -7,6 +7,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AresBackdrop, AresButton, AresIcon, ARES } from "@/components/ares/ares-chrome";
+import { supabase } from "@/lib/supabase";
+import { grantAchievement } from "@/lib/achievements/award";
+import AchievementBanner from "@/components/achievements/AchievementBanner";
 import {
   FIELD,
   PLAYER_CFG,
@@ -33,6 +36,28 @@ export default function Astra() {
   const [endStats, setEndStats] = useState(null);
   const [best, setBest] = useState(0);
   const reducedRef = useRef(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const killAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: astra-iron-hull ("complete a full patrol run without losing your
+  // ship") is NOT wired: no patrol-completion event exists in code — a run
+  // ends only when the ship is lost (gameOver). Granting it on a boss kill
+  // would misrepresent it, so it stays unwired pending a real definition.
 
   useEffect(() => {
     try {
@@ -286,6 +311,7 @@ export default function Astra() {
           if (e.type === "bossDown") shake = Math.max(shake, 12);
           if (e.type === "gameOver") {
             setEndStats({ kills: e.kills, level: e.level });
+            if (e.kills >= 50) award("astra-ace");
             setBest((prev) => {
               const nb = Math.max(prev, e.kills);
               try {
@@ -306,6 +332,12 @@ export default function Astra() {
           hyperReady: b.player.hyperT <= 0,
           seekerReady: b.player.seekerT <= 0,
         });
+        // First kill: the engine pushes no kill event (registerKill only
+        // bumps the counter), so the frame loop watches the counter.
+        if (b.kills >= 1 && !killAwardedRef.current) {
+          killAwardedRef.current = true;
+          award("astra-first-kill");
+        }
         chunkOffset = (chunkOffset + dt * 260) % 220;
       }
 
@@ -465,6 +497,7 @@ export default function Astra() {
 
   const start = () => {
     battleRef.current = createBattle((Date.now() % 100000) | 0);
+    killAwardedRef.current = false;
     inputRef.current = { dx: 0, dy: 0, cannon: false, seeker: false, hyper: false };
     setScreen("play");
   };
@@ -784,6 +817,11 @@ export default function Astra() {
 
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

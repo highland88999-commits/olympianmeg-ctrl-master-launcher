@@ -29,6 +29,8 @@ import {
 } from '@/lib/raptor-rush/storage';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { fx, unlockFx } from '@/lib/fx';
 import CharacterToken from '@/components/characters/CharacterToken';
 import {
@@ -103,6 +105,43 @@ export default function RaptorRushPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveNote, setSaveNote] = useState('');
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const feastAwardedRef = useRef(false);
+  const alphaAwardedRef = useRef(false);
+  const savedNameRef = useRef('');
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+
+  // Alpha (PvP): rank 1 in a party hunt. Party rooms are real hunters
+  // only (no NPC backfill), so every board row is human. Evaluated once
+  // the player's own saved score is on the board (the poll refreshes it).
+  // NOTE: the grant route verifies PvP wins via pvp_matches — no match
+  // records are written anywhere yet, so this 403s until that path exists.
+  useEffect(() => {
+    if (match?.kind !== 'party' || phase !== 'over' || screen !== 'game') return;
+    if (alphaAwardedRef.current || !savedNameRef.current || roomScores.length < 2) return;
+    const mine = roomScores.find((s) => s.player_name === savedNameRef.current && s.score === score);
+    if (!mine) return;
+    const rank = 1 + roomScores.filter((s) => s.score > mine.score).length;
+    if (rank === 1) {
+      alphaAwardedRef.current = true;
+      award('raptor-rush-alpha');
+    }
+  }, [roomScores, match, phase, screen, score]);
   // Wave 5: the picked runner (registry record) or null = the
   // native code-art raptor. runnerRef mirrors it for the renderer,
   // which is created inside an effect closure.
@@ -130,7 +169,13 @@ export default function RaptorRushPage() {
     setIntensity(level);
     // --- game-feel FX edges -----------------------------------------------
     const prev = fxPrevRef.current;
-    if (g.prey > prev.prey) fx.coin(); // rabbit eaten: bright pickup chirp
+    if (g.prey > prev.prey) {
+      fx.coin(); // rabbit eaten: bright pickup chirp
+      if (!feastAwardedRef.current) {
+        feastAwardedRef.current = true;
+        award('raptor-rush-first-feast');
+      }
+    }
     const died = g.hearts <= 0 && prev.hearts > 0;
     if (g.hearts < prev.hearts && !died) fx.hit(); // rock hit: dull thud
     if (level > prev.level) fx.checkpoint(); // escalation level up: soft chime
@@ -142,6 +187,7 @@ export default function RaptorRushPage() {
         setTimeUp(!!g.timedOut);
         if (g.timedOut) fx.gameWin(); // party match ended on the clock: fanfare
         else fx.death(); // 3 hits: the hunt is over
+        if (g.score >= 5000) award('raptor-rush-apex-predator');
         if (g.score > bestRef.current) {
           bestRef.current = g.score;
           setBest(g.score);
@@ -157,6 +203,9 @@ export default function RaptorRushPage() {
     if (!g) return;
     fx.tap(); // run confirmed
     fxPrevRef.current = { prey: 0, hearts: 3, level: 0 };
+    feastAwardedRef.current = false;
+    alphaAwardedRef.current = false;
+    savedNameRef.current = '';
     setNewBest(false);
     setSaved(false);
     setSaveNote('');
@@ -382,6 +431,7 @@ export default function RaptorRushPage() {
     if (!g || saving || saved) return;
     setSaving(true);
     const name = sanitizeName(playerName);
+    savedNameRef.current = name;
     try { localStorage.setItem(NAME_KEY, name); } catch { /* ignore */ }
     setCallsign(name);
     const { ok, missing, guest } = await submitScore({
@@ -750,6 +800,11 @@ export default function RaptorRushPage() {
           </div>
         </div>
       )}
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </main>
   );
 }

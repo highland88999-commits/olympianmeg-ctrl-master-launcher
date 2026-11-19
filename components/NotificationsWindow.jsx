@@ -1,8 +1,8 @@
 // components/NotificationsWindow.jsx — floating notification inbox.
 // A separate floating window (not a page, not a toast): friend requests and
 // group invites with accept/decline, system messages, and an achievements
-// section that is a defined-later seam (data model ready, UI shows a tasteful
-// empty state until achievements are defined).
+// section that lists the user's earned achievements (via
+// lib/achievements/panel.js, which reads GET /api/achievements?mine=1).
 //
 // Graphic slot: /images/ui/notifications-header.png (21:9, 800px wide) is
 // rendered as the window header art when Merlin's graphic lands; an elegant

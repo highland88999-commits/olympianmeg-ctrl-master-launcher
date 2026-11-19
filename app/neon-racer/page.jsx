@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import {
   createGame,
   startGame,
@@ -40,6 +43,25 @@ export default function NeonRacerPage() {
   const [phase, setPhase] = useState('ready'); // ready | playing | won | lost
   const [finalScore, setFinalScore] = useState(0);
   const [muted, setMuted] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const shardsTakenRef = useRef(0);
+  const ringsUsedRef = useRef(0);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
 
   // --- DIONYSUS interior treatment: ambient menu backdrop (video only off-gameplay) ---
   const NR_BG = '/images/neon-racer/bg.webp';
@@ -125,6 +147,8 @@ export default function NeonRacerPage() {
         updateGame(game, dt);
 
         for (const ev of drainEvents(game)) {
+          if (ev.type === 'pickup') shardsTakenRef.current += 1;
+          else if (ev.type === 'warp') ringsUsedRef.current += 1;
           if (ev.type === 'shoot') fx.shoot(); // laser: light zap + tick
           else if (ev.type === 'explosion') fx.hit(); // ship destroyed: impact
           else if (ev.type === 'pickup') fx.coin(); // pickup: bright chirp
@@ -143,6 +167,14 @@ export default function NeonRacerPage() {
           lastPhase = game.phase;
           setFinalScore(game.score);
           setPhase(game.phase);
+          if (game.phase === 'won') {
+            award('neon-racer-first-flight');
+            if (ringsUsedRef.current >= 5) award('neon-racer-wormrider');
+            // Star Surfer (100 shards) is wired but unearnable as shipped:
+            // shards spawn every 2.2–3.8s over a 90s mission (max ~41).
+            // It fires if the count ever reaches 100.
+            if (shardsTakenRef.current >= 100) award('neon-racer-star-surfer');
+          }
         }
 
         // HUD (direct DOM — no re-render churn).
@@ -219,6 +251,8 @@ export default function NeonRacerPage() {
     if (!game) return;
     unlockFx(); // starting is a gesture: make sure FX is live
     fx.tap(); // run confirmed
+    shardsTakenRef.current = 0;
+    ringsUsedRef.current = 0;
     startGame(game);
     setFinalScore(0);
     setPhase('playing');
@@ -369,6 +403,11 @@ export default function NeonRacerPage() {
       </div>
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

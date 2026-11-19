@@ -31,6 +31,9 @@ import { MAPS, mapByKey, buildObstacles, buildSpawns, OBSTACLE_STYLE } from '@/l
 import { buildEnyoDressing } from '@/lib/enyo/cgi';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 
@@ -1562,6 +1565,26 @@ export default function EnyoPage() {
   const [muted, setMuted] = useState(false);
   const [result, setResult] = useState(null);
   const [reduced, setReduced] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const fragAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: enyo has no PvP mode in code (bots only) — there is no PvP key
+  // for enyo, so nothing here is gated on PvP.
   const [joy, setJoy] = useState({ active: false, dx: 0, dy: 0 });
 
   useEffect(() => {
@@ -1594,6 +1617,7 @@ export default function EnyoPage() {
   const deploy = useCallback(() => {
     fx.tap(); // menu confirm: deploying into the arena
     destroyEngine();
+    fragAwardedRef.current = false;
     setFeed([]);
     setResult(null);
     setHitmark(null);
@@ -1616,6 +1640,10 @@ export default function EnyoPage() {
         },
         hitmarker: (killed) => {
           setHitmark({ n: Date.now(), killed });
+          if (killed && !fragAwardedRef.current) {
+            fragAwardedRef.current = true;
+            award('enyo-first-frag');
+          }
         },
         damageDir: (rel) => {
           const id = Date.now();
@@ -1636,6 +1664,8 @@ export default function EnyoPage() {
         gameOver: (r) => {
           setResult(r);
           setPhase('over');
+          if (r.kills >= 10) award('enyo-rampage');
+          if (r.won && r.deaths === 0) award('enyo-untouchable');
         },
       }
     );
@@ -2087,6 +2117,11 @@ export default function EnyoPage() {
           </AresPanel>
         </div>
       )}
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

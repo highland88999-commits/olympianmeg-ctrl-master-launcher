@@ -7,6 +7,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { createMachine, STATES } from './stateMachine.js';
 import { createIceMonsterScene } from './scene.js';
 
@@ -51,6 +54,29 @@ export default function IceMonsterPage() {
   const [phase, setPhase] = useState(STATES.IDLE);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [trustBanner, setTrustBanner] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: this is a TRUST game, not a boss fight — there is no damage, no
+  // defeat, and the monster never hurts the player. ice-monster-first-blood
+  // ("land your first hit") is NOT wired: no damage mechanic exists. Monster
+  // Slayer maps to the behemoth kneeling (TRUSTED, the game's only win);
+  // Flawless Hunt fires with it because no damage can ever be taken — any
+  // trust completion is damage-free by construction.
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -119,6 +145,8 @@ export default function IceMonsterPage() {
           bannerShownRef.current = true;
           setTrustBanner(true);
         }
+        award('ice-monster-monster-slayer');
+        award('ice-monster-flawless-hunt');
         setPhase(STATES.INSIDE);
         return; // loop ends; the behemoth kneels and settles
       } else if (next === STATES.INSIDE) {
@@ -165,6 +193,8 @@ export default function IceMonsterPage() {
         bannerShownRef.current = true;
         setTrustBanner(true);
       }
+      award('ice-monster-monster-slayer');
+      award('ice-monster-flawless-hunt');
       setPhase(machine.getState());
       return;
     }
@@ -341,6 +371,11 @@ export default function IceMonsterPage() {
       `}</style>
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import { grantAchievement } from "@/lib/achievements/award";
+import AchievementBanner from "@/components/achievements/AchievementBanner";
 import {
   createGame,
   step,
@@ -24,6 +27,23 @@ export default function OrbitalAscentPage() {
   const levelLabelRef = useRef(null);
   const [overlay, setOverlay] = useState({ kind: "menu", text: "" });
   const gameRef = useRef(null);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
 
   // --- DIONYSUS interior treatment ---
   const OA_BG = "/images/orbital-ascent/bg.webp";
@@ -211,8 +231,15 @@ export default function OrbitalAscentPage() {
       // reduced-motion too; only decorative motion is stilled in draw().
       const events = step(game, dt);
       for (const e of events) {
+        if (e.type === "land") {
+          if (e.quality === "perfect" || e.quality === "good") award("orbital-ascent-first-boost");
+          if (e.level >= 50) award("orbital-ascent-high-flyer");
+        }
         if (e.type === "lost") setOverlay({ kind: "lost", text: `You fell. Highest level reached: ${e.highest}` });
-        if (e.type === "won") setOverlay({ kind: "won", text: "You reached level 99 — the top of the tower." });
+        if (e.type === "won") {
+          award("orbital-ascent-summit");
+          setOverlay({ kind: "won", text: "You reached level 99 — the top of the tower." });
+        }
       }
       draw(now);
       raf = requestAnimationFrame(frame);
@@ -315,6 +342,11 @@ export default function OrbitalAscentPage() {
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
     <div aria-hidden="true" style={{ height: 'calc(4.5rem + env(safe-area-inset-bottom))' }} />
+    <AchievementBanner
+      achievementKey={celebrateKey}
+      show={!!celebrateKey}
+      onDismiss={() => setCelebrateKey(null)}
+    />
     </>
   );
 }

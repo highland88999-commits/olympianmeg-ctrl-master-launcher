@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { AresBackdrop, AresButton, AresIcon, AresPanel, ARES } from '@/components/ares/ares-chrome';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
 import {
   circleHit,
@@ -62,6 +65,29 @@ export default function ZeusProtocolPage() {
   const [screen, setScreen] = useState('menu'); // menu | playing | gameover | paused
   const [hud, setHud] = useState({ score: 0, level: 1, lives: 5, powerup: null, highScore: 0 });
   const gameRef = useRef(null);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const strikeAwardedRef = useRef(false);
+  const waveAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: zeus-protocol-god-of-thunder ("clear the campaign on the hardest
+  // difficulty") is NOT wired: the game has no difficulty selection and no
+  // campaign end — levels advance endlessly. It stays unwired until those
+  // exist. "Wave" here is the level number.
 
   // ---------------------------------------------------------------
   // Boot the game engine once.
@@ -299,6 +325,10 @@ export default function ZeusProtocolPage() {
       G.enemies.splice(idx, 1);
       G.state.score += KILL_SCORE;
       G.state.kills += 1;
+      if (!strikeAwardedRef.current) {
+        strikeAwardedRef.current = true;
+        award('zeus-protocol-first-strike');
+      }
       // The Land of the Dead (Merlin, Nov 16 ~04:17): every enemy
       // kill arrives there too — additive only, the score/kills above
       // are untouched. killEnemy is the single choke point (lasers,
@@ -309,6 +339,10 @@ export default function ZeusProtocolPage() {
       if (Math.random() < 0.1) spawnPowerup(e.x, e.y);
       if (G.state.kills >= killsToAdvance(G.state.level)) {
         advanceLevel(G.state);
+        if (G.state.level >= 10 && !waveAwardedRef.current) {
+          waveAwardedRef.current = true;
+          award('zeus-protocol-wave-breaker');
+        }
         clearEntities();
         explode(G.w / 2, G.h * 0.4, '#ffd700', 70);
       }
@@ -792,6 +826,8 @@ export default function ZeusProtocolPage() {
     G.start = () => {
       G.state = initialState();
       G.state.highScore = loadHighScore();
+      strikeAwardedRef.current = false;
+      waveAwardedRef.current = false;
       clearEntities();
       G.particles = [];
       G.frame = 0;
@@ -939,6 +975,11 @@ export default function ZeusProtocolPage() {
     </main>
     {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
     <div aria-hidden="true" className="player-clear" />
+    <AchievementBanner
+      achievementKey={celebrateKey}
+      show={!!celebrateKey}
+      onDismiss={() => setCelebrateKey(null)}
+    />
     </>
   );
 }

@@ -23,6 +23,9 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { BackButton } from '@/components/ui';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { AresIcon, AresLoader, AresEmpty } from '@/components/ares/ares-chrome';
 import {
   buildDeck,
@@ -73,6 +76,23 @@ export default function StarbloodPage() {
   const [phase, setPhase] = useState('ready'); // ready | dealing | playing | won
   const [flips, setFlips] = useState(0);
   const [matches, setMatches] = useState(0);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
 
   const [boardOpen, setBoardOpen] = useState(false);
   const [boardState, setBoardState] = useState('idle'); // idle | loading | ready | offline
@@ -227,6 +247,7 @@ export default function StarbloodPage() {
       b.classList.add('matched');
       eng.matches += 1;
       setMatches(eng.matches);
+      if (eng.matches === 1) award('starblood-first-pair');
       setTimeout(() => {
         a.style.display = 'none';
         b.style.display = 'none';
@@ -244,6 +265,9 @@ export default function StarbloodPage() {
 
   function win() {
     setPhase('won');
+    award('starblood-clear-board');
+    // Perfect Recall: cleared in 12 pair-attempts or fewer (2 flips per move).
+    if (Math.round(engine.current.flips / 2) <= 12) award('starblood-perfect-recall');
     setBoardOpen(true);
     fetchBoard();
   }
@@ -464,6 +488,12 @@ export default function StarbloodPage() {
           </div>
         </div>
       )}
+
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

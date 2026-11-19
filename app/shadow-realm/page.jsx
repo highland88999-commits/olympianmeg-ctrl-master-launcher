@@ -43,6 +43,8 @@ import VehicleSelectMenu from '@/components/world/VehicleSelectMenu';
 import { shadowRealmBikeOptions } from '@/lib/world/vehicle-select';
 import { useFullscreen } from '@/lib/use-fullscreen';
 import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 // Drop-2 netcode: PvP track matches + open-world presence.
 import {
   RACE_BEACON_MS,
@@ -258,6 +260,36 @@ function ShadowRealmInner() {
   const [hud, setHud] = useState({ speed: 0, lap: 1, lapsTotal: 3, time: 0, progress: 0 });
   const [lastLap, setLastLap] = useState(null);
   const [result, setResult] = useState(null);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+
+  // Race-win achievement check off a finished race's standings: rank 1 +
+  // zero trail deaths is a Neon Survivor; a PvP bump-race win is a Grid
+  // Lord. A "crash" here is a trail death (killPlayer in scene.jsx) — the
+  // hud's deaths count. NOTE: the grant route verifies PvP wins via
+  // pvp_matches — no match records are written anywhere yet, so the Grid
+  // Lord grant 403s until that path exists.
+  const awardRaceWin = (standings, pvpBump) => {
+    const mine = (standings || []).find((s) => s.isPlayer);
+    if (!mine || mine.rank !== 1) return;
+    if ((hudRef.current?.deaths || 0) === 0) award('shadow-realm-neon-survivor');
+    if (pvpBump) award('shadow-realm-grid-lord');
+  };
   // BUMP RACE: heat-flash screen feedback on flame hits.
   const [heatFlash, setHeatFlash] = useState(false);
   const heatFlashTimer = useRef(null);
@@ -964,6 +996,8 @@ function ShadowRealmInner() {
 
   const handleFinish = (res) => {
     try { fx.victory(); } catch { /* best-effort */ }
+    // Any finished race/bump counts as a first ride (the server dedupes).
+    award('shadow-realm-first-ride');
     // Finish rollout (Merlin 2026-10-03): the Rig coasts the bike to a stop
     // (s.finished, no input) — hold the ride stage ~2s so the coast is
     // visible behind the results, then show the finish screen.
@@ -1014,7 +1048,9 @@ function ShadowRealmInner() {
           });
         }
       }
-      setResult({ ...res, standings: sortBumpStandings(entries), mode: 'bump', bumpWin: !!res?.bumpWin });
+      const bumpStandings = sortBumpStandings(entries);
+      setResult({ ...res, standings: bumpStandings, mode: 'bump', bumpWin: !!res?.bumpWin });
+      awardRaceWin(bumpStandings, netActiveRef.current === 'pvp');
       showFinish();
       return;
     }
@@ -1023,7 +1059,9 @@ function ShadowRealmInner() {
     if (netActiveRef.current === 'pvp') {
       const finishMs = Math.max(1, Date.now() - (pvpStartsAtRef.current || Date.now()));
       void sendBeaconNow(true, finishMs);
-      setResult({ ...res, standings: pvpStandings(finishMs) });
+      const standings = pvpStandings(finishMs);
+      setResult({ ...res, standings });
+      awardRaceWin(standings, false);
       showFinish();
       return;
     }
@@ -1032,6 +1070,7 @@ function ShadowRealmInner() {
       botsRef.current
     );
     setResult({ ...res, standings });
+    awardRaceWin(standings, false);
     showFinish();
   };
 
@@ -1808,6 +1847,11 @@ function ShadowRealmInner() {
           </div>
         </div>
       )}
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

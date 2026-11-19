@@ -25,6 +25,8 @@ import {
   resolveProfileFighter, LOCKED_LABEL,
 } from '../../lib/kombat/select.js';
 import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { ARENA_META } from './arenas';
 import ControllerLayer from '../../components/controls/ControllerLayer.jsx';
 import { duelPads, brawlPads } from '../../lib/kombat/pads.js';
@@ -302,6 +304,11 @@ function FightScreen({ config, onExit, onReloadArena }) {
   const comboTimer = useRef(null);
   const fatalityTimer = useRef(null);
   const deniedTimer = useRef(null);
+  // Flawless Victory tracking: set the first time the player's health drops
+  // below full (any round). The screen remounts per match (key), so this
+  // resets with every fight. Distinct from the engines' `flawless` flag,
+  // which means "won every round", not "took no damage".
+  const damageTakenRef = useRef(false);
 
   const showBanner = useCallback((text, sub) => {
     setBanner((b) => ({ text, sub, key: b.key + 1 }));
@@ -333,7 +340,10 @@ function FightScreen({ config, onExit, onReloadArena }) {
         cpuSpecials: config.cpuSpecials,
         arena: config.arenaIdx,
         hooks: {
-          onHud: (h) => setHud(h),
+          onHud: (h) => {
+            if (h.p1 < 0.999) damageTakenRef.current = true;
+            setHud(h);
+          },
           onSpecialDenied: (idx) => flashDenied(idx),
           onAnnounce: (text, sub) => showBanner(text, sub || ''),
           onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
@@ -349,7 +359,7 @@ function FightScreen({ config, onExit, onReloadArena }) {
           },
           onSummoning: (active) => setSummoning(active),
           onContextLost: (active) => setGlLost(active),
-          onMatchEnd: (result) => onExit(result),
+          onMatchEnd: (result) => onExit({ ...result, damageTaken: damageTakenRef.current }),
         },
       });
     } catch {
@@ -1153,6 +1163,11 @@ function BrawlFightScreen({ config, onExit, onReloadArena }) {
   const comboTimer = useRef(null);
   const fatalityTimer = useRef(null);
   const deniedTimer = useRef(null);
+  // Flawless Victory tracking: set the first time the player's health drops
+  // below full (any round). The screen remounts per match (key), so this
+  // resets with every fight. Distinct from the engines' `flawless` flag,
+  // which means "won every round", not "took no damage".
+  const damageTakenRef = useRef(false);
 
   const showBanner = useCallback((text, sub) => {
     setBanner((b) => ({ text, sub, key: b.key + 1 }));
@@ -1182,7 +1197,10 @@ function BrawlFightScreen({ config, onExit, onReloadArena }) {
         arena: config.arenaIdx,
         bestOf: config.bestOf,
         hooks: {
-          onHud: (h) => setHud(h),
+          onHud: (h) => {
+            if (h.hp < 0.999) damageTakenRef.current = true;
+            setHud(h);
+          },
           onSpecialDenied: (idx) => flashDenied(idx),
           onAnnounce: (text, sub) => showBanner(text, sub || ''),
           onFinishHim: (active, seconds, mine) => setFinishHim({ active, seconds, mine: !!mine }),
@@ -1198,7 +1216,7 @@ function BrawlFightScreen({ config, onExit, onReloadArena }) {
           },
           onSummoning: (active) => setSummoning(active),
           onContextLost: (active) => setGlLost(active),
-          onMatchEnd: (result) => onExit(result),
+          onMatchEnd: (result) => onExit({ ...result, damageTaken: damageTakenRef.current }),
         },
       });
     } catch {
@@ -1489,6 +1507,28 @@ export default function KombatPage() {
   const [config, setConfig] = useState(null);
   const [result, setResult] = useState(null);
   const versusTimer = useRef(null);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: the engines' own `flawless` flag means "won every round" — NOT
+  // "took no damage". Flawless Victory here uses the screens' damageTaken
+  // flag (hud health ever below full), per the achievement plan.
+  // NOTE: Kombat PvP is not wired — these are AI fights, so there is no
+  // PvP key for kombat; honest PvP needs the network-driver refactor.
   // Arena reload (WebGL recovery, 2026-10-14): bumping the nonce
   // remounts the fight screen with a fresh canvas + GL context.
   const [fightNonce, setFightNonce] = useState(0);
@@ -1511,6 +1551,11 @@ export default function KombatPage() {
     if (res) {
       setResult(res);
       setPhase('result');
+      if (res.isPlayer) {
+        award('kombat-first-ko');
+        if (res.fatality) award('kombat-finish-him');
+        if (res.damageTaken === false) award('kombat-flawless-victory');
+      }
     } else {
       setPhase('select');
     }
@@ -1619,6 +1664,11 @@ export default function KombatPage() {
             style={{ touchAction: 'manipulation' }}
           >CHANGE SETUP</button>
         </div>
+        <AchievementBanner
+          achievementKey={celebrateKey}
+          show={!!celebrateKey}
+          onDismiss={() => setCelebrateKey(null)}
+        />
       </div>
     );
   }
@@ -1656,6 +1706,11 @@ export default function KombatPage() {
           style={{ touchAction: 'manipulation' }}
         >CHANGE FIGHTERS</button>
       </div>
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

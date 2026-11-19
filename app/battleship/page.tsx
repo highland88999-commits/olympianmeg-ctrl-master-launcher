@@ -3,10 +3,12 @@ import { Canvas } from '@react-three/fiber'
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { OrbitControls, Environment } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
-import { useEffect, useState, Suspense } from 'react'
+import { useEffect, useRef, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { BackButton } from '@/components/ui'
 import { supabase } from '@/lib/supabase'
+import { grantAchievement } from '@/lib/achievements/award'
+import AchievementBanner from '@/components/achievements/AchievementBanner'
 import { AresBackdrop, AresLoader } from '@/components/ares/ares-chrome'
 
 import GameBoard from '@/components/battleship/GameBoard'
@@ -36,11 +38,57 @@ export default function Game() {
   
   const roomId = useGameStore(state => state.roomId)
   const status = useGameStore(state => state.status)
+  const mode = useGameStore(state => state.mode)
+  const winner = useGameStore(state => state.winner)
   const viewMode = useGameStore(state => state.viewMode)
   const playerShips = useGameStore(state => state.playerShips)
   const opponentShips = useGameStore(state => state.opponentShips)
   const playerShots = useGameStore(state => state.playerShots)
   const opponentShots = useGameStore(state => state.opponentShots)
+
+  const [celebrateKey, setCelebrateKey] = useState<string | null>(null) // achievement celebration
+  const sunkAwardedRef = useRef(false)
+  const winAwardedRef = useRef(false)
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession()
+      return data?.session?.access_token || null
+    } catch { return null }
+  }
+  const award = (key: string) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key)
+    }).catch(() => {})
+  }
+
+  // Achievements, driven by the game store:
+  // - first sinking: the first enemy ship destroyed in a game
+  // - fleet destroyer: all five enemy ships sunk = a win
+  // - admiral: a win in a PvP room (mode 'pvp')
+  // NOTE: the grant route verifies PvP wins via pvp_matches — no match
+  // records are written anywhere yet, so the admiral grant 403s until
+  // that path exists.
+  useEffect(() => {
+    if (status === 'setup') {
+      sunkAwardedRef.current = false
+      winAwardedRef.current = false
+      return
+    }
+    const sunk = opponentShips.filter((s) => s.destroyed).length
+    if (sunk >= 1 && !sunkAwardedRef.current) {
+      sunkAwardedRef.current = true
+      award('battleship-first-sinking')
+    }
+    if (status === 'game_over' && winner === 'player' && !winAwardedRef.current) {
+      winAwardedRef.current = true
+      award('battleship-fleet-destroyer')
+      if (mode === 'pvp') award('battleship-admiral')
+    }
+  }, [status, winner, mode, opponentShips])
 
   useEffect(() => {
     // unlock on first gesture (deep links may land here without the hub)
@@ -146,6 +194,11 @@ export default function Game() {
       )}
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   )
 }

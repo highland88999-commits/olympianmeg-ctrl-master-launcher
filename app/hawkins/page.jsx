@@ -7,6 +7,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createEngine } from './engine';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { HAWKINS_PLAYER_CHARACTERS } from '../../lib/hawkins/models.js';
 
@@ -32,6 +35,30 @@ export default function HawkinsPage() {
   });
   const [banner, setBanner] = useState('');
   const [chime, setChime] = useState('');
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const clueAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: Vecna Slayer milestones are ALREADY wired — onFatality posts to
+  // /api/hawkins/vecna-kill, whose route calls record_vecna_kill (atomic)
+  // and returns the awarded milestone. Nothing to build here.
+  // NOTE: hawkins-party-up ("complete a hunt alongside other players") is
+  // NOT wired: the hunt is single-player only, no multiplayer/co-op exists
+  // in the engine. It stays unwired until co-op exists.
   const [charId, setCharId] = useState('eleven');
   const [finishHim, setFinishHim] = useState(false);
   const [fatality, setFatality] = useState(false);
@@ -67,7 +94,13 @@ export default function HawkinsPage() {
       onAmmo: (ammo, magSize) => setHud((h) => ({ ...h, ammo, magSize })),
       onKill: (kills) => setHud((h) => ({ ...h, kills })),
       onWave: (wave) => setHud((h) => ({ ...h, wave })),
-      onTrace: (traces, needed) => setHud((h) => ({ ...h, traces, tracesNeeded: needed })),
+      onTrace: (traces, needed) => {
+        setHud((h) => ({ ...h, traces, tracesNeeded: needed }));
+        if (traces >= 1 && !clueAwardedRef.current) {
+          clueAwardedRef.current = true;
+          award('hawkins-first-clue');
+        }
+      },
       onBossHp: (v) => setHud((h) => ({ ...h, bossHp: v })),
       onBossReveal: () => setHud((h) => ({ ...h, bossRevealed: true })),
       onDimension: (dimension, convergence) => setHud((h) => ({ ...h, dimension, convergence })),
@@ -115,6 +148,9 @@ export default function HawkinsPage() {
       onWin: (kills) => {
         setFatality(false);
         setPhase('won');
+        // Gatekeeper: the hunt's finale IS sealing the gate — capturing
+        // Vecna seals the rifts (no separate chapter system exists).
+        award('hawkins-gatekeeper');
         setHud((h) => ({ ...h, finalStats: `${kills} DEMOGORGONS SLAIN — THE RIFTS SEAL… FOR NOW` }));
       },
     };
@@ -348,6 +384,11 @@ export default function HawkinsPage() {
           </div>
         </div>
       )}
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

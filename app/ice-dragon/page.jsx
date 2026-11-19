@@ -7,6 +7,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { createMachine, STATES } from './stateMachine.js';
 import { createIceDragonScene } from './scene.js';
 
@@ -48,6 +51,29 @@ export default function IceDragonPage() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [altitude, setAltitude] = useState(800);
   const [awakeBanner, setAwakeBanner] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const flightsRef = useRef(0);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  const awardFlightLoop = () => {
+    flightsRef.current += 1;
+    award('ice-dragon-sky-rider');
+    if (flightsRef.current >= 5) award('ice-dragon-glacier-king');
+  };
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -95,6 +121,7 @@ export default function IceDragonPage() {
           }
         }
       } else if (next === STATES.FLYING) {
+        if (prev === STATES.WAKING) award('ice-dragon-first-wake');
         scene.setFlying(true);
         scene.setWakefulness(1);
         scene.setFlightProgress(machine.getFlightProgress());
@@ -105,6 +132,7 @@ export default function IceDragonPage() {
           bannerShownRef.current = true;
           setAwakeBanner(true);
         }
+        if (prev === STATES.FLYING) awardFlightLoop();
         setPhase(STATES.INSIDE);
         return; // loop ends
       }
@@ -140,12 +168,18 @@ export default function IceDragonPage() {
     if (reducedMotion) {
       // Calm mode: wake instantly, skip the flight — the dragon rests, awake.
       let s = machine.beginWake();
+      let flew = false;
       while (machine.getState() === STATES.WAKING) machine.update(0.1, true);
       if (machine.getState() === STATES.FLYING) {
+        flew = true;
         while (machine.getState() === STATES.FLYING) machine.update(8.0, true);
       }
       scene.setWakefulness(1);
       setPhase(machine.getState());
+      if (flew) {
+        award('ice-dragon-first-wake');
+        awardFlightLoop();
+      }
       return;
     }
 
@@ -342,6 +376,11 @@ export default function IceDragonPage() {
       `}</style>
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

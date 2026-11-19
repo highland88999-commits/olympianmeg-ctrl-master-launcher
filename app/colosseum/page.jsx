@@ -4,8 +4,10 @@ import { BackButton } from '@/components/ui';
 import { Pit } from '@/components/colosseum/Pit';
 import { ColosseumGame, ROUND_SECONDS, INJECTOR_MAX } from '@/lib/colosseum/game';
 import { SoundFX } from '@/lib/colosseum/audio';
-import { fetchTopScores, fetchRoomScores, submitScore } from '@/lib/colosseum/storage';
+import { fetchTopScores, fetchRoomScores, submitScore, sanitizeName } from '@/lib/colosseum/storage';
 import { fx, unlockFx } from '@/lib/fx';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
 import { AresBackdrop, AresButton, AresIcon, AresHeader, AresLoader, AresEmpty, AresPanel, ARES } from '@/components/ares/ares-chrome';
@@ -42,6 +44,41 @@ export default function ColosseumPage() {
   const [muted, setMuted] = useState(false);
   const [showHow, setShowHow] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const arenaChampionAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+
+  // Arena Champion (PvP): rank 1 in a party room with at least 4 human
+  // players. The room board holds human-submitted scores only (NPC glory
+  // is a local simulated comparison, never posted). Evaluated once the
+  // board refreshes after the player saves. NOTE: the grant route verifies
+  // PvP wins via pvp_matches — no match records are written anywhere yet,
+  // so this 403s until that path exists.
+  useEffect(() => {
+    if (!result?.room || arenaChampionAwardedRef.current || roomBoard.length < 4) return;
+    const mine = roomBoard.find((s) => s.player_name === sanitizeName(playerName) && s.score === result.score);
+    if (!mine) return;
+    const rank = 1 + roomBoard.filter((s) => s.score > mine.score).length;
+    if (rank === 1) {
+      arenaChampionAwardedRef.current = true;
+      award('colosseum-arena-champion');
+    }
+  }, [roomBoard, result, playerName]);
   // WAVE 3: the reigning champion rival (D5 — Hulk until chosen).
   const [championId, setChampionId] = useState(DEFAULT_CHAMPION_ID);
   const [championOpen, setChampionOpen] = useState(false);
@@ -169,6 +206,19 @@ export default function ColosseumPage() {
     setResult(res);
     if (res.room) {
       fetchRoomScores(res.room.room_code, 10).then(({ scores }) => setRoomBoard(scores));
+    }
+    // Achievements: a bout is won by surviving the timer ('time') or
+    // slaying the champion ('championFallen'); falling ('fallen') is a loss.
+    const STREAK_KEY = 'olympus:achievements:streak:colosseum';
+    if (payload.reason === 'time' || payload.reason === 'championFallen') {
+      award('colosseum-first-victory');
+      try {
+        const streak = (Number(localStorage.getItem(STREAK_KEY)) || 0) + 1;
+        localStorage.setItem(STREAK_KEY, String(streak));
+        if (streak >= 5) award('colosseum-undefeated');
+      } catch { /* private mode: streak just doesn't persist */ }
+    } else {
+      try { localStorage.setItem(STREAK_KEY, '0'); } catch { /* private mode */ }
     }
   }
 
@@ -603,6 +653,11 @@ export default function ColosseumPage() {
         </div>
       )}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

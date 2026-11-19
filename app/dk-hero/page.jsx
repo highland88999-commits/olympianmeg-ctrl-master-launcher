@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { fx, unlockFx } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { createLevel, step, resizeLevel } from './game';
 import { makeStars, drawScene } from './render';
 
@@ -40,6 +43,27 @@ export default function DKHeroPage() {
 
   const [screen, setScreen] = useState('title'); // title | playing | gameover
   const [hud, setHud] = useState({ score: 0, lives: 3, levelNum: 1 });
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const deathsThisLevelRef = useRef(0);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: dk-hero-siege-breaker ("complete the final level") is NOT wired:
+  // levels advance forever (createLevel(levelNum + 1)) — there is no final
+  // level. A "hit" here is a barrel death ('died' event, lives lost).
   const [paused, setPaused] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const screenRef = useRef(screen);
@@ -143,14 +167,20 @@ export default function DKHeroPage() {
                 score: state.score,
                 lives: state.lives,
               });
+              deathsThisLevelRef.current = 0;
               break;
             }
             // Game feel, routed through the central FX library.
             if (ev === 'jump') fx.jump(); // soft spring blip
             else if (ev === 'jumped-over') fx.coin(); // barrel dodged: bright chirp
-            else if (ev === 'died') fx.death(); // long rumble
-            else if (ev === 'level-clear') fx.levelUp(); // rising arpeggio
+            else if (ev === 'died') { fx.death(); deathsThisLevelRef.current += 1; } // long rumble
+            else if (ev === 'level-clear') {
+              fx.levelUp(); // rising arpeggio
+              if (state.levelNum === 1) award('dk-hero-top-of-the-tower');
+              if (deathsThisLevelRef.current === 0) award('dk-hero-barrel-dodger');
+            }
             else if (ev === 'respawn') fx.checkpoint(); // soft chime
+            else if (ev === 'game-over') deathsThisLevelRef.current = 0;
             // 'land' and 'barrel-spawned' are ambient — no FX. 'game-over'
             // follows 'died'; the death rumble already covered the moment.
           }
@@ -323,6 +353,11 @@ export default function DKHeroPage() {
           </button>
         </div>
       )}
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

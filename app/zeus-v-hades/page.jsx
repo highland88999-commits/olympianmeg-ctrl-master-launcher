@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import {
   DIFFICULTIES,
   RACE_DISTANCE,
@@ -39,6 +42,24 @@ export default function ZeusVHadesPage() {
   const [hud, setHud] = useState({ pos: 1, souls: 0, meter: 0, time: 0, dist: 0, boosting: false });
   const [result, setResult] = useState(null);
 
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const soulAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+
   useEffect(() => {
     reducedRef.current =
       typeof window !== 'undefined' &&
@@ -56,10 +77,19 @@ export default function ZeusVHadesPage() {
     const race = raceRef.current;
     if (!race) return;
     for (const e of race.events) {
-      if (e === 'soul') fx.coin(); // soul pickup: bright chirp
+      if (e === 'soul') {
+        fx.coin(); // soul pickup: bright chirp
+        if (!soulAwardedRef.current) {
+          soulAwardedRef.current = true;
+          award('zeus-v-hades-first-soul');
+        }
+      }
       else if (e === 'bolt') fx.coin(); // bolt pickup: bright chirp
       else if (e === 'boostReady') fx.checkpoint(); // meter full: soft chime
-      else if (e === 'boost') fx.boost(); // boost: rising whoosh
+      else if (e === 'boost') {
+        fx.boost(); // boost: rising whoosh (only fires at full charge)
+        award('zeus-v-hades-soul-surge');
+      }
       else if (e === 'hit') {
         fx.hit(); // obstacle hit: dull thud
         if (rendererRef.current) rendererRef.current.shake();
@@ -101,6 +131,7 @@ export default function ZeusVHadesPage() {
         }
         if (won) fx.gameWin();
         else fx.menuClose(); // defeat: soft settle, no buzz-shame
+        if (won) award('zeus-v-hades-godslayer');
         setResult({
           won,
           playerTime: race.player.finishTime,
@@ -120,6 +151,7 @@ export default function ZeusVHadesPage() {
     fx.tap(); // race confirmed
     const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
     raceRef.current = createRace(seed, difficulty);
+    soulAwardedRef.current = false;
     if (rendererRef.current) rendererRef.current.dispose();
     rendererRef.current = createRenderer(canvasRef.current, raceRef.current, {
       reducedMotion: reducedRef.current,
@@ -396,6 +428,11 @@ export default function ZeusVHadesPage() {
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed race viewport */}
     <div aria-hidden="true" className="player-clear" />
+    <AchievementBanner
+      achievementKey={celebrateKey}
+      show={!!celebrateKey}
+      onDismiss={() => setCelebrateKey(null)}
+    />
     </>
   );
 }

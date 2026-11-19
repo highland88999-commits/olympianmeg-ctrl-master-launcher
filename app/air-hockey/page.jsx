@@ -11,6 +11,9 @@ import {
   loadVisualChoice, saveVisualChoice, createKaleidoscope,
 } from './kaleidoscope.js';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { AresBackdrop, AresButton, AresIcon, ARES } from '@/components/ares/ares-chrome';
 
 // Air-hockey feedback routes through the central FX library (lib/fx.js):
@@ -40,6 +43,28 @@ export default function AirHockeyPage() {
   const [started, setStarted] = useState(false);
   const [hud, setHud] = useState({ player: 0, ai: 0, winner: null });
   const [muted, setMuted] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const goalAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: air-hockey-table-king (PvP match win) is NOT wired: this page
+  // has no PvP path at all — the opponent is always the AI. Granting it
+  // for an AI win would be dishonest. It stays unwired until a real PvP
+  // mode exists.
   // Table look: the launcher's default table, or Merlin's kaleidoscope from
   // his version. Default = current state; his choice persists in localStorage.
   const [visual, setVisual] = useState(DEFAULT_VISUAL);
@@ -68,6 +93,7 @@ export default function AirHockeyPage() {
     g.difficulty = diff;
     soundRef.current.unlock();
     fx.tap(); // match confirmed
+    goalAwardedRef.current = false;
     g.start();
     setStarted(true);
     syncHud();
@@ -177,10 +203,20 @@ export default function AirHockeyPage() {
         if (ev === 'hit') s.hit();
         else if (ev === 'wall') s.wall();
         else if (ev === 'goal') {
-          if (game.lastScorer === 'player') s.goal(); else s.conceded();
+          if (game.lastScorer === 'player') {
+            s.goal();
+            if (!goalAwardedRef.current) {
+              goalAwardedRef.current = true;
+              award('air-hockey-first-goal');
+            }
+          } else s.conceded();
           syncHud();
         }
-        else if (ev === 'win') { s.win(); syncHud(); }
+        else if (ev === 'win') {
+          s.win();
+          syncHud();
+          if (game.aiScore === 0) award('air-hockey-shutout');
+        }
         else if (ev === 'lose') { s.lose(); syncHud(); }
       }
 
@@ -430,6 +466,11 @@ export default function AirHockeyPage() {
         </div>
       )}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </main>
   );
 }

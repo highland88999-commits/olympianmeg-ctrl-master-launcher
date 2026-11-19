@@ -1,6 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { HiveCore, MODE_KEYS, MODES } from './hive';
 import { createHiveRenderer } from './render';
 
@@ -27,6 +30,28 @@ export default function HivePage() {
   const [meter, setMeter] = useState(0);
   const [awakened, setAwakened] = useState(false);
 
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const pulseAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: hive-perfect-harmony ("solve a puzzle using the optimal moves") is
+  // NOT wired: there is no puzzle and no optimal-moves concept — the hive
+  // is a free-form pulse toy with a meter. It stays unwired until a puzzle
+  // mode exists.
+
   useEffect(() => {
     reducedMotionRef.current =
       typeof window !== 'undefined' &&
@@ -40,6 +65,7 @@ export default function HivePage() {
       onEvent: (e) => {
         if (e.type === 'awaken') {
           setAwakened(true);
+          award('hive-hive-mind');
           window.setTimeout(() => setAwakened(false), 3500);
         }
       },
@@ -77,7 +103,11 @@ export default function HivePage() {
     const renderer = rendererRef.current;
     if (!canvas || !renderer) return;
     const rect = canvas.getBoundingClientRect();
-    renderer.tap(clientX - rect.left, clientY - rect.top, performance.now());
+    const hit = renderer.tap(clientX - rect.left, clientY - rect.top, performance.now());
+    if (hit && !pulseAwardedRef.current) {
+      pulseAwardedRef.current = true;
+      award('hive-first-pulse');
+    }
   }, []);
 
   return (
@@ -156,6 +186,11 @@ export default function HivePage() {
       </div>
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fx, unlockFx, throttle } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import {
   createGame,
   startGame,
@@ -76,6 +79,29 @@ export default function OmegaPinballPage() {
   const fxRef = useRef([]);
 
   const [phase, setPhase] = useState('intro'); // intro | playing | gameover | victory
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const silverAwardedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: omega-pinball-multiball-master is NOT wired — the physics engine
+  // has no multiball mechanic at all (no multi-ball state, no event).
+  // omega-pinball-grand-champion is NOT wired either — the game posts no
+  // scores anywhere and has no leaderboard to rank on. Both stay unwired
+  // until those features exist.
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [balls, setBalls] = useState(3);
@@ -95,6 +121,10 @@ export default function OmegaPinballPage() {
     setBalls(g.ballsLeft);
     setServing(g.mode === 'serve');
     setCharge(g.plunger.charge);
+    if (g.score >= 100000 && !silverAwardedRef.current) {
+      silverAwardedRef.current = true;
+      award('omega-pinball-silver-ball');
+    }
     // One-shot end-of-game FX: only fire on the transition into the phase,
     // not on every HUD sync while the screen sits there.
     if (g.mode === 'gameover' && phaseRef.current !== 'gameover') {
@@ -112,6 +142,7 @@ export default function OmegaPinballPage() {
     if (!g) return;
     startGame(g);
     fxRef.current = [];
+    silverAwardedRef.current = false;
     setPhase('playing');
     syncHud();
   }, [syncHud]);
@@ -439,6 +470,11 @@ export default function OmegaPinballPage() {
     </div>
     {/* Safari bottom-bar clearance: blank space under the fixed game viewport */}
     <div aria-hidden="true" className="player-clear" />
+    <AchievementBanner
+      achievementKey={celebrateKey}
+      show={!!celebrateKey}
+      onDismiss={() => setCelebrateKey(null)}
+    />
   </>
   );
 }

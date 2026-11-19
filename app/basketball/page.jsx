@@ -9,6 +9,8 @@ import { BasketballGame } from '@/lib/basketball/game';
 import { SoundFX } from '@/lib/basketball/audio';
 import { fetchTopScores, fetchRoomScores, submitScore, sanitizeName } from '@/lib/basketball/storage';
 import { fx, unlockFx } from '@/lib/fx';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import OasisLobby from '@/components/oasis/Lobby';
 import { supabase } from '@/lib/supabase';
 import { AresBackdrop, AresButton, AresIcon, AresLoader, AresEmpty, AresPanel, ARES } from '@/components/ares/ares-chrome';
@@ -117,6 +119,26 @@ export default function BasketballPage() {
   const [roomScores, setRoomScores] = useState([]);
   const sfx = useRef(null);
 
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const bucketAwardedRef = useRef(false);
+  const courtKingAwardedRef = useRef(false);
+  const savedNameRef = useRef('');
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+
   // session for OASIS identity; ?code= deep link opens the lobby
   useEffect(() => {
     (async () => {
@@ -179,6 +201,8 @@ export default function BasketballPage() {
 
   const startGame = useCallback((m) => {
     const g = new BasketballGame(m);
+    bucketAwardedRef.current = false;
+    courtKingAwardedRef.current = false;
     const unsub = g.onEvent((type, payload) => {
       const s = sfx.current;
       switch (type) {
@@ -188,6 +212,10 @@ export default function BasketballPage() {
         case 'swish': s?.swish(); fx.coin(); break; // net sparkle + pickup tick layered on the arena swish
         case 'score':
           s?.score(payload.streak);
+          if (!bucketAwardedRef.current) {
+            bucketAwardedRef.current = true;
+            award('basketball-first-bucket');
+          }
           if (payload.streak >= 2) s?.crowdCheer(payload.streak >= 4);
           addPopup(
             `+${payload.points}${payload.swish ? '  SWISH!' : ''}${payload.streak >= 2 ? `   STREAK x${payload.streak}` : ''}`,
@@ -207,6 +235,7 @@ export default function BasketballPage() {
           s?.whistle();
           s?.crowdCheer(true);
           setSaved(false);
+          if (g.snapshot().score >= 30) award('basketball-sharpshooter');
           break;
         case 'ui':
           setSnap(g.snapshot());
@@ -267,6 +296,7 @@ export default function BasketballPage() {
     if (!snap || saving || saved) return;
     setSaving(true);
     const name = sanitizeName(playerName);
+    savedNameRef.current = name;
     try { localStorage.setItem('streetball_name', name); } catch { /* ignore */ }
     const { ok } = await submitScore({
       playerName: name,
@@ -295,6 +325,25 @@ export default function BasketballPage() {
     const t = setInterval(load, 2000);
     return () => { alive = false; clearInterval(t); };
   }, [oasisMatch, snap?.screen]);
+
+  // Court King (PvP): rank 1 in a party room with at least 3 human
+  // players. Evaluated once the player's own saved score is on the board
+  // (the poll refreshes it). NOTE: the grant route verifies PvP wins via
+  // pvp_matches — no match records are written anywhere yet, so this 403s
+  // until that path exists.
+  useEffect(() => {
+    if (oasisMatch?.kind !== 'party' || snap?.screen !== 'over') return;
+    if (courtKingAwardedRef.current || !savedNameRef.current || !roomScores.length) return;
+    const humans = roomScores.filter((s) => !s.is_npc);
+    if (humans.length < 3) return;
+    const mine = roomScores.find((s) => s.player_name === savedNameRef.current && s.score === snap.score);
+    if (!mine) return;
+    const rank = 1 + roomScores.filter((s) => s.score > mine.score).length;
+    if (rank === 1) {
+      courtKingAwardedRef.current = true;
+      award('basketball-court-king');
+    }
+  }, [roomScores, snap, oasisMatch]);
 
   // stop the crowd if the player leaves the route entirely
   useEffect(() => {
@@ -669,6 +718,11 @@ function MenuScreen({ onPlay, scores, scoresNote, scoresLoading, showHelp, setSh
         {/* Safari bottom-bar clearance: lets the menu content rest above the browser bar */}
         <div aria-hidden="true" className="player-clear shrink-0" />
       </div>
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

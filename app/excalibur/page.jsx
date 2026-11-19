@@ -8,6 +8,9 @@ import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
 import { AresButton } from '@/components/ares/ares-chrome';
 import { fx, unlockFx } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { createMachine, STATES } from './stateMachine.js';
 import { createExcaliburScene } from './scene.js';
 
@@ -35,6 +38,27 @@ export default function ExcaliburPage() {
   const [phase, setPhase] = useState(STATES.IDLE);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: there is no duel mode in this game — the sword-pull IS the worth
+  // trial, so the plan's "duel win" maps to drawing the sword (CHAMPION).
+  // Worthy + Stone Shaker both fire on a successful pull; High King counts
+  // consecutive successful pulls (a failed pull resets the streak).
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -89,12 +113,21 @@ export default function ExcaliburPage() {
         scene.setPulling(false);
         setPhase(STATES.CHAMPION);
         fx.gameWin(); // the sword is yours: full fanfare
+        award('excalibur-worthy');
+        award('excalibur-stone-shaker');
+        try {
+          const STREAK_KEY = 'olympus:achievements:streak:excalibur';
+          const streak = (Number(localStorage.getItem(STREAK_KEY)) || 0) + 1;
+          localStorage.setItem(STREAK_KEY, String(streak));
+          if (streak >= 5) award('excalibur-high-king');
+        } catch { /* private mode: streak just doesn't persist */ }
         return; // loop ends
       }
       if (next !== STATES.PULLING) {
         scene.setPulling(false);
         setPhase(next);
         fx.menuClose(); // worthiness faded: soft settle back to the stone
+        try { localStorage.setItem('olympus:achievements:streak:excalibur', '0'); } catch { /* private mode */ }
         return; // worthiness decayed to zero -> back inside
       }
       pullRafRef.current = requestAnimationFrame(tick);
@@ -283,6 +316,11 @@ export default function ExcaliburPage() {
           .excalibur-title, .excalibur-ticker { animation: none; }
         }
       `}</style>
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

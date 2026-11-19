@@ -9,6 +9,9 @@ import { useEffect, useRef, useState } from 'react';
 import { BackButton } from '@/components/ui';
 import { AresButton, ARES } from '@/components/ares/ares-chrome';
 import { fx, unlockFx } from '@/lib/fx';
+import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 import { createMachine, STATES } from './stateMachine.js';
 import { createGuillotineScene, PART_LABELS } from './scene.js';
 
@@ -43,6 +46,27 @@ export default function GuillotinePage() {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [partId, setPartId] = useState(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: guillotine-dead-center ("perfect-center drop") and
+  // guillotine-master-executioner ("3 perfect drops in a row") are NOT
+  // wired: the machine has no aim or accuracy at all — the blade just
+  // drops onto the log. They stay unwired until an aim mechanic exists.
 
   // Wooden thunk: low thump + filtered noise crack. Created lazily on the
   // first user gesture so mobile autoplay policies are satisfied.
@@ -145,6 +169,7 @@ export default function GuillotinePage() {
       } else if (next === STATES.SPLIT && before !== STATES.SPLIT) {
         scene.triggerSplit();
         setBannerDismissed(false);
+        award('guillotine-first-drop');
       } else if (next === STATES.INSIDE && before === STATES.SPLIT) {
         scene.resetLog();
       }
@@ -438,6 +463,11 @@ export default function GuillotinePage() {
           .guillotine-title, .guillotine-ticker { animation: none; }
         }
       `}</style>
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

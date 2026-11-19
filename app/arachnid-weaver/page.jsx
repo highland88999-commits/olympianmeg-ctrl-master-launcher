@@ -7,6 +7,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fx, unlockFx, throttle } from "@/lib/fx";
+import { supabase } from "@/lib/supabase";
+import { grantAchievement } from "@/lib/achievements/award";
+import AchievementBanner from "@/components/achievements/AchievementBanner";
 import { resolveSurfaceCharacter } from "@/lib/characters/embodiment";
 import { AresBackdrop, AresButton, AresIcon, ARES } from "@/components/ares/ares-chrome";
 import {
@@ -41,6 +44,32 @@ export default function ArachnidWeaver() {
   const [best, setBest] = useState(0);
   const [deadStats, setDeadStats] = useState(null);
   const reducedRef = useRef(false);
+
+  const [celebrateKey, setCelebrateKey] = useState(null); // achievement celebration
+  const nightAwardedRef = useRef(false);
+  const dodgerAwardedRef = useRef(false);
+  const escapesRef = useRef(0);
+  const wasSlowedRef = useRef(false);
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  };
+  const award = (key) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  };
+  // NOTE: arachnid-weaver-dawn-bringer ("survive the full night and see
+  // dawn") is NOT wired: the game is endless survival until death — there
+  // is no night duration and no dawn. It stays unwired until a night
+  // length exists. A "trap escape" here is leaving a web after being
+  // slowed by it (the engine tracks no escape event of its own).
   // Wave 5 (stretch): the profile character as the prey's token —
   // resolved once here (before the game effect below runs) into a
   // ref the canvas closure reads. Null = the native torch-bearer.
@@ -483,6 +512,20 @@ export default function ArachnidWeaver() {
           hunted: g.spider.mode === "chase" || g.spider.mode === "windup" || g.spider.mode === "lunge",
           score: scoreOf(g),
         });
+        // Achievements: survive 60 s (first night); escape 5 web traps —
+        // a trap escape is leaving a web after being slowed by it.
+        if (g.time >= 60 && !nightAwardedRef.current) {
+          nightAwardedRef.current = true;
+          award("arachnid-weaver-first-night");
+        }
+        if (wasSlowedRef.current && !g.player.slowed) {
+          escapesRef.current += 1;
+          if (escapesRef.current >= 5 && !dodgerAwardedRef.current) {
+            dodgerAwardedRef.current = true;
+            award("arachnid-weaver-web-dodger");
+          }
+        }
+        wasSlowedRef.current = g.player.slowed;
         // camera follows player, clamped so the visible window never
         // leaves the arena (the boundary then meets the screen edge
         // exactly when the player reaches the wall)
@@ -636,6 +679,10 @@ export default function ArachnidWeaver() {
 
   const startGame = () => {
     gameRef.current = createGame((Date.now() % 100000) | 0);
+    nightAwardedRef.current = false;
+    dodgerAwardedRef.current = false;
+    escapesRef.current = 0;
+    wasSlowedRef.current = false;
     setScreen("play");
   };
 
@@ -930,6 +977,11 @@ export default function ArachnidWeaver() {
 
       {/* Safari bottom-bar clearance */}
       <div aria-hidden="true" className="player-clear" />
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
     </div>
   );
 }

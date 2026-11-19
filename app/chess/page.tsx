@@ -1,11 +1,13 @@
 'use client';
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useTexture, Stars } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { grantAchievement } from '@/lib/achievements/award';
+import AchievementBanner from '@/components/achievements/AchievementBanner';
 
 // UI Components
 import { BackButton } from '@/components/ui';
@@ -83,6 +85,23 @@ export default function QuantumChess() {
   const [selectedPieceId, setSelectedPieceId] = useState<number | null>(null);
   const [legalTargets, setLegalTargets] = useState<Array<{ x: number; z: number }>>([]);
   const [pendingPromotion, setPendingPromotion] = useState<{ pieceId: number; x: number; z: number } | null>(null);
+
+  const [celebrateKey, setCelebrateKey] = useState<string | null>(null); // achievement celebration
+
+  // Fire-and-forget achievement grant. Signed-in users only (guests earn
+  // nothing server-side); the banner shows only when the server confirms
+  // a fresh award (awarded=false means already held — no repeat celebration).
+  const getToken = useCallback(async () => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data?.session?.access_token || null;
+    } catch { return null; }
+  }, []);
+  const award = useCallback((key: string) => {
+    grantAchievement(key, getToken).then((r) => {
+      if (r && r.awarded) setCelebrateKey((cur) => cur ?? key);
+    }).catch(() => {});
+  }, [getToken]);
   
   const [cyanSkinTex, setCyanSkinTex] = useState<THREE.VideoTexture | null>(null);
   const [pinkSkinTex, setPinkSkinTex] = useState<THREE.VideoTexture | null>(null);
@@ -274,7 +293,25 @@ export default function QuantumChess() {
     overFxRef.current = true;
     if (winner && winner !== 'draw') fx.gameWin();
     else fx.menuClose();
-  }, [isGameOver, winner]);
+    // Achievements: the user plays playerColor (cyan by default in AI mode).
+    const userColor = playerColor || 'cyan';
+    const userWon = winner === userColor;
+    const STREAK_KEY = 'olympus:achievements:streak:chess';
+    if (userWon) {
+      award('chess-first-blood');
+      try {
+        const streak = (Number(localStorage.getItem(STREAK_KEY)) || 0) + 1;
+        localStorage.setItem(STREAK_KEY, String(streak));
+        if (streak >= 3) award('chess-tactician');
+      } catch { /* private mode: streak just doesn't persist */ }
+      // PvP: 'global' mode means a human opponent (OASIS PvP launch).
+      // NOTE: the grant route verifies PvP wins via pvp_matches — no match
+      // records are written anywhere yet, so this 403s until that path exists.
+      if (mode === 'global') award('chess-sector-champion');
+    } else {
+      try { localStorage.setItem(STREAK_KEY, '0'); } catch { /* private mode */ }
+    }
+  }, [isGameOver, winner, mode, playerColor, award]);
 
   const handleModeSelect = async (selectedMode: string, code: string | null = null) => {
     fx.tap(); // mode confirmed
@@ -410,6 +447,12 @@ export default function QuantumChess() {
       )}
 
       {isGameOver && <GameOver winner={winner} onRestart={() => window.location.reload()} />}
+
+      <AchievementBanner
+        achievementKey={celebrateKey}
+        show={!!celebrateKey}
+        onDismiss={() => setCelebrateKey(null)}
+      />
 
       <div className="absolute inset-0 overflow-y-auto">
       <Canvas camera={{ position: [0, 14, playerColor === 'pink' ? -25 : 25], fov: 52 }}>
