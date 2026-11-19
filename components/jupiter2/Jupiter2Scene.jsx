@@ -14,7 +14,7 @@ import {
 // sphere, not a flat disc — the drop, the sub-level shelf, the
 // mountain and the cave all live in lib/jupiter2/planet.js.
 import {
-  PLANET_R, MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH,
+  PLANET_R, MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH, MOUNTAIN_SINK_M,
   stepJupiter2Walker, spherePointFromDeck, dirToDeck,
   groundRadiusAt, groundPointAt, leverCavePoint, leverCaveMouthPoint,
   spawnPoint, auraRingPoints, moveOnSphere, dirAt,
@@ -48,7 +48,22 @@ import {
 import {
   createLeverState, pullLever, confirmOblivion, cancelLever, leverStatus, LEVER_GREEN,
 } from '@/lib/jupiter2/lever';
-import { lifeFor, homeFor, CHASE_SPEED_MPS, DEMOBAT_DIVE_SPEED_MPS } from '@/lib/jupiter2/operators';
+import { lifeFor, homeFor, CHASE_SPEED_MPS, DEMOBAT_DIVE_SPEED_MPS, isGuardDragonSlot } from '@/lib/jupiter2/operators';
+// The cave-mouth guard dragons (Merlin, Nov 19 ~00:20–00:24): both
+// dragons guard the entrance; getting around them is enough, killing
+// is the optional bonus path (shield upgrade, server-side), and a
+// killed guard is reborn after GUARD_RESPAWN_MS so the mouth is
+// never left unguarded.
+import {
+  GUARD_PATROL_RADIUS_M, GUARD_RESPAWN_MS, isGuardDragon,
+  dragonShieldKeyFor, guardHomeDeck, guardRebirthDue,
+} from '@/lib/jupiter2/guard';
+// The Oblivion cycle (Merlin's canon, Nov 19 ~00:16): the server
+// arms the event, the clients evacuate themselves, the hub shows
+// the timer. The lever confirm calls the server FIRST — a 503 or
+// 401 leaves the lever warned and moves nobody.
+import { OBLIVION_WAIT_MS } from '@/lib/earth/oblivion';
+import { armOblivion, grantDragonKill, fetchOblivionState, setWitnessFlag } from '@/lib/oblivion/client';
 // Elemental orbs + speeder blaster + shields (Merlin, Nov 16 ~01:16,
 // round 2 workstream 7): the drop/collect/trade/shoot/shield law
 // lives in lib/jupiter2/elemental-orbs.js — this file only wires it
@@ -776,7 +791,7 @@ function StormRig({ dayF }) {
 // colour) and throws a visible streak when the brain says it struck.
 function Creatures({ onSelect, brainRef, creaturesRef }) {
   const monsters = useMemo(() => LIGHTNING_MONSTER_MODELS.map((model, i) => {
-    const home = homeFor('lightning-monster', i);
+    const home = isGuardDragon(model.key) ? guardHomeDeck() : homeFor('lightning-monster', i);
     const homePoint = spherePointFromDeck(home.x, home.z);
     const group = new THREE.Group();
     group.position.set(homePoint.x, homePoint.y, homePoint.z);
@@ -788,6 +803,10 @@ function Creatures({ onSelect, brainRef, creaturesRef }) {
     return {
       id: `lightning-monster_${i}`, kind: 'lightning-monster', index: i, model, group,
       home, homePoint, phase: i * 1.3, wander: 0, target: null,
+      // Guard dragons (Merlin, Nov 19 ~00:20): Stormwing + Aureline
+      // stand at the cave mouth, not at a random home — the wander
+      // branch keeps them circling the mouth.
+      guard: isGuardDragon(model.key),
       ringGeo, streakGeo, remainsGeo,
     };
   }), []);
@@ -971,7 +990,10 @@ function Creatures({ onSelect, brainRef, creaturesRef }) {
         if (m.wander <= 0 || !m.target) {
           m.wander = 4 + (m.index % 3);
           const a = t * 0.1 + m.phase;
-          const deck = { x: m.home.x + Math.cos(a) * 10, z: m.home.z + Math.sin(a) * 10 };
+          // Guards circle the cave mouth itself (GUARD_PATROL_RADIUS_M);
+          // every other creature wanders 10 m around its home.
+          const r = m.guard ? GUARD_PATROL_RADIUS_M : 10;
+          const deck = { x: m.home.x + Math.cos(a) * r, z: m.home.z + Math.sin(a) * r };
           m.target = spherePointFromDeck(deck.x, deck.z);
         }
         const next = moveOnSphere({ x: p.x, y: p.y, z: p.z }, m.target, 1.1, dt);
@@ -1239,7 +1261,21 @@ function SceneContent({ timeOfDay, mode, inputRef, speederRef, walkerRef, walker
   ), [mouthPoint, mouthUp]);
   const [labelFar, setLabelFar] = useState(true);
   const labelFarRef = useRef(true);
-  const mountainPoint = useMemo(() => groundPointAt(dirAt(MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH)), []);
+  // The cave sits FLUSH to the ground (Merlin, Nov 19 ~00:20): the
+  // mountain group sinks MOUNTAIN_SINK_M along the local up, so its
+  // base is buried below the lowest terrain point in its footprint
+  // (the terrain dips 0.716 m under the centre height; the sink is
+  // 1.0 m). Sinking along the radial direction leaves the group's
+  // up — and so the mountainQuat — unchanged.
+  const mountainPoint = useMemo(() => {
+    const p = groundPointAt(dirAt(MOUNTAIN_THETA_RAD, MOUNTAIN_AZIMUTH));
+    const r = Math.hypot(p.x, p.y, p.z) || 1;
+    return {
+      x: p.x - (p.x / r) * MOUNTAIN_SINK_M,
+      y: p.y - (p.y / r) * MOUNTAIN_SINK_M,
+      z: p.z - (p.z / r) * MOUNTAIN_SINK_M,
+    };
+  }, []);
   const mountainQuat = useMemo(() => {
     const up = new THREE.Vector3(mountainPoint.x, mountainPoint.y, mountainPoint.z).normalize();
     const pole = new THREE.Vector3(0, JUPITER2_SPHERE_R, 0);
@@ -1776,7 +1812,21 @@ export default function Jupiter2Scene({
           hp: 100, maxHp: 100, burnDps: 0, burnRemainingS: 0,
           lastStrikeMs: null, dead: false, kill: null, lastStriker: null,
           chasing: false, target: null, strike: null, deathPoint: null,
+          guardRebornAtMs: null,
         });
+        // Guard rebirth (Merlin, Nov 19 ~00:24): a killed guard
+        // dragon comes back GUARD_RESPAWN_MS after its death, so the
+        // cave mouth is never left unguarded — the 30-day
+        // decomposition still governs every other creature.
+        if (entry.kill && isGuardDragonSlot(c.kind, c.index) && guardRebirthDue(entry, now)) {
+          entry.kill = null;
+          entry.dead = false;
+          entry.hp = 100;
+          entry.burnDps = 0;
+          entry.burnRemainingS = 0;
+          entry.deathPoint = null;
+          entry.guardRebornAtMs = null;
+        }
         const pos = { x: c.group.position.x, y: c.group.position.y, z: c.group.position.z };
         let life;
         try {
@@ -1881,7 +1931,27 @@ export default function Jupiter2Scene({
               orbsRef.current = pruneOrbs([...orbsRef.current, orb], now);
               setOrbsUi(orbsRef.current);
             }
+            // Dragon shield (Merlin, Nov 19 ~00:22): killing a guard
+            // dragon drops a shield upgrade that carries over to
+            // Earth 2 — stored per-user server-side, tier 1 per
+            // dragon, 2 if both are killed. Fire-and-forget: a 401
+            // (signed out) or 503 (migration not run) is silent —
+            // the elemental orb still dropped.
+            if (isGuardDragonSlot(c.kind, c.index)) {
+              const shieldKey = dragonShieldKeyFor(c.model ? c.model.key : null);
+              if (shieldKey) {
+                grantDragonKill(shieldKey).then((res) => {
+                  if (res.ok && res.granted) showNotice(`🛡️ DRAGON SHIELD +1 — IT FOLLOWS YOU TO EARTH 2 (TIER ${res.tier}/2)`);
+                  else if (res.ok) showNotice(`🛡️ DRAGON SHIELD ALREADY EARNED (TIER ${res.tier}/2)`);
+                });
+              }
+            }
           }
+        }
+        // Guard rebirth clock: ANY guard death (duel, predation,
+        // user kill) starts the 5-minute rebirth window.
+        if (entry.kill && isGuardDragonSlot(c.kind, c.index) && !entry.guardRebornAtMs) {
+          entry.guardRebornAtMs = now + GUARD_RESPAWN_MS;
         }
       }
       // The walker's own burn + death: the storm takes them, and
@@ -1969,11 +2039,29 @@ export default function Jupiter2Scene({
     }
     setLeverUi({ phase: 'warned', countdown: null });
   };
-  const confirmLever = () => {
+  const confirmLever = async () => {
+    // The server arms the cycle FIRST: only a live event evacuates
+    // anyone. A 503 (the migration has not run) or a 401 (signed
+    // out) leaves the lever warned — nothing happens, nobody moves.
+    const res = await armOblivion();
+    if (!res.ok) {
+      if (res.status === 401) showNotice('⚡ SIGN IN TO PULL THE OBLIVION LEVER');
+      else if (res.status === 409) {
+        cancelLever(leverRef.current);
+        setLeverUi({ phase: 'idle', countdown: null });
+        showNotice('⚡ OBLIVION IS ALREADY ARMED — SEE THE HUB');
+      } else showNotice('⚡ OBLIVION IS NOT READY YET — TRY AGAIN LATER');
+      return;
+    }
     const lv = leverRef.current;
     const rec = confirmOblivion(lv, Date.now());
     if (rec.armed) setLeverUi({ phase: 'armed', countdown: rec.countdown });
     else setLeverUi(leverStatus(lv, Date.now()));
+    // Merlin's canon (Nov 19 ~00:16): pulling the lever brings the
+    // puller to the hub to witness Earth blowing up. The hub reads
+    // the same server event and starts the witness sequence.
+    setWitnessFlag();
+    window.location.href = '/';
   };
   const cancelLeverUi = () => {
     cancelLever(leverRef.current);
@@ -2011,6 +2099,27 @@ export default function Jupiter2Scene({
     const id = setInterval(() => setLeverUi(leverStatus(leverRef.current, Date.now())), 1000);
     return () => clearInterval(id);
   }, [leverUi.phase]);
+
+  // The lever lock, read from the server on mount: while the cycle
+  // is active the lever shows the armed countdown and cannot be
+  // re-pulled (the server also refuses a second arm with 409).
+  // A 503 (migration not run) or a network failure leaves the
+  // lever exactly as it was — the lock degrades to the local
+  // state machine.
+  useEffect(() => {
+    let cancelled = false;
+    fetchOblivionState().then((state) => {
+      if (cancelled || !state || !state.armed) return;
+      const lv = leverRef.current;
+      lv.pulled = true;
+      lv.warned = false;
+      lv.armed = true;
+      lv.armedAtMs = state.endsAtMs - OBLIVION_WAIT_MS;
+      setLeverUi(leverStatus(lv, Date.now()));
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -2196,12 +2305,14 @@ export default function Jupiter2Scene({
           }}>
             <h2 style={{ margin: '0 0 8px', color: '#22ff66', letterSpacing: 2, fontSize: 18 }}>⚠ OBLIVION</h2>
             <p style={{ margin: '0 0 8px', fontSize: 14, lineHeight: 1.5, color: '#f6e8da' }}>
-              You pulled the oblivion lever. Confirming arms oblivion for Jupiter 2 and starts the
-              72-hour countdown — the world will be destroyed at the end of it. This cannot be
+              You pulled the oblivion lever. Confirming blows up Earth — you and everyone
+              on Earth will be pulled to the hub to watch it happen. Then the 72-hour
+              timer starts where Earth was, and when it runs out Earth comes back
+              exactly as it was, with everything you saved intact. This cannot be
               undone by tapping again.
             </p>
             <p style={{ margin: '0 0 16px', fontSize: 12, lineHeight: 1.5, color: '#c99a78' }}>
-              Nothing has happened yet. Standing down leaves Jupiter 2 exactly as it is.
+              Nothing has happened yet. Standing down leaves everything exactly as it is.
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button type="button" onClick={confirmLever}

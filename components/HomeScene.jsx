@@ -16,6 +16,9 @@ import GodOrbitRings from './GodOrbitRings';
 import HubPortals from './HubPortals';
 import VanGoghText from './VanGoghText';
 import NexusEarth from './NexusEarth';
+// The Oblivion countdown cube (Merlin's canon, Nov 19 ~00:16):
+// while Earth is gone, this cube floats where the globe was.
+import OblivionTimerCube from './hub/OblivionTimerCube';
 import { MarsRealmContent } from './mars/MarsScene';
 import { PlanetRealmContent } from './planets/PlanetRealmContent';
 import HubMoon from './HubMoon';
@@ -1070,16 +1073,19 @@ function SystemRings() {
 // Everything solid: bounce/deflect, never kill. Portals stay the sole
 // pass-through exception (they're launch effects, not colliders).
 // ---------------------------------------------------------------------------
-function StaticColliders() {
+function StaticColliders({ earthGone }) {
   useEffect(() => {
-    registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
+    // While Earth is gone (Oblivion cycle active) its collider goes
+    // too — the countdown cube is not a wall, and the no-barriers
+    // law means nothing invisible may block flight where Earth was.
+    if (!earthGone) registerCollider('earth', () => ({ ...EARTH_CENTER }), EARTH_RADIUS + 1);
     registerCollider('sun', () => ({ x: 0, y: 158.75, z: 662.5 }), 68);
     registerCollider('mars', () => ({ ...MARS_CENTER }), MARS_RADIUS);
     PLANETS.forEach((p) => registerCollider('planet-' + p.key, () => ({ ...p.center }), p.radius));
     return () => {
       ['earth', 'sun', 'mars', ...PLANETS.map((p) => 'planet-' + p.key)].forEach(unregisterCollider);
     };
-  }, []);
+  }, [earthGone]);
   return null;
 }
 
@@ -1110,6 +1116,9 @@ function HubScene({
   arriveEarth,
   beginEarthDive,
   onEarthGlobeClick,
+  // The Oblivion cycle state (lib/oblivion/useOblivionState.js,
+  // owned by app/page.jsx): while active, Earth is gone.
+  oblivion,
   earthPickMode,
   beginMarsDive,
   marsProfile,
@@ -1264,15 +1273,23 @@ function HubScene({
                 and Earth 2 is reached through the chooser's Earth 2
                 button. Components kept (OmegaHubGate, Earth2HubGate)
                 but no longer mounted in hub space. */}
-          <NexusEarth
-            onSelect={appState === 'hub_freeroam' && !earthPickMode ? beginEarthDive : null}
-            onGlobeClick={onEarthGlobeClick}
-            quatRef={earthQuatRef}
-            focus={earthFocus}
-            phase={appState}
-            spinEnabled={appState === 'hub_intro' || appState === 'hub_freeroam'}
-            controls={controlsRef}
-          />
+          {/* The Oblivion cycle (Merlin's canon, Nov 19 ~00:16):
+              while Earth is gone, the globe is not rendered and the
+              72-hour countdown cube floats where it was. The globe
+              tap is gated in app/page.jsx (beginEarthDive shows the
+              timer notice while the cycle is active). */}
+          {!oblivion?.active && (
+            <NexusEarth
+              onSelect={appState === 'hub_freeroam' && !earthPickMode ? beginEarthDive : null}
+              onGlobeClick={onEarthGlobeClick}
+              quatRef={earthQuatRef}
+              focus={earthFocus}
+              phase={appState}
+              spinEnabled={appState === 'hub_intro' || appState === 'hub_freeroam'}
+              controls={controlsRef}
+            />
+          )}
+          {oblivion?.active && <OblivionTimerCube remainingMs={oblivion.remainingMs} />}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <MarsBackground onSelect={appState === 'hub_freeroam' ? beginMarsDive : null} />}
             {/* Hub vista hides at street level (2026-10-26, street
                 QA 3): god labels, towers, satellites and rainbow
@@ -1315,7 +1332,7 @@ function HubScene({
             {!['diving_to_street', 'earth_roam'].includes(appState) && <HubTieFlight />}
             {/* Hide waypoint beacons at street level (they're orbit navigation aids) */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <NavBeacons />}
-          <StaticColliders />
+          <StaticColliders earthGone={oblivion?.active} />
           {/* NOTE (declutter, 2026-09-29): the persistent space-portal gate
               field was removed from the interface — too cluttered. The
               launch-travel portal effects (portalTex/payloadTex in

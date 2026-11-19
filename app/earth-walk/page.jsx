@@ -28,6 +28,13 @@ import WalkJoystick from '@/components/world/WalkJoystick';
 import OrbButton from '@/components/world/OrbButton';
 import { useVortexTravel } from '@/components/VortexTravel';
 import { EARTH_WALK_PLANET, EARTH_WALK_SPAWN_FEET } from '@/lib/earth-walk';
+// The Oblivion cycle (Merlin's canon, Nov 19 ~00:16): anyone
+// walking Earth when the lever is pulled is evacuated to the hub
+// to witness it. The watcher rides the same 60 s poll the hub
+// uses (useOblivionState) — the puller travels from J2; Earth
+// walkers ride this effect.
+import { useOblivionState } from '@/lib/oblivion/useOblivionState';
+import { setWitnessFlag } from '@/lib/oblivion/client';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -68,6 +75,24 @@ export default function EarthWalkPage() {
   }, [auth]);
 
   const goBack = useCallback(() => travel('/', 'Hub'), [travel]);
+
+  // Oblivion evacuation: while this page is open, the cycle arms
+  // and this walker is pulled to the hub to witness Earth blowing
+  // up — the same witness the hub shows the puller. The flag is
+  // set before the travel so the collapse plays on arrival.
+  // Signed-in walkers only: a guest sees the locked screen, not
+  // Earth — nothing to evacuate, and no witness flag for someone
+  // who never stood on Earth. (The vortex overlay only mounts in
+  // the signed-in return below, so travel() would strand a guest.)
+  const oblivion = useOblivionState();
+  const evacuatedRef = useRef(false);
+  useEffect(() => {
+    if (!oblivion.active || evacuatedRef.current) return;
+    if (auth !== 'open') return;
+    evacuatedRef.current = true;
+    setWitnessFlag();
+    travel('/', 'Hub');
+  }, [oblivion.active, travel, auth]);
 
   // Tapping the Moon in the sky lands back on it on foot
   // (Merlin, Nov 15, 2026): the hop is a plain route change, no

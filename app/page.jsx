@@ -53,6 +53,12 @@ import {
   stashHubRegisteredAt,
   resolveHubRegisteredAt,
 } from '@/lib/hub-tutorial';
+// The Oblivion cycle (Merlin's canon, Nov 19 ~00:16): the hub polls
+// the server event; while active, Earth is gone and the timer cube
+// floats where the globe was. Earth 2/3/4 stay live throughout.
+import { useOblivionState } from '@/lib/oblivion/useOblivionState';
+import { hasWitnessFlag, clearWitnessFlag, setWitnessFlag } from '@/lib/oblivion/client';
+import { formatCountdown } from '@/lib/earth/oblivion';
 
 const HomeScene = dynamic(() => import('@/components/HomeScene'), {
   ssr: false,
@@ -69,6 +75,12 @@ const MarsConsole = dynamic(() => import('@/components/MarsConsole'), {
 // PlanetConsole rides the same client-only path (it also pulls in
 // the Mars scene module for TouchControls).
 const PlanetConsole = dynamic(() => import('@/components/PlanetConsole'), {
+  ssr: false,
+});
+
+// OblivionCollapse mounts its own WebGL renderer, so it rides the
+// same client-only dynamic path as the hub scene.
+const OblivionCollapse = dynamic(() => import('@/components/earth/OblivionCollapse'), {
   ssr: false,
 });
 
@@ -269,7 +281,37 @@ function NexusHub() {
     setShowEarthChooser(true);
   };
 
+  // The Oblivion cycle, owned by the page: polled from the server,
+  // passed to HomeScene (globe ↔ timer cube) and read by the gates
+  // below. While active, Earth is gone and the timer cube floats
+  // where the globe was. Earth 2/3/4 stay live throughout.
+  const oblivion = useOblivionState();
+  const [showWitness, setShowWitness] = useState(false);
+  useEffect(() => {
+    if (hasWitnessFlag()) setShowWitness(true);
+  }, []);
+  // Evacuation: anyone on Earth when the cycle arms is pulled to
+  // the hub to witness it (the puller travels themselves from J2;
+  // Earth users ride this effect). The witness overlay plays once.
+  // The Earth pick UI closes too — its globe is gone.
+  useEffect(() => {
+    if (!oblivion.active) return;
+    setShowEarthChooser(false);
+    setShowEarthVehicleSelect(false);
+    setEarthPickMode(false);
+    if (['diving_to_earth', 'earth_surface', 'earth_travel', 'diving_to_street', 'earth_roam'].includes(appState)) {
+      setWitnessFlag();
+      setShowWitness(true);
+      setAppState('hub_freeroam');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oblivion.active, appState]);
+
   const chooseEarth1 = () => {
+    // Oblivion: Earth 1 is gone until the timer runs out — the
+    // chooser button already shows the countdown; this guard
+    // covers any other path into the vehicle menu.
+    if (oblivion.active) return;
     // Vehicles only: Earth 1 opens the vehicle menu, not the dive.
     // The driver picks a vehicle (with a live 3D preview), then
     // taps the Earth globe to spawn — already in the vehicle.
@@ -296,6 +338,12 @@ function NexusHub() {
   // the current camera and lands on the street rig.
   const handleEarthGlobeClick = ({ lat, lon }) => {
     if (!earthPickMode) return;
+    // Oblivion: the globe is gone; a mid-pick arm cancels the pick.
+    if (oblivion.active) {
+      setEarthPickMode(false);
+      setShowEarthVehicleSelect(false);
+      return;
+    }
     setEarthPickMode(false);
     setShowEarthVehicleSelect(false);
     fx.earthDive();
@@ -1292,6 +1340,7 @@ function NexusHub() {
         pendingDest={pendingDest}
         arriveEarth={arriveEarth}
         beginEarthDive={beginEarthDive}
+        oblivion={oblivion}
         onEarthGlobeClick={handleEarthGlobeClick}
         earthPickMode={earthPickMode}
         beginMarsDive={beginMarsDive}
@@ -1317,6 +1366,20 @@ function NexusHub() {
           launchPocketUniverse(url, null, null, id);
         }}
       />
+      {/* The Oblivion witness (Merlin's canon, Nov 19 ~00:16): the
+          puller — and anyone evacuated from Earth — watches Earth
+          blow up once, then the hub shows the timer cube. The flag
+          clears when the sequence ends so it never replays. */}
+      {showWitness && (
+        <div className="fixed inset-0" style={{ zIndex: 2147483002 }} role="dialog" aria-label="Earth is gone">
+          <OblivionCollapse
+            onDone={() => {
+              clearWitnessFlag();
+              setShowWitness(false);
+            }}
+          />
+        </div>
+      )}
       {/* Portal room (Merlin, 2026-11-13): the hub portals' room —
           aurora boot sequence, then the holographic realm carousel. */}
       <PortalRoom
@@ -1365,7 +1428,8 @@ function NexusHub() {
             <button
               type="button"
               onClick={chooseEarth1}
-              className="mb-3 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
+              disabled={oblivion.active}
+              className="mb-3 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
               style={{
                 backgroundImage: 'url(/images/earth1-button-bg.webp)',
                 backgroundSize: 'cover',
@@ -1374,7 +1438,7 @@ function NexusHub() {
             >
               <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,20,40,0.55) 0%, rgba(0,20,40,0.15) 60%, transparent 100%)' }}>
                 <div className="text-lg font-bold">🌍 Earth 1</div>
-                <div className="text-sm opacity-90">The world you know. Streets, driving, the grind.</div>
+                <div className="text-sm opacity-90">{oblivion.active ? `Gone — returns in ${formatCountdown(oblivion.remainingMs)}` : 'The world you know. Streets, driving, the grind.'}</div>
               </div>
             </button>
             <button

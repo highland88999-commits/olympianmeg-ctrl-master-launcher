@@ -68,6 +68,11 @@ import { EARTH2_MODEL_BY_SLUG, modelDeliveryUrls, fetchEarth2ModelUrls } from '@
 import { supabase } from '@/lib/supabase';
 import { reportDecayPosition } from '@/lib/anti-life/lingering';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
+// Dragon shield (Merlin, Nov 19 ~00:22): guard dragons killed on
+// Jupiter 2 grant charges here — tier 1 per dragon, 2 if both —
+// stored per-user server-side. A charge blocks one predator catch.
+import { fetchDragonShield } from '@/lib/oblivion/client';
+import { dragonShieldChargesFor } from '@/lib/oblivion/state';
 import { resolveBones, normalizeJointName, resolveMosquitoRig, resolveBatWings, resolveSwimRig, resolveFlyerWings, resolveScarabLegs } from '@/lib/earth2/bones';
 import {
   COMPY_SWARM,
@@ -703,6 +708,25 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
   // mirrored weather), refreshed by the scene's environment tick.
   const [envHud, setEnvHud] = useState(null);
   const [notice, setNotice] = useState('');
+  // Dragon shield (Merlin, Nov 19 ~00:22): each guard dragon killed
+  // on Jupiter 2 (Stormwing, Aureline) grants one charge — tier 1
+  // per dragon, 2 if both are killed — stored per-user server-side.
+  // A charge blocks one predator catch: the predator is driven off
+  // and the walker stands. Charges refill on arrival and on respawn.
+  const dragonShieldTierRef = useRef(0);
+  const dragonShieldRef = useRef(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetchDragonShield().then((res) => {
+      if (cancelled || !res.ok) return;
+      dragonShieldTierRef.current = res.tier;
+      dragonShieldRef.current = dragonShieldChargesFor(res.tier);
+      if (res.tier > 0) {
+        noticeRef.current(`🛡️ DRAGON SHIELD ARMED — ${dragonShieldRef.current} CHARGE${dragonShieldRef.current === 1 ? '' : 'S'} (KILL A GUARD DRAGON ON JUPITER 2 FOR MORE)`);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
   // Breeding: the nearest stealable nest drives the steal prompt.
   // { nestId, species, eggs, dangerous } or null.
   const [stealPrompt, setStealPrompt] = useState(null);
@@ -5170,10 +5194,28 @@ export default function Earth2World({ spawnParcelId, spawnPoint = null, titlesLo
         walker.x = spawn.x;
         walker.z = spawn.z;
         walker.yaw = Math.atan2(spawn.x, spawn.z);
+        // Dragon shield refill: waking at home base restores the
+        // charges to the earned tier (one per guard dragon killed).
+        dragonShieldRef.current = dragonShieldChargesFor(dragonShieldTierRef.current);
         if (typeof syncParcel === 'function') syncParcel(true);
       }
 
       function killPrey(prey, predator, t) {
+        // Dragon shield (Merlin, Nov 19 ~00:22): a charge blocks
+        // one predator catch — the predator is driven off and the
+        // walker stands. No soul arrives, no home-base wake.
+        if (prey.isWalker && dragonShieldRef.current > 0) {
+          dragonShieldRef.current -= 1;
+          predator.chase = null;
+          predator.huntTarget = null;
+          if (predator.beh) {
+            predator.beh.hunger = 0.08;
+            setBehaviourMode(predator.beh, 'flee', 8 + rng() * 8);
+          }
+          const name = predator.entry && predator.entry.name ? predator.entry.name : 'predator';
+          noticeRef.current(`🛡️ DRAGON SHIELD — THE ${name.toUpperCase()} IS DRIVEN OFF! (${dragonShieldRef.current} CHARGE${dragonShieldRef.current === 1 ? '' : 'S'} LEFT)`);
+          return;
+        }
         // The walker, caught: not a lifecycle kill — the player
         // dies and wakes at home base instead.
         if (prey.isWalker) { killWalker(predator); return; }
