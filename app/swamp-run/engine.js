@@ -22,6 +22,8 @@ import {
 } from '../../lib/swamp-run/world.js';
 import { computeScore } from '../../lib/swamp-run/board.js';
 import { recordSoulArrival } from '../../lib/land-of-the-dead/souls.js';
+import { createGatorAgent } from '../../lib/swamp-run/gator-agent.js';
+import { headingTo, turnToward, moveForward } from '../../lib/world/character-agent.js';
 
 export const TUNING = {
   graceSeconds: 10,
@@ -144,6 +146,8 @@ export function createGame(seed = 1) {
     paddleTimer: 0,
     stepTimer: 0,
   };
+  // The alligator's brain: one agent per game (see gatorAgents above).
+  gatorAgents.set(state, createGatorAgent(TUNING));
   return state;
 }
 
@@ -200,16 +204,19 @@ function emit(state, type, extra = {}) {
   state.events.push({ type, ...extra });
 }
 
-function turnToward(entity, targetHeading, rate, dt) {
-  let diff = targetHeading - entity.heading;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  const maxTurn = rate * dt;
-  entity.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
-}
+// The gator's brain lives in lib/swamp-run/gator-agent.js — one agent per
+// game, held in a WeakMap keyed by state so the state shape stays
+// byte-identical (nothing serializes state whole, and the agent is
+// functions + no stored state of its own beyond the gator record).
+const gatorAgents = new WeakMap();
 
-function headingTo(x1, z1, x2, z2) {
-  return Math.atan2(x2 - x1, z2 - z1);
+function gatorAgentFor(state) {
+  let agent = gatorAgents.get(state);
+  if (!agent) {
+    agent = createGatorAgent(TUNING);
+    gatorAgents.set(state, agent);
+  }
+  return agent;
 }
 
 // ---------------------------------------------------------------- player --
@@ -320,90 +327,21 @@ function stepPlayer(state, dt) {
 }
 
 // --------------------------------------------------------------- gator --
-// The alligator is an AMBUSH predator — the crocodile's opposite.
-// It lurks motionless near the banks, all but invisible. Drift within
-// burst range and it EXPLODES: a short, terrifying sprint faster than
-// your paddle. But bursts are short — survive 6 seconds and it tires,
-// sinks back, and resettles to lurk again somewhere new.
+// The alligator is an AMBUSH predator — the crocodile's opposite, and the
+// pilot for agent-driven movement (Merlin, Nov 18 ~23:23). Its brain lives
+// in lib/swamp-run/gator-agent.js: the agent perceives the player, decides
+// lurk / burst / rest, and steers through the shared character-agent
+// primitives. The engine stays the single death path — a catch the agent
+// reports becomes killPlayer here, and only here.
 function stepGator(state, dt) {
-  const g = state.gator;
-  const p = state.player;
-  if (state.status === 'dead') return;
-  const d = dist(g.x, g.z, p.x, p.z);
-
-  if (g.mode === 'lurk') {
-    // Barely drifts. If you're close enough to see it, you're too close.
-    g.speed = TUNING.gatorLurkSpeed;
-    moveGator(state, dt);
-    g.growlTimer -= dt;
-    if (d < 18 && g.growlTimer <= 0) {
-      g.growlTimer = 9;
-      emit(state, 'gatorGrowl');
-    }
-    if (d < TUNING.gatorBurstRange && state.graceTimer === null) {
-      g.mode = 'burst';
-      g.burstTimer = TUNING.gatorGiveUpSeconds;
-      emit(state, 'gatorBurst');
-    }
-    return;
-  }
-
-  if (g.mode === 'burst') {
-    // Straight at you, no turning finesse — pure lunge.
-    turnToward(g, headingTo(g.x, g.z, p.x, p.z), 2.6, dt);
-    g.speed = TUNING.gatorBurstSpeed;
-    moveGator(state, dt);
-    g.burstTimer -= dt;
-    if (d < TUNING.gatorCatchBody && state.graceTimer === null) {
+  const events = gatorAgentFor(state).step(state, dt);
+  for (const ev of events) {
+    if (ev.type === 'catch') {
       killPlayer(state, 'gator');
       return;
     }
-    if (g.burstTimer <= 0) {
-      g.mode = 'rest';
-      g.restTimer = 5;
-      emit(state, 'gatorTired');
-    }
-    return;
+    emit(state, ev.type);
   }
-
-  if (g.mode === 'rest') {
-    // Blown its burst. Sinks low, drifts, then picks a new lurk spot
-    // near a bank — never far from where the player might wander.
-    g.speed = 0.6;
-    moveGator(state, dt);
-    g.restTimer -= dt;
-    if (g.restTimer <= 0) {
-      const spot = gatorLurkSpot(state);
-      g.x = spot.x;
-      g.z = spot.z;
-      g.mode = 'lurk';
-      g.growlTimer = 6;
-    }
-  }
-}
-
-function moveGator(state, dt) {
-  const g = state.gator;
-  g.x = g.x + Math.sin(g.heading) * g.speed * dt;
-  g.z = g.z + Math.cos(g.heading) * g.speed * dt;
-}
-
-/** A new ambush spot: shallow water near a bank, safely away from the player. */
-function gatorLurkSpot(state) {
-  const p = state.player;
-  const g = state.gator;
-  // Try spots ringing the player at 40–90m; take the first in water
-  // AND at least 30m from the player — never resettle on top of them.
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2 + state.seed;
-    const r = 40 + ((i * 37) % 50);
-    const x = p.x + Math.cos(a) * r;
-    const z = p.z + Math.sin(a) * r;
-    if (dist(x, z, p.x, p.z) < 30) continue;
-    if (isWater(state.seed, x, z)) return { x, z };
-  }
-  // No good water found: stay where you are, don't teleport onto the player.
-  return { x: g.x, z: g.z };
 }
 
 // ------------------------------------------------------------------ croc --
@@ -433,7 +371,7 @@ function stepCroc(state, dt) {
     }
     turnToward(c, headingTo(c.x, c.z, target.x, target.z), 1.2, dt);
     c.speed = TUNING.crocPatrolSpeed;
-    moveCroc(state, dt);
+    moveForward(c, dt);
     // Ambient menace: a growl when it drifts close, seen or not.
     c.growlTimer -= dt;
     if (d < 20 && c.growlTimer <= 0) {
@@ -449,7 +387,7 @@ function stepCroc(state, dt) {
     // bends. Catch the canoe and it RAMS.
     turnToward(c, headingTo(c.x, c.z, p.x, p.z), 1.55, dt);
     c.speed = TUNING.crocChaseSpeed + escalation;
-    moveCroc(state, dt);
+    moveForward(c, dt);
     if (p.mode === 'canoe' && dist(c.x, c.z, p.x, p.z) < TUNING.catchCanoe) {
       ramPlayer(state);
     } else if (p.mode !== 'canoe') {
@@ -466,7 +404,7 @@ function stepCroc(state, dt) {
     const spot = { x: tx, z: tz };
     turnToward(c, headingTo(c.x, c.z, spot.x, spot.z), 2.2, dt);
     c.speed = 4.2;
-    moveCroc(state, dt);
+    moveForward(c, dt);
     c.heading = headingTo(c.x, c.z, p.x, p.z); // always watching you
     return;
   }
@@ -476,17 +414,11 @@ function stepCroc(state, dt) {
     turnToward(c, headingTo(c.x, c.z, p.x, p.z), 1.9, dt);
     const onWater = isWater(state.seed, c.x, c.z);
     c.speed = (onWater ? TUNING.crocHuntWaterSpeed : TUNING.crocHuntLandSpeed) + escalation;
-    moveCroc(state, dt);
+    moveForward(c, dt);
     if (state.graceTimer === null && dist(c.x, c.z, p.x, p.z) < TUNING.catchBody) {
       killPlayer(state);
     }
   }
-}
-
-function moveCroc(state, dt) {
-  const c = state.croc;
-  c.x = c.x + Math.sin(c.heading) * c.speed * dt;
-  c.z = c.z + Math.cos(c.heading) * c.speed * dt;
 }
 
 function ramPlayer(state) {
