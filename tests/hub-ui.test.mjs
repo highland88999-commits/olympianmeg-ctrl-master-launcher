@@ -326,13 +326,13 @@ describe('hub circle buttons (static wiring)', () => {
     assert.ok(concourse.includes("{ id: 'guide', label: 'Guide', icon: '?', art: '/concourse-icons/guide.webp', hubOnly: true }"), 'tutorial tile');
     assert.ok(page.includes("tile === 'intro'") && page.includes('setShowIntro(true)'), 'replay handler via tile');
     assert.ok(page.includes("tile === 'guide'") && page.includes('setShowHubTutorial(true)'), 'tutorial handler via tile');
-    assert.ok(concourse.includes("router.push('/renewal-plan')"), 'renewal handler via tile');
+    assert.ok(concourse.includes("tile.id === 'renewal'") && concourse.includes("travel('/renewal-plan', 'Renew')"), 'renewal handler via tile');
     assert.ok(!page.includes('aria-label="Replay intro"'), 'standalone circles retired');
   });
 
   it('HOLOGRAPHIC CALLS lives in the Concourse as the Calls tile (2026-10-20)', () => {
     assert.ok(concourse.includes("{ id: 'calls', label: 'Calls', icon: '🔮', art: '/concourse-icons/calls.webp' }"), 'calls tile in the Concourse');
-    assert.ok(concourse.includes("tile.id === 'calls'") && concourse.includes("router.push('/order-67')"), 'calls tile routes to the Holographic Calls program');
+    assert.ok(concourse.includes("tile.id === 'calls'") && concourse.includes("travel('/order-67', 'Calls')"), 'calls tile routes to the Holographic Calls program');
     assert.ok(concourse.indexOf("id: 'phone'") < concourse.indexOf("id: 'calls'"), 'calls sits beside phone in the Connect row');
     assert.ok(concourse.indexOf("id: 'portals'") < concourse.indexOf("id: 'tour'"), 'portals leads the Journey row');
   });
@@ -341,7 +341,7 @@ describe('hub circle buttons (static wiring)', () => {
     assert.ok(concourse.includes("{ id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp' }"), 'hub tile in the Concourse');
     assert.ok(!concourse.includes("{ id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp', hubOnly: true }"), 'hub tile is NOT hub-only — it must exist on other pages');
     assert.ok(concourse.indexOf("id: 'hub'") < concourse.indexOf("id: 'portals'"), 'hub leads the tile order');
-    assert.ok(concourse.includes("tile.id === 'hub'") && concourse.includes("router.push('/')"), 'hub tile routes home to /');
+    assert.ok(concourse.includes("tile.id === 'hub'") && concourse.includes("travel('/', 'Hub')"), 'hub tile routes home to /');
   });
 
   it('hub flight keys stand down while typing in a form field (bug report 2026-10-22)', () => {

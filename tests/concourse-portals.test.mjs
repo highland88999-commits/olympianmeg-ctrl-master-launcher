@@ -218,7 +218,8 @@ describe('Concourse wiring (static)', () => {
       concourse.includes("dynamic(() => import('./ConcoursePortals'), { ssr: false })"),
       'panel chunk stays out of the eager bundle'
     );
-    assert.ok(concourse.includes('<ConcoursePortals open={portal3dOpen}'), 'panel mounted');
+    assert.ok(concourse.includes('<ConcoursePortals'), 'panel mounted');
+    assert.ok(concourse.includes('open={portal3dOpen}'), 'panel opens on the Orb state');
   });
 
   it("cross-source sync guard: 'portalroom' is whitelisted for pins in ui-state", () => {
@@ -243,7 +244,7 @@ describe('Concourse wiring (static)', () => {
 describe('the panel + grid (static)', () => {
   it('the panel is a PhoneFrame-family Layer 3 sheet at z-[62], headed "Portals"', () => {
     assert.ok(panel.includes('fixed inset-0 z-[62]'), 'sheet layer');
-    assert.ok(panel.includes("useState('GAMES')"), 'lands on the GAMES grid');
+    assert.ok(panel.includes("useState('ALL')"), 'lands on the ALL grid — every portal');
     assert.ok(panel.includes("aria-label=\"Portals\""), 'dialog labelled Portals, not Portals 3D');
     assert.ok(panel.includes('>Portals<') || panel.includes('Portals\n'), 'header reads Portals');
     assert.ok(!panel.includes('Portals 3D'), 'no 3D label left in the panel');
@@ -267,12 +268,12 @@ describe('the panel + grid (static)', () => {
     assert.ok(!panel.includes('drag empty space'), 'no drag-to-look hint');
   });
 
-  it('the menu is flat: no switch, no list; the grid keeps its own GAMES section', () => {
+  it('the menu is flat: no switch, no list; the grid defaults to ALL', () => {
     assert.ok(!panel.includes("useState('list')"), 'no list default — the grid IS the menu');
     assert.ok(!panel.includes('setMode('), 'no view switching');
     assert.ok(!panel.includes('aria-label="View"'), 'no switch group in the header');
     assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
-    assert.ok(panel.includes("useState('GAMES')"), 'grid default is GAMES, one section at a time');
+    assert.ok(panel.includes("useState('ALL')"), 'grid default is ALL — every portal, one page at a time');
     assert.ok(panel.includes('OMEGA_WRAP_VIDEO'), 'the room\'s top video lives over the categories');
     assert.ok(panel.includes("`All · ${programs.length}`"), 'the ALL tab carries the whole count');
     assert.ok(panel.includes("wallSection === 'TOOLS'"), 'the Cheat Code feature heads TOOLS');
@@ -345,7 +346,7 @@ describe('portal video presence (lib/portal-videos.js — the file-presence list
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDisk);
-    assert.equal(onDisk.length, 215, 'two hundred and fifteen portal videos wired (concourse videos batch 1: mars-moon generated — all 215 roster portals have videos)');
+    assert.equal(onDisk.length, 229, 'two hundred and twenty-nine portal videos wired (215 roster + the 14 Concourse videos, Nov 18, 2026 merge)');
   });
 
   it('every video key on disk resolves as video-present from the data source', () => {

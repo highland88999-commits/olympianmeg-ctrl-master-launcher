@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
 const concourse = readFileSync(join(repo, 'components', 'Concourse.jsx'), 'utf8');
+const panel = readFileSync(join(repo, 'components', 'ConcoursePortals.jsx'), 'utf8');
 const doomsday = readFileSync(join(repo, 'components', 'DoomsdayBanner.jsx'), 'utf8');
 const page = readFileSync(join(repo, 'app', 'page.jsx'), 'utf8');
 const satellite = readFileSync(join(repo, 'components', 'SatelliteMenu.jsx'), 'utf8');
@@ -28,16 +29,17 @@ describe('Concourse panel: no bleed-through on phones', () => {
 
   it('panel spans the viewport width on narrow screens', () => {
     assert.ok(
-      concourse.includes('viewport.w - 20'),
-      'phone panel width derives from the viewport, not the fixed 282px box'
+      panel.includes('w-[min(680px,94vw)]'),
+      'merged dialog spans the viewport width on narrow screens, not a fixed box'
     );
   });
 
   it('panel background is solid on phones so the page cannot ghost through', () => {
     assert.ok(
-      concourse.includes("isPhone ? 'bg-zinc-950' : 'bg-zinc-950/55'"),
-      'phone panel uses a solid background'
+      panel.includes('bg-[#070418]'),
+      'merged dialog has a solid base'
     );
+    assert.ok(panel.includes('bg-[#070418]/75'), 'a scrim keeps the menu legible over the graphic');
   });
 });
 

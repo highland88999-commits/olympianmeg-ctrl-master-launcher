@@ -29,6 +29,7 @@ const read = (p) => readFileSync(join(repo, p), 'utf8');
 
 const earth = read('components/EarthConsole.jsx');
 const concourse = read('components/Concourse.jsx');
+const panel = read('components/ConcoursePortals.jsx');
 const mars = read('components/MarsConsole.jsx');
 const uiState = read('app/api/ui-state/route.js');
 
@@ -58,31 +59,20 @@ describe('EarthConsole minimize (controls)', () => {
   });
 });
 
-describe('Concourse box is movable anywhere', () => {
-  it('the box drags by its title bar (no hold required)', () => {
-    assert.ok(concourse.includes('const beginBoxDrag = (e) => {'), 'box drag handler defined');
-    assert.ok(concourse.includes('onPointerDown={beginBoxDrag}'), 'title bar is the drag handle');
-    assert.ok(concourse.includes("e.target.closest('button, a')"), 'buttons/links keep their taps');
+describe('The merged Concourse menu (Nov 18, 2026: the box is the portal menu now)', () => {
+  it('the Orb opens the merged menu (portal panel first)', () => {
+    assert.ok(concourse.includes('setPortal3dOpen(true)'), 'the Orb opens the merged menu');
+    assert.ok(!concourse.includes('setOpen((o) => !o)'), 'the Orb no longer toggles the old box');
   });
 
-  it('the box position is a remembered fraction, rendered over the Orb anchor', () => {
-    assert.ok(concourse.includes('const [boxFrac, setBoxFrac] = useState(null)'));
-    assert.ok(concourse.includes('boxStyle'), 'rendered from the box position');
-    assert.ok(concourse.includes('concourse_box: box'), 'persisted through /api/ui-state');
+  it('the merged dialog closes from its header — the Orb reopens it', () => {
+    assert.ok(panel.includes('aria-label="Close Portals"'), 'header close button');
+    assert.ok(panel.includes('onClick={handleClose}'), 'close returns to the hub scene');
   });
 
-  it('local cache round-trips the box alongside orb/pins/bg', () => {
-    assert.ok(concourse.includes('const box = isFrac(parsed?.box) ? parsed.box : null'));
-    assert.ok(concourse.includes('if (local.box) setBoxFrac(local.box);'));
-    assert.ok(concourse.includes('if (isFrac(prefs.concourse_box))'), 'account copy hydrates');
-  });
-
-  it('the minimize button sits in a pinned header above the tile scroll area', () => {
-    const headerAt = concourse.indexOf('onPointerDown={beginBoxDrag}');
-    const scrollAt = concourse.indexOf('min-h-0 overflow-y-auto');
-    const minimizeAt = concourse.indexOf('aria-label="Minimize the Concourse"');
-    assert.ok(headerAt >= 0 && scrollAt > headerAt, 'tile scroll area is below the header');
-    assert.ok(minimizeAt > headerAt && minimizeAt < scrollAt, 'minimize stays pinned');
+  it('the box drag engine and box position retired with the box', () => {
+    assert.ok(!concourse.includes('beginBoxDrag'), 'no box drag handler');
+    assert.ok(!concourse.includes('boxFrac'), 'no box position state');
   });
 
   it('the server validates concourse_box like concourse_orb', () => {

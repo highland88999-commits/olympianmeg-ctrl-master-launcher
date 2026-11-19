@@ -38,6 +38,7 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
 const concourse = readFileSync(join(repo, 'components', 'Concourse.jsx'), 'utf8');
+const mergedMenu = readFileSync(join(repo, 'components', 'ConcoursePortals.jsx'), 'utf8');
 const panel = readFileSync(join(repo, 'components', 'ConcourseSettings.jsx'), 'utf8');
 const uiState = readFileSync(join(repo, 'app', 'api', 'ui-state', 'route.js'), 'utf8');
 const uploadRoute = readFileSync(join(repo, 'app', 'api', 'concourse', 'background-upload-url', 'route.js'), 'utf8');
@@ -135,10 +136,11 @@ describe('Concourse Settings wiring (static)', () => {
     assert.ok(concourse.includes('<ConcourseSettings'), 'sheet rendered');
   });
 
-  it('the box carries the backdrop layer under the glass scrim', () => {
-    assert.ok(concourse.includes('<ConcourseBackdrop bg={bgPref} />'), 'backdrop media rendered');
-    assert.ok(concourse.includes('bg-zinc-950/55'), 'scrim of the glass darkness over the art');
-    assert.ok(concourse.includes('prefers-reduced-motion'), 'video backdrop respects reduced motion');
+  it('the merged menu carries the backdrop layer under the glass scrim', () => {
+    assert.ok(mergedMenu.includes("bgPref?.kind === 'video' && bgPref.url"), 'backdrop media rendered');
+    assert.ok(mergedMenu.includes('CONCOURSE_BG_ART'), 'default art is the fallback');
+    assert.ok(mergedMenu.includes('bg-[#070418]/75'), 'scrim of the glass darkness over the art');
+    assert.ok(mergedMenu.includes('prefers-reduced-motion: reduce'), 'video backdrop respects reduced motion');
     assert.ok(existsSync(join(repo, 'public', 'concourse-icons', 'background-default.webp')), 'default art shipped');
   });
 

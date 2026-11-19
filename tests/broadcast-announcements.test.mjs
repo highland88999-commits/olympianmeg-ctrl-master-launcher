@@ -15,6 +15,7 @@ const overlay = readFileSync('components/broadcast/MollyBroadcastOverlay.jsx', '
 const listener = readFileSync('components/broadcast/BroadcastListener.jsx', 'utf8');
 const history = readFileSync('app/api/broadcasts/history/route.js', 'utf8');
 const menu = readFileSync('components/concourse/AnnouncementsPanel.jsx', 'utf8');
+const mergedMenu = readFileSync('components/ConcoursePortals.jsx', 'utf8');
 const concourse = readFileSync('components/Concourse.jsx', 'utf8');
 
 test('shared dot-matrix head exists with a per-instance clip id', () => {
@@ -95,9 +96,9 @@ test('notifications menu hosts the separate Announcements portal button', () => 
   assert.match(menu, /broadcast-last-opened/);
 });
 
-test('Concourse wires the bell, the menu, and drops SOON from the tour tile', () => {
-  assert.match(concourse, /AnnouncementsBell hasUnread=\{hasUnread\}/);
-  assert.match(concourse, /<AnnouncementsMenu open=\{notifOpen\}/);
+test('The merged menu wires the bell, the menu, and drops SOON from the tour tile', () => {
+  assert.match(mergedMenu, /AnnouncementsBell hasUnread=\{hasUnread\}/);
+  assert.match(mergedMenu, /<AnnouncementsMenu open=\{notifOpen\}/);
   assert.match(concourse, /\{ id: 'tour', label: 'Tour', icon: '🗺️', art: '\/concourse-icons\/tour\.webp' \}/);
   assert.doesNotMatch(concourse, /id: 'tour'[^}]*soon: true/);
 });

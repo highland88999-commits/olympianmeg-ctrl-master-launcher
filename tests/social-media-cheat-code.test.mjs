@@ -219,12 +219,10 @@ describe('master-portal seating + featured placement', () => {
     assert.ok(page.includes('CheatCodeRoom'));
   });
 
-  it('the Concourse box features the room above its tiles', () => {
+  it('the Concourse box no longer features the room — the TOOLS banner keeps the one copy', () => {
     const concourse = read('components/Concourse.jsx');
-    assert.ok(concourse.includes("import CheatCodeFeatured from './CheatCodeFeatured'"));
-    assert.ok(concourse.includes('<CheatCodeFeatured />'));
-    // The banner sits before the tile grid in the scroll area.
-    assert.ok(concourse.indexOf('<CheatCodeFeatured />') < concourse.indexOf('grid-cols-4'));
+    assert.ok(!concourse.includes("import CheatCodeFeatured from './CheatCodeFeatured'"));
+    assert.ok(!concourse.includes('<CheatCodeFeatured />'));
   });
 
   it('the flat grid features the room at the head of its TOOLS section', () => {

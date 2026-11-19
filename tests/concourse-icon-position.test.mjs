@@ -43,6 +43,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
 const read = (p) => readFileSync(join(repo, p), 'utf8');
 const concourse = read('components/Concourse.jsx');
+const panel = read('components/ConcoursePortals.jsx');
 const uiState = read('app/api/ui-state/route.js');
 
 const PHONE = { w: 390, h: 844 };
@@ -183,7 +184,7 @@ describe('component wiring (components/Concourse.jsx)', () => {
 
   it('a drag swallows its click; a tap still opens the Concourse', () => {
     assert.ok(concourse.includes('if (!info.moved) return; // plain tap — the click handler runs'));
-    assert.ok(concourse.includes('onClick={() => { if (!tapGuard()) { setNote(\'\'); setOpen((o) => !o); } }}'), 'tap toggles the box');
+    assert.ok(concourse.includes('onClick={() => { if (!tapGuard()) { setPortal3dOpen(true); } }}'), 'tap opens the merged menu');
   });
 
   it('the drop persists the remembered spot through the shared path', () => {
@@ -204,7 +205,7 @@ describe('component wiring (components/Concourse.jsx)', () => {
   });
 
   it('the user is told the truth about the gesture', () => {
-    assert.ok(concourse.includes('Drag the Orb → put it anywhere. It stays where you leave it.'));
+    assert.ok(panel.includes('Drag the Orb → put it anywhere. It stays where you leave it.'));
     assert.ok(concourse.includes('title="The Concourse — drag to move"'));
   });
 });

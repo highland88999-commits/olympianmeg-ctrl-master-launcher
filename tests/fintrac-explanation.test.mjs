@@ -96,7 +96,7 @@ describe('wiring: modal, host, and menu entries', () => {
     assert.match(c, /important: true/);
     assert.match(c, /tile\.important/);
     assert.match(c, />IMPORTANT</);
-    assert.match(c, /tile\.id === 'fintrac'\) \{ fireFintracExplanation\(4\); setOpen\(false\); return; \}/);
+    assert.match(c, /tile\.id === 'fintrac'\) \{ fireFintracExplanation\(4\); setPortal3dOpen\(false\); return; \}/);
     assert.match(c, /<FintracExplanationHost/);
   });
   it('modal scrolls vertically and Skip/Close dismiss for this load only', () => {

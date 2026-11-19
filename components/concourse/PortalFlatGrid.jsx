@@ -85,9 +85,11 @@ function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
     video.addEventListener('canplay', onCanPlay);
     // Stagger the load itself so 42 fetches never burst on one
     // frame: a face's src only starts loading in its stagger slot,
-    // while the face is mounted.
+    // while the face is mounted. (The video element carries no src
+    // in its JSX on purpose — the stagger is the load gate.)
     loadTimer = setTimeout(() => {
       if (disposed) return;
+      video.src = `/videos/portals/${item.key}.mp4`;
       video.preload = 'auto';
       video.load();
     }, slotIndex * VIDEO_START_STAGGER_MS);
@@ -197,6 +199,7 @@ export default function PortalFlatGrid({ pageItems, onTap, paused }) {
         <button
           key={item.key}
           type="button"
+          data-item-key={item.key}
           onClick={(e) => {
             const face = e.currentTarget.querySelector('[data-face]');
             const r = face ? face.getBoundingClientRect() : e.currentTarget.getBoundingClientRect();

@@ -2,8 +2,13 @@
 
 // The Concourse — the hub's one glass holoframe for every floating
 // function (Merlin, 2026-10-20). A 3-layer system:
-//   Layer 1 · Concourse Orb — the one button on the hub
-//   Layer 2 · The Concourse — the glass box of tiles the Orb opens
+//   Layer 1 · Concourse Orb — the one button on the hub; it opens
+//             the merged menu now (Nov 18, 2026 merge: "Concourse
+//             becomes the portal menu" — the Concourse landing IS
+//             the portal menu, with the Concourse's own tile menu
+//             beside it as the second panel)
+//   Layer 2 · The merged menu — the portal menu + the tile menu,
+//             in components/ConcoursePortals.jsx
 //   Layer 3 · the panels & programs the tiles fire
 //
 // Named parts, for directing edits:
@@ -14,13 +19,17 @@
 //                    remembered per account INDEFINITELY
 //                    (localStorage instantly, /api/ui-state across
 //                    logins and devices; no expiry anywhere).
-//   The Concourse  — transparent glass box; click the Orb to
-//                    expand/minimize. Drag the box by its title bar
-//                    to put it ANYWHERE on the screen (Merlin,
-//                    2026-10-22); its spot is remembered per account
-//                    exactly like the Orb's (localStorage instantly,
-//                    /api/ui-state across logins and devices).
-//   Tiles          — ALL the same 56×56, in composed order:
+//   The Concourse  — the merged menu (components/ConcoursePortals.jsx):
+//                    the portal menu by default, the Concourse's own
+//                    tile menu a swipe away. Click the Orb to open it;
+//                    close it from its header or its backdrop. The old
+//                    glass box is gone (Nov 18, 2026 merge) — its tiles
+//                    live in the tile panel, its chrome re-homed there
+//                    and in the header.
+//   Tiles          — ALL the same 56×56, in composed order. They live
+//                    in the merged menu's tile panel (as video cards,
+//                    lib/concourse-actions.js) and as pins on the hub;
+//                    TILES below is the pin source and the fireTile map.
 //                    Hub (→ /, every page — the way home, Merlin
 //                    2026-10-22), Portals, Tour, Intro, Guide,
 //                    Portals (the flat portal grid), Night Grid,
@@ -41,9 +50,10 @@
 //
 // CSS etiquette (Merlin: "respectful of other components"):
 //   - z-[58]: below the Muse sheet (65), bug form (60), Earth
-//     Console (80), program menu (40000) and modal layers
-//   - anchored bottom-right with safe-area insets, opens up-left in a
-//     capped footprint; never covers the left-half joystick zone
+//     Console (80), program menu (40000) and modal layers — the Orb
+//     and the pins live here; the merged menu itself is z-[62]
+//   - the Orb anchors bottom-right with safe-area insets; never
+//     covers the left-half joystick zone
 //   - YIELD: while the Earth bike is out, the Orb (if the user never
 //     dragged it) slides up clear of the BikeControls cluster
 //   - pointer events only on the glass itself
@@ -52,19 +62,12 @@ import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { bikeState } from '@/lib/earth/parachute';
-import { DoomsdayStrip } from './DoomsdayBanner';
 import PhoneFrame from './PhoneFrame';
-import { SeasonBadge } from './SeasonalDecor';
-import CheatCodeFeatured from './CheatCodeFeatured';
-import BackpackHud from './backpack/BackpackHud';
-import { useRadio } from './radio/RadioProvider';
-import { Play, Pause, SkipBack, SkipForward, Music2 } from 'lucide-react';
 import ConcourseSettings from './ConcourseSettings';
 import { fireFintracExplanation, FintracExplanationHost } from './FintracExplanation';
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
-import { AnnouncementsBell, AnnouncementsMenu, useAnnouncementUnread } from './concourse/AnnouncementsPanel';
 import { useVortexTravel } from './VortexTravel';
 
 // Layer 3 · Portals — loaded only when its tile is first tapped,
@@ -85,9 +88,9 @@ export function fireConcourseTile(tile) {
   } catch {}
 }
 
-// Season guide (Merlin, round 3, 2026-10-23): the SeasonBadge,
-// tapped in the box's bottom bar, asks the hub to light the way to
-// the season's house function. PumpkinHarvest (inside the Canvas)
+// Season guide (Merlin, round 3, 2026-10-23): the season badge,
+// tapped in the merged menu's tile chrome row, asks the hub to light
+// the way to the season's house function. PumpkinHarvest (inside the Canvas)
 // is the Halloween listener — it answers with a golden beacon on
 // the first unharvested pumpkin.
 export const SEASON_GUIDE_EVENT = 'olympus:season-guide';
@@ -105,7 +108,7 @@ export const SEASON_GUIDE_EVENT = 'olympus:season-guide';
 // Add a hub button"): it is deliberately NOT hubOnly — its whole
 // job is to be there on every OTHER page as the one-tap way back
 // to the hub (and it can be pinned out as a floating home button).
-// On the hub itself it simply closes the box and stays home. Its
+// On the hub itself it simply closes the merged menu and stays home. Its
 // face is the Orb artwork — the hub's own emblem.
 const TILES = [
   { id: 'hub', label: 'Hub', icon: '⌂', art: '/concourse-icons/orb.webp' },
@@ -142,7 +145,7 @@ const isFrac = (v) => v && typeof v === 'object' && Number.isFinite(v.x) && Numb
 function loadLocal() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { orb: null, pins: {}, bg: null, box: null };
+    if (!raw) return { orb: null, pins: {}, bg: null };
     const parsed = JSON.parse(raw);
     const orb = isFrac(parsed?.orb) ? parsed.orb : null;
     const pins = {};
@@ -150,10 +153,9 @@ function loadLocal() {
       for (const [id, v] of Object.entries(parsed.pins)) if (isFrac(v)) pins[id] = v;
     }
     const bg = parsed?.bg && typeof parsed.bg === 'object' ? parsed.bg : null;
-    const box = isFrac(parsed?.box) ? parsed.box : null;
-    return { orb, pins, bg, box };
+    return { orb, pins, bg };
   } catch {
-    return { orb: null, pins: {}, bg: null, box: null };
+    return { orb: null, pins: {}, bg: null };
   }
 }
 
@@ -162,7 +164,7 @@ function loadLocal() {
 function writeLocalBg(bg) {
   try {
     const l = loadLocal();
-    localStorage.setItem(LS_KEY, JSON.stringify({ orb: l.orb, pins: l.pins, bg, box: l.box }));
+    localStorage.setItem(LS_KEY, JSON.stringify({ orb: l.orb, pins: l.pins, bg }));
   } catch {}
 }
 
@@ -225,96 +227,7 @@ function OrbFace() {
 }
 
 
-// Concourse mini-player (Merlin, round 3, 2026-10-23): "the visual
-// part stays alive in concourse with the player controls at the
-// bottom of concourse next to the season name in its own button."
-// The full RadioBar can be minimized — its embed now survives that
-// parked — and this pill is the radio's living face in the box:
-// transport (prev / play-pause / next) plus the current track.
-// Play state is the provider's own, set only by Spotify's real
-// playback events, so the pill never shows a state that isn't
-// real. Tapping the track face reopens the full radio —
-// setMinimized(false) + setExpanded(true), the same end state the
-// Radio tile's `olympus:concourse-open` handler lands in. Before
-// any track has ever loaded it simply reads as the station and
-// still opens the radio.
-function ConcourseRadio() {
-  const {
-    current, playing, engineReady, station,
-    togglePlay, next, prev, setMinimized, setExpanded,
-  } = useRadio();
-  const openRadio = () => { setMinimized(false); setExpanded(true); };
-  const skipBtn =
-    'ui-element pointer-events-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-300 transition-all hover:bg-white/10 hover:text-white active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300';
-  return (
-    <div
-      role="group"
-      aria-label="Radio — mini player"
-      className="flex min-w-0 items-center gap-1 rounded-full border border-white/14 bg-zinc-950/55 py-1 pl-1 pr-1.5 backdrop-blur-md"
-    >
-      <button type="button" onClick={prev} aria-label="Previous track" title="Previous track" className={skipBtn}>
-        <SkipBack size={14} aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        onClick={togglePlay}
-        disabled={!engineReady}
-        aria-label={playing ? 'Pause' : engineReady ? 'Play' : 'Loading Spotify player'}
-        title={playing ? 'Pause' : 'Play'}
-        className="ui-element pointer-events-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-300 text-black transition-all hover:opacity-90 active:scale-95 disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-white"
-      >
-        {playing
-          ? <Pause size={15} aria-hidden="true" />
-          : <Play size={15} aria-hidden="true" className="ml-px" />}
-      </button>
-      <button type="button" onClick={next} aria-label="Next track" title="Next track" className={skipBtn}>
-        <SkipForward size={14} aria-hidden="true" />
-      </button>
-      <span className="h-5 w-px shrink-0 bg-white/15" aria-hidden="true" />
-      <button
-        type="button"
-        onClick={openRadio}
-        aria-label={current ? `Open the radio — now showing ${current.title} by ${current.artist}` : `Open the radio — ${station.shortName}`}
-        title="Open the radio"
-        className="ui-element pointer-events-auto flex min-w-0 items-center gap-1.5 rounded-full px-1.5 py-1 text-left transition-all hover:bg-white/10 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-300"
-      >
-        <Music2 size={13} aria-hidden="true" className="shrink-0 text-teal-300" />
-        <span className="block max-w-[76px] truncate text-[10.5px] font-semibold leading-tight text-zinc-100">
-          {current ? current.title : station.shortName}
-        </span>
-        {playing && (
-          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-teal-300" />
-        )}
-      </button>
-    </div>
-  );
-}
 
-// The box backdrop media: the default artwork, the user's own photo,
-// or the user's own video (muted, looping; held still — no autoplay —
-// under prefers-reduced-motion). Sits under a scrim of the same
-// darkness the glass always had (bg-zinc-950/55), so tiles and labels
-// read exactly as before.
-function ConcourseBackdrop({ bg }) {
-  const [reduceMotion] = useState(
-    () => typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  );
-  if (bg?.kind === 'video' && bg.url) {
-    return (
-      <video
-        src={bg.url}
-        autoPlay={!reduceMotion}
-        muted
-        loop
-        playsInline
-        preload="metadata"
-        className="h-full w-full object-cover"
-      />
-    );
-  }
-  const src = bg?.kind === 'image' && bg.url ? bg.url : CONCOURSE_BG_ART;
-  return <img src={src} alt="" aria-hidden="true" draggable={false} className="h-full w-full object-cover" />;
-}
 
 // Portals deep link (?portals3d=1 — Nov 16, 2026 merge; the param
 // is kept as-is by the Nov 18 flat rework): the
@@ -353,20 +266,10 @@ export default function Concourse() {
   const { travel, overlay: vortexOverlay } = useVortexTravel();
 
   const [mounted, setMounted] = useState(false);
-  const [open, setOpen] = useState(false);
-  // Notifications (Merlin, 2026-10-29): the bell in the header opens
-  // the notifications menu; its Announcements portal button hosts
-  // every past keeper broadcast for replay.
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [hasUnread, markAnnouncementsSeen] = useAnnouncementUnread();
-  const [note, setNote] = useState('');
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [orbFrac, setOrbFrac] = useState(null); // {x, y} fractions
   const [orbCustom, setOrbCustom] = useState(false);
   const [pinsFrac, setPinsFrac] = useState({}); // tileId -> {x, y}
-  const [boxFrac, setBoxFrac] = useState(null); // box top-left {x, y} fractions
-  const [boxDrag, setBoxDrag] = useState(null); // box top-left px while dragging
-  const [boxH, setBoxH] = useState(0); // measured box height (position math)
   const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
   const [phoneOpen, setPhoneOpen] = useState(false);
@@ -375,7 +278,6 @@ export default function Concourse() {
   const [portal3dOpen, setPortal3dOpen] = useState(false);
   // Deep link (?portals3d=1): open the menu straight from the URL.
   const openPortals3d = useCallback(() => {
-    setOpen(false);
     setPortal3dOpen(true);
   }, []);
   const [travelatorOpen, setTravelatorOpen] = useState(false);
@@ -385,12 +287,11 @@ export default function Concourse() {
   const orbDragRef = useRef(null);
   const suppressClickRef = useRef(0);
   const orbRef = useRef(null);
-  const boxRef = useRef(null);
   const saveTimerRef = useRef(null);
   const saveBgTimerRef = useRef(null);
   const saveSettingsTimerRef = useRef(null);
   const stateRef = useRef({ orb: null, pins: {}, custom: false });
-  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom, bg: bgPref, box: boxFrac };
+  stateRef.current = { orb: orbFrac, pins: pinsFrac, custom: orbCustom, bg: bgPref };
 
   const toPx = useCallback(
     (frac) => ({
@@ -407,9 +308,9 @@ export default function Concourse() {
     [viewport]
   );
 
-  const persist = useCallback((orb, pins, box) => {
+  const persist = useCallback((orb, pins) => {
     try {
-      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins, bg: stateRef.current.bg, box: box || null }));
+      localStorage.setItem(LS_KEY, JSON.stringify({ orb, pins, bg: stateRef.current.bg }));
     } catch {}
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
@@ -423,7 +324,6 @@ export default function Concourse() {
             preferences: {
               concourse_orb: orb,
               concourse_pins: pins,
-              ...(box ? { concourse_box: box } : {}),
             },
           }),
         });
@@ -462,7 +362,6 @@ export default function Concourse() {
       });
     }
     setPinsFrac(pins);
-    if (local.box) setBoxFrac(local.box);
     if (local.bg) setBgPref(resolveConcourseBg(local.bg));
     const cachedSettings = readUiSettingsCache(window.localStorage);
     if (cachedSettings) setUiSettings(cachedSettings);
@@ -484,9 +383,6 @@ export default function Concourse() {
         if (serverOrb) {
           setOrbFrac({ x: clamp01(serverOrb.x), y: clamp01(serverOrb.y) });
           setOrbCustom(true);
-        }
-        if (isFrac(prefs.concourse_box)) {
-          setBoxFrac({ x: clamp01(prefs.concourse_box.x), y: clamp01(prefs.concourse_box.y) });
         }
         if (prefs.settings) {
           const r = resolveUiSettings(prefs.settings);
@@ -534,29 +430,28 @@ export default function Concourse() {
     (tile) => {
       if (tile.id === 'tour') {
         setTravelatorOpen(true);
-        setOpen(false);
+        setPortal3dOpen(false);
         return;
       }
-      setNote('');
       if (tile.id === 'hub') travel('/', 'Hub');
       else if (tile.id === 'molly') travel('/ares', 'ARES');
       else if (tile.id === 'store') travel('/store', 'Store');
       else if (tile.id === 'renewal') travel('/renewal-plan', 'Renew');
       else if (tile.id === 'calls') travel('/order-67', 'Calls'); // Holographic Calls
-      else if (tile.id === 'settings') { setSettingsOpen(true); setOpen(false); return; }
-      else if (tile.id === 'phone') { setPhoneOpen(true); setOpen(false); return; }
-      else if (tile.id === 'portalroom') { setPortal3dOpen(true); setOpen(false); return; }
-      else if (tile.id === 'fintrac') { fireFintracExplanation(4); setOpen(false); return; }
+      else if (tile.id === 'settings') { setSettingsOpen(true); setPortal3dOpen(false); return; }
+      else if (tile.id === 'phone') { setPhoneOpen(true); setPortal3dOpen(false); return; }
+      else if (tile.id === 'portalroom') { setPortal3dOpen(true); return; }
+      else if (tile.id === 'fintrac') { fireFintracExplanation(4); setPortal3dOpen(false); return; }
       else fireConcourseTile(tile.id);
-      setOpen(false);
+      setPortal3dOpen(false);
     },
     [router, travel]
   );
 
-  // Season guide (Merlin, round 3): the badge in the bottom bar is
+  // Season guide (Merlin, round 3): the badge in the tile chrome row is
   // a button now. For Halloween it fires the guide event
   // PumpkinHarvest listens for (a golden beacon on the first
-  // unharvested pumpkin) and closes the box, so the hub — and the
+  // unharvested pumpkin) and closes the merged menu, so the hub — and the
   // beacon — are what the user sees. Every other season has no
   // guide target yet: the tap lands on the badge's pressed state
   // and nothing else happens. No fake guides.
@@ -565,8 +460,34 @@ export default function Concourse() {
     try {
       window.dispatchEvent(new CustomEvent(SEASON_GUIDE_EVENT, { detail: { season: seasonKey } }));
     } catch {}
-    setOpen(false);
+    setPortal3dOpen(false);
   }, []);
+
+  // The hub program menu (god menus) is a layer the merged menu
+  // toggles, not a panel inside it (Nov 18, 2026 merge): close the
+  // merged menu, then fire the Menu tile's old toggle event.
+  const handleTogglePrograms = useCallback(() => {
+    setPortal3dOpen(false);
+    fireConcourseTile('portals');
+  }, []);
+
+  // Pin a tile out from the merged menu's tile panel (hold 2s on a
+  // card): it lands at a cascading default spot near the top-left
+  // and the user can re-drag it from there (hold 2s on the pin).
+  const handlePinTile = useCallback((tileId) => {
+    if (pinsFrac[tileId]) return; // already pinned — a hold is a no-op
+    const count = Object.keys(pinsFrac).length;
+    const next = {
+      ...pinsFrac,
+      [tileId]: {
+        x: clamp01(0.05 + 0.07 * (count % 5)),
+        y: clamp01(0.08 + 0.07 * Math.floor(count / 5)),
+      },
+    };
+    setPinsFrac(next);
+    const { orb } = stateRef.current;
+    persist(orb, next);
+  }, [pinsFrac, persist]);
 
   // Backdrop choice: local cache instantly, account copy debounced
   // (same pattern as the orb/pins persist above).
@@ -685,8 +606,8 @@ export default function Concourse() {
       const next = iconPxToFrac({ x: info.x, y: info.y }, window.innerWidth, window.innerHeight, SIZE);
       setOrbFrac(next);
       setOrbCustom(true);
-      const { pins, box } = stateRef.current;
-      persist(next, pins, box);
+      const { pins } = stateRef.current;
+      persist(next, pins);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -732,14 +653,14 @@ export default function Concourse() {
       const onOrb = orbRect
         && ev.clientX >= orbRect.left - 8 && ev.clientX <= orbRect.right + 8
         && ev.clientY >= orbRect.top - 8 && ev.clientY <= orbRect.bottom + 8;
-      const { orb, pins, box } = stateRef.current;
+      const { orb, pins } = stateRef.current;
 
       if (id) {
         const nextPins = { ...pins };
         if (onOrb) delete nextPins[id]; // dropped home
         else nextPins[id] = toFrac(dropPx);
         setPinsFrac(nextPins);
-        persist(orb, nextPins, box);
+        persist(orb, nextPins);
       }
     };
     window.addEventListener('pointermove', onMove);
@@ -747,79 +668,11 @@ export default function Concourse() {
     window.addEventListener('pointercancel', onUp);
   };
 
-  // --- box drag engine ------------------------------------------------
-  // The glass box itself is movable (Merlin, 2026-10-22: "concourse
-  // should be able to be moved to any place on the screen by any
-  // user"). Before this, only the Orb could move — and only via a
-  // 2-second hold nobody could discover — while the box stayed
-  // welded above it. Now: press the box's title bar and drag, no
-  // hold required; a sub-4px press is still a tap (the minimize
-  // button and the Doomsday strip keep their own tap targets — the
-  // handler stands down over buttons and links). The drop spot is
-  // stored as viewport fractions of the box's top-left corner over
-  // its free span, persisted through the same path as the Orb, so
-  // the box follows the user across sessions and devices.
-  const beginBoxDrag = (e) => {
-    if (e.button != null && e.button !== 0) return;
-    if (e.target.closest('button, a')) return;
-    const el = boxRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startLeft = rect.left;
-    const startTop = rect.top;
-    const w = rect.width;
-    const h = rect.height;
-    setBoxH(h);
-    let cur = { x: startLeft, y: startTop };
-    let moved = false;
-    const clampBox = (x, y) => ({
-      x: Math.min(Math.max(4, x), Math.max(4, window.innerWidth - w - 4)),
-      y: Math.min(Math.max(4, y), Math.max(4, window.innerHeight - h - 4)),
-    });
-    const onMove = (ev) => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      if (!moved && Math.hypot(dx, dy) < 4) return;
-      moved = true;
-      cur = clampBox(startLeft + dx, startTop + dy);
-      setBoxDrag(cur);
-    };
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-      setBoxDrag(null);
-      if (!moved) return;
-      const frac = {
-        x: clamp01(cur.x / Math.max(1, window.innerWidth - w)),
-        y: clamp01(cur.y / Math.max(1, window.innerHeight - h)),
-      };
-      setBoxFrac(frac);
-      const { orb, pins } = stateRef.current;
-      persist(orb, pins, frac);
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    window.addEventListener('pointercancel', onUp);
-  };
-
-  // Keep the box's measured height current while it is open — the
-  // fraction math needs it, and the box's height changes with the
-  // tile count and the season strip.
-  useEffect(() => {
-    if (!open || !boxRef.current) return;
-    const h = boxRef.current.offsetHeight;
-    setBoxH((prev) => (Math.abs(prev - h) > 1 ? h : prev));
-  });
-
   const tapGuard = () => Date.now() - suppressClickRef.current < 350;
 
   if (!mounted || !orbFrac || !viewport.w) return null;
 
   const visibleTiles = TILES.filter((t) => !t.hubOnly || onHub);
-  const boxedTiles = visibleTiles.filter((t) => !pinsFrac[t.id]);
   const orbPx = toPx(orbFrac);
   const yieldLift = bikeOut && !orbCustom ? 270 : 0;
   // While the Orb is being dragged, drag x/y are its clamped
@@ -829,30 +682,6 @@ export default function Concourse() {
   const orbDragPx = drag?.active && drag.kind === 'orb' ? { x: drag.x, y: drag.y } : null;
   const orbRenderY = orbDragPx ? orbDragPx.y : orbPx.y - yieldLift;
 
-  // Phone overlap repair (2026-10-27): on narrow viewports the
-  // 282px floating box left page content showing beside it and
-  // its 55% glass let the page ghost through. On phones the full
-  // panel spans the viewport (10px margins) with a solid back so
-  // nothing shows through or beside it; the minimized Orb widget
-  // keeps floating. Desktop keeps the 4-tile glass box.
-  const isPhone = viewport.w > 0 && viewport.w < 640;
-  const boxW = isPhone ? viewport.w - 20 : 4 * SIZE + 3 * 10 + 28; // 4 tiles per row + gaps + padding
-  const boxX = Math.max(10, Math.min(orbPx.x + SIZE - boxW, viewport.w - boxW - 10));
-  // The box anchors by its BOTTOM edge, 12px above the Orb — height
-  // is whatever the tiles need, and it can never slide down over the
-  // Orb or its own footer text (Merlin's screenshot, 2026-10-20).
-  const boxBottom = viewport.h - (orbPx.y - yieldLift) + 12;
-  // A user-placed box (dragged by its title bar) overrides the Orb
-  // anchor entirely: it renders at its stored fractions, clamped
-  // fully on screen, and stays there until dragged again.
-  const boxEffH = boxH || 220;
-  const boxPx = boxDrag || (boxFrac ? {
-    x: Math.min(Math.max(4, boxFrac.x * Math.max(0, viewport.w - boxW)), Math.max(4, viewport.w - boxW - 4)),
-    y: Math.min(Math.max(4, boxFrac.y * Math.max(0, viewport.h - boxEffH)), Math.max(4, viewport.h - boxEffH - 4)),
-  } : null);
-  const boxStyle = boxPx
-    ? { left: boxPx.x, top: boxPx.y, width: boxW }
-    : { left: boxX, bottom: boxBottom, width: boxW };
 
   const dragTile = drag?.active && drag.kind === 'tile' && drag.id ? TILES.find((t) => t.id === drag.id) : null;
 
@@ -897,96 +726,6 @@ export default function Concourse() {
 
   return (
     <>
-      {/* Layer 2 · The Concourse (glass box) — the header (title +
-          minimize) is PINNED above the tile scroll area, so the
-          minimize control can never scroll out of reach on a small
-          phone, and the title bar doubles as the box's drag handle. */}
-      {open && (
-        <div
-          ref={boxRef}
-          role="dialog"
-          aria-label="The Concourse"
-          className={`ui-element fixed z-[58] flex max-h-[calc(100dvh-110px)] flex-col overflow-hidden rounded-3xl border border-cyan-200/25 ${isPhone ? 'bg-zinc-950' : 'bg-zinc-950/55'} p-3.5 shadow-[0_18px_50px_rgba(0,0,0,0.55),0_0_35px_rgba(0,242,255,0.10)] backdrop-blur-xl`}
-          style={boxStyle}
-        >
-          {/* Backdrop: the user's chosen Concourse background under
-              a scrim of the glass's own darkness. */}
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
-            <ConcourseBackdrop bg={bgPref} />
-            <div className="absolute inset-0 bg-zinc-950/55" />
-          </div>
-          <div className="relative flex min-h-0 flex-col">
-          <div className="shrink-0">
-          {/* The golden Doomsday countdown crowns the Concourse
-              (Merlin, 2026-10-20) — hub-only, self-removing Dec 11. */}
-          <DoomsdayStrip />
-          <div
-            onPointerDown={beginBoxDrag}
-            title="Drag to move the Concourse"
-            className="mb-2.5 flex cursor-grab touch-none select-none items-center justify-between px-0.5 active:cursor-grabbing"
-          >
-            <div className="text-[10px] font-black tracking-[0.3em] uppercase text-cyan-200">
-              <span aria-hidden="true" className="mr-1.5 tracking-normal text-cyan-400/70">⠿</span>The Concourse
-            </div>
-            <div className="flex items-center gap-2">
-              <AnnouncementsBell hasUnread={hasUnread} onOpen={() => setNotifOpen(true)} />
-              <button
-                type="button"
-                aria-label="Minimize the Concourse"
-                onClick={() => setOpen(false)}
-                className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:text-white hover:border-cyan-300/60 transition-all"
-              >
-                <span aria-hidden="true" className="text-xs leading-none">—</span>
-              </button>
-            </div>
-          </div>
-          </div>
-          <div className="min-h-0 overflow-y-auto">
-          {/* FEATURED — the Social Media Cheat Code room sits at
-              the top of the Concourse box (Merlin, 2026-10-26:
-              featured on every portal entry point), above the
-              ordinary tiles. Tapping it closes the box and walks
-              into the room. */}
-          <div className="mb-2.5" onClick={() => setOpen(false)}>
-            <CheatCodeFeatured />
-          </div>
-          <div className="grid grid-cols-4 gap-2.5">
-            {boxedTiles.map((t) => tileButton(t))}
-            {boxedTiles.length === 0 && (
-              <div className="px-1 py-2 text-[11px] text-zinc-400">Everything is pinned out on the hub.</div>
-            )}
-          </div>
-          <div className="mt-2.5 px-0.5 text-[9.5px] leading-relaxed text-zinc-500">
-            {note || (
-              <>
-                <span className="block">Drag the title bar → put the Concourse anywhere. It stays where you leave it.</span>
-                <span className="block">Hold a tile 2s → pin it out on the hub. Drop it on the Orb to send it home.</span>
-                <span className="block">Drag the Orb → put it anywhere. It stays where you leave it.</span>
-              </>
-            )}
-          </div>
-          {/* Bottom bar of the Concourse (Merlin, 2026-10-20 +
-              round 3, 2026-10-23): the season badge — hub-only,
-              like its old floating form; renders nothing out of
-              season — now a GUIDE button, beside the radio
-              mini-player, the radio's living face in the box.
-              One flex row with gaps and wrapping: nothing
-              overlaps, nothing is positioned over anything. */}
-          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
-            {onHub && <SeasonBadge inline onGuide={handleSeasonGuide} />}
-            <ConcourseRadio />
-            {/* The backpack, opened from the hub — a flow item in
-                this row, never overlapping the badge or radio.
-                Its home slot: docked in this row next to the
-                hub's main controls. */}
-            <BackpackHud realm="hub" realmLabel="the hub" docked
-              displayNote="The hub keeps its own arms — the pack rides along." />
-          </div>
-          </div>
-          </div>
-        </div>
-      )}
-
       {/* Pinned tiles, floating on the hub */}
       {visibleTiles
         .filter((t) => pinsFrac[t.id] && !(drag?.active && drag.id === t.id))
@@ -1026,15 +765,19 @@ export default function Concourse() {
 
       {/* Layer 3 · Portals — the flat portal grid (tap a portal to
           be sucked into its video) */}
-      <ConcoursePortals open={portal3dOpen} onClose={() => setPortal3dOpen(false)} />
+      <ConcoursePortals
+        open={portal3dOpen}
+        onClose={() => setPortal3dOpen(false)}
+        onHub={onHub}
+        onConcourseAction={(tileId) => fireTile({ id: tileId })}
+        onTogglePrograms={handleTogglePrograms}
+        onSeasonGuide={handleSeasonGuide}
+        onPinTile={handlePinTile}
+      />
       <Suspense fallback={null}>
         <Portals3dDeepLink onOpen={openPortals3d} />
       </Suspense>
       <Travelator open={travelatorOpen} onClose={() => setTravelatorOpen(false)} />
-      {/* Notifications (Merlin, 2026-10-29): the bell's menu, whose
-          Announcements portal button hosts every past broadcast. */}
-      <AnnouncementsMenu open={notifOpen} onClose={() => setNotifOpen(false)} onSeen={markAnnouncementsSeen} />
-
       {/* Layer 3 · FINTRAC explanation — the host lives here so the
           modal survives route changes for the whole app session
           (one auto-show per load) and any menu entry can re-open
@@ -1048,10 +791,10 @@ export default function Concourse() {
       <button
         ref={orbRef}
         type="button"
-        aria-label={open ? 'Minimize the Concourse' : 'Open the Concourse'}
+        aria-label="Open the Concourse"
         title="The Concourse — drag to move"
         onPointerDown={beginOrbDrag}
-        onClick={() => { if (!tapGuard()) { setNote(''); setOpen((o) => !o); } }}
+        onClick={() => { if (!tapGuard()) { setPortal3dOpen(true); } }}
         className={`ui-element pointer-events-auto fixed z-[58] flex items-center justify-center rounded-full border backdrop-blur-xl transition-shadow select-none touch-none ${
           drag?.active && drag.kind === 'orb'
             ? 'border-cyan-300 bg-cyan-950/80 shadow-[0_0_34px_rgba(0,242,255,0.6)]'

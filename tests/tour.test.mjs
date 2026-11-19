@@ -16,8 +16,8 @@ const registryText = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const entries = [...registryText.matchAll(/\{ key: "([^"]+)", route: "([^"]+)", pos: "([^"]+)", section: "([^"]+)", constellation: "([^"]+)" \}/g)]
   .map((m) => ({ key: m[1], route: m[2], pos: m[3], section: m[4], constellation: m[5] }));
 
-test('registry parses: 179 programs, 9 sections', () => {
-  assert.equal(entries.length, 179);
+test('registry parses: 215 programs, 9 sections', () => {
+  assert.equal(entries.length, 215);
   assert.equal(sectionOrder(entries).length, 9);
 });
 
@@ -33,10 +33,10 @@ test('grand tour: one gate per section, first program of each', () => {
 
 test('full tour: every program, registry order, nothing invented', () => {
   const gates = buildFullTour(entries);
-  assert.equal(gates.length, 179);
+  assert.equal(gates.length, 215);
   assert.equal(gates[0].key, 'chess');
   assert.deepEqual(gates.map((g) => g.key), entries.map((e) => e.key));
-  assert.equal(buildTour(entries, 'full').length, 179);
+  assert.equal(buildTour(entries, 'full').length, 215);
   assert.equal(buildTour(entries, 'grand').length, 9);
 });
 

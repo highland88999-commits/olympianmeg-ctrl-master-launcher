@@ -39,10 +39,10 @@ test('gate route only exports POST and never logs', () => {
   assert.match(route, /[0-9a-f]{64}/); // a hash lives here, never a passcode
 });
 
-test('Concourse carries a Molly tile that opens /molly', () => {
+test('Concourse carries an ARES tile (id molly) that opens /ares', () => {
   const concourse = read('components/Concourse.jsx');
-  assert.match(concourse, /\{\s*id:\s*'molly',\s*label:\s*'Molly'/);
-  assert.match(concourse, /tile\.id === 'molly'\) router\.push\('\/molly'\)/);
+  assert.match(concourse, /\{\s*id:\s*'molly',\s*label:\s*'ARES'/);
+  assert.match(concourse, /tile\.id === 'molly'\) travel\('\/ares', 'ARES'\)/);
 });
 
 test('sandbox page is a contained demo: gate + banner + no outside calls', () => {
