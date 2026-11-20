@@ -6,7 +6,7 @@
 // Scene, markup, ad inventory (tower panels: Merlin's native stake.com slot
 // plus the rotating billboard partner inventory), and camera logic are
 // byte-identical to the inline version — this is a pure code-split.
-import { useState, useEffect, useRef, useMemo, Suspense, Component, cloneElement, isValidElement } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, Suspense, Component, cloneElement, isValidElement } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stars, Billboard } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -39,6 +39,7 @@ import { applyCoverFit } from '../lib/texture-fit';
 import { userPlanetDescriptor } from '../lib/communiverse/spiral';
 import { GOD_TOWER_SPOTS } from '../lib/home-positions';
 import { probeWebGL, resetWebGLProbeCache, diagnoseWebGL } from '../lib/webgl-support';
+import { fireHubLoaded } from '../lib/hub-loaded';
 import { panelsForTower } from '../lib/tower-panels';
 import { manifestToOverrides, applyOverridesToTowerPanels } from '../lib/billboards/overrides';
 import { dropPausedOverrides } from '../lib/billboards/subscriptions';
@@ -1091,6 +1092,21 @@ function StaticColliders({ earthGone }) {
 
 
 // ---------------------------------------------------------------------------
+// FirstFrameReporter — fires onFirstFrame once, on the Canvas's first
+// frame tick (R3F useFrame runs before that frame draws, so the
+// scene's synchronous mount work — geometry, materials, the 24
+// generated planet wraps — is done by the time it fires). Renders
+// nothing. Lives inside the Canvas because useFrame only works there.
+function FirstFrameReporter({ onFirstFrame }) {
+  const firedRef = useRef(false);
+  useFrame(() => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    try { onFirstFrame?.(); } catch {}
+  });
+  return null;
+}
+
 // HubScene — the client-only 3D hub scene itself. Mounted by the guarded
 // HomeScene wrapper below (app/page.jsx loads the wrapper through
 // next/dynamic with ssr:false). All DOM/UI around it stays in the page.
@@ -1147,6 +1163,7 @@ function HubScene({
   sunPullRef,
   onMoonClick,
   onContextLost,
+  onFirstFrame,
   vgogh,
 }) {
   // Keep the quaternion ref initialized without the page needing three.js.
@@ -1206,6 +1223,9 @@ function HubScene({
           if (onContextLost) onContextLost();
         });
       }}>
+        {/* Hub-loaded signal (Merlin, 2026-11-19): the first frame is
+            up — the Concourse portal menu may mount now. */}
+        <FirstFrameReporter onFirstFrame={onFirstFrame} />
         {!bgVideoOk && !inRealm && (
           <color key={vgogh ? 'vgogh-bg' : 'std-bg'} attach="background" args={[vgogh ? '#0a1030' : '#050505']} />
         )}
@@ -1526,6 +1546,21 @@ export default function HomeScene(props) {
   const [retryCount, setRetryCount] = useState(0);
   const reportedRef = useRef(false);
 
+  // Hub-loaded signal (Merlin, 2026-11-19 — "don't load concourse
+  // until after the main hub finishes loading"): the Concourse portal
+  // menu waits for this before it mounts, so its 42 autoplay videos
+  // never start decoding while the 3D scene is still mounting (his
+  // diagnosis: graphics overload). Fires once — on the first frame,
+  // or the moment the scene cannot start (probe fail / context lost /
+  // mount error) so the menu is never dead-gated on a device without
+  // 3D.
+  const hubLoadedRef = useRef(false);
+  const fireHubLoadedOnce = useCallback(() => {
+    if (hubLoadedRef.current) return;
+    hubLoadedRef.current = true;
+    fireHubLoaded();
+  }, []);
+
   // Van Gogh sky (Merlin, 2026-10-31): separate background option,
   // toggled in Concourse Settings → Sky. Syncs from the ui-settings
   // cache + broadcast event; drives the module flag (canvas labels),
@@ -1584,13 +1619,21 @@ export default function HomeScene(props) {
 
   const unavailable = !webglOk || contextLost;
 
+  // The scene cannot start (probe failed, or the context was lost
+  // live): that IS the hub settling — no GPU work is coming — so the
+  // Concourse gate opens now instead of waiting on a first frame
+  // that will never arrive.
+  useEffect(() => {
+    if (unavailable) fireHubLoadedOnce();
+  }, [unavailable, fireHubLoadedOnce]);
+
   return (
     <div className="absolute inset-0 pointer-events-none">
       {unavailable ? (
         <ThreeDUnavailableNotice onRetry={retryWebGL} diagnosis={diagnosis} />
       ) : (
-        <SceneErrorBoundary fallback={<ThreeDUnavailableNotice onRetry={retryWebGL} diagnosis={diagnosis} />}>
-          <HubScene {...sceneProps} vgogh={vgogh} onContextLost={handleContextLost} />
+        <SceneErrorBoundary fallback={<ThreeDUnavailableNotice onRetry={retryWebGL} diagnosis={diagnosis} />} onError={fireHubLoadedOnce}>
+          <HubScene {...sceneProps} vgogh={vgogh} onContextLost={handleContextLost} onFirstFrame={fireHubLoadedOnce} />
         </SceneErrorBoundary>
       )}
       <div

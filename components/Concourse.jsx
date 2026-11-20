@@ -69,6 +69,7 @@ import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
 import { useVortexTravel } from './VortexTravel';
+import { HUB_LOADED_EVENT, shouldMountConcoursePortals } from '@/lib/hub-loaded';
 
 // Layer 3 · Portals — loaded only when its tile is first tapped,
 // so the portal menu never enters the layout's eager bundle (Concourse
@@ -279,6 +280,21 @@ export default function Concourse() {
   // Deep link (?portals3d=1): open the menu straight from the URL.
   const openPortals3d = useCallback(() => {
     setPortal3dOpen(true);
+  }, []);
+  // Hub-loaded gate (Merlin, 2026-11-19 — "don't load concourse
+  // until after the main hub finishes loading"): on the hub, the
+  // portal menu mounts only after the main hub scene signals it
+  // finished loading, so its 42 autoplay videos never start decoding
+  // while the 3D scene is still mounting (his diagnosis: graphics
+  // overload). Off the hub there is no scene to wait for, so the menu
+  // mounts as before. A tap on the Orb (or the ?portals3d=1 deep
+  // link) before the signal still records the intent in
+  // portal3dOpen — the menu appears the moment the hub is up.
+  const [hubLoaded, setHubLoaded] = useState(false);
+  useEffect(() => {
+    const onHubLoaded = () => setHubLoaded(true);
+    window.addEventListener(HUB_LOADED_EVENT, onHubLoaded);
+    return () => window.removeEventListener(HUB_LOADED_EVENT, onHubLoaded);
   }, []);
   const [travelatorOpen, setTravelatorOpen] = useState(false);
   const [uiSettings, setUiSettings] = useState({ sound: true });
@@ -764,7 +780,11 @@ export default function Concourse() {
       <ConcourseSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} bg={bgPref} onApplyBg={applyBg} settings={uiSettings} onApplySettings={applySettings} />
 
       {/* Layer 3 · Portals — the flat portal grid (tap a portal to
-          be sucked into its video) */}
+          be sucked into its video). Mounts only after the hub-loaded
+          signal on the hub (see the gate above) — before that, not
+          even its chunk downloads, so no portal video starts
+          decoding while the 3D scene is still mounting. */}
+      {shouldMountConcoursePortals({ hubLoaded, onHub }) && (
       <ConcoursePortals
         open={portal3dOpen}
         onClose={() => setPortal3dOpen(false)}
@@ -774,6 +794,7 @@ export default function Concourse() {
         onSeasonGuide={handleSeasonGuide}
         onPinTile={handlePinTile}
       />
+      )}
       <Suspense fallback={null}>
         <Portals3dDeepLink onOpen={openPortals3d} />
       </Suspense>
