@@ -49,6 +49,8 @@ import {
   LANDING_PERSPECTIVE_LABELS,
   LANDING_PERSPECTIVE_KEY,
   LANDING_CHARACTER_KEY,
+  readLandingCharacterMirror,
+  writeLandingCharacterMirror,
   clampOnboardingStep,
   fireFintracExplanation,
   onboardingNextButtonLabel,
@@ -261,9 +263,19 @@ function LightBackdrop({ src }) {
 // /api/ui-state when signed in, and load back on the next visit.
 function LandingSetupFrame({ onContinue }) {
   const [perspective, setPerspective] = useState(LANDING_DEFAULT_PERSPECTIVE);
-  const [characterId, setCharacterId] = useState(null);
+  // Character pick starts from the display mirror (Merlin, 2026-11-19:
+  // the orb flashed "?" on every reload while the pick restored async
+  // from /api/ui-state). The mirror is display-only — the async fetch
+  // below still runs and overwrites with the account value, which
+  // stays the source of truth. Invalid mirror values fall back to
+  // unpicked, exactly as before.
+  const mirroredCharacterId = () => {
+    const id = readLandingCharacterMirror();
+    return id && CHARACTERS.some((c) => c.id === id) ? id : null;
+  };
+  const [characterId, setCharacterId] = useState(mirroredCharacterId);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [previewId, setPreviewId] = useState(null);
+  const [previewId, setPreviewId] = useState(mirroredCharacterId);
   const loadedRef = useRef(false);
 
   // Load saved picks once (signed-in accounts only).
@@ -289,6 +301,7 @@ function LandingSetupFrame({ onContinue }) {
           && CHARACTERS.some((c) => c.id === prefs[LANDING_CHARACTER_KEY])) {
           setCharacterId(prefs[LANDING_CHARACTER_KEY]);
           setPreviewId(prefs[LANDING_CHARACTER_KEY]);
+          writeLandingCharacterMirror(prefs[LANDING_CHARACTER_KEY]);
         }
       } catch {
         /* session-only picks when the save can't load */
@@ -319,6 +332,7 @@ function LandingSetupFrame({ onContinue }) {
   const pickCharacter = (id) => {
     setCharacterId(id);
     setPreviewId(id);
+    writeLandingCharacterMirror(id);
     savePick({ [LANDING_CHARACTER_KEY]: id });
   };
 

@@ -37,6 +37,9 @@ import {
   LANDING_DEFAULT_PERSPECTIVE,
   LANDING_PERSPECTIVE_KEY,
   LANDING_CHARACTER_KEY,
+  LANDING_CHARACTER_MIRROR_KEY,
+  readLandingCharacterMirror,
+  writeLandingCharacterMirror,
   clampOnboardingStep,
   onboardingNextButtonLabel,
   onboardingNextStep,
@@ -289,5 +292,55 @@ describe('onboarding wizard: five steps, traffic light first', () => {
     const lib = src('lib/fintrac-explanation.js');
     assert.match(lib, /export function fireFintracExplanation\(step = 4\)/);
     assert.match(src('components/Concourse.jsx'), /fireFintracExplanation\(4\)/);
+  });
+});
+
+describe('landing character mirror (Merlin, 2026-11-19: orb flashed "?" on every reload)', () => {
+  const fakeStorage = (seed = {}) => {
+    const store = { ...seed };
+    return {
+      getItem: (k) => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = String(v); },
+      _store: store,
+    };
+  };
+
+  it('mirror key is namespaced and distinct from the ui-state key', () => {
+    assert.equal(LANDING_CHARACTER_MIRROR_KEY, 'olympus.landing.character');
+    assert.notEqual(LANDING_CHARACTER_MIRROR_KEY, LANDING_CHARACTER_KEY);
+  });
+
+  it('read returns null with no storage, empty, or missing value', () => {
+    assert.equal(readLandingCharacterMirror(fakeStorage()), null);
+    assert.equal(readLandingCharacterMirror(fakeStorage({ [LANDING_CHARACTER_MIRROR_KEY]: '' })), null);
+    assert.equal(readLandingCharacterMirror(null), null);
+  });
+
+  it('write then read round-trips the character id', () => {
+    const s = fakeStorage();
+    writeLandingCharacterMirror('q044-eddie-munson', s);
+    assert.equal(readLandingCharacterMirror(s), 'q044-eddie-munson');
+    assert.equal(s._store[LANDING_CHARACTER_MIRROR_KEY], 'q044-eddie-munson');
+  });
+
+  it('write ignores empty ids and a throwing storage', () => {
+    const s = fakeStorage();
+    writeLandingCharacterMirror('', s);
+    assert.equal(readLandingCharacterMirror(s), null);
+    const throwing = { getItem: () => { throw new Error('nope'); }, setItem: () => { throw new Error('nope'); } };
+    assert.equal(readLandingCharacterMirror(throwing), null);
+    assert.doesNotThrow(() => writeLandingCharacterMirror('q001-freddy-krueger', throwing));
+  });
+
+  it('component initializes the orb from the mirror and writes on pick + server restore', () => {
+    const f = src('components/FintracExplanation.jsx');
+    assert.match(f, /readLandingCharacterMirror/);
+    assert.match(f, /writeLandingCharacterMirror/);
+    assert.match(f, /useState\(mirroredCharacterId\)/);
+    assert.match(f, /const \[characterId, setCharacterId\] = useState\(mirroredCharacterId\)/);
+    assert.match(f, /const \[previewId, setPreviewId\] = useState\(mirroredCharacterId\)/);
+    // pick writes the mirror; the async server restore re-syncs it too.
+    assert.match(f, /writeLandingCharacterMirror\(id\)/);
+    assert.match(f, /writeLandingCharacterMirror\(prefs\[LANDING_CHARACTER_KEY\]\)/);
   });
 });
