@@ -40,7 +40,7 @@ function finishPlacement(g) {
 
 // The wake rule, as the component implements it: a tile wakes when a new
 // roll's total equals its token, or when a new pirate move lands on it.
-// Mirrors HexTileVideo's effect so the engine tests and the component
+// Mirrors TileVideo's effect so the engine tests and the component
 // tests assert the same contract from both sides.
 function wakesOnRoll(token, rollTotal) {
   return token != null && rollTotal != null && token === rollTotal;
@@ -184,13 +184,20 @@ test('the C&K event die does not touch the tile trigger', () => {
   assert.ok(!g.eventDie.includes(String(total)), 'event die is not a number total');
 });
 
-// --- Component: HexTileVideo watches the counters --------------------------
+// --- Component: TileVideo watches the counters --------------------------
+// TileVideo is the HTML-overlay tile video (Nov 21: out of the SVG
+// <foreignObject> — Safari let the video escape its clip — into the
+// TileVideoLayer over the board). The wake contract is unchanged.
 
-test('HexTileVideo wakes on a new rollCount when its token matches, and on pirate arrival', () => {
-  const tileFn = graphicsSrc.slice(
-    graphicsSrc.indexOf('function HexTileVideo'),
-    graphicsSrc.indexOf('function HexTileVideo') + 3200,
+function tileVideoBlock() {
+  return graphicsSrc.slice(
+    graphicsSrc.indexOf('function TileVideo('),
+    graphicsSrc.indexOf('export function TileVideoLayer'),
   );
+}
+
+test('TileVideo wakes on a new rollCount when its token matches, and on pirate arrival', () => {
+  const tileFn = tileVideoBlock();
   // It watches the two counters with refs, so a mount / restore never
   // replays an old roll.
   assert.ok(tileFn.includes('useRef(rollCount)'), 'roll counter ref seeded from props');
@@ -201,13 +208,14 @@ test('HexTileVideo wakes on a new rollCount when its token matches, and on pirat
   assert.ok(tileFn.includes('if (isPirateHex) wake = true'), 'pirate wake is the destination tile');
   // Number, not payout: the wake condition never consults the pirate.
   assert.ok(!tileFn.includes('voidPirate'), 'roll wake does not check the void pirate');
+  // The video is a plain HTML element now — no foreignObject anywhere in
+  // its block or the file (Safari escape hatch, closed).
+  assert.ok(!tileFn.includes('foreignObject'), 'TileVideo renders no foreignObject');
+  assert.ok(tileFn.includes('<video ref={videoRef}'), 'TileVideo renders a plain HTML video');
 });
 
 test('wake restarts a mid-play tile; non-matching tiles are left alone', () => {
-  const tileFn = graphicsSrc.slice(
-    graphicsSrc.indexOf('function HexTileVideo'),
-    graphicsSrc.indexOf('function HexTileVideo') + 3200,
-  );
+  const tileFn = tileVideoBlock();
   assert.ok(tileFn.includes('v.currentTime = 0;'), 'wake rewinds before playing');
   assert.ok(tileFn.includes('v.play()'), 'wake plays');
   // play() is called only inside the wake branch — nothing else in the
@@ -215,34 +223,55 @@ test('wake restarts a mid-play tile; non-matching tiles are left alone', () => {
   // as it is (finishing its play or staying paused).
   const playCalls = (tileFn.match(/\.play\(\)/g) || []).length;
   assert.equal(playCalls, 1, 'exactly one play() call, inside the wake branch');
-  assert.ok(tileFn.includes('if (wake) {'), 'play is gated on wake');
+  assert.ok(tileFn.includes('if (!wake) return;'), 'play is gated on wake');
 });
 
 test('play-once then reset: onEnded pauses and rewinds, no loop anywhere', () => {
-  const tileFn = graphicsSrc.slice(
-    graphicsSrc.indexOf('function HexTileVideo'),
-    graphicsSrc.indexOf('function HexTileVideo') + 3200,
-  );
+  const tileFn = tileVideoBlock();
   assert.ok(tileFn.includes('onEnded'), 'onEnded handler present');
   const ended = tileFn.slice(tileFn.indexOf('onEnded'));
-  assert.ok(ended.slice(0, 120).includes('pause()'), 'onEnded pauses');
-  assert.ok(ended.slice(0, 120).includes('currentTime = 0'), 'onEnded rewinds to the first frame');
+  assert.ok(ended.slice(0, 200).includes('pause()'), 'onEnded pauses');
+  assert.ok(ended.slice(0, 200).includes('currentTime = 0'), 'onEnded rewinds to the first frame');
   assert.ok(!tileFn.includes(' loop '), 'no loop attribute on the tile video');
+});
+
+test('a wake reports up to the page (hold wiring) and an error ends the play', () => {
+  const tileFn = tileVideoBlock();
+  // The page holds the turn for the video's duration; it learns the
+  // duration from the video element itself, never a hardcoded constant.
+  assert.ok(tileFn.includes('v.duration'), 'duration is read off the video element');
+  assert.ok(tileFn.includes('onTileWakeRef.current(durationMs, restart)'), 'wake reports its duration to the page');
+  assert.ok(tileFn.includes("v.addEventListener('loadedmetadata'"), 'late metadata reports its duration too');
+  assert.ok(tileFn.includes('onTileDurationRef.current'), 'late duration goes up to the page');
+  assert.ok(tileFn.includes('onError'), 'video errors are handled');
+  assert.ok(tileFn.includes('finishPlaying()'), 'error / rejected play ends the play for the hold');
+  // No second duration constant may drift: the tile never hardcodes 5 s.
+  assert.ok(!tileFn.includes('5000'), 'no hardcoded 5 s duration in the tile');
 });
 
 // --- Wiring: page passes the game-state trigger down -----------------------
 
-test('page passes token + roll/pirate counters into every HexTileArt', () => {
-  const hexBlock = pageSrc.slice(pageSrc.indexOf('{game.hexes.map((h) => {'));
-  const tileAt = hexBlock.indexOf('<HexTileArt');
-  assert.ok(tileAt > -1, 'HexTileArt call site exists');
-  const call = hexBlock.slice(tileAt, tileAt + 400);
-  assert.ok(call.includes('token={h.token}'), 'token passed per hex');
+test('page passes token + roll/pirate counters into the TileVideoLayer', () => {
+  const layerAt = pageSrc.indexOf('<TileVideoLayer');
+  assert.ok(layerAt > -1, 'TileVideoLayer call site exists');
+  const call = pageSrc.slice(layerAt, layerAt + 900);
+  assert.ok(call.includes('tiles={game.hexes.map((h) =>'), 'one layer entry per hex');
+  assert.ok(call.includes('token: h.token'), 'token passed per hex');
+  assert.ok(call.includes('cx: c.x, cy: c.y'), 'hex centre passed per hex');
+  assert.ok(call.includes('bounds={bounds}'), 'board bounds passed for positioning');
   assert.ok(call.includes('rollTotal={game.dice ? game.dice[0] + game.dice[1] : null}'), 'roll total derived from game.dice');
   assert.ok(!call.includes('eventDie'), 'event die never feeds the tile trigger');
   assert.ok(call.includes('rollCount={game.rollCount || 0}'), 'roll counter passed');
   assert.ok(call.includes('pirateMoveCount={game.pirateMoveCount || 0}'), 'pirate-move counter passed');
-  assert.ok(call.includes('isPirateHex={isVoidPirateHex}'), 'pirate destination flagged per hex');
+  assert.ok(call.includes('voidPirateHex={game.voidPirateHex}'), 'pirate destination passed');
+  assert.ok(call.includes('onTileWake={onTileWake}'), 'wake reports up for the hold');
+  assert.ok(call.includes('onTileEnd={onTileEnd}'), 'end reports up for the hold');
+  assert.ok(call.includes('onTileDuration={onTileDuration}'), 'late duration reports up for the hold');
+  // HexTileArt itself is video-free now: SVG face only.
+  const hexAt = pageSrc.indexOf('<HexTileArt');
+  const hexCall = pageSrc.slice(hexAt, hexAt + 200);
+  assert.ok(hexCall.includes('terrain={h.terrain}'), 'HexTileArt still draws the face per hex');
+  assert.ok(!hexCall.includes('rollCount'), 'HexTileArt takes no roll counter');
 });
 
 test('two tiles sharing a number both carry it (both wake)', () => {
@@ -256,10 +285,7 @@ test('two tiles sharing a number both carry it (both wake)', () => {
   assert.ok(shared.length > 0, `some number is shared by two tiles: ${JSON.stringify(byToken)}`);
   // The wake is per tile instance (own ref + own token prop), not a
   // single shared player — both instances see the same new rollCount.
-  const tileFn = graphicsSrc.slice(
-    graphicsSrc.indexOf('function HexTileVideo'),
-    graphicsSrc.indexOf('function HexTileVideo') + 3200,
-  );
+  const tileFn = tileVideoBlock();
   assert.ok(tileFn.includes('const videoRef = useRef(null)'), 'each tile owns its own video ref');
 });
 

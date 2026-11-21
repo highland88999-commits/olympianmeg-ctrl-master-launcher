@@ -38,7 +38,11 @@ import {
   expansionsOn, winTarget, winTargetFor,
 } from '@/lib/starforge/engine.js';
 import {
-  OmegaMark, HexTileArt, TradeHubArt, CardFace, CardBack, DiceFace,
+  createTileHold, tileHoldWake, tileHoldDuration, tileHoldEnd, tileHoldActive,
+  tileHoldBackstopMs,
+} from '@/lib/starforge/tile-hold.js';
+import {
+  OmegaMark, HexTileArt, TileVideoLayer, TradeHubArt, CardFace, CardBack, DiceFace,
   VoidFleetShipMarker, OutpostPiece, StationPiece, WarpLanePiece, StarshipPiece,
   StarfighterPiece, VoidPiratePiece, CorsairPiece, MenuArt,
 } from '@/components/starforge/graphics.jsx';
@@ -188,6 +192,16 @@ export default function StarforgePage() {
   const pumpRef = useRef(false);
   const logRef = useRef(null);
   const pollRef = useRef(null);
+  // Tile-video hold (Merlin, Nov 21): after a roll or pirate landing wakes
+  // tiles, the turn lasts at least as long as the video. playing counts
+  // woken tiles still playing; maxDurationMs is the longest video
+  // duration reported so far (read off the video elements, never
+  // hardcoded); timer is the backstop that ends the hold. The transitions
+  // live in lib/starforge/tile-hold.js; this is the React/timer shell.
+  // In-memory UI state only — never persisted — so a reload always
+  // restores a playable game with no hold.
+  const tileHoldRef = useRef({ ...createTileHold(), timer: null });
+  const [tileHold, setTileHold] = useState(false);
   const [, setTick] = useState(0);
   const tick = () => setTick((t) => t + 1);
 
@@ -423,6 +437,7 @@ export default function StarforgePage() {
       if (!data.ok) { setOnlineError(data.error || 'Could not start the game.'); return; }
       if (data.state) {
         gameRef.current = deserializeState(data.state);
+        endTileHold();
         resetPanels();
         setLogLines(gameRef.current.log.slice());
         setScreen('game');
@@ -436,6 +451,7 @@ export default function StarforgePage() {
   function leaveOnline() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     gameRef.current = null;
+    endTileHold();
     setOnlineMode(false);
     setScreen('menu');
     setRoomCode('');
@@ -501,6 +517,7 @@ export default function StarforgePage() {
 
   function startSolo() {
     gameRef.current = createGame(Math.floor(Math.random() * 1000000000), (playerName || '').trim() || 'You', { expansions });
+    endTileHold();
     resetPanels();
     setOnlineMode(false);
     setLogLines(gameRef.current.log.slice());
@@ -512,6 +529,49 @@ export default function StarforgePage() {
     if (onlineMode) { leaveOnline(); return; }
     startSolo();
   }
+
+  // ---- Tile-video hold -------------------------------------------------
+  // A woken tile reports its own duration; the hold lasts until every
+  // woken tile has ended, or the backstop timer (longest reported duration
+  // + grace) fires — whichever comes first. A tile whose video errors or
+  // whose play() is rejected reports an end, so a failed video never
+  // deadlocks the turn. With no duration reported at all (metadata still
+  // loading), the failsafe timer bounds the hold instead.
+  function clearTileHoldTimer() {
+    const h = tileHoldRef.current;
+    if (h.timer) { clearTimeout(h.timer); h.timer = null; }
+  }
+  function endTileHold() {
+    const h = tileHoldRef.current;
+    clearTileHoldTimer();
+    h.playing = 0;
+    h.maxDurationMs = 0;
+    setTileHold(false);
+  }
+  function armTileHoldTimer() {
+    const h = tileHoldRef.current;
+    clearTileHoldTimer();
+    h.timer = setTimeout(() => { endTileHold(); }, tileHoldBackstopMs(h));
+  }
+  function onTileWake(durationMs, restart) {
+    const h = tileHoldRef.current;
+    tileHoldWake(h, durationMs, restart);
+    setTileHold(true);
+    armTileHoldTimer();
+  }
+  function onTileDuration(durationMs) {
+    const h = tileHoldRef.current;
+    tileHoldDuration(h, durationMs);
+    if (tileHoldActive(h)) armTileHoldTimer();
+  }
+  function onTileEnd() {
+    const h = tileHoldRef.current;
+    tileHoldEnd(h);
+    if (!tileHoldActive(h)) endTileHold();
+  }
+  // A hold never survives leaving the game: new game / leave / unmount
+  // clears the timer so no stale hold can lock a later game.
+  useEffect(() => () => { clearTileHoldTimer(); }, []);
 
   // Run AI turns until a human must act. Solo only — online agents step
   // server-side, and this client must never touch their seats.
@@ -539,7 +599,17 @@ export default function StarforgePage() {
             : currentPlayer(g);
         if (!acting || !acting.isAI) break;
         if (!['placement', 'roll', 'discard', 'voidPirate', 'play', 'voidFleet'].includes(g.phase)) break;
+        // Tile-video hold: an AI that rolled a waking number (or moved the
+        // pirate) waits the video out before its next step — the same
+        // minimum turn duration as a human turn. The wait sits AFTER the
+        // 600 ms pacing sleep, not before it: a wake from the step that
+        // just ran only reaches the page (React commit -> TileVideo
+        // effect -> onTileWake) during that sleep, so a check before the
+        // sleep can never see it and the next step would run during the
+        // video. Online agents step server-side and cannot be paused from
+        // here; the hold still gates the human's End Turn in online rooms.
         await sleep(600);
+        while (tileHoldActive(tileHoldRef.current)) await sleep(100);
         const ev = aiStep(g);
         applyEvents(ev);
         tick();
@@ -949,27 +1019,45 @@ export default function StarforgePage() {
           );
         })}
 
-        {/* Board */}
+        {/* Board — three stacked layers sharing one viewBox, so the HTML
+          tile videos sit exactly over their hexes: (1) SVG hex faces,
+          (2) the HTML tile-video layer, (3) a top SVG with the tokens,
+          pieces and click targets above the videos. */}
         <div style={{ background: 'radial-gradient(ellipse at 50% 30%, #2a1a5e 0%, #0b1026 75%)', borderRadius: 14, padding: 6, border: '2px solid #e8b93c' }}>
-          <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Starforge board">
-            {game.hexes.map((h) => {
-              const c = hexCenter(h);
-              const isVoidPirateHex = h.id === game.voidPirateHex;
-              const isCorsairHex = h.id === game.corsairHex;
-              const voidPirateHere = legalVoidPirate.includes(h.id);
-              const corsairHere = legalCorsair.includes(h.id);
-              const pickHere = (progPick === 'bishop' || progPick === 'merchant' || progPick === 'inventor') && canAct;
-              return (
-                <g key={h.id} onClick={() => onHexTap(h.id)} style={{ cursor: (voidPirateHere || corsairHere || pickHere) ? 'pointer' : 'default' }}>
-                  <HexTileArt terrain={h.terrain} size={34} x={c.x - 34} y={c.y - 34}
-                    token={h.token}
-                    rollTotal={game.dice ? game.dice[0] + game.dice[1] : null}
-                    rollCount={game.rollCount || 0}
-                    pirateMoveCount={game.pirateMoveCount || 0}
-                    isPirateHex={isVoidPirateHex} />
-                  {(voidPirateHere || corsairHere || pickHere) && (
-                    <polygon points={hexPoints(h)} fill="none" stroke="#fbbf24" strokeWidth={3} />
-                  )}
+          <div style={{ position: 'relative' }}>
+            {/* Layer 1: hex faces (SVG art only — the poster/fallback under the videos) */}
+            <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none' }} aria-hidden="true">
+              {game.hexes.map((h) => {
+                const c = hexCenter(h);
+                return <HexTileArt key={h.id} terrain={h.terrain} size={34} x={c.x - 34} y={c.y - 34} />;
+              })}
+            </svg>
+            {/* Layer 2: HTML tile videos, one per hex, clipped to the hex shape */}
+            <TileVideoLayer
+              tiles={game.hexes.map((h) => { const c = hexCenter(h); return { id: h.id, terrain: h.terrain, token: h.token, cx: c.x, cy: c.y }; })}
+              bounds={bounds} size={34}
+              rollTotal={game.dice ? game.dice[0] + game.dice[1] : null}
+              rollCount={game.rollCount || 0}
+              pirateMoveCount={game.pirateMoveCount || 0}
+              voidPirateHex={game.voidPirateHex}
+              onTileWake={onTileWake} onTileEnd={onTileEnd} onTileDuration={onTileDuration} />
+            {/* Layer 3: tokens, pirate, hubs, edges, vertices — above the videos */}
+            <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} role="img" aria-label="Starforge board">
+              {game.hexes.map((h) => {
+                const c = hexCenter(h);
+                const isVoidPirateHex = h.id === game.voidPirateHex;
+                const isCorsairHex = h.id === game.corsairHex;
+                const voidPirateHere = legalVoidPirate.includes(h.id);
+                const corsairHere = legalCorsair.includes(h.id);
+                const pickHere = (progPick === 'bishop' || progPick === 'merchant' || progPick === 'inventor') && canAct;
+                return (
+                  <g key={h.id} onClick={() => onHexTap(h.id)} style={{ cursor: (voidPirateHere || corsairHere || pickHere) ? 'pointer' : 'default' }}>
+                    {/* Transparent hit area: the hex face itself lives in
+                      layer 1, so this <g> needs its own clickable shape. */}
+                    <polygon points={hexPoints(h)} fill="transparent" />
+                    {(voidPirateHere || corsairHere || pickHere) && (
+                      <polygon points={hexPoints(h)} fill="none" stroke="#fbbf24" strokeWidth={3} />
+                    )}
                   {h.token && (
                     <g>
                       <circle cx={c.x} cy={c.y} r={13} fill="#f5eeda" stroke="#14141f" strokeWidth={1} />
@@ -1065,7 +1153,8 @@ export default function StarforgePage() {
                 </g>
               );
             })}
-          </svg>
+            </svg>
+          </div>
         </div>
 
         {/* Dice + hand */}
@@ -1625,9 +1714,14 @@ export default function StarforgePage() {
             <Orb symbol="🌿" label="Biomass" disabled={!canAct} active={biomassOpen}
               onClick={() => { setBuildMode(null); setTradeOpen(false); setBiomassOpen((d) => !d); }} />
           )}
-          <Orb symbol="⏭" label="End turn" disabled={!canAct} image="/images/starforge/buttons/end-turn.webp"
+          <Orb symbol="⏭" label="End turn" disabled={!canAct || tileHold} image="/images/starforge/buttons/end-turn.webp"
             onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false); move({ type: 'endTurn' }); }} />
         </div>
+        {tileHold && (
+          <p style={{ margin: 0, fontSize: 12, color: '#fbbf24', textAlign: 'center' }}>
+            Tiles still playing — End turn unlocks when the video finishes.
+          </p>
+        )}
 
         {/* Build costs, plain English */}
         <p style={{ margin: 0, fontSize: 11, color: '#a1a1aa', textAlign: 'center' }}>

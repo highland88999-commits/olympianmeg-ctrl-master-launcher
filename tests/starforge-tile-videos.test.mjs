@@ -56,18 +56,35 @@ test('terrain mapping: every terrain key maps to one of the 6 tile videos', () =
   assert.ok(!mapBlock.includes('desert'), 'no invented desert terrain key');
 });
 
-test('tile video wiring: foreignObject clip, paused until a roll, SVG fallback underneath', () => {
-  assert.ok(graphicsSrc.includes('<foreignObject'), 'tile video rides in a foreignObject inside the board SVG');
+test('tile video wiring: HTML overlay layer, clipped to the hex, paused until a roll, SVG fallback underneath', () => {
+  // The fix (Nov 21): tile videos must NOT ride in an SVG <foreignObject> —
+  // Safari/iOS does not keep a video clipped inside one, so the video
+  // escaped to the SVG origin (top-left corner, half off-screen) while the
+  // board hexes stayed still. The videos live in TileVideoLayer, a plain
+  // HTML layer over the board, each clipped to its hex with CSS clip-path.
+  // (The word survives in comments explaining why; the JSX element itself
+  // must be gone — match the element form, <foreignObject + attribute.)
+  assert.ok(!/<foreignObject\s+[a-zA-Z]/.test(graphicsSrc), 'no foreignObject element anywhere in the tile video path');
+  assert.ok(graphicsSrc.includes('export function TileVideoLayer'), 'TileVideoLayer renders the HTML overlay');
+  assert.ok(graphicsSrc.includes("position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none'"), 'layer covers exactly the board, clips overflow, lets clicks through');
   assert.ok(graphicsSrc.includes('clipPath: HEX_CLIP'), 'video is clipped to the hex shape');
   assert.ok(graphicsSrc.includes("polygon(93.3% 25%, 50% 0%, 6.7% 25%, 6.7% 75%, 50% 100%, 93.3% 75%)"), 'hex clip polygon is the pointy-top hex');
   assert.ok(graphicsSrc.includes('src={`/videos/starforge/tiles/${video}.mp4`}'), 'tile video src');
+  // The layer positions each video from the same geometry the SVG uses:
+  // hex centre minus the hex size, over the board bounds, as percentages,
+  // so the video sits exactly over its hex and scales with the board.
+  const layerFn = graphicsSrc.slice(graphicsSrc.indexOf('export function TileVideoLayer'));
+  assert.ok(layerFn.includes('(t.cx - size - bounds.x) / bounds.w'), 'video left is the hex left as % of the board');
+  assert.ok(layerFn.includes('(t.cy - size - bounds.y) / bounds.h'), 'video top is the hex top as % of the board');
+  assert.ok(layerFn.includes("(box / bounds.w) * 100"), 'video width is the hex width as % of the board');
+  assert.ok(layerFn.includes("aspectRatio: '1 / 1'"), 'video keeps the square hex box');
   // Roll-triggered playback: the tile video itself must NOT autoplay or
-  // loop — it sits paused until HexTileVideo's effect wakes it. (Card
+  // loop — it sits paused until TileVideo's effect wakes it. (Card
   // videos elsewhere in this file still autoplay + loop; scope the check
-  // to the HexTileVideo block.)
+  // to the TileVideo block.)
   const tileFn = graphicsSrc.slice(
-    graphicsSrc.indexOf('function HexTileVideo'),
-    graphicsSrc.indexOf('function HexTileVideo') + 3200,
+    graphicsSrc.indexOf('function TileVideo('),
+    graphicsSrc.indexOf('export function TileVideoLayer'),
   );
   assert.ok(!tileFn.includes('autoPlay'), 'tile video must not autoplay');
   assert.ok(!tileFn.includes(' loop '), 'tile video must not loop');
@@ -78,23 +95,44 @@ test('tile video wiring: foreignObject clip, paused until a roll, SVG fallback u
   // Play-once then reset: onEnded pauses and rewinds to the first frame.
   assert.ok(tileFn.includes('onEnded'), 'tile video has an onEnded handler');
   assert.ok(tileFn.includes('currentTime = 0'), 'onEnded / wake rewinds to the first frame');
+  // A failed video must not deadlock the turn hold: errors report an end.
+  assert.ok(tileFn.includes('onError'), 'tile video has an onError handler');
   // SVG art stays underneath as the poster/fallback: HexTileArt still draws
-  // the hex polygon + HexArt before the video layer.
-  const hexFn = graphicsSrc.slice(graphicsSrc.indexOf('export function HexTileArt'));
-  assert.ok(hexFn.indexOf('<polygon points={HEX_POINTS}') < hexFn.indexOf('<HexTileVideo'), 'SVG hex renders before the video layer');
-  assert.ok(hexFn.indexOf('<HexArt terrain={terrain} />') < hexFn.indexOf('<HexTileVideo'), 'SVG art renders before the video layer');
+  // the hex polygon + HexArt and carries no video of its own.
+  const hexFn = graphicsSrc.slice(
+    graphicsSrc.indexOf('export function HexTileArt'),
+    graphicsSrc.indexOf('const TILE_VIDEO'),
+  );
+  assert.ok(hexFn.includes('<polygon points={HEX_POINTS}'), 'SVG hex polygon still renders');
+  assert.ok(hexFn.includes('<HexArt terrain={terrain} />'), 'SVG art still renders');
+  assert.ok(!hexFn.includes('<video '), 'HexTileArt carries no video');
+  assert.ok(graphicsSrc.includes("export function HexTileArt({ terrain = 'iron', size = 34, x, y })"),
+    'HexTileArt takes no trigger props');
 });
 
 test('tokens and pirate stay on top of the tile videos', () => {
-  // Token disc is opaque (#f5eeda, no opacity) and renders after HexTileArt
-  // in the page's hex <g>; same for the void pirate piece.
-  const hexBlock = pageSrc.slice(pageSrc.indexOf('{game.hexes.map((h) => {'));
-  const tileAt = hexBlock.indexOf('<HexTileArt');
-  const tokenAt = hexBlock.indexOf('r={13} fill="#f5eeda"');
-  const pirateAt = hexBlock.indexOf('<VoidPiratePiece');
-  assert.ok(tileAt > -1 && tokenAt > tileAt, 'number token renders after (on top of) the tile video');
-  assert.ok(pirateAt > tileAt, 'void pirate renders after (on top of) the tile video');
-  assert.ok(!hexBlock.slice(tokenAt, tokenAt + 80).includes('opacity'), 'token disc stays fully opaque');
+  // The board is three stacked layers sharing one viewBox: SVG hex faces,
+  // the HTML TileVideoLayer, then a top SVG carrying the tokens, pirate
+  // and pieces. Token disc is opaque (#f5eeda, no opacity) and renders in
+  // the top layer, after the video layer in the page.
+  const boardBlock = pageSrc.slice(pageSrc.indexOf('{/* Board — three stacked layers'));
+  const layerAt = boardBlock.indexOf('<TileVideoLayer');
+  assert.ok(layerAt > -1, 'TileVideoLayer call site exists in the board');
+  const topSvgAt = boardBlock.indexOf('aria-label="Starforge board"', layerAt);
+  assert.ok(topSvgAt > layerAt, 'the top SVG (tokens/pieces) renders after the video layer');
+  const tokenAt = boardBlock.indexOf('r={13} fill="#f5eeda"');
+  const pirateAt = boardBlock.indexOf('<VoidPiratePiece');
+  assert.ok(tokenAt > topSvgAt, 'number token renders in the top SVG, above the videos');
+  assert.ok(pirateAt > topSvgAt, 'void pirate renders in the top SVG, above the videos');
+  assert.ok(!boardBlock.slice(tokenAt, tokenAt + 80).includes('opacity'), 'token disc stays fully opaque');
+  // The top SVG's hex <g> keeps a transparent hit polygon so hex taps
+  // still fire (the hex face itself lives in the bottom SVG now).
+  assert.ok(boardBlock.includes('<polygon points={hexPoints(h)} fill="transparent" />'), 'hex hit area in the top layer');
+  // No video element may render outside the board container: the layer is
+  // the only tile-video renderer and it lives inside the board div.
+  assert.ok(!/<foreignObject\s+[a-zA-Z]/.test(graphicsSrc), 'no foreignObject escape hatch remains');
+  const videoTags = (graphicsSrc.match(/<video /g) || []).length;
+  assert.ok(videoTags >= 3, `tile + card videos still render (${videoTags} <video> tags)`);
 });
 
 test('base board still deals 19 hexes in the 6-video terrain counts', () => {

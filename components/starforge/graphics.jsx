@@ -1,22 +1,26 @@
 // components/starforge/graphics.jsx — Starforge art only.
 //
 // Mostly pure SVG React components. No external images, no extra deps.
-// HexTileVideo is the one hook user (useEffect/useRef driving its
+// TileVideo is the one hook user (useEffect/useRef driving its
 // roll-triggered play/pause); everything else is hook-free.
 // video (public/videos/starforge/cards/) over the SVG face for the five
-// base development cards and the card back, and HexTileArt layers a small
-// muted video (public/videos/starforge/tiles/) over each hex tile
-// via <foreignObject> — the SVG stays underneath as the poster/fallback
-// in both cases, so a card or hex still looks right if its video cannot
-// play. Tile videos sit PAUSED on their first frame until a dice roll (or
-// a void-pirate arrival) wakes them for one play-through — see
-// HexTileVideo; card videos still loop. Card videos are lazy
-// (preload="none": they only fetch when the card renders); tile videos use
-// preload="metadata" so a paused tile shows its opening frame. Cards render
-// only in normal HTML flow —
-// inside an SVG (x/y passed) the plain SVG renders instead. Hex tiles are
-// the exception by design: they live inside the board SVG, so the video
-// rides in a foreignObject clipped to the hex shape.
+// base development cards and the card back, and TileVideoLayer layers the
+// small muted tile videos (public/videos/starforge/tiles/) over each hex
+// tile as plain HTML <video> elements — the SVG hex art stays underneath
+// as the poster/fallback in both cases, so a card or hex still looks
+// right if its video cannot play. Tile videos sit PAUSED on their first
+// frame until a dice roll (or a void-pirate arrival) wakes them for one
+// play-through — see TileVideo; card videos still loop. Card videos are
+// lazy (preload="none": they only fetch when the card renders); tile
+// videos use preload="metadata" so a paused tile shows its opening
+// frame. Cards render only in normal HTML flow —
+// inside an SVG (x/y passed) the plain SVG renders instead. Hex tiles
+// are the exception by design: the tile face lives inside the board SVG,
+// but the video does NOT — Safari/iOS does not keep a video clipped
+// inside an SVG <foreignObject> (it escapes the clip and renders
+// detached at the SVG origin), so the videos live in an HTML layer over
+// the board instead, each clipped to its hex with CSS clip-path. See
+// TileVideoLayer.
 // No words on any piece that sits on an orb (orbs are the page's job).
 //
 // HOW TO WIRE IN (page worker):
@@ -26,11 +30,13 @@
 //   point (px, py), render it with x={px - size/2} y={py - size/2}.
 // - Board geometry (from app/starforge/page.jsx): HEX_SIZE = 34,
 //   pointy-top hexes, axialToPixel(q, r, 34). A hex tile is 68x68 units:
-//   <HexTileArt terrain={h.terrain} size={34} x={cx - 34} y={cy - 34}
-//     token={h.token} rollTotal={diceTotal} rollCount={g.rollCount}
-//     pirateMoveCount={g.pirateMoveCount} isPirateHex={h.id === g.voidPirateHex} />
-//   (the trigger props drive the roll-triggered tile video — see
-//   HexTileVideo; omit them and the tile simply never wakes).
+//   <HexTileArt terrain={h.terrain} size={34} x={cx - 34} y={cy - 34} />
+//   renders the SVG face only. The tile videos live in a separate HTML
+//   layer over the board — <TileVideoLayer tiles={tiles} bounds={bounds}
+//   ... /> where each tile carries { id, terrain, token, cx, cy } (cx/cy
+//   are the hex centre in the same viewBox units) — see TileVideoLayer.
+//   (the trigger props drive the roll-triggered tile video; omit them and
+//   a tile simply never wakes).
 //   The number token (r=13 circle) sits on top of the tile, so every tile
 //   keeps its centre disc (r < 14) clear.
 // - Hubs sit at hubPos(): <TradeHubArt type={hub.type} size={32}
@@ -278,20 +284,31 @@ function HexArt({ terrain }) {
   }
 }
 
-export function HexTileArt({ terrain = 'iron', size = 34, x, y, token = null, rollTotal = null, rollCount = 0, pirateMoveCount = 0, isPirateHex = false }) {
+export function HexTileArt({ terrain = 'iron', size = 34, x, y }) {
   return (
     <svg width={size * 2} height={size * 2} x={x} y={y} viewBox="-34 -34 68 68" role="img" aria-label={`${TERRAIN_LABEL[terrain] || terrain} hex`}>
       <polygon points={HEX_POINTS} fill={TERRAIN_FILL[terrain] || TERRAIN_FILL.void} stroke="#0b1f14" strokeWidth="1.5" strokeLinejoin="round" />
       <HexArt terrain={terrain} />
-      <HexTileVideo terrain={terrain} token={token} rollTotal={rollTotal} rollCount={rollCount} pirateMoveCount={pirateMoveCount} isPirateHex={isPirateHex} />
     </svg>
   );
 }
 
 // Tile videos (public/videos/starforge/tiles/) — one per base terrain kind.
-// The board is an SVG, so the video rides in a <foreignObject> clipped to
-// the pointy-top hex shape; the SVG art above stays underneath as the
+// The board's hex faces live in an SVG, but the videos do NOT ride in it:
+// a <video> inside an SVG <foreignObject> is not kept clipped to the hex
+// on Safari/iOS — it escapes the clip and renders detached at the SVG
+// origin (top-left corner, half off-screen), while the board hexes keep
+// showing only static SVG art. So the videos live in TileVideoLayer, a
+// plain HTML layer over the board: one <video> per hex, positioned over
+// its hex's pixel location (same geometry the SVG uses, as % of the board
+// bounds, so it scales with the board) and clipped to the pointy-top hex
+// shape with CSS clip-path — HTML video + CSS clip-path polygon is the
+// technique Safari supports. The SVG art above stays underneath as the
 // poster/fallback, so a hex still looks right if its video cannot play.
+// The layer sits inside the board container (overflow hidden), so no
+// video element can ever render outside the board. Number tokens, the
+// void pirate, outposts, stations and warp lanes are NOT in this layer —
+// they live in the page's top SVG layer, above the videos.
 // Expansion terrains reuse the closest of the 6 — no extra videos:
 // goldVein -> gold, lake -> water-ice, sea -> void (nebula), oasis
 // (waystation) -> gold. Same file is reused across every hex of a type,
@@ -310,12 +327,15 @@ export function HexTileArt({ terrain = 'iron', size = 34, x, y, token = null, ro
 // even when the void pirate is blocking it. The page passes the game
 // state's roll/pirate counters down (rollTotal + rollCount from
 // lib/starforge/engine.js rollDice, pirateMoveCount from moveVoidPirate /
-// starfighter displacement); HexTileVideo watches the counters with a ref
+// starfighter displacement); TileVideo watches the counters with a ref
 // and plays/pauses the <video> element directly. Deriving the trigger from
 // game state (not a separate event channel) means AI rolls fire it too —
 // the page re-renders from the same game state after every aiStep.
-// The number token, void pirate, outposts, stations and warp lanes are
-// later siblings in the page's hex <g>, so they paint on top.
+// A wake also reports up to the page (onTileWake / onTileEnd /
+// onTileDuration) so the page can hold the turn for at least the video's
+// duration — see the tile-hold wiring in app/starforge/page.jsx. The
+// duration reported is always read off the video element itself, never a
+// hardcoded constant.
 const TILE_VIDEO = {
   iron: 'iron', silicon: 'silicon', titanium: 'titanium',
   waterIce: 'water-ice', gold: 'gold', void: 'void',
@@ -327,7 +347,16 @@ const TILE_VIDEO = {
 // (93.3,75).
 const HEX_CLIP = 'polygon(93.3% 25%, 50% 0%, 6.7% 25%, 6.7% 75%, 50% 100%, 93.3% 75%)';
 
-function HexTileVideo({ terrain, token = null, rollTotal = null, rollCount = 0, pirateMoveCount = 0, isPirateHex = false }) {
+// One tile's video in the HTML overlay layer. onTileWake(durationMs,
+// restart) fires when the tile actually starts playing — durationMs is
+// the video element's own duration in ms, or null when its metadata has
+// not loaded yet (onTileDuration then reports the duration once it does).
+// onTileEnd fires exactly once per non-restart wake, when the tile stops
+// playing (ended, error, or a rejected play()). A restart wake (a second
+// matching roll while this tile is mid-play) rewinds and replays without
+// a second onTileEnd for the superseded play — the page counts it as the
+// same play and only refreshes its hold timer.
+function TileVideo({ hexId, terrain, token = null, rollTotal = null, rollCount = 0, pirateMoveCount = 0, isPirateHex = false, style, onTileWake, onTileEnd, onTileDuration }) {
   const video = TILE_VIDEO[terrain];
   const videoRef = useRef(null);
   // Counters this tile has already answered, so a mount — or a restored /
@@ -335,6 +364,21 @@ function HexTileVideo({ terrain, token = null, rollTotal = null, rollCount = 0, 
   // roll that already happened. Seeded from the props on first render.
   const lastRollCount = useRef(rollCount);
   const lastPirateMoveCount = useRef(pirateMoveCount);
+  // Whether this tile currently counts as playing in the page's hold.
+  const playingRef = useRef(false);
+  // The page passes fresh inline callbacks every render; keep them in
+  // refs so the wake effect below does not re-run on every render.
+  const onTileWakeRef = useRef(onTileWake);
+  const onTileEndRef = useRef(onTileEnd);
+  const onTileDurationRef = useRef(onTileDuration);
+  onTileWakeRef.current = onTileWake;
+  onTileEndRef.current = onTileEnd;
+  onTileDurationRef.current = onTileDuration;
+  const finishPlaying = () => {
+    if (!playingRef.current) return;
+    playingRef.current = false;
+    if (onTileEndRef.current) onTileEndRef.current();
+  };
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -351,23 +395,68 @@ function HexTileVideo({ terrain, token = null, rollTotal = null, rollCount = 0, 
       // only when the pirate lands on the void hex).
       if (isPirateHex) wake = true;
     }
-    if (wake) {
-      // Restart from the beginning even if this tile is mid-play from a
-      // previous roll; tiles that don't match are left exactly as they are.
-      v.currentTime = 0;
-      const p = v.play();
-      if (p && p.catch) p.catch(() => {});
+    if (!wake) return;
+    const restart = playingRef.current;
+    playingRef.current = true;
+    // Duration straight off the video element. When metadata has not
+    // loaded yet it is null, and the loadedmetadata listener below
+    // reports it once it arrives; the page holds on its failsafe until then.
+    const durationMs = Number.isFinite(v.duration) && v.duration > 0 ? v.duration * 1000 : null;
+    if (onTileWakeRef.current) onTileWakeRef.current(durationMs, restart);
+    if (durationMs == null) {
+      const onMeta = () => {
+        if (Number.isFinite(v.duration) && v.duration > 0 && onTileDurationRef.current) {
+          onTileDurationRef.current(v.duration * 1000);
+        }
+      };
+      v.addEventListener('loadedmetadata', onMeta, { once: true });
     }
+    // Restart from the beginning even if this tile is mid-play from a
+    // previous roll; tiles that don't match are left exactly as they are.
+    v.currentTime = 0;
+    const p = v.play();
+    if (p && p.catch) p.catch(() => { finishPlaying(); });
   }, [rollCount, pirateMoveCount, rollTotal, token, isPirateHex]);
   if (!video) return null;
   return (
-    <foreignObject x={-34} y={-34} width={68} height={68}>
-      <div xmlns="http://www.w3.org/1999/xhtml" style={{ width: 68, height: 68, margin: 0, padding: 0 }}>
-        <video ref={videoRef} src={`/videos/starforge/tiles/${video}.mp4`} muted playsInline preload="metadata" aria-hidden="true"
-          onEnded={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
-          style={{ width: 68, height: 68, objectFit: 'cover', display: 'block', clipPath: HEX_CLIP }} />
-      </div>
-    </foreignObject>
+    <video ref={videoRef} data-tile-video data-hex-id={hexId} data-terrain={terrain} data-token={token == null ? '' : token}
+      src={`/videos/starforge/tiles/${video}.mp4`} muted playsInline preload="metadata" aria-hidden="true"
+      onEnded={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; finishPlaying(); }}
+      onError={() => { finishPlaying(); }}
+      style={{ ...style, objectFit: 'cover', display: 'block', clipPath: HEX_CLIP }} />
+  );
+}
+
+// The HTML video layer over the board. tiles carry { id, terrain, token,
+// cx, cy } with cx/cy the hex centre in the board's viewBox units;
+// bounds is the same { x, y, w, h } viewBox the board SVG uses, so each
+// video sits exactly over its hex and scales with the board (percentage
+// positioning inside a layer that exactly covers the SVG's rendered box).
+// size is the hex radius in viewBox units (34, matching the page's
+// HEX_SIZE). The layer clips overflow and ignores pointer events, so
+// clicks pass through to the page's top SVG layer and no video can render
+// outside the board container.
+export function TileVideoLayer({ tiles = [], bounds, size = 34, rollTotal = null, rollCount = 0, pirateMoveCount = 0, voidPirateHex = null, onTileWake, onTileEnd, onTileDuration }) {
+  if (!bounds) return null;
+  const box = size * 2;
+  return (
+    <div aria-hidden="true" style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      {tiles.map((t) => {
+        const style = {
+          position: 'absolute',
+          left: `${((t.cx - size - bounds.x) / bounds.w) * 100}%`,
+          top: `${((t.cy - size - bounds.y) / bounds.h) * 100}%`,
+          width: `${(box / bounds.w) * 100}%`,
+          aspectRatio: '1 / 1',
+        };
+        return (
+          <TileVideo key={t.id} hexId={t.id} terrain={t.terrain} token={t.token}
+            rollTotal={rollTotal} rollCount={rollCount} pirateMoveCount={pirateMoveCount}
+            isPirateHex={t.id === voidPirateHex} style={style}
+            onTileWake={onTileWake} onTileEnd={onTileEnd} onTileDuration={onTileDuration} />
+        );
+      })}
+    </div>
   );
 }
 
