@@ -125,7 +125,7 @@ function edgeMid(game, edgeKey) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, angle: (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI };
 }
 
-function Orb({ symbol, label, onClick, disabled, active, small }) {
+function Orb({ symbol, label, onClick, disabled, active, small, image }) {
   const size = small ? 44 : 56;
   return (
     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, width: small ? 56 : 68 }}>
@@ -137,14 +137,14 @@ function Orb({ symbol, label, onClick, disabled, active, small }) {
         style={{
           width: size, height: size, borderRadius: '50%',
           border: active ? '3px solid #fbbf24' : '2px solid rgba(255,255,255,0.35)',
-          background: disabled ? '#3f3f46' : active ? '#78350f' : '#27272a',
+          background: image ? '#0b1026' : disabled ? '#3f3f46' : active ? '#78350f' : '#27272a',
           color: '#fff', fontSize: small ? 20 : 26, lineHeight: 1,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.45 : 1,
-          padding: 0, flexShrink: 0,
+          padding: 0, flexShrink: 0, overflow: 'hidden',
         }}
       >
-        {symbol}
+        {image ? <img src={image} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', display: 'block' }} /> : symbol}
       </button>
       <span style={{ fontSize: 11, color: '#d4d4d8', textAlign: 'center', lineHeight: 1.2 }}>{label}</span>
     </span>
@@ -1571,9 +1571,9 @@ export default function StarforgePage() {
 
         {/* Action orbs */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Orb symbol="🎲" label="Roll" disabled={!canRoll}
+          <Orb symbol="🎲" label="Roll" disabled={!canRoll} image="/images/starforge/buttons/roll.webp"
             onClick={() => move({ type: 'roll' })} />
-          <Orb symbol="🔨" label="Build" disabled={!canAct} active={!!buildMode}
+          <Orb symbol="🔨" label="Build" disabled={!canAct} active={!!buildMode} image="/images/starforge/buttons/build.webp"
             onClick={() => {
               setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false);
               setBuildMode((m) => (m ? null : 'warpLane'));
@@ -1600,10 +1600,10 @@ export default function StarforgePage() {
               )}
             </>
           )}
-          <Orb symbol="🔄" label="Trade" disabled={!canAct} active={tradeOpen}
+          <Orb symbol="🔄" label="Trade" disabled={!canAct} active={tradeOpen} image="/images/starforge/buttons/trade.webp"
             onClick={() => { setBuildMode(null); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false); setTradeOpen((t) => !t); }} />
           {!ex.stationsStarfighters && (
-            <Orb symbol="🃏" label="Cards" disabled={!myTurn} active={devOpen}
+            <Orb symbol="🃏" label="Cards" disabled={!myTurn} active={devOpen} image="/images/starforge/buttons/cards.webp"
               onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen((d) => !d); }} />
           )}
           {ex.stationsStarfighters && (
@@ -1620,7 +1620,7 @@ export default function StarforgePage() {
             <Orb symbol="🌿" label="Biomass" disabled={!canAct} active={biomassOpen}
               onClick={() => { setBuildMode(null); setTradeOpen(false); setBiomassOpen((d) => !d); }} />
           )}
-          <Orb symbol="⏭" label="End turn" disabled={!canAct}
+          <Orb symbol="⏭" label="End turn" disabled={!canAct} image="/images/starforge/buttons/end-turn.webp"
             onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false); move({ type: 'endTurn' }); }} />
         </div>
 

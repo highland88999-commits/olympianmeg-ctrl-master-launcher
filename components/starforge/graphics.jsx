@@ -1,13 +1,17 @@
 // components/starforge/graphics.jsx — Starforge art only.
 //
 // Mostly pure SVG React components. No hooks, no external images, no extra
-// deps. One exception: CardFace / CardBack layer a small muted looping
+// deps. Two exceptions: CardFace / CardBack layer a small muted looping
 // video (public/videos/starforge/cards/) over the SVG face for the five
-// base development cards and the card back — the SVG stays underneath as
-// the poster/fallback, so a card still looks right if its video cannot
+// base development cards and the card back, and HexTileArt layers a small
+// muted looping video (public/videos/starforge/tiles/) over each hex tile
+// via <foreignObject> — the SVG stays underneath as the poster/fallback
+// in both cases, so a card or hex still looks right if its video cannot
 // play. Videos are lazy (preload="none": they only fetch when the card
-// renders, i.e. when the Cards panel is open) and only in normal HTML
-// flow — inside an SVG (x/y passed) the plain SVG renders instead.
+// renders or the board renders) and only in normal HTML flow for cards —
+// inside an SVG (x/y passed) the plain SVG renders instead. Hex tiles are
+// the exception by design: they live inside the board SVG, so the video
+// rides in a foreignObject clipped to the hex shape.
 // No words on any piece that sits on an orb (orbs are the page's job).
 //
 // HOW TO WIRE IN (page worker):
@@ -270,7 +274,43 @@ export function HexTileArt({ terrain = 'iron', size = 34, x, y }) {
     <svg width={size * 2} height={size * 2} x={x} y={y} viewBox="-34 -34 68 68" role="img" aria-label={`${TERRAIN_LABEL[terrain] || terrain} hex`}>
       <polygon points={HEX_POINTS} fill={TERRAIN_FILL[terrain] || TERRAIN_FILL.void} stroke="#0b1f14" strokeWidth="1.5" strokeLinejoin="round" />
       <HexArt terrain={terrain} />
+      <HexTileVideo terrain={terrain} />
     </svg>
+  );
+}
+
+// Tile videos (public/videos/starforge/tiles/) — one per base terrain kind.
+// The board is an SVG, so the video rides in a <foreignObject> clipped to
+// the pointy-top hex shape; the SVG art above stays underneath as the
+// poster/fallback, so a hex still looks right if its video cannot play.
+// Expansion terrains reuse the closest of the 6 — no extra videos:
+// goldVein -> gold, lake -> water-ice, sea -> void (nebula), oasis
+// (waystation) -> gold. Same file is reused across every hex of a type,
+// so 19 hexes cost 6 small fetches; muted + loop + playsInline +
+// preload="none" (autoplay still fetches on render, as with the card
+// videos). The number token, void pirate, outposts, stations and warp
+// lanes are later siblings in the page's hex <g>, so they paint on top.
+const TILE_VIDEO = {
+  iron: 'iron', silicon: 'silicon', titanium: 'titanium',
+  waterIce: 'water-ice', gold: 'gold', void: 'void',
+  goldVein: 'gold', lake: 'water-ice', sea: 'void', oasis: 'gold',
+};
+
+// Pointy-top hex vertices as % of the 68x68 tile box (angles 30/90/150/
+// 210/270/330 from centre): (93.3,25) (50,0) (6.7,25) (6.7,75) (50,100)
+// (93.3,75).
+const HEX_CLIP = 'polygon(93.3% 25%, 50% 0%, 6.7% 25%, 6.7% 75%, 50% 100%, 93.3% 75%)';
+
+function HexTileVideo({ terrain }) {
+  const video = TILE_VIDEO[terrain];
+  if (!video) return null;
+  return (
+    <foreignObject x={-34} y={-34} width={68} height={68}>
+      <div xmlns="http://www.w3.org/1999/xhtml" style={{ width: 68, height: 68, margin: 0, padding: 0 }}>
+        <video src={`/videos/starforge/tiles/${video}.mp4`} autoPlay muted loop playsInline preload="none" aria-hidden="true"
+          style={{ width: 68, height: 68, objectFit: 'cover', display: 'block', clipPath: HEX_CLIP }} />
+      </div>
+    </foreignObject>
   );
 }
 
@@ -415,8 +455,12 @@ export function CardBack({ width = 120, height = 168, x, y }) {
 }
 
 // ---------------------------------------------------------------------------
-// Dice — two standard dice (red + yellow, the Stations & Starfighters pair) with
-// pips, plus the event die (face: 'fleet' | 'research' | 'commerce' | 'command').
+// Dice — golden with silver pips (Merlin, Nov 21): both standard dice wear
+// the house gold gradient with silver pips and silver face glyphs; the
+// Stations & Starfighters event die keeps its themed faces and only its
+// base goes gold (its commerce face's gold disc becomes silver-white so it
+// still reads on gold). kind="red"/"yellow" are kept for call-site compat
+// but no longer colour the die.
 // ---------------------------------------------------------------------------
 const PIP = {
   1: [[0, 0]],
@@ -466,7 +510,7 @@ function EventFaceArt({ face }) {
   if (face === 'commerce') {
     return (
       <g>
-        <circle cx="24" cy="24" r="15" fill="#fbbf24" stroke={color} strokeWidth="2.5" />
+        <circle cx="24" cy="24" r="15" fill="#e5e7eb" stroke={color} strokeWidth="2.5" />
         <circle cx="24" cy="24" r="9" fill="none" stroke={color} strokeWidth="2" />
         <text x="24" y="29" textAnchor="middle" fontSize="13" fontWeight="900" fill={color} fontFamily="Georgia, serif">Ω</text>
       </g>
@@ -483,18 +527,28 @@ function EventFaceArt({ face }) {
 
 export function DiceFace({ value = 1, kind = 'red', face = 'fleet', size = 48, x, y }) {
   const isEvent = kind === 'event';
-  const fill = isEvent ? '#f5f5f4' : kind === 'yellow' ? '#eab308' : '#dc2626';
-  const pipColor = kind === 'yellow' ? '#1c1917' : '#ffffff';
+  // Gold faces, silver pips: the gradient is the house gold (same stops as
+  // the omega), the pips silver with a grey edge so they read on the gold.
+  const pipColor = '#e5e7eb';
+  const pipStroke = '#6b7280';
   const pips = PIP[Math.min(6, Math.max(1, value || 1))] || PIP[1];
   return (
-    <svg width={size} height={size} x={x} y={y} viewBox="0 0 48 48" role="img" aria-label={isEvent ? `Event die: ${face}` : `${kind} die: ${value}`}>
-      <rect x="2" y="2" width="44" height="44" rx="9" fill={fill} stroke="#111827" strokeWidth="2" />
+    <svg width={size} height={size} x={x} y={y} viewBox="0 0 48 48" role="img" aria-label={isEvent ? `Event die: ${face}` : `gold die: ${value}`}>
+      <defs>
+        <linearGradient id="sfDiceGold" gradientUnits="userSpaceOnUse" x1="0" y1="2" x2="0" y2="46">
+          <stop offset="0" stopColor="#fff3c4" />
+          <stop offset="0.45" stopColor="#ffd700" />
+          <stop offset="0.75" stopColor="#c9962e" />
+          <stop offset="1" stopColor="#8a5a14" />
+        </linearGradient>
+      </defs>
+      <rect x="2" y="2" width="44" height="44" rx="9" fill="url(#sfDiceGold)" stroke="#111827" strokeWidth="2" />
       {isEvent
         ? <EventFaceArt face={face} />
         : (<g>
           <FaceGlyph value={Math.min(6, Math.max(1, value || 1))} color={pipColor} />
           {pips.map(([dx, dy], i) => (
-            <circle key={i} cx={24 + dx * 10} cy={24 + dy * 10} r="4.5" fill={pipColor} />
+            <circle key={i} cx={24 + dx * 10} cy={24 + dy * 10} r="4.5" fill={pipColor} stroke={pipStroke} strokeWidth="0.75" />
           ))}
         </g>)}
     </svg>
