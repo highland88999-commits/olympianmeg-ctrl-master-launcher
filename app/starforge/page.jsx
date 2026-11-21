@@ -44,7 +44,7 @@ import {
 import {
   OmegaMark, HexTileArt, TileVideoLayer, TradeHubArt, CardFace, CardBack, DiceFace,
   VoidFleetShipMarker, OutpostPiece, StationPiece, WarpLanePiece, StarshipPiece,
-  StarfighterPiece, VoidPiratePiece, CorsairPiece, MenuArt,
+  StarfighterPiece, VoidPiratePiece, CorsairPiece,
 } from '@/components/starforge/graphics.jsx';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -64,10 +64,10 @@ const MYRIAD_BG = {
 };
 
 const EXPANSION_INFO = [
-  { key: 'starfarers', name: 'Starfarers', desc: 'Starships, new islands, gold veins and the corsair.' },
-  { key: 'stationsStarfighters', name: 'Stations & Starfighters', desc: 'Commodities, improvements, starfighters and the void fleets.' },
-  { key: 'harvesters', name: 'Harvesters', desc: 'Biomass tokens to spend, and the scrap hull.' },
-  { key: 'caravans', name: 'Rover Caravans', desc: 'Rovers on the rover route, worth extra points.' },
+  { key: 'starfarers', name: 'Starfarers', desc: 'Starships, new islands, gold veins and the corsair.', image: '/images/starforge/menu/starfarers.webp' },
+  { key: 'stationsStarfighters', name: 'Stations & Starfighters', desc: 'Commodities, improvements, starfighters and the void fleets.', image: '/images/starforge/menu/stations-starfighters.webp' },
+  { key: 'harvesters', name: 'Harvesters', desc: 'Biomass tokens to spend, and the scrap hull.', image: '/images/starforge/menu/harvesters.webp' },
+  { key: 'caravans', name: 'Rover Caravans', desc: 'Rovers on the rover route, worth extra points.', image: '/images/starforge/menu/caravans.webp' },
 ];
 
 // Progress cards that need a pick before they can be played, and what pick.
@@ -793,20 +793,38 @@ export default function StarforgePage() {
   }
 
   // ---- Start screen: mode + expansion picker ----
+  // Centring (Merlin, Nov 21): the header card and the menu column sit in
+  // one centred column — width 100% capped at 440, margin auto — and every
+  // child is fluid (width 100% / max-width 100%), so nothing can spill
+  // past the viewport edge. The old header art was a fixed 440px SVG
+  // inside a 370px-wide column at 390px viewport, so it overflowed 70px
+  // to the right and the whole menu read as left-leaning. The header is
+  // now a fluid card: the header-art image (golden omega, no text) fills
+  // it, and the "Starforge" title is real text overlaid at the bottom.
   if (screen === 'menu') {
     return (
-      <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px' }}>
-        <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <MenuArt width={440} height={238} />
+      <main data-testid="starforge-menu-screen" style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px', boxSizing: 'border-box' }}>
+        <div data-testid="starforge-menu-column" style={{ width: '100%', maxWidth: 440, margin: '0 auto', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div data-testid="starforge-menu-header" style={{ position: 'relative', width: '100%', maxWidth: '100%', borderRadius: 14, overflow: 'hidden', border: '2px solid #e8b93c', boxSizing: 'border-box' }}>
+            <img src="/images/starforge/menu/header-art.webp" alt="" style={{ display: 'block', width: '100%', height: 'auto' }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 10, background: 'linear-gradient(transparent 55%, rgba(11,16,38,0.85) 100%)' }}>
+              <h1 style={{ fontSize: 32, fontWeight: 800, margin: 0, color: '#fff3c4', fontFamily: "Georgia, 'Times New Roman', serif", textShadow: '0 2px 12px rgba(0,0,0,0.9)', textAlign: 'center' }}>Starforge</h1>
+            </div>
+          </div>
           <p style={{ margin: 0, fontSize: 14, color: '#d4d4d8', textAlign: 'center' }}>
             Settle the island, build warp lanes and stations, and reach the points target first — alone against three agents, or around a table with friends.
           </p>
-          <label style={{ fontSize: 13, color: '#d4d4d8', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            Your name
-            <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={20}
-              style={{ background: '#141414', border: '1px solid #555', borderRadius: 8, padding: '8px 10px', color: '#fff', fontSize: 15 }} />
-          </label>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
+          <div data-testid="menu-panel-name" style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
+            <label style={{ fontSize: 13, color: '#d4d4d8', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700 }}>
+                <img src="/images/starforge/menu/name.webp" alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+                Your name
+              </span>
+              <input value={playerName} onChange={(e) => setPlayerName(e.target.value)} maxLength={20}
+                style={{ background: '#141414', border: '1px solid #555', borderRadius: 8, padding: '8px 10px', color: '#fff', fontSize: 15, boxSizing: 'border-box', width: '100%' }} />
+            </label>
+          </div>
+          <div data-testid="menu-panel-expansions" style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, boxSizing: 'border-box' }}>
             <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>Expansions — pick any, or none</p>
             {EXPANSION_INFO.map((info) => (
               <button key={info.key} type="button" onClick={() => toggleExpansion(info.key)}
@@ -815,8 +833,10 @@ export default function StarforgePage() {
                   background: expansions[info.key] ? '#1e1b4b' : 'transparent',
                   border: expansions[info.key] ? '2px solid #fbbf24' : '1px solid #444',
                   borderRadius: 8, padding: '8px', marginBottom: 6, color: '#fff', cursor: 'pointer',
+                  boxSizing: 'border-box',
                 }}>
                 <span style={{ fontSize: 16 }}>{expansions[info.key] ? '☑️' : '⬜'}</span>
+                <img src={info.image} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
                 <span>
                   <span style={{ fontSize: 13, fontWeight: 700 }}>{info.name}</span>
                   <span style={{ display: 'block', fontSize: 12, color: '#a1a1aa' }}>{info.desc}</span>
@@ -824,13 +844,15 @@ export default function StarforgePage() {
               </button>
             ))}
           </div>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+          <div data-testid="menu-panel-solo" style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center', boxSizing: 'border-box' }}>
+            <img src="/images/starforge/menu/solo.webp" alt="" style={{ display: 'block', width: 120, height: 80, borderRadius: 10, objectFit: 'cover', margin: '0 auto 8px' }} />
             <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>Solo — you vs three agents</p>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <Orb symbol="👤" label="Start solo" onClick={startSolo} />
             </div>
           </div>
-          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+          <div data-testid="menu-panel-online" style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center', boxSizing: 'border-box' }}>
+            <img src="/images/starforge/menu/online.webp" alt="" style={{ display: 'block', width: 120, height: 80, borderRadius: 10, objectFit: 'cover', margin: '0 auto 8px' }} />
             <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 700 }}>Online room — play with friends, agents fill empty seats</p>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
               <Orb symbol="🌐" label="Create room" onClick={createOnlineRoom} />
@@ -934,9 +956,18 @@ export default function StarforgePage() {
     && Object.values(offerGive).reduce((n, x) => n + x, 0) > 0
     && Object.values(offerAsk).reduce((n, x) => n + x, 0) > 0;
 
+  // Game screen background video (Merlin, Nov 21): one slow, dim
+  // deep-space drift loop behind the board — muted, looped, inline,
+  // autoplay. It sits at z-index 0 under the whole game column (z-index
+  // 1), dimmed to 0.55 so it never fights the tiles, tokens or text, and
+  // the static Myriad background stays underneath as the fallback if
+  // the video cannot play (poster is the same Myriad sky).
   return (
-    <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px' }}>
-      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px', position: 'relative', overflow: 'hidden' }}>
+      <video data-testid="board-bg-video" src="/videos/starforge/board-bg.mp4" poster="/images/myriad/bg.webp"
+        muted loop playsInline autoPlay preload="auto" aria-hidden="true"
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.55, zIndex: 0, pointerEvents: 'none' }} />
+      <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10, position: 'relative', zIndex: 1 }}>
         {/* Header: omega + title + fullscreen + new game orbs */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
