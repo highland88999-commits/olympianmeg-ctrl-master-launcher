@@ -961,7 +961,12 @@ export default function StarforgePage() {
               const pickHere = (progPick === 'bishop' || progPick === 'merchant' || progPick === 'inventor') && canAct;
               return (
                 <g key={h.id} onClick={() => onHexTap(h.id)} style={{ cursor: (voidPirateHere || corsairHere || pickHere) ? 'pointer' : 'default' }}>
-                  <HexTileArt terrain={h.terrain} size={34} x={c.x - 34} y={c.y - 34} />
+                  <HexTileArt terrain={h.terrain} size={34} x={c.x - 34} y={c.y - 34}
+                    token={h.token}
+                    rollTotal={game.dice ? game.dice[0] + game.dice[1] : null}
+                    rollCount={game.rollCount || 0}
+                    pirateMoveCount={game.pirateMoveCount || 0}
+                    isPirateHex={isVoidPirateHex} />
                   {(voidPirateHere || corsairHere || pickHere) && (
                     <polygon points={hexPoints(h)} fill="none" stroke="#fbbf24" strokeWidth={3} />
                   )}

@@ -1,14 +1,19 @@
 // components/starforge/graphics.jsx — Starforge art only.
 //
-// Mostly pure SVG React components. No hooks, no external images, no extra
-// deps. Two exceptions: CardFace / CardBack layer a small muted looping
+// Mostly pure SVG React components. No external images, no extra deps.
+// HexTileVideo is the one hook user (useEffect/useRef driving its
+// roll-triggered play/pause); everything else is hook-free.
 // video (public/videos/starforge/cards/) over the SVG face for the five
 // base development cards and the card back, and HexTileArt layers a small
-// muted looping video (public/videos/starforge/tiles/) over each hex tile
+// muted video (public/videos/starforge/tiles/) over each hex tile
 // via <foreignObject> — the SVG stays underneath as the poster/fallback
 // in both cases, so a card or hex still looks right if its video cannot
-// play. Videos are lazy (preload="none": they only fetch when the card
-// renders or the board renders) and only in normal HTML flow for cards —
+// play. Tile videos sit PAUSED on their first frame until a dice roll (or
+// a void-pirate arrival) wakes them for one play-through — see
+// HexTileVideo; card videos still loop. Card videos are lazy
+// (preload="none": they only fetch when the card renders); tile videos use
+// preload="metadata" so a paused tile shows its opening frame. Cards render
+// only in normal HTML flow —
 // inside an SVG (x/y passed) the plain SVG renders instead. Hex tiles are
 // the exception by design: they live inside the board SVG, so the video
 // rides in a foreignObject clipped to the hex shape.
@@ -21,7 +26,11 @@
 //   point (px, py), render it with x={px - size/2} y={py - size/2}.
 // - Board geometry (from app/starforge/page.jsx): HEX_SIZE = 34,
 //   pointy-top hexes, axialToPixel(q, r, 34). A hex tile is 68x68 units:
-//   <HexTileArt terrain={h.terrain} size={34} x={cx - 34} y={cy - 34} />.
+//   <HexTileArt terrain={h.terrain} size={34} x={cx - 34} y={cy - 34}
+//     token={h.token} rollTotal={diceTotal} rollCount={g.rollCount}
+//     pirateMoveCount={g.pirateMoveCount} isPirateHex={h.id === g.voidPirateHex} />
+//   (the trigger props drive the roll-triggered tile video — see
+//   HexTileVideo; omit them and the tile simply never wakes).
 //   The number token (r=13 circle) sits on top of the tile, so every tile
 //   keeps its centre disc (r < 14) clear.
 // - Hubs sit at hubPos(): <TradeHubArt type={hub.type} size={32}
@@ -42,7 +51,7 @@
 //   #fff3c4 -> #ffd700 -> #c9962e -> #8a5a14, Georgia 900 serif Omega,
 //   glow rgba(255,200,60,0.8) blur 8, ring #e8b93c.
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 // ---------------------------------------------------------------------------
 // House brand — golden omega (lib/omega-brand.js, canvas original)
@@ -269,12 +278,12 @@ function HexArt({ terrain }) {
   }
 }
 
-export function HexTileArt({ terrain = 'iron', size = 34, x, y }) {
+export function HexTileArt({ terrain = 'iron', size = 34, x, y, token = null, rollTotal = null, rollCount = 0, pirateMoveCount = 0, isPirateHex = false }) {
   return (
     <svg width={size * 2} height={size * 2} x={x} y={y} viewBox="-34 -34 68 68" role="img" aria-label={`${TERRAIN_LABEL[terrain] || terrain} hex`}>
       <polygon points={HEX_POINTS} fill={TERRAIN_FILL[terrain] || TERRAIN_FILL.void} stroke="#0b1f14" strokeWidth="1.5" strokeLinejoin="round" />
       <HexArt terrain={terrain} />
-      <HexTileVideo terrain={terrain} />
+      <HexTileVideo terrain={terrain} token={token} rollTotal={rollTotal} rollCount={rollCount} pirateMoveCount={pirateMoveCount} isPirateHex={isPirateHex} />
     </svg>
   );
 }
@@ -286,10 +295,27 @@ export function HexTileArt({ terrain = 'iron', size = 34, x, y }) {
 // Expansion terrains reuse the closest of the 6 — no extra videos:
 // goldVein -> gold, lake -> water-ice, sea -> void (nebula), oasis
 // (waystation) -> gold. Same file is reused across every hex of a type,
-// so 19 hexes cost 6 small fetches; muted + loop + playsInline +
-// preload="none" (autoplay still fetches on render, as with the card
-// videos). The number token, void pirate, outposts, stations and warp
-// lanes are later siblings in the page's hex <g>, so they paint on top.
+// so 19 hexes cost 6 small fetches; muted + playsInline +
+// preload="metadata" (first frame only, so a paused tile shows its opening
+// frame over the SVG art).
+//
+// ROLL-TRIGGERED PLAYBACK (Merlin, Nov 21): a tile video NEVER loops on its
+// own. It sits paused on its first frame until a trigger wakes it, plays
+// ONCE through, then pauses again and resets to its first frame:
+//   - a dice roll of N wakes every tile whose token number is N (both tiles
+//     when two share a number); a 7 wakes nothing — no hex carries a 7;
+//   - a void-pirate relocation wakes the tile the pirate LANDS on (the void
+//     video only when it lands on the void hex).
+// The trigger is the NUMBER, not the payout: a tile wakes on its number
+// even when the void pirate is blocking it. The page passes the game
+// state's roll/pirate counters down (rollTotal + rollCount from
+// lib/starforge/engine.js rollDice, pirateMoveCount from moveVoidPirate /
+// starfighter displacement); HexTileVideo watches the counters with a ref
+// and plays/pauses the <video> element directly. Deriving the trigger from
+// game state (not a separate event channel) means AI rolls fire it too —
+// the page re-renders from the same game state after every aiStep.
+// The number token, void pirate, outposts, stations and warp lanes are
+// later siblings in the page's hex <g>, so they paint on top.
 const TILE_VIDEO = {
   iron: 'iron', silicon: 'silicon', titanium: 'titanium',
   waterIce: 'water-ice', gold: 'gold', void: 'void',
@@ -301,13 +327,44 @@ const TILE_VIDEO = {
 // (93.3,75).
 const HEX_CLIP = 'polygon(93.3% 25%, 50% 0%, 6.7% 25%, 6.7% 75%, 50% 100%, 93.3% 75%)';
 
-function HexTileVideo({ terrain }) {
+function HexTileVideo({ terrain, token = null, rollTotal = null, rollCount = 0, pirateMoveCount = 0, isPirateHex = false }) {
   const video = TILE_VIDEO[terrain];
+  const videoRef = useRef(null);
+  // Counters this tile has already answered, so a mount — or a restored /
+  // online game arriving with rollCount already past 0 — never replays a
+  // roll that already happened. Seeded from the props on first render.
+  const lastRollCount = useRef(rollCount);
+  const lastPirateMoveCount = useRef(pirateMoveCount);
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    let wake = false;
+    if (rollCount !== lastRollCount.current) {
+      lastRollCount.current = rollCount;
+      // Number, not payout: no void-pirate check here — a blocked tile
+      // still wakes on its number. No hex has token 7, so a 7 wakes nothing.
+      if (token != null && rollTotal != null && token === rollTotal) wake = true;
+    }
+    if (pirateMoveCount !== lastPirateMoveCount.current) {
+      lastPirateMoveCount.current = pirateMoveCount;
+      // Pirate arrival wakes the destination tile itself (the void video
+      // only when the pirate lands on the void hex).
+      if (isPirateHex) wake = true;
+    }
+    if (wake) {
+      // Restart from the beginning even if this tile is mid-play from a
+      // previous roll; tiles that don't match are left exactly as they are.
+      v.currentTime = 0;
+      const p = v.play();
+      if (p && p.catch) p.catch(() => {});
+    }
+  }, [rollCount, pirateMoveCount, rollTotal, token, isPirateHex]);
   if (!video) return null;
   return (
     <foreignObject x={-34} y={-34} width={68} height={68}>
       <div xmlns="http://www.w3.org/1999/xhtml" style={{ width: 68, height: 68, margin: 0, padding: 0 }}>
-        <video src={`/videos/starforge/tiles/${video}.mp4`} autoPlay muted loop playsInline preload="none" aria-hidden="true"
+        <video ref={videoRef} src={`/videos/starforge/tiles/${video}.mp4`} muted playsInline preload="metadata" aria-hidden="true"
+          onEnded={(e) => { e.currentTarget.pause(); e.currentTarget.currentTime = 0; }}
           style={{ width: 68, height: 68, objectFit: 'cover', display: 'block', clipPath: HEX_CLIP }} />
       </div>
     </foreignObject>

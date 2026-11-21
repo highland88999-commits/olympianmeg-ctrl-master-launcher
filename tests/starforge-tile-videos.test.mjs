@@ -56,14 +56,28 @@ test('terrain mapping: every terrain key maps to one of the 6 tile videos', () =
   assert.ok(!mapBlock.includes('desert'), 'no invented desert terrain key');
 });
 
-test('tile video wiring: foreignObject clip, lazy loop, SVG fallback underneath', () => {
+test('tile video wiring: foreignObject clip, paused until a roll, SVG fallback underneath', () => {
   assert.ok(graphicsSrc.includes('<foreignObject'), 'tile video rides in a foreignObject inside the board SVG');
   assert.ok(graphicsSrc.includes('clipPath: HEX_CLIP'), 'video is clipped to the hex shape');
   assert.ok(graphicsSrc.includes("polygon(93.3% 25%, 50% 0%, 6.7% 25%, 6.7% 75%, 50% 100%, 93.3% 75%)"), 'hex clip polygon is the pointy-top hex');
   assert.ok(graphicsSrc.includes('src={`/videos/starforge/tiles/${video}.mp4`}'), 'tile video src');
-  for (const attr of ['autoPlay', 'muted', 'loop', 'playsInline', 'preload="none"']) {
-    assert.ok(graphicsSrc.includes(attr), `tile video must carry ${attr}`);
+  // Roll-triggered playback: the tile video itself must NOT autoplay or
+  // loop — it sits paused until HexTileVideo's effect wakes it. (Card
+  // videos elsewhere in this file still autoplay + loop; scope the check
+  // to the HexTileVideo block.)
+  const tileFn = graphicsSrc.slice(
+    graphicsSrc.indexOf('function HexTileVideo'),
+    graphicsSrc.indexOf('function HexTileVideo') + 3200,
+  );
+  assert.ok(!tileFn.includes('autoPlay'), 'tile video must not autoplay');
+  assert.ok(!tileFn.includes(' loop '), 'tile video must not loop');
+  assert.ok(!tileFn.includes('loop playsInline'), 'tile video must not loop');
+  for (const attr of ['muted', 'playsInline', 'preload="metadata"']) {
+    assert.ok(tileFn.includes(attr), `tile video must carry ${attr}`);
   }
+  // Play-once then reset: onEnded pauses and rewinds to the first frame.
+  assert.ok(tileFn.includes('onEnded'), 'tile video has an onEnded handler');
+  assert.ok(tileFn.includes('currentTime = 0'), 'onEnded / wake rewinds to the first frame');
   // SVG art stays underneath as the poster/fallback: HexTileArt still draws
   // the hex polygon + HexArt before the video layer.
   const hexFn = graphicsSrc.slice(graphicsSrc.indexOf('export function HexTileArt'));
