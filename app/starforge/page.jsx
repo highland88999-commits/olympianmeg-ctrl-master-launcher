@@ -34,7 +34,7 @@ import {
   buildWall, playProgressCard, downgradeStation,
   offerTrade, respondTrade,
   victoryPoints, vpBreakdown, aiStep,
-  deserializeState, onlineActorId, openOffersFor, pendingFreePicks,
+  deserializeState, onlineActorId, openOffersFor, pendingFreePicks, phaseReason,
   expansionsOn, winTarget, winTargetFor,
 } from '@/lib/starforge/engine.js';
 import {
@@ -306,7 +306,7 @@ export default function StarforgePage() {
       case 'placeStarship': return placeStarship(g, pid, action.edge);
       case 'moveStarship': return moveStarship(g, pid, action.from, action.to);
       case 'buildStation': return buildStation(g, pid, action.vertex);
-      case 'buyDevCard': return buyDevCard(g);
+      case 'buyDevCard': return buyDevCard(g, pid);
       case 'playStarfighter': return playStarfighter(g, pid);
       case 'playMarketCorner': return playMarketCorner(g, pid, action.resource);
       case 'playSupplyDrop': return playSupplyDrop(g, pid, action.r1, action.r2);
@@ -1247,8 +1247,10 @@ export default function StarforgePage() {
           </div>
         )}
 
-        {/* Development cards panel (base game) */}
-        {devOpen && canAct && !ex.stationsStarfighters && (
+        {/* Development cards panel (base game) — open on your turn even
+            before/after the roll, so the Buy button can show the true reason
+            it is blocked instead of logging a confusing message. */}
+        {devOpen && myTurn && !ex.stationsStarfighters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Your development cards ({me.devCards.length})</p>
             {me.devCards.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#a1a1aa' }}>None yet — buy one below. A card cannot be played the turn you buy it.</p>}
@@ -1299,10 +1301,15 @@ export default function StarforgePage() {
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'flex-end', marginTop: 10 }}>
               <CardBack width={48} height={67} />
               <Orb symbol="🃏" label="Buy card" small
-                disabled={!(me.resources.silicon >= 1 && me.resources.titanium >= 1 && me.resources.gold >= 1) || game.devDeck.length === 0}
+                disabled={game.phase !== 'play' || game.turn !== pid || !(me.resources.silicon >= 1 && me.resources.titanium >= 1 && me.resources.gold >= 1) || game.devDeck.length === 0}
                 onClick={() => move({ type: 'buyDevCard' })} />
               <Orb symbol="✕" label="Close" small onClick={() => { setDevOpen(false); setDevPick(null); setYopPicks([]); }} />
             </div>
+            {(game.phase !== 'play' || game.turn !== pid) && (
+              <p style={{ margin: '8px 0 0', fontSize: 11, color: '#fbbf24', textAlign: 'center' }}>
+                {game.turn !== pid ? 'Not your turn.' : phaseReason(game.phase, 'buy')}
+              </p>
+            )}
             <p style={{ margin: '8px 0 0', fontSize: 11, color: '#a1a1aa', textAlign: 'center' }}>
               Buy: 1 silicon + 1 titanium + 1 gold · {game.devDeck.length} cards left in the deck
             </p>
@@ -1596,7 +1603,7 @@ export default function StarforgePage() {
           <Orb symbol="🔄" label="Trade" disabled={!canAct} active={tradeOpen}
             onClick={() => { setBuildMode(null); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false); setTradeOpen((t) => !t); }} />
           {!ex.stationsStarfighters && (
-            <Orb symbol="🃏" label="Cards" disabled={!canAct} active={devOpen}
+            <Orb symbol="🃏" label="Cards" disabled={!myTurn} active={devOpen}
               onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen((d) => !d); }} />
           )}
           {ex.stationsStarfighters && (

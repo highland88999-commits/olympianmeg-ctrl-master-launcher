@@ -1,6 +1,13 @@
 // components/starforge/graphics.jsx — Starforge art only.
 //
-// Pure SVG React components. No hooks, no external images, no extra deps.
+// Mostly pure SVG React components. No hooks, no external images, no extra
+// deps. One exception: CardFace / CardBack layer a small muted looping
+// video (public/videos/starforge/cards/) over the SVG face for the five
+// base development cards and the card back — the SVG stays underneath as
+// the poster/fallback, so a card still looks right if its video cannot
+// play. Videos are lazy (preload="none": they only fetch when the card
+// renders, i.e. when the Cards panel is open) and only in normal HTML
+// flow — inside an SVG (x/y passed) the plain SVG renders instead.
 // No words on any piece that sits on an orb (orbs are the page's job).
 //
 // HOW TO WIRE IN (page worker):
@@ -340,11 +347,22 @@ const PROGRESS_COLOR = {
   merchantFleet: '#b45309', resourceCorner: '#b45309', tradeCorner: '#b45309',
 };
 
+// Video faces for the five base development cards (public/videos/
+// starforge/cards/). Progress cards, resources and commodities have no
+// video and keep their SVG face. The card back's video is card-back.mp4.
+const DEV_CARD_VIDEO = {
+  starfighter: 'starfighter',
+  discovery: 'discovery',
+  marketCorner: 'market-corner',
+  supplyDrop: 'supply-drop',
+  warpLaneRush: 'warp-lane-rush',
+};
+
 export function CardFace({ kind = 'iron', width = 120, height = 168, x, y }) {
   const info = CARD_INFO[kind] || (PROGRESS_NAMES[kind]
     ? { name: PROGRESS_NAMES[kind], color: PROGRESS_COLOR[kind] || '#78350f', icon: '📜', lines: ['Progress card.', 'Stations & Starfighters.'] }
     : { name: kind, color: '#78350f', icon: '🃏', lines: ['Development card.'] });
-  return (
+  const faceSvg = (
     <svg width={width} height={height} x={x} y={y} viewBox="0 0 120 168" role="img" aria-label={`${info.name} card`}>
       <rect x="2" y="2" width="116" height="164" rx="10" fill="#f5eeda" stroke="#8a5a14" strokeWidth="3" />
       <path d="M2,12 a10,10 0 0 1 10,-10 h96 a10,10 0 0 1 10,10 v22 h-116 z" fill={info.color} />
@@ -360,16 +378,39 @@ export function CardFace({ kind = 'iron', width = 120, height = 168, x, y }) {
       <text x="60" y="160" textAnchor="middle" fontSize="12" fill="#c9962e" fontFamily="Georgia, 'Times New Roman', serif" fontWeight="900">Ω</text>
     </svg>
   );
+  // Base development cards wear their video face (SVG underneath as the
+  // poster/fallback). Resource, commodity and progress cards stay SVG-only.
+  const video = DEV_CARD_VIDEO[kind];
+  if (!video || x !== undefined || y !== undefined) return faceSvg;
+  return (
+    <div style={{ position: 'relative', width, height, borderRadius: 10, overflow: 'hidden', boxShadow: '0 0 14px rgba(167,139,250,0.45), 0 0 4px rgba(255,215,0,0.25)', animation: 'sfCardReveal 0.45s ease-out' }}>
+      {faceSvg}
+      <video src={`/videos/starforge/cards/${video}.mp4`} autoPlay muted loop playsInline preload="none" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10, display: 'block' }} />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: 10, pointerEvents: 'none', background: 'linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.16) 50%, transparent 70%)', backgroundSize: '250% 100%', animation: 'sfCardShimmer 3.5s ease-in-out infinite' }} />
+      <style>{`@keyframes sfCardReveal { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } } @keyframes sfCardShimmer { 0% { background-position: 180% 0; } 100% { background-position: -80% 0; } }`}</style>
+    </div>
+  );
 }
 
 export function CardBack({ width = 120, height = 168, x, y }) {
   const s = 72;
-  return (
+  const backSvg = (
     <svg width={width} height={height} x={x} y={y} viewBox="0 0 120 168" role="img" aria-label="Card back">
       <rect x="2" y="2" width="116" height="164" rx="10" fill="#123524" stroke="#e8b93c" strokeWidth="3" />
       <rect x="9" y="9" width="102" height="150" rx="7" fill="none" stroke="#e8b93c" strokeWidth="1" opacity="0.6" />
       <OmegaMark size={s} x={(120 - s) / 2} y={(168 - s) / 2} />
     </svg>
+  );
+  // The deck's card back wears the golden-omega video (SVG underneath as
+  // the poster/fallback). Same lazy, muted, looping treatment as the faces.
+  if (x !== undefined || y !== undefined) return backSvg;
+  return (
+    <div style={{ position: 'relative', width, height, borderRadius: 10, overflow: 'hidden', boxShadow: '0 0 14px rgba(167,139,250,0.45), 0 0 4px rgba(255,215,0,0.25)', animation: 'sfCardReveal 0.45s ease-out' }}>
+      {backSvg}
+      <video src="/videos/starforge/cards/card-back.mp4" autoPlay muted loop playsInline preload="none" aria-hidden="true" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10, display: 'block' }} />
+      <div aria-hidden="true" style={{ position: 'absolute', inset: 0, borderRadius: 10, pointerEvents: 'none', background: 'linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.16) 50%, transparent 70%)', backgroundSize: '250% 100%', animation: 'sfCardShimmer 3.5s ease-in-out infinite' }} />
+      <style>{`@keyframes sfCardReveal { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } } @keyframes sfCardShimmer { 0% { background-position: 180% 0; } 100% { background-position: -80% 0; } }`}</style>
+    </div>
   );
 }
 
