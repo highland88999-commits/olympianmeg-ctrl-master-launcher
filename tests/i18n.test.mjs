@@ -38,9 +38,9 @@ for (const code of LOCALES) {
 // only, no portal card, no menu — the realm leaves both registries)
 // − Portal Room seat, Nov 16, 2026 (portal menu merge — the 2D room
 // is gone; the 3D hall is the one menu).
-// Net: 215 entries, 406 en sat keys. (+ Keepsake, Nov 17, 2026; + Red Moon, Nov 17, 2026)
+// Net: 217 entries, 408 en sat keys. (+ Keepsake, Nov 17, 2026; + Red Moon, Nov 17, 2026; + Job Board, Nov 21, 2026 — pins were stale at 215, registry was already 216)
 const satKeys = enKeys.filter((k) => k.startsWith('sat.'));
-t('en sat keys = 406 (215 registry entries; 14 keys still lack en titles, 4 orphaned en keys)', satKeys.length === 406);
+t('en sat keys = 408 (217 registry entries; Job Board title+subtitle added Nov 21, 2026)', satKeys.length === 408);
 t('section names present', ['games', 'utilities', 'tools', 'ai-programs', 'observatory', 'therapy', 'sanctum', 'shopping'].every((s) => en[`sec.${s}.name`]));
 t('constellation names present', ['zeus', 'ares', 'thoth', 'argus', 'medusa', 'artemis'].every((c) => en[`const.${c}`]));
 t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.language', 'ui.disconnect'].every((k) => en[k]));
@@ -49,10 +49,10 @@ t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.la
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satBlock = regSrc.slice(regSrc.indexOf('export const SATELLITES'), regSrc.indexOf('\n];', regSrc.indexOf('export const SATELLITES')));
 const routes = [...satBlock.matchAll(/route: "([^"]+)"/g)].map((m) => m[1]);
-t('registry has 215 entries', routes.length === 215);
-t('registry routes unique', new Set(routes).size === 215);
+t('registry has 217 entries', routes.length === 217);
+t('registry routes unique', new Set(routes).size === 217);
 const keys = [...satBlock.matchAll(/key: "([^"]+)"/g)].map((m) => m[1]);
-t('registry keys unique', new Set(keys).size === 215);
+t('registry keys unique', new Set(keys).size === 217);
 // every registry key has title+subtitle in en
 const missingKeys = keys.filter((k) => !en[`sat.${k}.title`] || !en[`sat.${k}.subtitle`]);
 t(`every registry key has en title+subtitle (missing: ${missingKeys.length})`, missingKeys.length === 0);

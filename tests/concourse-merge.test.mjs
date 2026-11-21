@@ -74,7 +74,7 @@ describe('the Concourse action items (lib/concourse-actions.js)', () => {
       assert.ok(onDiskVideos.includes(item.key), `${item.key}.mp4 is placed`);
       assert.ok(portalHasVideo(item.key), `${item.key} is wired in PORTAL_VIDEO_KEYS`);
     }
-    assert.equal(onDiskVideos.length, 230, '216 roster videos + the 14 Concourse videos + Starforge');
+    assert.equal(onDiskVideos.length, 231, '217 roster videos + the 14 Concourse videos + Starforge + Job Board');
     assert.deepEqual([...PORTAL_VIDEO_KEYS].sort(), onDiskVideos, 'keys match the directory exactly');
   });
 

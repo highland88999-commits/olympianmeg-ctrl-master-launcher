@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+	<title><![CDATA[welder - Job Bank]]></title>
+	<id>https://www.jobbank.gc.ca/jobsearch/jobSearchRSSfeed</id>
+	<link rel="self" type="application/atom+xml" href="https://www.jobbank.gc.ca/jobsearch/jobSearchRSSfeed?searchstring=welder&amp;locationstring="/>
+	<updated>2026-11-21T15:25:00Z</updated>
+	<author><name>Job Bank</name></author>
+	<logo>/images/sig_eng.gif</logo>
+	<entry>
+		<title type="html"><![CDATA[fitter-welder, structural metal and platework]]></title>
+		<link rel="alternate" type="text/html" href="https://www.jobbank.gc.ca/jobsearch/jobposting/50774159"/>
+		<id>https://www.jobbank.gc.ca/jobsearch/jobSearchRSSfeed?id=310382B1795255203</id>
+		<updated>2026-11-21T01:00:00Z</updated>
+		<summary type="html"><![CDATA[<strong>Job number:</strong> 310382B1795255203<br /><strong>Location:</strong> Boucherville (QC)  <br /><strong>Employer:</strong> Groupe EBR<br /><strong>Salary:</strong> $23.66 to $35.05 hourly]]></summary>
+	</entry>
+	<entry>
+		<title type="html"><![CDATA[welder]]></title>
+		<link rel="alternate" type="text/html" href="https://www.jobbank.gc.ca/jobsearch/jobposting/50772414"/>
+		<id>https://www.jobbank.gc.ca/jobsearch/jobSearchRSSfeed?id=3724598</id>
+		<updated>2026-11-20T14:13:00Z</updated>
+		<summary type="html"><![CDATA[<strong>Job number:</strong> 3724598<br /><strong>Location:</strong> Surrey (BC)  <br /><strong>Employer:</strong> Modern Time Aluminum 2009 Ltd<br /><strong>Salary:</strong> $34.40 hourly]]></summary>
+	</entry>
+	<entry>
+		<title type="html"><![CDATA[welder]]></title>
+		<link rel="alternate" type="text/html" href="https://www.jobbank.gc.ca/jobsearch/jobposting/50772200"/>
+		<id>https://www.jobbank.gc.ca/jobsearch/jobSearchRSSfeed?id=3725533</id>
+		<updated>2026-11-20T13:16:00Z</updated>
+		<summary type="html"><![CDATA[<strong>Job number:</strong> 3725533<br /><strong>Location:</strong> Delta (BC)  <br /><strong>Employer:</strong> Jap Metal Fabricators Inc.<br /><strong>Salary:</strong> $38.50 hourly]]></summary>
+	</entry>
+	</feed>

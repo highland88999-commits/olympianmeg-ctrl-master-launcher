@@ -64,9 +64,9 @@ describe('keepsake registry (dual-registry rule)', () => {
     }
   });
 
-  it('joins the roster (214 -> 215) with its title and subtitle', () => {
+  it('joins the roster (216 -> 217) with its title and subtitle', () => {
     const roster = buildPortalRoster(SATELLITES, (k) => en[`sat.${k}.title`], (k) => en[`sat.${k}.subtitle`]);
-    assert.equal(roster.length, 215); // Red Moon seat: 214→215, Nov 18, 2026
+    assert.equal(roster.length, 217); // Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215); Red Moon seat: 214→215, Nov 18, 2026
     const seat = roster.find((p) => p.key === 'keepsake');
     assert.ok(seat);
     assert.equal(seat.title, 'Keepsake');
