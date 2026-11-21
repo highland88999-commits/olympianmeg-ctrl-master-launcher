@@ -9,7 +9,7 @@ import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient } from '@/lib/economy/supabase';
 import {
   getRoom, heartbeat, buildOnlineGameState, cleanExpansions, dbErrorResponse,
-} from '@/lib/settlers-of-olympus/rooms-server';
+} from '@/lib/starforge/rooms-server';
 
 const LOBBY_STALE_MS = 30_000;
 

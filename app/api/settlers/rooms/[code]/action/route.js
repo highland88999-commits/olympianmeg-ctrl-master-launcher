@@ -10,7 +10,7 @@ import { apiGuard } from '@/lib/api-guard';
 import { getServiceClient } from '@/lib/economy/supabase';
 import {
   getRoom, findPlayerIndex, deserializeState, applyOnlineAction, stepAiSeats, serializeState, dbErrorResponse,
-} from '@/lib/settlers-of-olympus/rooms-server';
+} from '@/lib/starforge/rooms-server';
 
 export const POST = apiGuard(async function POST(req, { params }) {
   let body = {};

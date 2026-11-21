@@ -5,7 +5,7 @@
 export const dynamic = 'force-dynamic';
 
 import { apiGuard } from '@/lib/api-guard';
-import { createRoomDb, cleanName, cleanExpansions, dbErrorResponse } from '@/lib/settlers-of-olympus/rooms-server';
+import { createRoomDb, cleanName, cleanExpansions, dbErrorResponse } from '@/lib/starforge/rooms-server';
 
 export const POST = apiGuard(async function POST(req) {
   let body = {};

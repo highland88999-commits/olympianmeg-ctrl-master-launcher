@@ -1,4 +1,4 @@
-// tests/settlers-of-olympus-pvp.test.mjs — online rooms: serialization,
+// tests/starforge-pvp.test.mjs — online rooms: serialization,
 // the authoritative action dispatcher, human-to-human trading, agent
 // seat-fill and server-side agent stepping.
 import test from 'node:test';
@@ -6,10 +6,10 @@ import assert from 'node:assert/strict';
 import {
   createGame, serializeState, deserializeState, applyOnlineAction,
   stepAiSeats, buildOnlineGameState, offerTrade, respondTrade, openOffersFor,
-  legalSettlementSpots, legalRoadSpots, legalRobberHexes, victoryPoints, currentPlayer,
-  playerById, onlineActorId, legalShipSpots, legalShipMoveDestinations, placeShip,
+  legalOutpostSpots, legalWarpLaneSpots, legalVoidPirateHexes, victoryPoints, currentPlayer,
+  playerById, onlineActorId, legalStarshipSpots, legalStarshipMoveDestinations, placeStarship,
   aiStep,
-} from '../lib/settlers-of-olympus/engine.js';
+} from '../lib/starforge/engine.js';
 
 const FOUR_HUMANS = {
   players: [
@@ -45,7 +45,7 @@ test('serialize/deserialize round-trips the whole game, including the RNG', () =
   const b = back.rng();
   assert.equal(a, b);
   // Engine functions work on the deserialized state.
-  assert.equal(legalSettlementSpots(back, 0).length, legalSettlementSpots(g, 0).length);
+  assert.equal(legalOutpostSpots(back, 0).length, legalOutpostSpots(g, 0).length);
 });
 
 test('buildOnlineGameState fills empty seats with agents (always 4)', () => {
@@ -62,31 +62,31 @@ test('buildOnlineGameState fills empty seats with agents (always 4)', () => {
 });
 
 test('buildOnlineGameState honours expansions', () => {
-  const g = deserializeState(buildOnlineGameState(['You'], { seafarers: true, fishermen: true }));
-  assert.equal(g.expansions.seafarers, true);
-  assert.equal(g.expansions.fishermen, true);
-  assert.equal(g.expansions.citiesKnights, false);
-  assert.equal(g.hexes.length, 61); // Seafarers board
+  const g = deserializeState(buildOnlineGameState(['You'], { starfarers: true, harvesters: true }));
+  assert.equal(g.expansions.starfarers, true);
+  assert.equal(g.expansions.harvesters, true);
+  assert.equal(g.expansions.stationsStarfighters, false);
+  assert.equal(g.hexes.length, 61); // Starfarers board
 });
 
 test('dispatcher: opening placement runs through the dispatcher in snake order', () => {
   const g = createGame(11, 'You', FOUR_HUMANS);
   const order = [0, 1, 2, 3, 3, 2, 1, 0];
   for (const seat of order) {
-    const spots = legalSettlementSpots(g, seat);
-    assert.ok(spots.length > 0, `seat ${seat} has a settlement spot`);
-    const r1 = applyOnlineAction(g, seat, { type: 'placeSettlement', vertex: spots[0] });
+    const spots = legalOutpostSpots(g, seat);
+    assert.ok(spots.length > 0, `seat ${seat} has a outpost spot`);
+    const r1 = applyOnlineAction(g, seat, { type: 'placeOutpost', vertex: spots[0] });
     assert.equal(r1.ok, true, `seat ${seat} settles: ${r1.why || ''}`);
-    const roads = legalRoadSpots(g, seat);
-    assert.ok(roads.length > 0, `seat ${seat} has a road spot`);
-    const r2 = applyOnlineAction(g, seat, { type: 'placeRoad', edge: roads[0] });
-    assert.equal(r2.ok, true, `seat ${seat} roads: ${r2.why || ''}`);
+    const warpLanes = legalWarpLaneSpots(g, seat);
+    assert.ok(warpLanes.length > 0, `seat ${seat} has a warp lane spot`);
+    const r2 = applyOnlineAction(g, seat, { type: 'placeWarpLane', edge: warpLanes[0] });
+    assert.equal(r2.ok, true, `seat ${seat} warp lanes: ${r2.why || ''}`);
   }
   assert.equal(g.phase, 'roll');
   assert.equal(g.turn, 0);
-  // Second settlement granted its adjacent resources.
-  assert.ok(g.players[0].resources.wood + g.players[0].resources.brick
-    + g.players[0].resources.sheep + g.players[0].resources.wheat + g.players[0].resources.ore >= 0);
+  // Second outpost granted its adjacent resources.
+  assert.ok(g.players[0].resources.iron + g.players[0].resources.waterIce
+    + g.players[0].resources.silicon + g.players[0].resources.titanium + g.players[0].resources.gold >= 0);
 });
 
 test('dispatcher: out-of-turn and illegal moves are refused with a reason', () => {
@@ -97,7 +97,7 @@ test('dispatcher: out-of-turn and illegal moves are refused with a reason', () =
   assert.match(wrong.why, /not your turn/i);
   const right = applyOnlineAction(g, 0, { type: 'roll' });
   assert.equal(right.ok, true);
-  const bad = applyOnlineAction(g, 0, { type: 'placeSettlement', vertex: 'nope' });
+  const bad = applyOnlineAction(g, 0, { type: 'placeOutpost', vertex: 'nope' });
   assert.equal(bad.ok, false);
   const unknown = applyOnlineAction(g, 0, { type: 'teleport' });
   assert.equal(unknown.ok, false);
@@ -118,49 +118,49 @@ test('dispatcher: discard validates the count and the holdings', () => {
   g.phase = 'discard';
   g.discardQueue = [1];
   g.discardNeed = 4;
-  g.players[1].resources = { wood: 4, brick: 4, sheep: 0, wheat: 0, ore: 0 };
-  const short = applyOnlineAction(g, 1, { type: 'discard', cards: { wood: 2 } });
+  g.players[1].resources = { iron: 4, waterIce: 4, silicon: 0, titanium: 0, gold: 0 };
+  const short = applyOnlineAction(g, 1, { type: 'discard', cards: { iron: 2 } });
   assert.equal(short.ok, false);
   assert.match(short.why, /exactly 4/i);
-  const notHeld = applyOnlineAction(g, 1, { type: 'discard', cards: { sheep: 4 } });
+  const notHeld = applyOnlineAction(g, 1, { type: 'discard', cards: { silicon: 4 } });
   assert.equal(notHeld.ok, false);
-  const ok = applyOnlineAction(g, 1, { type: 'discard', cards: { wood: 2, brick: 2 } });
+  const ok = applyOnlineAction(g, 1, { type: 'discard', cards: { iron: 2, waterIce: 2 } });
   assert.equal(ok.ok, true);
-  assert.equal(g.players[1].resources.wood, 2);
+  assert.equal(g.players[1].resources.iron, 2);
   assert.equal(g.discardQueue.length, 0);
 });
 
 test('trade: offer / accept swaps the cards', () => {
   const g = playPhaseGame();
-  g.players[0].resources = { wood: 2, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-  g.players[1].resources = { wood: 0, brick: 0, sheep: 2, wheat: 0, ore: 0 };
-  const r = applyOnlineAction(g, 0, { type: 'offerTrade', to: 1, offer: { wood: 1 }, ask: { sheep: 1 } });
+  g.players[0].resources = { iron: 2, waterIce: 0, silicon: 0, titanium: 0, gold: 0 };
+  g.players[1].resources = { iron: 0, waterIce: 0, silicon: 2, titanium: 0, gold: 0 };
+  const r = applyOnlineAction(g, 0, { type: 'offerTrade', to: 1, offer: { iron: 1 }, ask: { silicon: 1 } });
   assert.equal(r.ok, true, r.why || '');
   assert.equal(openOffersFor(g, 1).length, 1);
   const offerId = openOffersFor(g, 1)[0].id;
   const a = applyOnlineAction(g, 1, { type: 'respondTrade', offerId, choice: 'accept' });
   assert.equal(a.ok, true, a.why || '');
-  assert.equal(g.players[0].resources.wood, 1);
-  assert.equal(g.players[0].resources.sheep, 1);
-  assert.equal(g.players[1].resources.wood, 1);
-  assert.equal(g.players[1].resources.sheep, 1);
+  assert.equal(g.players[0].resources.iron, 1);
+  assert.equal(g.players[0].resources.silicon, 1);
+  assert.equal(g.players[1].resources.iron, 1);
+  assert.equal(g.players[1].resources.silicon, 1);
   assert.equal(openOffersFor(g, 1).length, 0);
 });
 
 test('trade: decline closes, counter opens a reversed offer', () => {
   const g = playPhaseGame();
-  g.players[0].resources = { wood: 2, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-  g.players[1].resources = { wood: 0, brick: 0, sheep: 2, wheat: 0, ore: 0 };
-  offerTrade(g, 0, 1, { wood: 1 }, { sheep: 1 });
+  g.players[0].resources = { iron: 2, waterIce: 0, silicon: 0, titanium: 0, gold: 0 };
+  g.players[1].resources = { iron: 0, waterIce: 0, silicon: 2, titanium: 0, gold: 0 };
+  offerTrade(g, 0, 1, { iron: 1 }, { silicon: 1 });
   const id = openOffersFor(g, 1)[0].id;
-  const c = respondTrade(g, id, 1, 'counter', { sheep: 1 }, { wood: 2 });
+  const c = respondTrade(g, id, 1, 'counter', { silicon: 1 }, { iron: 2 });
   assert.match(c[0], /counters/);
   assert.equal(openOffersFor(g, 1).length, 0);
   const back = openOffersFor(g, 0);
   assert.equal(back.length, 1);
   assert.equal(back[0].from, 1);
-  assert.deepEqual(back[0].offer, { sheep: 1 });
-  assert.deepEqual(back[0].ask, { wood: 2 });
+  assert.deepEqual(back[0].offer, { silicon: 1 });
+  assert.deepEqual(back[0].ask, { iron: 2 });
   // The counter can be declined too.
   const d = respondTrade(g, back[0].id, 0, 'decline');
   assert.match(d[0], /turns down/);
@@ -169,12 +169,12 @@ test('trade: decline closes, counter opens a reversed offer', () => {
 
 test('trade: offers need the cards, expire at end of turn, and cannot be answered after', () => {
   const g = playPhaseGame();
-  g.players[0].resources = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-  const broke = offerTrade(g, 0, 1, { wood: 1 }, { sheep: 1 });
+  g.players[0].resources = { iron: 0, waterIce: 0, silicon: 0, titanium: 0, gold: 0 };
+  const broke = offerTrade(g, 0, 1, { iron: 1 }, { silicon: 1 });
   assert.match(broke[0], /do not hold/);
-  g.players[0].resources.wood = 1;
-  g.players[1].resources.sheep = 1;
-  offerTrade(g, 0, 1, { wood: 1 }, { sheep: 1 });
+  g.players[0].resources.iron = 1;
+  g.players[1].resources.silicon = 1;
+  offerTrade(g, 0, 1, { iron: 1 }, { silicon: 1 });
   const id = openOffersFor(g, 1)[0].id;
   // Wrong responder.
   const wrong = respondTrade(g, id, 2, 'accept');
@@ -192,13 +192,13 @@ test('trade: an agent answers a human offer at once (accept when it helps)', () 
   g.phase = 'play';
   g.turn = 0;
   g.placementIndex = 8;
-  // Agent (seat 1) is one wood short of a settlement and holds spare sheep.
-  g.players[1].resources = { wood: 0, brick: 1, sheep: 3, wheat: 1, ore: 0 };
-  g.players[0].resources = { wood: 2, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-  const r = applyOnlineAction(g, 0, { type: 'offerTrade', to: 1, offer: { wood: 1 }, ask: { sheep: 1 } });
+  // Agent (seat 1) is one iron short of a outpost and holds spare silicon.
+  g.players[1].resources = { iron: 0, waterIce: 1, silicon: 3, titanium: 1, gold: 0 };
+  g.players[0].resources = { iron: 2, waterIce: 0, silicon: 0, titanium: 0, gold: 0 };
+  const r = applyOnlineAction(g, 0, { type: 'offerTrade', to: 1, offer: { iron: 1 }, ask: { silicon: 1 } });
   assert.equal(r.ok, true, r.why || '');
   assert.equal(openOffersFor(g, 1).length, 0, 'the agent answered immediately');
-  assert.equal(g.players[1].resources.wood, 1, 'the agent took the wood it needed');
+  assert.equal(g.players[1].resources.iron, 1, 'the agent took the iron it needed');
 });
 
 test('trade: an agent declines an offer that does not help it', () => {
@@ -206,14 +206,14 @@ test('trade: an agent declines an offer that does not help it', () => {
   g.phase = 'play';
   g.turn = 0;
   g.placementIndex = 8;
-  // Agent holds plenty of everything the offer gives; the ask is its only ore.
-  g.players[1].resources = { wood: 3, brick: 3, sheep: 3, wheat: 3, ore: 1 };
-  g.players[0].resources = { wood: 2, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-  const r = applyOnlineAction(g, 0, { type: 'offerTrade', to: 1, offer: { wood: 1 }, ask: { ore: 1 } });
+  // Agent holds plenty of everything the offer gives; the ask is its only gold.
+  g.players[1].resources = { iron: 3, waterIce: 3, silicon: 3, titanium: 3, gold: 1 };
+  g.players[0].resources = { iron: 2, waterIce: 0, silicon: 0, titanium: 0, gold: 0 };
+  const r = applyOnlineAction(g, 0, { type: 'offerTrade', to: 1, offer: { iron: 1 }, ask: { gold: 1 } });
   assert.equal(r.ok, true);
   assert.equal(openOffersFor(g, 1).length, 0, 'the agent answered immediately');
-  assert.equal(g.players[1].resources.ore, 1, 'the agent kept its ore');
-  assert.equal(g.players[0].resources.wood, 2, 'the human kept the wood');
+  assert.equal(g.players[1].resources.gold, 1, 'the agent kept its gold');
+  assert.equal(g.players[0].resources.iron, 2, 'the human kept the iron');
 });
 
 test('stepAiSeats: agents play until a human must act', () => {
@@ -223,11 +223,11 @@ test('stepAiSeats: agents play until a human must act', () => {
   const order = [0, 1, 2, 3, 3, 2, 1, 0];
   for (const seat of order) {
     if (seat === 0) {
-      const spots = legalSettlementSpots(g, 0);
+      const spots = legalOutpostSpots(g, 0);
       assert.ok(spots.length > 0);
-      assert.equal(applyOnlineAction(g, 0, { type: 'placeSettlement', vertex: spots[0] }).ok, true);
-      const roads = legalRoadSpots(g, 0);
-      assert.equal(applyOnlineAction(g, 0, { type: 'placeRoad', edge: roads[0] }).ok, true);
+      assert.equal(applyOnlineAction(g, 0, { type: 'placeOutpost', vertex: spots[0] }).ok, true);
+      const warpLanes = legalWarpLaneSpots(g, 0);
+      assert.equal(applyOnlineAction(g, 0, { type: 'placeWarpLane', edge: warpLanes[0] }).ok, true);
     }
     stepAiSeats(g);
   }
@@ -239,7 +239,7 @@ test('online loop: a 1-human + 3-agent game runs to a winner through action + AI
   const g = deserializeState(buildOnlineGameState(['You'], {}));
   let turns = 0;
   for (let guard = 0; guard < 20000 && g.winner === null && turns < 400; guard++) {
-    // Who must act is the phase actor (discard-queue head / barbarian
+    // Who must act is the phase actor (discard-queue head / voidFleet
     // loser / placement actor / turn player) — NOT always the turn player.
     const actor = playerById(g, onlineActorId(g));
     if (!actor.isAI) {
@@ -261,25 +261,25 @@ test('online loop: a 1-human + 3-agent game runs to a winner through action + AI
         const r = applyOnlineAction(g, actor.id, { type: 'discard', cards });
         assert.equal(r.ok, true, `human discard failed: ${r.why}`);
         stepAiSeats(g);
-      } else if (g.phase === 'robber') {
-        const hex = legalRobberHexes(g)[0];
-        const r = applyOnlineAction(g, actor.id, { type: 'moveRobber', hex });
-        assert.equal(r.ok, true, `human robber failed: ${r.why}`);
+      } else if (g.phase === 'voidPirate') {
+        const hex = legalVoidPirateHexes(g)[0];
+        const r = applyOnlineAction(g, actor.id, { type: 'moveVoidPirate', hex });
+        assert.equal(r.ok, true, `human void pirate failed: ${r.why}`);
         stepAiSeats(g);
-      } else if (g.phase === 'barbarian') {
-        break; // base game has no barbarian phase; guard only
+      } else if (g.phase === 'voidFleet') {
+        break; // base game has no voidFleet phase; guard only
       } else if (g.phase === 'play') {
         const r = applyOnlineAction(g, actor.id, { type: 'endTurn' });
         assert.equal(r.ok, true, `human endTurn failed: ${r.why}`);
         turns += 1;
         stepAiSeats(g);
       } else if (g.phase === 'placement') {
-        const spots = legalSettlementSpots(g, actor.id);
-        const s = applyOnlineAction(g, actor.id, { type: 'placeSettlement', vertex: spots[0] });
+        const spots = legalOutpostSpots(g, actor.id);
+        const s = applyOnlineAction(g, actor.id, { type: 'placeOutpost', vertex: spots[0] });
         assert.equal(s.ok, true, `human placement failed: ${s.why}`);
-        const roads = legalRoadSpots(g, actor.id);
-        const rd = applyOnlineAction(g, actor.id, { type: 'placeRoad', edge: roads[0] });
-        assert.equal(rd.ok, true, `human road failed: ${rd.why}`);
+        const warpLanes = legalWarpLaneSpots(g, actor.id);
+        const rd = applyOnlineAction(g, actor.id, { type: 'placeWarpLane', edge: warpLanes[0] });
+        assert.equal(rd.ok, true, `human warp lane failed: ${rd.why}`);
         stepAiSeats(g);
       } else {
         break;
@@ -292,58 +292,58 @@ test('online loop: a 1-human + 3-agent game runs to a winner through action + AI
   assert.ok(victoryPoints(g, g.winner) >= 10);
 });
 
-// --- legalShipMoveDestinations (Seafarers ship-move helper) ---------------
+// --- legalStarshipMoveDestinations (Starfarers starship-move helper) ---------------
 
-function seafarersPlayGame(seed = 11) {
+function starfarersPlayGame(seed = 11) {
   const g = createGame(seed, 'You', {
     players: [
       { name: 'You', isAI: false }, { name: 'Mia', isAI: false },
       { name: 'Noor', isAI: false }, { name: 'Sam', isAI: false },
     ],
-    expansions: { seafarers: true },
+    expansions: { starfarers: true },
   });
   g.phase = 'play';
   g.turn = 0;
   g.placementIndex = 8;
   const p = g.players[0];
-  p.resources.wood = 9; p.resources.sheep = 9; p.resources.brick = 9; p.resources.wheat = 9; p.resources.ore = 9;
-  // Plant a coastal settlement so ships have somewhere to launch from.
+  p.resources.iron = 9; p.resources.silicon = 9; p.resources.waterIce = 9; p.resources.titanium = 9; p.resources.gold = 9;
+  // Plant a coastal outpost so starships have somewhere to launch from.
   const coastVertex = [...g.vertices.values()].find((v) => [...g.edges.values()]
     .some((e) => (e.v1 === v.key || e.v2 === v.key) && e.hexes.some((id) => g.hexes[id].terrain === 'sea')));
   assert.ok(coastVertex, 'a coastal vertex exists');
-  coastVertex.settlement = { player: 0, kind: 'settlement' };
-  p.settlements = 1;
+  coastVertex.outpost = { player: 0, kind: 'outpost' };
+  p.outposts = 1;
   return g;
 }
 
-test('legalShipMoveDestinations: a movable ship at the end of an open route has destinations', () => {
-  const g = seafarersPlayGame();
-  const spots = legalShipSpots(g, 0);
-  assert.ok(spots.length > 0, 'ships can launch from the coastal settlement');
-  assert.equal(placeShip(g, 0, spots[0])[0].includes('ship'), true);
-  g.shipsBuiltThisTurn = []; // a ship built this turn cannot move; simulate a later turn
-  const dests = legalShipMoveDestinations(g, 0, spots[0]);
-  assert.ok(dests.length > 0, 'the lone ship can sail somewhere');
+test('legalStarshipMoveDestinations: a movable starship at the end of an open route has destinations', () => {
+  const g = starfarersPlayGame();
+  const spots = legalStarshipSpots(g, 0);
+  assert.ok(spots.length > 0, 'starships can launch from the coastal outpost');
+  assert.equal(placeStarship(g, 0, spots[0])[0].includes('starship'), true);
+  g.starshipsBuiltThisTurn = []; // a starship built this turn cannot move; simulate a later turn
+  const dests = legalStarshipMoveDestinations(g, 0, spots[0]);
+  assert.ok(dests.length > 0, 'the lone starship can sail somewhere');
   assert.ok(!dests.includes(spots[0]), 'its own edge is not a destination');
-  assert.ok(dests.every((d) => { const e = g.edges.get(d); return e && e.road === null && e.ship === null; }), 'destinations are free edges');
+  assert.ok(dests.every((d) => { const e = g.edges.get(d); return e && e.warpLane === null && e.starship === null; }), 'destinations are free edges');
 });
 
-test('legalShipMoveDestinations: a ship locked in a closed route has none', () => {
-  const g = seafarersPlayGame();
-  const spots = legalShipSpots(g, 0);
+test('legalStarshipMoveDestinations: a starship locked in a closed route has none', () => {
+  const g = starfarersPlayGame();
+  const spots = legalStarshipSpots(g, 0);
   assert.ok(spots.length > 0);
-  placeShip(g, 0, spots[0]);
-  g.shipsBuiltThisTurn = [];
-  // Extend the route with a second ship off the far end of the first.
+  placeStarship(g, 0, spots[0]);
+  g.starshipsBuiltThisTurn = [];
+  // Extend the route with a second starship off the far end of the first.
   const first = g.edges.get(spots[0]);
   const farEnd = first.v2;
-  const next = legalShipSpots(g, 0).find((key) => {
+  const next = legalStarshipSpots(g, 0).find((key) => {
     const e = g.edges.get(key);
     return e.v1 === farEnd || e.v2 === farEnd;
   });
-  assert.ok(next, 'a second ship can extend the route');
-  placeShip(g, 0, next);
-  g.shipsBuiltThisTurn = [];
-  // The first ship now sits between a settlement and another ship: locked in.
-  assert.deepEqual(legalShipMoveDestinations(g, 0, spots[0]), []);
+  assert.ok(next, 'a second starship can extend the route');
+  placeStarship(g, 0, next);
+  g.starshipsBuiltThisTurn = [];
+  // The first starship now sits between a outpost and another starship: locked in.
+  assert.deepEqual(legalStarshipMoveDestinations(g, 0, spots[0]), []);
 });

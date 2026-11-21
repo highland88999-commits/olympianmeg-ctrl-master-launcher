@@ -16,8 +16,18 @@ const nextConfig = {
   // (concourse=1 collapses the hub program menu so it cannot cover
   // the sheet; portals3d=1 opens the hall — see the deep link in
   // components/Concourse.jsx).
+  // /settlers-of-olympus is gone (Merlin, Nov 20, 2026 — the Starforge
+  // reskin): the game was renamed Starforge outright, route /starforge.
+  // The redirect keeps every bookmark and old link landing on the game.
+  // The settlers_rooms table and /api/settlers/rooms routes are untouched
+  // (server-only; the table name is not a user-facing route).
   async redirects() {
     return [
+      {
+        source: '/settlers-of-olympus',
+        destination: '/starforge',
+        permanent: true,
+      },
       {
         source: '/weapons-forge',
         destination: '/world-engine/weapons',

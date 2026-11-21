@@ -1,12 +1,12 @@
-// app/settlers-of-olympus/page.jsx — Settlers of Olympus: solo vs 3 agents,
+// app/starforge/page.jsx — Starforge: solo vs 3 agents,
 // or online rooms (host + join code, agents fill empty seats), with the
-// Seafarers / Cities & Knights / Fishermen / Caravans expansions and
+// Starfarers / Stations & Starfighters / Harvesters / Rover Caravans expansions and
 // human-to-human trading in online games.
-// Engine in lib/settlers-of-olympus/engine.js (pure logic). Solo turns run
+// Engine in lib/starforge/engine.js (pure logic). Solo turns run
 // here through pumpAi() (Monopoly pattern); online turns go through the
 // room API (POST .../action) and agents step server-side — the client
 // NEVER steps AI in online mode. Who must act is onlineActorId(), not
-// always the turn player (discard queue, barbarian loser, placement).
+// always the turn player (discard queue, voidFleet loser, placement).
 //
 // Laws: circle orb controls (plain circle orbs, per-function symbol, no
 // words ON the orb face; fullscreen orb top-right), no-overlap (normal
@@ -19,29 +19,29 @@ import {
   RESOURCES, RESOURCE_LABEL, RESOURCE_ICON,
   COMMODITIES, COMMODITY_LABEL, COMMODITY_ICON,
   IMPROVEMENT_TRACKS, IMPROVEMENT_LABEL, IMPROVEMENT_COMMODITY,
-  PROGRESS_LABEL, FISH_COSTS, BARBARIAN_TRACK_LENGTH,
+  PROGRESS_LABEL, BIOMASS_COSTS, VOID_FLEET_TRACK_LENGTH,
   axialToPixel,
   createGame, currentPlayer, playerById,
-  legalSettlementSpots, legalRoadSpots, legalShipSpots, legalShipMoveDestinations,
-  legalKnightSpots, legalCamelSpots, legalDowngradeCities,
-  legalRobberHexes, legalPirateHexes,
-  placeSettlement, placeRoad, placeShip, moveShip, buildCity,
-  rollDice, discardCards, moveRobber, movePirate,
-  tradeRate, tradeWithBank, buyDevCard, playKnight, playMonopoly,
-  playYearOfPlenty, playRoadBuilding, canPlayDev, endTurn,
-  chooseFreeResource, spendFish, passBoot, placeCamel,
-  buyImprovement, buyKnight, activateKnight, upgradeKnight, knightAction,
-  buildWall, playProgressCard, downgradeCity,
+  legalOutpostSpots, legalWarpLaneSpots, legalStarshipSpots, legalStarshipMoveDestinations,
+  legalStarfighterSpots, legalRoverSpots, legalDowngradeStations,
+  legalVoidPirateHexes, legalCorsairHexes,
+  placeOutpost, placeWarpLane, placeStarship, moveStarship, buildStation,
+  rollDice, discardCards, moveVoidPirate, moveCorsair,
+  tradeRate, tradeWithBank, buyDevCard, playStarfighter, playMarketCorner,
+  playSupplyDrop, playWarpLaneRush, canPlayDev, endTurn,
+  chooseFreeResource, spendBiomass, passScrapHull, placeRover,
+  buyImprovement, buyStarfighter, activateStarfighter, upgradeStarfighter, starfighterAction,
+  buildWall, playProgressCard, downgradeStation,
   offerTrade, respondTrade,
   victoryPoints, vpBreakdown, aiStep,
   deserializeState, onlineActorId, openOffersFor, pendingFreePicks,
   expansionsOn, winTarget, winTargetFor,
-} from '@/lib/settlers-of-olympus/engine.js';
+} from '@/lib/starforge/engine.js';
 import {
-  OmegaMark, HexTileArt, PortArt, CardFace, CardBack, DiceFace,
-  BarbarianShipMarker, SettlementPiece, CityPiece, RoadPiece, ShipPiece,
-  KnightPiece, RobberPiece, PiratePiece, MenuArt,
-} from '@/components/settlers-of-olympus/graphics.jsx';
+  OmegaMark, HexTileArt, TradeHubArt, CardFace, CardBack, DiceFace,
+  VoidFleetShipMarker, OutpostPiece, StationPiece, WarpLanePiece, StarshipPiece,
+  StarfighterPiece, VoidPiratePiece, CorsairPiece, MenuArt,
+} from '@/components/starforge/graphics.jsx';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const HEX_SIZE = 34;
@@ -49,26 +49,36 @@ const TRADEABLE = [...RESOURCES, ...COMMODITIES];
 const cardIcon = (k) => RESOURCE_ICON[k] || COMMODITY_ICON[k] || '🃏';
 const cardLabel = (k) => RESOURCE_LABEL[k] || COMMODITY_LABEL[k] || k;
 
+// Background: a universe from Myriad — public/images/myriad/bg.webp, the
+// house Myriad sky (palette #0b1026 / #4c1d95 / #a78bfa), with a nebula
+// layer in the same palette over it. Same asset Myriad itself uses.
+const MYRIAD_BG = {
+  backgroundColor: '#0b1026',
+  backgroundImage: `radial-gradient(ellipse 60% 40% at 70% 8%, rgba(167,139,250,0.25), transparent 70%), radial-gradient(ellipse 50% 35% at 12% 88%, rgba(76,29,149,0.4), transparent 70%), linear-gradient(rgba(11,16,38,0.82), rgba(11,16,38,0.9)), url('/images/myriad/bg.webp')`,
+  backgroundSize: 'cover',
+  backgroundPosition: 'center top',
+};
+
 const EXPANSION_INFO = [
-  { key: 'seafarers', name: 'Seafarers', desc: 'Ships, new islands, gold rivers and the pirate.' },
-  { key: 'citiesKnights', name: 'Cities & Knights', desc: 'Commodities, improvements, knights and the barbarians.' },
-  { key: 'fishermen', name: 'Fishermen', desc: 'Fish tokens to spend, and the old boot.' },
-  { key: 'caravans', name: 'Caravans', desc: 'Camels on the caravan route, worth extra points.' },
+  { key: 'starfarers', name: 'Starfarers', desc: 'Starships, new islands, gold veins and the corsair.' },
+  { key: 'stationsStarfighters', name: 'Stations & Starfighters', desc: 'Commodities, improvements, starfighters and the void fleets.' },
+  { key: 'harvesters', name: 'Harvesters', desc: 'Biomass tokens to spend, and the scrap hull.' },
+  { key: 'caravans', name: 'Rover Caravans', desc: 'Rovers on the rover route, worth extra points.' },
 ];
 
 // Progress cards that need a pick before they can be played, and what pick.
 const PROGRESS_PICK = {
   bishop: 'hex', merchant: 'hex', inventor: 'hex2',
   deserter: 'vertex', intrigue: 'vertex', diplomat: 'edge',
-  alchemist: 'dice', resourceMonopoly: 'resource', tradeMonopoly: 'commodity',
+  alchemist: 'dice', resourceCorner: 'resource', tradeCorner: 'commodity',
 };
 
-const FISH_MENU = [
-  { action: 'removeRobber', label: 'Robber leaves the board', cost: FISH_COSTS.removeRobber },
-  { action: 'steal', label: 'Steal 1 card from a player', cost: FISH_COSTS.steal },
-  { action: 'resource', label: 'Take 1 resource of your choice', cost: FISH_COSTS.resource },
-  { action: 'road', label: 'A free road or ship', cost: FISH_COSTS.road },
-  { action: 'devCard', label: 'A development card', cost: FISH_COSTS.devCard },
+const BIOMASS_MENU = [
+  { action: 'removeVoidPirate', label: 'Void Pirate leaves the board', cost: BIOMASS_COSTS.removeVoidPirate },
+  { action: 'steal', label: 'Steal 1 card from a player', cost: BIOMASS_COSTS.steal },
+  { action: 'resource', label: 'Take 1 resource of your choice', cost: BIOMASS_COSTS.resource },
+  { action: 'warpLane', label: 'A free warp lane or starship', cost: BIOMASS_COSTS.warpLane },
+  { action: 'devCard', label: 'A development card', cost: BIOMASS_COSTS.devCard },
 ];
 
 function hexCenter(h) { return axialToPixel(h.q, h.r, HEX_SIZE); }
@@ -94,12 +104,12 @@ function boardBounds(hexes) {
     minX = Math.min(minX, c.x - HEX_SIZE); maxX = Math.max(maxX, c.x + HEX_SIZE);
     minY = Math.min(minY, c.y - HEX_SIZE); maxY = Math.max(maxY, c.y + HEX_SIZE);
   }
-  const m = 52; // room for the coastal ports
+  const m = 52; // room for the coastal hubs
   return { x: minX - m, y: minY - m, w: maxX - minX + 2 * m, h: maxY - minY + 2 * m };
 }
 
-function portPos(port, game) {
-  const e = game.edges.get(port.edgeKey);
+function hubPos(hub, game) {
+  const e = game.edges.get(hub.edgeKey);
   const a = vertexPos(e.v1);
   const b = vertexPos(e.v2);
   const mx = (a.x + b.x) / 2;
@@ -173,7 +183,7 @@ function cardListText(map) {
     .join(', ');
 }
 
-export default function SettlersOfOlympusPage() {
+export default function StarforgePage() {
   const gameRef = useRef(null);
   const pumpRef = useRef(false);
   const logRef = useRef(null);
@@ -185,7 +195,7 @@ export default function SettlersOfOlympusPage() {
   const [screen, setScreen] = useState('menu'); // 'menu' | 'lobby' | 'game'
   const [onlineMode, setOnlineMode] = useState(false);
   const [playerName, setPlayerName] = useState('You');
-  const [expansions, setExpansions] = useState({ seafarers: false, citiesKnights: false, fishermen: false, caravans: false });
+  const [expansions, setExpansions] = useState({ starfarers: false, stationsStarfighters: false, harvesters: false, caravans: false });
   const [roomCode, setRoomCode] = useState('');
   const [playerToken, setPlayerToken] = useState('');
   const [mySeat, setMySeat] = useState(0);
@@ -198,30 +208,30 @@ export default function SettlersOfOlympusPage() {
   const [connected, setConnected] = useState(true);
 
   // ---- play state ----
-  const [buildMode, setBuildMode] = useState(null); // 'road' | 'settlement' | 'city' | 'ship' | 'shipMove' | 'knight' | 'wall' | null
+  const [buildMode, setBuildMode] = useState(null); // 'warpLane' | 'outpost' | 'station' | 'starship' | 'starshipMove' | 'starfighter' | 'wall' | null
   const [tradeOpen, setTradeOpen] = useState(false);
   const [giveSel, setGiveSel] = useState(null);
   const [getSel, setGetSel] = useState(null);
   const [devOpen, setDevOpen] = useState(false);
-  const [devPick, setDevPick] = useState(null); // 'monopoly' | 'yearOfPlenty' | null
+  const [devPick, setDevPick] = useState(null); // 'marketCorner' | 'supplyDrop' | null
   const [yopPicks, setYopPicks] = useState([]);
   const [discardSel, setDiscardSel] = useState({});
   const [logLines, setLogLines] = useState([]);
   const [notice, setNotice] = useState('');
   // Expansion modes
-  const [shipMoveFrom, setShipMoveFrom] = useState(null);
-  const [robberChoice, setRobberChoice] = useState(null); // 'robber' | 'pirate' | null
+  const [starstarshipMoveFrom, setStarshipMoveFrom] = useState(null);
+  const [voidPirateChoice, setVoidPirateChoice] = useState(null); // 'voidPirate' | 'corsair' | null
   const [progOpen, setProgOpen] = useState(false);
   const [impOpen, setImpOpen] = useState(false);
   const [progPick, setProgPick] = useState(null); // progress card type awaiting a pick
   const [progHexA, setProgHexA] = useState(null);
   const [progDice, setProgDice] = useState({ d1: null, d2: null });
-  const [knightOpen, setKnightOpen] = useState(false);
-  const [selectedKnight, setSelectedKnight] = useState(null);
-  const [knightMoveFrom, setKnightMoveFrom] = useState(null);
-  const [fishOpen, setFishOpen] = useState(false);
-  const [fishPick, setFishPick] = useState(null); // 'steal' | 'resource' | null
-  const [bootOpen, setBootOpen] = useState(false);
+  const [starfighterOpen, setStarfighterOpen] = useState(false);
+  const [selectedStarfighter, setSelectedStarfighter] = useState(null);
+  const [starfighterMoveFrom, setStarfighterMoveFrom] = useState(null);
+  const [biomassOpen, setBiomassOpen] = useState(false);
+  const [biomassPick, setBiomassPick] = useState(null); // 'steal' | 'resource' | null
+  const [scrapHullOpen, setScrapHullOpen] = useState(false);
   // Trade offers (online only)
   const [offerOpen, setOfferOpen] = useState(false);
   const [offerTarget, setOfferTarget] = useState(null);
@@ -234,12 +244,12 @@ export default function SettlersOfOlympusPage() {
   const pid = onlineMode ? mySeat : 0;
   const me = game ? game.players[pid] : null;
   const cur = game ? currentPlayer(game) : null;
-  // Who must act right now — discard-queue head / barbarian loser /
+  // Who must act right now — discard-queue head / voidFleet loser /
   // placement actor / turn player. NOT always the turn player.
   const actorId = game
     ? (onlineMode ? onlineActorId(game)
       : game.phase === 'discard' && game.discardQueue.length > 0 ? game.discardQueue[0]
-      : game.phase === 'barbarian' && game.barbarianLosers.length > 0 ? game.barbarianLosers[0]
+      : game.phase === 'voidFleet' && game.voidFleetLosers.length > 0 ? game.voidFleetLosers[0]
       : game.turn)
     : 0;
   const actor = game ? playerById(game, actorId) : null;
@@ -248,30 +258,30 @@ export default function SettlersOfOlympusPage() {
   const canRoll = myTurn && game.phase === 'roll';
   const canAct = myTurn && game.phase === 'play';
   const mustDiscard = myTurn && game?.phase === 'discard';
-  const mustRob = myTurn && game?.phase === 'robber';
-  const mustBarbarian = myTurn && game?.phase === 'barbarian';
+  const mustVoidPirate = myTurn && game?.phase === 'voidPirate';
+  const mustVoidFleet = myTurn && game?.phase === 'voidFleet';
   const freePicks = game && me ? pendingFreePicks(game, pid) : 0;
   const incomingOffers = game && onlineMode ? openOffersFor(game, pid) : [];
 
-  const legalSettlements = game && ((isPlacement && actorId === pid) || (canAct && buildMode === 'settlement'))
-    ? legalSettlementSpots(game, pid) : [];
-  const legalRoads = game && ((isPlacement && actorId === pid && game.placementStep === 'road')
-    || (canAct && (buildMode === 'road' || game.freeRoads > 0)))
-    ? legalRoadSpots(game, pid) : [];
-  const legalShips = game && ex.seafarers && ((isPlacement && actorId === pid && game.placementStep === 'road')
-    || (canAct && (buildMode === 'ship' || game.freeRoads > 0)))
-    ? legalShipSpots(game, pid) : [];
-  const legalKnights = game && ex.citiesKnights && canAct && buildMode === 'knight'
-    ? legalKnightSpots(game, pid) : [];
-  const legalCamels = game && ex.caravans && game.camelPending?.player === pid
-    ? legalCamelSpots(game, pid) : [];
-  const legalDowngrade = game && mustBarbarian ? legalDowngradeCities(game, pid) : [];
-  const legalRobber = game && mustRob && robberChoice !== 'pirate' ? legalRobberHexes(game) : [];
-  const legalPirate = game && mustRob && robberChoice === 'pirate' ? legalPirateHexes(game) : [];
-  const shipMoveDests = game && shipMoveFrom ? legalShipMoveDestinations(game, pid, shipMoveFrom) : [];
-  const myCities = game ? [...game.vertices.values()].filter((v) => v.settlement?.player === pid && v.settlement.kind === 'settlement') : [];
-  const myWallCities = game ? [...game.vertices.values()].filter((v) => v.settlement?.player === pid && v.settlement.kind === 'city' && v.wall === null) : [];
-  const myKnights = game ? [...game.vertices.values()].filter((v) => v.knight?.player === pid) : [];
+  const legalOutposts = game && ((isPlacement && actorId === pid) || (canAct && buildMode === 'outpost'))
+    ? legalOutpostSpots(game, pid) : [];
+  const legalWarpLanes = game && ((isPlacement && actorId === pid && game.placementStep === 'warpLane')
+    || (canAct && (buildMode === 'warpLane' || game.freeLanes > 0)))
+    ? legalWarpLaneSpots(game, pid) : [];
+  const legalStarships = game && ex.starfarers && ((isPlacement && actorId === pid && game.placementStep === 'warpLane')
+    || (canAct && (buildMode === 'starship' || game.freeLanes > 0)))
+    ? legalStarshipSpots(game, pid) : [];
+  const legalStarfighters = game && ex.stationsStarfighters && canAct && buildMode === 'starfighter'
+    ? legalStarfighterSpots(game, pid) : [];
+  const legalRovers = game && ex.caravans && game.roverPending?.player === pid
+    ? legalRoverSpots(game, pid) : [];
+  const legalDowngrade = game && mustVoidFleet ? legalDowngradeStations(game, pid) : [];
+  const legalVoidPirate = game && mustVoidPirate && voidPirateChoice !== 'corsair' ? legalVoidPirateHexes(game) : [];
+  const legalCorsair = game && mustVoidPirate && voidPirateChoice === 'corsair' ? legalCorsairHexes(game) : [];
+  const starshipMoveDests = game && starstarshipMoveFrom ? legalStarshipMoveDestinations(game, pid, starstarshipMoveFrom) : [];
+  const myCities = game ? [...game.vertices.values()].filter((v) => v.outpost?.player === pid && v.outpost.kind === 'outpost') : [];
+  const myWallCities = game ? [...game.vertices.values()].filter((v) => v.outpost?.player === pid && v.outpost.kind === 'station' && v.wall === null) : [];
+  const myStarfighters = game ? [...game.vertices.values()].filter((v) => v.starfighter?.player === pid) : [];
 
   function applyEvents(events) {
     if (!events || events.length === 0) return;
@@ -291,31 +301,31 @@ export default function SettlersOfOlympusPage() {
       case 'roll': return rollDice(g);
       case 'discard': return discardCards(g, pid, action.cards);
       case 'endTurn': return endTurn(g);
-      case 'placeSettlement': return placeSettlement(g, pid, action.vertex);
-      case 'placeRoad': return placeRoad(g, pid, action.edge);
-      case 'placeShip': return placeShip(g, pid, action.edge);
-      case 'moveShip': return moveShip(g, pid, action.from, action.to);
-      case 'buildCity': return buildCity(g, pid, action.vertex);
+      case 'placeOutpost': return placeOutpost(g, pid, action.vertex);
+      case 'placeWarpLane': return placeWarpLane(g, pid, action.edge);
+      case 'placeStarship': return placeStarship(g, pid, action.edge);
+      case 'moveStarship': return moveStarship(g, pid, action.from, action.to);
+      case 'buildStation': return buildStation(g, pid, action.vertex);
       case 'buyDevCard': return buyDevCard(g);
-      case 'playKnight': return playKnight(g, pid);
-      case 'playMonopoly': return playMonopoly(g, pid, action.resource);
-      case 'playYearOfPlenty': return playYearOfPlenty(g, pid, action.r1, action.r2);
-      case 'playRoadBuilding': return playRoadBuilding(g, pid);
+      case 'playStarfighter': return playStarfighter(g, pid);
+      case 'playMarketCorner': return playMarketCorner(g, pid, action.resource);
+      case 'playSupplyDrop': return playSupplyDrop(g, pid, action.r1, action.r2);
+      case 'playWarpLaneRush': return playWarpLaneRush(g, pid);
       case 'tradeWithBank': return tradeWithBank(g, pid, action.give, action.get);
       case 'chooseFreeResource': return chooseFreeResource(g, pid, action.resource);
-      case 'moveRobber': return moveRobber(g, pid, action.hex);
-      case 'movePirate': return movePirate(g, pid, action.hex);
-      case 'spendFish': return spendFish(g, pid, action.action, action);
-      case 'passBoot': return passBoot(g, pid, action.to);
-      case 'placeCamel': return placeCamel(g, pid, action.edge);
+      case 'moveVoidPirate': return moveVoidPirate(g, pid, action.hex);
+      case 'moveCorsair': return moveCorsair(g, pid, action.hex);
+      case 'spendBiomass': return spendBiomass(g, pid, action.action, action);
+      case 'passScrapHull': return passScrapHull(g, pid, action.to);
+      case 'placeRover': return placeRover(g, pid, action.edge);
       case 'buyImprovement': return buyImprovement(g, pid, action.track);
-      case 'buyKnight': return buyKnight(g, pid, action.vertex);
-      case 'activateKnight': return activateKnight(g, pid, action.vertex);
-      case 'upgradeKnight': return upgradeKnight(g, pid, action.vertex);
-      case 'knightAction': return knightAction(g, pid, action.from, action.to);
+      case 'buyStarfighter': return buyStarfighter(g, pid, action.vertex);
+      case 'activateStarfighter': return activateStarfighter(g, pid, action.vertex);
+      case 'upgradeStarfighter': return upgradeStarfighter(g, pid, action.vertex);
+      case 'starfighterAction': return starfighterAction(g, pid, action.from, action.to);
       case 'buildWall': return buildWall(g, pid, action.vertex);
       case 'playProgressCard': return playProgressCard(g, pid, action.cardType, action);
-      case 'downgradeCity': return downgradeCity(g, pid, action.vertex);
+      case 'downgradeStation': return downgradeStation(g, pid, action.vertex);
       case 'offerTrade': return offerTrade(g, pid, action.to, action.offer, action.ask);
       case 'respondTrade': return respondTrade(g, action.offerId, pid, action.choice, action.counterOffer, action.counterAsk);
       default: return [];
@@ -481,10 +491,10 @@ export default function SettlersOfOlympusPage() {
   function resetPanels() {
     setBuildMode(null); setTradeOpen(false); setDevOpen(false); setDevPick(null);
     setYopPicks([]); setDiscardSel({}); setGiveSel(null); setGetSel(null);
-    setNotice(''); setShipMoveFrom(null); setRobberChoice(null);
+    setNotice(''); setStarshipMoveFrom(null); setVoidPirateChoice(null);
     setProgOpen(false); setProgPick(null); setProgHexA(null); setProgDice({ d1: null, d2: null });
-    setKnightOpen(false); setSelectedKnight(null); setKnightMoveFrom(null);
-    setFishOpen(false); setFishPick(null); setBootOpen(false);
+    setStarfighterOpen(false); setSelectedStarfighter(null); setStarfighterMoveFrom(null);
+    setBiomassOpen(false); setBiomassPick(null); setScrapHullOpen(false);
     setOfferOpen(false); setOfferTarget(null); setOfferGive({}); setOfferAsk({});
     setCounterOf(null);
   }
@@ -514,21 +524,21 @@ export default function SettlersOfOlympusPage() {
     const g = gameRef.current;
     const actingNow = g.phase === 'discard' && g.discardQueue.length > 0
       ? playerById(g, g.discardQueue[0])
-      : g.phase === 'barbarian' && g.barbarianLosers.length > 0
-        ? playerById(g, g.barbarianLosers[0])
+      : g.phase === 'voidFleet' && g.voidFleetLosers.length > 0
+        ? playerById(g, g.voidFleetLosers[0])
         : currentPlayer(g);
     if (!actingNow || !actingNow.isAI) return;
-    if (!['placement', 'roll', 'discard', 'robber', 'play', 'barbarian'].includes(g.phase)) return;
+    if (!['placement', 'roll', 'discard', 'voidPirate', 'play', 'voidFleet'].includes(g.phase)) return;
     pumpRef.current = true;
     try {
       for (let guard = 0; guard < 400 && g && !g.winner; guard++) {
         const acting = g.phase === 'discard' && g.discardQueue.length > 0
           ? playerById(g, g.discardQueue[0])
-          : g.phase === 'barbarian' && g.barbarianLosers.length > 0
-            ? playerById(g, g.barbarianLosers[0])
+          : g.phase === 'voidFleet' && g.voidFleetLosers.length > 0
+            ? playerById(g, g.voidFleetLosers[0])
             : currentPlayer(g);
         if (!acting || !acting.isAI) break;
-        if (!['placement', 'roll', 'discard', 'robber', 'play', 'barbarian'].includes(g.phase)) break;
+        if (!['placement', 'roll', 'discard', 'voidPirate', 'play', 'voidFleet'].includes(g.phase)) break;
         await sleep(600);
         const ev = aiStep(g);
         applyEvents(ev);
@@ -568,34 +578,34 @@ export default function SettlersOfOlympusPage() {
   function onVertexTap(vKey) {
     if (!game || game.winner || !myTurn) return;
     if (progPick === 'deserter' || progPick === 'intrigue') {
-      playProgress(progPick, { vertex: vKey, from: selectedKnight });
+      playProgress(progPick, { vertex: vKey, from: selectedStarfighter });
       return;
     }
-    if (knightMoveFrom) {
-      move({ type: 'knightAction', from: knightMoveFrom, to: vKey });
-      setKnightMoveFrom(null); setSelectedKnight(null);
+    if (starfighterMoveFrom) {
+      move({ type: 'starfighterAction', from: starfighterMoveFrom, to: vKey });
+      setStarfighterMoveFrom(null); setSelectedStarfighter(null);
       return;
     }
-    if (isPlacement && game.placementStep === 'settlement') {
-      move({ type: 'placeSettlement', vertex: vKey });
+    if (isPlacement && game.placementStep === 'outpost') {
+      move({ type: 'placeOutpost', vertex: vKey });
       return;
     }
-    if (mustBarbarian) {
-      move({ type: 'downgradeCity', vertex: vKey });
+    if (mustVoidFleet) {
+      move({ type: 'downgradeStation', vertex: vKey });
       return;
     }
-    if (canAct && buildMode === 'settlement') {
-      move({ type: 'placeSettlement', vertex: vKey });
+    if (canAct && buildMode === 'outpost') {
+      move({ type: 'placeOutpost', vertex: vKey });
       setBuildMode(null);
       return;
     }
-    if (canAct && buildMode === 'city') {
-      move({ type: 'buildCity', vertex: vKey });
+    if (canAct && buildMode === 'station') {
+      move({ type: 'buildStation', vertex: vKey });
       setBuildMode(null);
       return;
     }
-    if (canAct && buildMode === 'knight') {
-      move({ type: 'buyKnight', vertex: vKey });
+    if (canAct && buildMode === 'starfighter') {
+      move({ type: 'buyStarfighter', vertex: vKey });
       setBuildMode(null);
       return;
     }
@@ -605,11 +615,11 @@ export default function SettlersOfOlympusPage() {
       return;
     }
     const v = game.vertices.get(vKey);
-    if (ex.citiesKnights && v?.knight?.player === pid) {
-      setSelectedKnight(vKey);
-      setKnightOpen(true);
-      if (v.knight.active) setKnightMoveFrom(vKey);
-      else setKnightMoveFrom(null);
+    if (ex.stationsStarfighters && v?.starfighter?.player === pid) {
+      setSelectedStarfighter(vKey);
+      setStarfighterOpen(true);
+      if (v.starfighter.active) setStarfighterMoveFrom(vKey);
+      else setStarfighterMoveFrom(null);
     }
   }
 
@@ -619,38 +629,38 @@ export default function SettlersOfOlympusPage() {
       playProgress('diplomat', { edge: edgeKey });
       return;
     }
-    if (game.camelPending?.player === pid) {
-      move({ type: 'placeCamel', edge: edgeKey });
+    if (game.roverPending?.player === pid) {
+      move({ type: 'placeRover', edge: edgeKey });
       return;
     }
-    if (shipMoveFrom) {
-      move({ type: 'moveShip', from: shipMoveFrom, to: edgeKey });
-      setShipMoveFrom(null); setBuildMode(null);
+    if (starstarshipMoveFrom) {
+      move({ type: 'moveStarship', from: starstarshipMoveFrom, to: edgeKey });
+      setStarshipMoveFrom(null); setBuildMode(null);
       return;
     }
-    if (buildMode === 'shipMove') {
+    if (buildMode === 'starshipMove') {
       const e = game.edges.get(edgeKey);
-      if (e?.ship === pid) setShipMoveFrom(edgeKey);
+      if (e?.starship === pid) setStarshipMoveFrom(edgeKey);
       return;
     }
-    if (isPlacement && game.placementStep === 'road') {
-      if (ex.seafarers && legalShips.includes(edgeKey)) move({ type: 'placeShip', edge: edgeKey });
-      else move({ type: 'placeRoad', edge: edgeKey });
+    if (isPlacement && game.placementStep === 'warpLane') {
+      if (ex.starfarers && legalStarships.includes(edgeKey)) move({ type: 'placeStarship', edge: edgeKey });
+      else move({ type: 'placeWarpLane', edge: edgeKey });
       return;
     }
-    if (canAct && buildMode === 'road') {
-      move({ type: 'placeRoad', edge: edgeKey });
+    if (canAct && buildMode === 'warpLane') {
+      move({ type: 'placeWarpLane', edge: edgeKey });
       setBuildMode(null);
       return;
     }
-    if (canAct && buildMode === 'ship') {
-      move({ type: 'placeShip', edge: edgeKey });
+    if (canAct && buildMode === 'starship') {
+      move({ type: 'placeStarship', edge: edgeKey });
       setBuildMode(null);
       return;
     }
-    if (canAct && game.freeRoads > 0) {
-      if (ex.seafarers && legalShips.includes(edgeKey)) move({ type: 'placeShip', edge: edgeKey });
-      else move({ type: 'placeRoad', edge: edgeKey });
+    if (canAct && game.freeLanes > 0) {
+      if (ex.starfarers && legalStarships.includes(edgeKey)) move({ type: 'placeStarship', edge: edgeKey });
+      else move({ type: 'placeWarpLane', edge: edgeKey });
       setBuildMode(null);
     }
   }
@@ -664,9 +674,9 @@ export default function SettlersOfOlympusPage() {
       playProgress('inventor', { hexA: progHexA, hexB: hexId });
       return;
     }
-    if (mustRob) {
-      move({ type: robberChoice === 'pirate' ? 'movePirate' : 'moveRobber', hex: hexId });
-      setRobberChoice(null);
+    if (mustVoidPirate) {
+      move({ type: voidPirateChoice === 'corsair' ? 'moveCorsair' : 'moveVoidPirate', hex: hexId });
+      setVoidPirateChoice(null);
     }
   }
 
@@ -678,9 +688,9 @@ export default function SettlersOfOlympusPage() {
     }
     if (isPlacement) {
       return actorId === pid
-        ? (game.placementStep === 'settlement'
+        ? (game.placementStep === 'outpost'
           ? 'Opening placement: tap a glowing corner to settle.'
-          : 'Now tap a glowing road — or a ship, on the coast — next to your new settlement.')
+          : 'Now tap a glowing warp lane — or a starship, on the coast — next to your new outpost.')
         : `${actor.name} is placing…`;
     }
     if (game.phase === 'roll') return actorId === pid ? 'Your turn — roll the dice.' : `${actor.name} is rolling…`;
@@ -689,24 +699,24 @@ export default function SettlersOfOlympusPage() {
         ? `Seven! You hold too many cards — discard ${game.discardNeed}.`
         : `Seven! ${actor.name} must discard ${game.discardNeed} cards.`;
     }
-    if (game.phase === 'robber') {
+    if (game.phase === 'voidPirate') {
       return actorId === pid
-        ? (ex.seafarers && game.robberChoice ? 'Seven! Move the robber — or the pirate.' : 'Seven! Tap a hex to move the robber.')
-        : `${actor.name} is moving the robber…`;
+        ? (ex.starfarers && game.voidPirateChoice ? 'Seven! Move the void pirate — or the corsair.' : 'Seven! Tap a hex to move the void pirate.')
+        : `${actor.name} is moving the void pirate…`;
     }
-    if (game.phase === 'barbarian') {
+    if (game.phase === 'voidFleet') {
       return actorId === pid
-        ? 'The barbarians broke through — tap one of your cities to lose it (a metropolis city is safe).'
-        : `${actor.name} must lose a city to the barbarians…`;
+        ? 'The void fleets broke through — tap one of your stations to lose it (a metropolis station is safe).'
+        : `${actor.name} must lose a station to the void fleets…`;
     }
     if (game.phase === 'play') {
       if (actorId !== pid) return `${actor.name} is playing…`;
-      if (game.camelPending?.player === pid) return 'Place your camel — tap a glowing path next to your new settlement or city.';
+      if (game.roverPending?.player === pid) return 'Place your rover — tap a glowing path next to your new outpost or station.';
       if (freePicks > 0) return `You have ${freePicks} free resource${freePicks > 1 ? 's' : ''} to take — tap one below.`;
-      if (shipMoveFrom) return 'Tap a glowing edge to sail your ship there.';
-      if (knightMoveFrom) return 'Tap a destination for your knight — an open corner, or a weaker enemy knight.';
+      if (starstarshipMoveFrom) return 'Tap a glowing edge to sail your starship there.';
+      if (starfighterMoveFrom) return 'Tap a destination for your starfighter — an open corner, or a weaker enemy starfighter.';
       if (progPick) return 'Pick a target on the board for that card.';
-      if (game.freeRoads > 0) return `Road Building: tap ${game.freeRoads} road or ship spot${game.freeRoads > 1 ? 's' : ''} — free.`;
+      if (game.freeLanes > 0) return `Warp Lane Rush: tap ${game.freeLanes} warp lane or starship spot${game.freeLanes > 1 ? 's' : ''} — free.`;
       return 'Your turn — build, trade, play a card, or end your turn.';
     }
     return '';
@@ -715,11 +725,11 @@ export default function SettlersOfOlympusPage() {
   // ---- Start screen: mode + expansion picker ----
   if (screen === 'menu') {
     return (
-      <main style={{ minHeight: '100vh', background: '#0b1f14', color: '#f4f4f5', padding: '10px 10px 24px' }}>
+      <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px' }}>
         <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <MenuArt width={440} height={238} />
           <p style={{ margin: 0, fontSize: 14, color: '#d4d4d8', textAlign: 'center' }}>
-            Settle the island, build roads and cities, and reach the points target first — alone against three agents, or around a table with friends.
+            Settle the island, build warp lanes and stations, and reach the points target first — alone against three agents, or around a table with friends.
           </p>
           <label style={{ fontSize: 13, color: '#d4d4d8', display: 'flex', flexDirection: 'column', gap: 4 }}>
             Your name
@@ -732,7 +742,7 @@ export default function SettlersOfOlympusPage() {
               <button key={info.key} type="button" onClick={() => toggleExpansion(info.key)}
                 style={{
                   display: 'flex', gap: 8, alignItems: 'flex-start', width: '100%', textAlign: 'left',
-                  background: expansions[info.key] ? '#1c2f22' : 'transparent',
+                  background: expansions[info.key] ? '#1e1b4b' : 'transparent',
                   border: expansions[info.key] ? '2px solid #fbbf24' : '1px solid #444',
                   borderRadius: 8, padding: '8px', marginBottom: 6, color: '#fff', cursor: 'pointer',
                 }}>
@@ -774,9 +784,9 @@ export default function SettlersOfOlympusPage() {
   if (screen === 'lobby') {
     const lobbyExpansions = EXPANSION_INFO.filter((info) => roomExpansions[info.key]);
     return (
-      <main style={{ minHeight: '100vh', background: '#0b1f14', color: '#f4f4f5', padding: '10px 10px 24px' }}>
+      <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px' }}>
         <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
-          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Settlers of Olympus</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Starforge</h1>
           <p style={{ margin: 0, fontSize: 13, color: '#a1a1aa' }}>Share this code with your friends:</p>
           <p style={{ margin: 0, fontSize: 44, fontWeight: 800, letterSpacing: 8, color: '#fbbf24' }}>{roomCode}</p>
           <div style={{ width: '100%', background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
@@ -824,7 +834,7 @@ export default function SettlersOfOlympusPage() {
   const discardNeed = mustDiscard ? game.discardNeed : 0;
   const discardPicked = Object.values(discardSel).reduce((n, x) => n + x, 0);
   const tradeRateText = giveSel ? `${tradeRate(game, pid, giveSel)}:1` : '—';
-  const selKnight = selectedKnight ? game.vertices.get(selectedKnight)?.knight : null;
+  const selStarfighter = selectedStarfighter ? game.vertices.get(selectedStarfighter)?.starfighter : null;
   const waitingName = onlineMode && !game.winner && actorId !== pid ? actor?.name : null;
   const myHand = me ? { ...me.resources } : {};
   const myCommodities = me ? { ...me.commodities } : {};
@@ -855,13 +865,13 @@ export default function SettlersOfOlympusPage() {
     && Object.values(offerAsk).reduce((n, x) => n + x, 0) > 0;
 
   return (
-    <main style={{ minHeight: '100vh', background: '#0b1f14', color: '#f4f4f5', padding: '10px 10px 24px' }}>
+    <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px' }}>
       <div style={{ maxWidth: 480, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Header: omega + title + fullscreen + new game orbs */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <OmegaMark size={36} />
-            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Settlers of Olympus</h1>
+            <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Starforge</h1>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" aria-label="New game" onClick={newGame}
@@ -877,12 +887,12 @@ export default function SettlersOfOlympusPage() {
             const vp = victoryPoints(game, p.id);
             const b = vpBreakdown(game, p.id);
             const active = actorId === p.id && !game.winner;
-            const metroCount = ex.citiesKnights ? IMPROVEMENT_TRACKS.filter((t) => game.metropolis[t] === p.id).length : 0;
+            const metroCount = ex.stationsStarfighters ? IMPROVEMENT_TRACKS.filter((t) => game.metropolis[t] === p.id).length : 0;
             const roomP = onlineMode ? roomPlayers.find((r) => r.seat === p.id) : null;
             return (
               <div key={p.id} style={{
                 flex: '1 1 100px', borderRadius: 10, padding: '6px 8px',
-                background: active ? '#1c2f22' : '#141414',
+                background: active ? '#1e1b4b' : '#141414',
                 border: active ? `2px solid ${p.color}` : '1px solid #333',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -892,18 +902,18 @@ export default function SettlersOfOlympusPage() {
                   <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800 }}>{vp} pts</span>
                 </div>
                 <div style={{ fontSize: 11, color: '#a1a1aa', marginTop: 2 }}>
-                  🏠{p.settlements} 🏰{p.cities} 🛣️{p.roads}
-                  {ex.seafarers ? ` 🚢${p.ships}` : ''}
-                  {ex.citiesKnights ? ` ⚔️${p.knightsPlayed}` : ` ⚔️${p.knightsPlayed}`}
-                  {ex.fishermen ? ` 🐟${p.fish}` : ''}
-                  {game.longestRoadOwner === p.id ? ' 👑Road' : ''}
-                  {game.largestArmyOwner === p.id ? ' 🛡️Army' : ''}
+                  🛰️{p.outposts} 🛸{p.stations} 🌀{p.warpLanes}
+                  {ex.starfarers ? ` 🚀${p.starships}` : ''}
+                  {ex.stationsStarfighters ? ` 🛩️${p.starfightersPlayed}` : ` 🛩️${p.starfightersPlayed}`}
+                  {ex.harvesters ? ` 🌿${p.biomass}` : ''}
+                  {game.longestLaneOwner === p.id ? ' 👑Warp Lane' : ''}
+                  {game.largestFleetOwner === p.id ? ' 🛡️Army' : ''}
                   {b.vpCards > 0 ? ` 🃏${b.vpCards}` : ''}
                   {b.islandVP > 0 ? ` 🏝️+${b.islandVP}` : ''}
-                  {b.camelVP > 0 ? ` 🐪+${b.camelVP}` : ''}
+                  {b.roverVP > 0 ? ` 🐪+${b.roverVP}` : ''}
                   {metroCount > 0 ? ` 👑Metro×${metroCount}` : ''}
                   {b.defenderVP > 0 ? ` 🛡️Defender×${b.defenderVP}` : ''}
-                  {ex.fishermen && game.oldBootHolder === p.id ? ' 🥾Boot' : ''}
+                  {ex.harvesters && game.scrapHullHolder === p.id ? ' 🛰️Scrap Hull' : ''}
                 </div>
               </div>
             );
@@ -940,24 +950,24 @@ export default function SettlersOfOlympusPage() {
         })}
 
         {/* Board */}
-        <div style={{ background: '#123524', borderRadius: 14, padding: 6, border: '2px solid #e8b93c' }}>
-          <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Settlers of Olympus board">
+        <div style={{ background: 'radial-gradient(ellipse at 50% 30%, #2a1a5e 0%, #0b1026 75%)', borderRadius: 14, padding: 6, border: '2px solid #e8b93c' }}>
+          <svg viewBox={`${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`} style={{ width: '100%', height: 'auto', display: 'block' }} role="img" aria-label="Starforge board">
             {game.hexes.map((h) => {
               const c = hexCenter(h);
-              const isRobberHex = h.id === game.robberHex;
-              const isPirateHex = h.id === game.pirateHex;
-              const robberHere = legalRobber.includes(h.id);
-              const pirateHere = legalPirate.includes(h.id);
+              const isVoidPirateHex = h.id === game.voidPirateHex;
+              const isCorsairHex = h.id === game.corsairHex;
+              const voidPirateHere = legalVoidPirate.includes(h.id);
+              const corsairHere = legalCorsair.includes(h.id);
               const pickHere = (progPick === 'bishop' || progPick === 'merchant' || progPick === 'inventor') && canAct;
               return (
-                <g key={h.id} onClick={() => onHexTap(h.id)} style={{ cursor: (robberHere || pirateHere || pickHere) ? 'pointer' : 'default' }}>
+                <g key={h.id} onClick={() => onHexTap(h.id)} style={{ cursor: (voidPirateHere || corsairHere || pickHere) ? 'pointer' : 'default' }}>
                   <HexTileArt terrain={h.terrain} size={34} x={c.x - 34} y={c.y - 34} />
-                  {(robberHere || pirateHere || pickHere) && (
+                  {(voidPirateHere || corsairHere || pickHere) && (
                     <polygon points={hexPoints(h)} fill="none" stroke="#fbbf24" strokeWidth={3} />
                   )}
                   {h.token && (
                     <g>
-                      <circle cx={c.x} cy={c.y} r={13} fill="#f5eeda" stroke="#0b1f14" strokeWidth={1} />
+                      <circle cx={c.x} cy={c.y} r={13} fill="#f5eeda" stroke="#14141f" strokeWidth={1} />
                       <text x={c.x} y={c.y + 5} textAnchor="middle" fontSize={15} fontWeight={h.token === 6 || h.token === 8 ? 800 : 600}
                         fill={h.token === 6 || h.token === 8 ? '#dc2626' : '#1c1917'}>{h.token}</text>
                       <text x={c.x} y={c.y + 22} textAnchor="middle" fontSize={8} fill="#57534e">
@@ -965,8 +975,8 @@ export default function SettlersOfOlympusPage() {
                       </text>
                     </g>
                   )}
-                  {isRobberHex && <RobberPiece size={24} x={c.x - 12} y={c.y - 32} />}
-                  {isPirateHex && <PiratePiece size={24} x={c.x - 12} y={c.y - 12} />}
+                  {isVoidPirateHex && <VoidPiratePiece size={24} x={c.x - 12} y={c.y - 32} />}
+                  {isCorsairHex && <CorsairPiece size={24} x={c.x - 12} y={c.y - 12} />}
                   {game.merchantHex === h.id && (
                     <g>
                       <circle cx={c.x + 20} cy={c.y - 20} r={8} fill="#fbbf24" stroke="#111" strokeWidth={1} />
@@ -976,74 +986,74 @@ export default function SettlersOfOlympusPage() {
                 </g>
               );
             })}
-            {/* Ports on the coast */}
-            {game.ports.map((port) => {
-              const pos = portPos(port, game);
-              return <PortArt key={port.edgeKey} type={port.type} size={32} x={pos.x - 16} y={pos.y - 16} />;
+            {/* Hubs on the coast */}
+            {game.hubs.map((hub) => {
+              const pos = hubPos(hub, game);
+              return <TradeHubArt key={hub.edgeKey} type={hub.type} size={32} x={pos.x - 16} y={pos.y - 16} />;
             })}
-            {/* Edges: roads, ships, camels, legal highlights */}
+            {/* Edges: warp lanes, starships, rovers, legal highlights */}
             {[...game.edges.values()].map((e) => {
               const mid = edgeMid(game, e.key);
-              const legalRoad = legalRoads.includes(e.key);
-              const legalShip = legalShips.includes(e.key);
-              const legalDest = shipMoveDests.includes(e.key);
-              const legalCamel = legalCamels.includes(e.key);
-              const legal = legalRoad || legalShip || legalDest || legalCamel;
+              const legalWarpLane = legalWarpLanes.includes(e.key);
+              const legalStarship = legalStarships.includes(e.key);
+              const legalDest = starshipMoveDests.includes(e.key);
+              const legalRover = legalRovers.includes(e.key);
+              const legal = legalWarpLane || legalStarship || legalDest || legalRover;
               const a = vertexPos(e.v1);
               const b = vertexPos(e.v2);
               const perp = { x: -(b.y - a.y) / HEX_SIZE, y: (b.x - a.x) / HEX_SIZE };
               return (
                 <g key={e.key} onClick={() => onEdgeTap(e.key)} style={{ cursor: legal ? 'pointer' : 'default' }}>
                   {legal && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#fbbf24" strokeWidth={10} strokeLinecap="round" opacity={0.45} />}
-                  {e.road !== null && <RoadPiece color={game.players[e.road].color} size={34} angle={mid.angle} x={mid.x - 17} y={mid.y - 17} />}
-                  {e.ship !== null && <ShipPiece color={game.players[e.ship].color} size={34} angle={mid.angle} x={mid.x - 17} y={mid.y - 17} />}
-                  {e.camel !== null && e.camel !== undefined && (
-                    <circle cx={mid.x + perp.x * 9} cy={mid.y + perp.y * 9} r={5} fill={game.players[e.camel].color} stroke="#111" strokeWidth={1.5} />
+                  {e.warpLane !== null && <WarpLanePiece color={game.players[e.warpLane].color} size={34} angle={mid.angle} x={mid.x - 17} y={mid.y - 17} />}
+                  {e.starship !== null && <StarshipPiece color={game.players[e.starship].color} size={34} angle={mid.angle} x={mid.x - 17} y={mid.y - 17} />}
+                  {e.rover !== null && e.rover !== undefined && (
+                    <circle cx={mid.x + perp.x * 9} cy={mid.y + perp.y * 9} r={5} fill={game.players[e.rover].color} stroke="#111" strokeWidth={1.5} />
                   )}
-                  {e.road === null && e.ship === null && legal && (
+                  {e.warpLane === null && e.starship === null && legal && (
                     <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#fbbf24" strokeWidth={4} strokeLinecap="round" strokeDasharray="5 4" />
                   )}
                   {legal && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={16} strokeLinecap="round" />}
                 </g>
               );
             })}
-            {/* Vertices: settlements / cities / knights / legal spots / fishing grounds */}
+            {/* Vertices: outposts / stations / starfighters / legal spots / harvest grounds */}
             {[...game.vertices.values()].map((v) => {
               const pos = vertexPos(v.key);
-              const legal = legalSettlements.includes(v.key);
-              const citySpot = canAct && buildMode === 'city' && myCities.some((x) => x.key === v.key);
-              const knightSpot = legalKnights.includes(v.key);
+              const legal = legalOutposts.includes(v.key);
+              const stationSpot = canAct && buildMode === 'station' && myCities.some((x) => x.key === v.key);
+              const starfighterSpot = legalStarfighters.includes(v.key);
               const downgradeSpot = legalDowngrade.includes(v.key);
               const wallSpot = canAct && buildMode === 'wall' && myWallCities.some((x) => x.key === v.key);
-              const highlighted = legal || citySpot || knightSpot || downgradeSpot || wallSpot;
-              const isMetropolis = v.metropolis && game.metropolis[v.metropolis] === v.settlement?.player;
+              const highlighted = legal || stationSpot || starfighterSpot || downgradeSpot || wallSpot;
+              const isMetropolis = v.metropolis && game.metropolis[v.metropolis] === v.outpost?.player;
               return (
                 <g key={v.key} onClick={() => onVertexTap(v.key)}
-                  style={{ cursor: highlighted || (v.knight?.player === pid && canAct) ? 'pointer' : 'default' }}>
+                  style={{ cursor: highlighted || (v.starfighter?.player === pid && canAct) ? 'pointer' : 'default' }}>
                   {highlighted && (
                     <circle cx={pos.x} cy={pos.y} r={11} fill="none" stroke="#fbbf24" strokeWidth={2.5}>
                       <animate attributeName="r" values="9;12;9" dur="1.2s" repeatCount="indefinite" />
                       <animate attributeName="opacity" values="1;0.5;1" dur="1.2s" repeatCount="indefinite" />
                     </circle>
                   )}
-                  {v.settlement ? (
-                    v.settlement.kind === 'city'
-                      ? <CityPiece color={game.players[v.settlement.player].color} size={32} x={pos.x - 16} y={pos.y - 16} />
-                      : <SettlementPiece color={game.players[v.settlement.player].color} size={24} x={pos.x - 12} y={pos.y - 12} />
-                  ) : v.knight ? (
-                    <KnightPiece color={game.players[v.knight.player].color} level={v.knight.level} size={22} x={pos.x - 11} y={pos.y - 12} />
+                  {v.outpost ? (
+                    v.outpost.kind === 'station'
+                      ? <StationPiece color={game.players[v.outpost.player].color} size={32} x={pos.x - 16} y={pos.y - 16} />
+                      : <OutpostPiece color={game.players[v.outpost.player].color} size={24} x={pos.x - 12} y={pos.y - 12} />
+                  ) : v.starfighter ? (
+                    <StarfighterPiece color={game.players[v.starfighter.player].color} level={v.starfighter.level} size={22} x={pos.x - 11} y={pos.y - 12} />
                   ) : (
-                    <circle cx={pos.x} cy={pos.y} r={legal || knightSpot ? 7 : 3.5} fill={legal || knightSpot ? '#fbbf24' : 'rgba(255,255,255,0.55)'} />
+                    <circle cx={pos.x} cy={pos.y} r={legal || starfighterSpot ? 7 : 3.5} fill={legal || starfighterSpot ? '#fbbf24' : 'rgba(255,255,255,0.55)'} />
                   )}
                   {isMetropolis && <circle cx={pos.x} cy={pos.y} r={17} fill="none" stroke="#fbbf24" strokeWidth={2} />}
-                  {v.settlement?.kind === 'city' && v.wall !== null && (
-                    <text x={pos.x + 12} y={pos.y + 12} fontSize={10}>🧱</text>
+                  {v.outpost?.kind === 'station' && v.wall !== null && (
+                    <text x={pos.x + 12} y={pos.y + 12} fontSize={10}>🧊</text>
                   )}
-                  {v.fishingGround && (
+                  {v.harvestGround && (
                     <g>
-                      <circle cx={pos.x + 13} cy={pos.y - 13} r={8} fill="#f5eeda" stroke="#0b1f14" strokeWidth={1} />
-                      <text x={pos.x + 13} y={pos.y - 9} textAnchor="middle" fontSize={9}>🐟</text>
-                      <text x={pos.x + 13} y={pos.y - 24} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">{v.fishingGround.token}</text>
+                      <circle cx={pos.x + 13} cy={pos.y - 13} r={8} fill="#f5eeda" stroke="#14141f" strokeWidth={1} />
+                      <text x={pos.x + 13} y={pos.y - 9} textAnchor="middle" fontSize={9}>🌿</text>
+                      <text x={pos.x + 13} y={pos.y - 24} textAnchor="middle" fontSize={8} fontWeight={700} fill="#fff">{v.harvestGround.token}</text>
                     </g>
                   )}
                   {highlighted && <circle cx={pos.x} cy={pos.y} r={14} fill="transparent" />}
@@ -1068,8 +1078,8 @@ export default function SettlersOfOlympusPage() {
                 <DiceFace value={1} kind="yellow" size={40} />
               </>
             )}
-            {ex.citiesKnights && game.eventDie && (
-              <DiceFace kind="event" face={game.eventDie === 'ship' ? 'ship' : game.eventDie.replace('gate-', '')} size={40} />
+            {ex.stationsStarfighters && game.eventDie && (
+              <DiceFace kind="event" face={game.eventDie === 'starship' ? 'starship' : game.eventDie.replace('gate-', '')} size={40} />
             )}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
@@ -1083,7 +1093,7 @@ export default function SettlersOfOlympusPage() {
                 {RESOURCE_ICON[r]} {me.resources[r] || 0}{mustDiscard && discardSel[r] ? ` (−${discardSel[r]})` : ''}
               </span>
             ))}
-            {ex.citiesKnights && COMMODITIES.map((c) => (
+            {ex.stationsStarfighters && COMMODITIES.map((c) => (
               <span key={c} style={{
                 background: '#141414', border: '1px solid #333', borderRadius: 8,
                 padding: '3px 7px', fontSize: 12,
@@ -1093,22 +1103,22 @@ export default function SettlersOfOlympusPage() {
                 {COMMODITY_ICON[c]} {me.commodities[c] || 0}{mustDiscard && discardSel[c] ? ` (−${discardSel[c]})` : ''}
               </span>
             ))}
-            {ex.fishermen && (
+            {ex.harvesters && (
               <span style={{ background: '#141414', border: '1px solid #333', borderRadius: 8, padding: '3px 7px', fontSize: 12 }}>
-                🐟 {me.fish}
+                🌿 {me.biomass}
               </span>
             )}
             <span style={{ background: '#141414', border: '1px solid #333', borderRadius: 8, padding: '3px 7px', fontSize: 12 }}>
               🃏 {me.devCards.length}
-              {ex.citiesKnights ? ` 📜 ${me.progressCards.length}` : ''}
+              {ex.stationsStarfighters ? ` 📜 ${me.progressCards.length}` : ''}
             </span>
           </div>
         </div>
 
-        {/* Discard panel (robber 7, a player holds too many cards) */}
+        {/* Discard panel (void pirate 7, a player holds too many cards) */}
         {mustDiscard && (
           <div style={{ background: '#3f1d1d', border: '1px solid #7f1d1d', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-            <p style={{ margin: '0 0 8px', fontSize: 13 }}>Tap your resource{ex.citiesKnights ? ' and commodity' : ''} chips above to pick {discardNeed} cards to discard ({discardPicked}/{discardNeed} picked).</p>
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>Tap your resource{ex.stationsStarfighters ? ' and commodity' : ''} chips above to pick {discardNeed} cards to discard ({discardPicked}/{discardNeed} picked).</p>
             <Orb symbol="✓" label="Discard" small
               disabled={discardPicked !== discardNeed}
               onClick={() => {
@@ -1118,9 +1128,9 @@ export default function SettlersOfOlympusPage() {
           </div>
         )}
 
-        {/* Free-resource picks (gold river / Aqueduct) */}
+        {/* Free-resource picks (gold vein / Aqueduct) */}
         {freePicks > 0 && myTurn && (
-          <div style={{ background: '#1c2f22', border: '1px solid #fbbf24', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+          <div style={{ background: '#1e1b4b', border: '1px solid #fbbf24', borderRadius: 10, padding: 10, textAlign: 'center' }}>
             <p style={{ margin: '0 0 8px', fontSize: 13 }}>You have {freePicks} free resource{freePicks > 1 ? 's' : ''} to take — tap one:</p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center' }}>
               {RESOURCES.map((r) => (
@@ -1133,36 +1143,36 @@ export default function SettlersOfOlympusPage() {
           </div>
         )}
 
-        {/* Robber / pirate choice (Seafarers, on a 7) */}
-        {mustRob && ex.seafarers && game.robberChoice && (
+        {/* Void Pirate / corsair choice (Starfarers, on a 7) */}
+        {mustVoidPirate && ex.starfarers && game.voidPirateChoice && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-            <p style={{ margin: '0 0 8px', fontSize: 13 }}>Seven! Move the robber on land — or the pirate out at sea?</p>
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>Seven! Move the void pirate on land — or the corsair out at sea?</p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-              <Orb symbol="🥷" label="Robber" small active={robberChoice === 'robber'} onClick={() => setRobberChoice('robber')} />
-              <Orb symbol="🏴‍☠️" label="Pirate" small active={robberChoice === 'pirate'} onClick={() => setRobberChoice('pirate')} />
+              <Orb symbol="🥷" label="Void Pirate" small active={voidPirateChoice === 'voidPirate'} onClick={() => setVoidPirateChoice('voidPirate')} />
+              <Orb symbol="🏴‍☠️" label="Corsair" small active={voidPirateChoice === 'corsair'} onClick={() => setVoidPirateChoice('corsair')} />
             </div>
-            <p style={{ margin: '8px 0 0', fontSize: 12, color: '#a1a1aa' }}>Then tap a {robberChoice === 'pirate' ? 'sea hex' : 'land hex'} on the board.</p>
+            <p style={{ margin: '8px 0 0', fontSize: 12, color: '#a1a1aa' }}>Then tap a {voidPirateChoice === 'corsair' ? 'deep-space hex' : 'land hex'} on the board.</p>
           </div>
         )}
 
-        {/* Camel placement (Caravans) */}
-        {game.camelPending?.player === pid && (
-          <div style={{ background: '#1c2f22', border: '1px solid #fbbf24', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-            <p style={{ margin: 0, fontSize: 13 }}>Place your camel — tap a glowing path next to your new settlement or city. Settlements and cities next to a camel are worth +1 point each.</p>
+        {/* Rover placement (Rover Caravans) */}
+        {game.roverPending?.player === pid && (
+          <div style={{ background: '#1e1b4b', border: '1px solid #fbbf24', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+            <p style={{ margin: 0, fontSize: 13 }}>Place your rover — tap a glowing path next to your new outpost or station. Outposts and stations next to a rover are worth +1 point each.</p>
           </div>
         )}
 
-        {/* Ship move mode (Seafarers) */}
-        {shipMoveFrom && (
+        {/* Starship move mode (Starfarers) */}
+        {starstarshipMoveFrom && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center' }}>
             <p style={{ margin: '0 0 8px', fontSize: 13 }}>
-              {shipMoveDests.length > 0 ? 'Tap a glowing edge to sail your ship there.' : 'That ship is locked in — it cannot move this turn.'}
+              {starshipMoveDests.length > 0 ? 'Tap a glowing edge to sail your starship there.' : 'That starship is locked in — it cannot move this turn.'}
             </p>
-            <Orb symbol="✕" label="Cancel" small onClick={() => { setShipMoveFrom(null); setBuildMode(null); }} />
+            <Orb symbol="✕" label="Cancel" small onClick={() => { setStarshipMoveFrom(null); setBuildMode(null); }} />
           </div>
         )}
 
-        {/* Trade panel: bank / ports (+ offers online) */}
+        {/* Trade panel: bank / hubs (+ offers online) */}
         {tradeOpen && canAct && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Trade with the bank — rate {tradeRateText}</p>
@@ -1238,27 +1248,27 @@ export default function SettlersOfOlympusPage() {
         )}
 
         {/* Development cards panel (base game) */}
-        {devOpen && canAct && !ex.citiesKnights && (
+        {devOpen && canAct && !ex.stationsStarfighters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Your development cards ({me.devCards.length})</p>
             {me.devCards.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#a1a1aa' }}>None yet — buy one below. A card cannot be played the turn you buy it.</p>}
-            {devPick === 'monopoly' && (
-              <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>Monopoly: tap a resource to take it from everyone.</p>
+            {devPick === 'marketCorner' && (
+              <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>Market Corner: tap a resource to take it from everyone.</p>
             )}
-            {devPick === 'yearOfPlenty' && (
-              <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>Year of Plenty: tap two resources ({yopPicks.length}/2 picked).</p>
+            {devPick === 'supplyDrop' && (
+              <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>Supply Drop: tap two resources ({yopPicks.length}/2 picked).</p>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {me.devCards.map((c, i) => {
                 const playable = canPlayDev(game, pid, c.type);
-                const label = { knight: '⚔️ Knight', victoryPoint: '⭐ Victory Point', monopoly: '👑 Monopoly', yearOfPlenty: '🌾 Year of Plenty', roadBuilding: '🛣️ Road Building' }[c.type];
+                const label = { starfighter: '🛩️ Starfighter', discovery: '⭐ Discovery', marketCorner: '👑 Market Corner', supplyDrop: '📦 Supply Drop', warpLaneRush: '🌀 Warp Lane Rush' }[c.type];
                 return (
                   <button key={i} type="button" disabled={!playable || !!devPick}
                     onClick={() => {
-                      if (c.type === 'knight') { move({ type: 'playKnight' }); setDevOpen(false); }
-                      else if (c.type === 'monopoly') setDevPick('monopoly');
-                      else if (c.type === 'yearOfPlenty') setDevPick('yearOfPlenty');
-                      else if (c.type === 'roadBuilding') { move({ type: 'playRoadBuilding' }); setDevOpen(false); setBuildMode('road'); }
+                      if (c.type === 'starfighter') { move({ type: 'playStarfighter' }); setDevOpen(false); }
+                      else if (c.type === 'marketCorner') setDevPick('marketCorner');
+                      else if (c.type === 'supplyDrop') setDevPick('supplyDrop');
+                      else if (c.type === 'warpLaneRush') { move({ type: 'playWarpLaneRush' }); setDevOpen(false); setBuildMode('warpLane'); }
                     }}
                     style={{ background: '#27272a', color: '#fff', border: '1px solid #555', borderRadius: 8, padding: '4px', fontSize: 12, cursor: playable && !devPick ? 'pointer' : 'default', opacity: playable ? 1 : 0.5 }}>
                     <CardFace kind={c.type} width={64} height={90} />
@@ -1266,17 +1276,17 @@ export default function SettlersOfOlympusPage() {
                   </button>
                 );
               })}
-              {(devPick === 'monopoly' || devPick === 'yearOfPlenty') && RESOURCES.map((r) => (
+              {(devPick === 'marketCorner' || devPick === 'supplyDrop') && RESOURCES.map((r) => (
                 <button key={r} type="button"
                   onClick={() => {
-                    if (devPick === 'monopoly') {
-                      move({ type: 'playMonopoly', resource: r });
+                    if (devPick === 'marketCorner') {
+                      move({ type: 'playMarketCorner', resource: r });
                       setDevPick(null); setDevOpen(false);
                     } else {
                       const next = [...yopPicks, r];
                       setYopPicks(next);
                       if (next.length === 2) {
-                        move({ type: 'playYearOfPlenty', r1: next[0], r2: next[1] });
+                        move({ type: 'playSupplyDrop', r1: next[0], r2: next[1] });
                         setYopPicks([]); setDevPick(null); setDevOpen(false);
                       }
                     }
@@ -1289,27 +1299,27 @@ export default function SettlersOfOlympusPage() {
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', alignItems: 'flex-end', marginTop: 10 }}>
               <CardBack width={48} height={67} />
               <Orb symbol="🃏" label="Buy card" small
-                disabled={!(me.resources.sheep >= 1 && me.resources.wheat >= 1 && me.resources.ore >= 1) || game.devDeck.length === 0}
+                disabled={!(me.resources.silicon >= 1 && me.resources.titanium >= 1 && me.resources.gold >= 1) || game.devDeck.length === 0}
                 onClick={() => move({ type: 'buyDevCard' })} />
               <Orb symbol="✕" label="Close" small onClick={() => { setDevOpen(false); setDevPick(null); setYopPicks([]); }} />
             </div>
             <p style={{ margin: '8px 0 0', fontSize: 11, color: '#a1a1aa', textAlign: 'center' }}>
-              Buy: 1 sheep + 1 wheat + 1 ore · {game.devDeck.length} cards left in the deck
+              Buy: 1 silicon + 1 titanium + 1 gold · {game.devDeck.length} cards left in the deck
             </p>
           </div>
         )}
 
-        {/* Progress cards panel (Cities & Knights) */}
-        {progOpen && canAct && ex.citiesKnights && (
+        {/* Progress cards panel (Stations & Starfighters) */}
+        {progOpen && canAct && ex.stationsStarfighters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Your progress cards ({me.progressCards.length})</p>
-            {me.progressCards.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#a1a1aa' }}>None yet — improve a city track to draw one when its colour comes up on the event die.</p>}
+            {me.progressCards.length === 0 && <p style={{ margin: 0, fontSize: 12, color: '#a1a1aa' }}>None yet — improve a station track to draw one when its colour comes up on the event die.</p>}
             {progPick && (
               <p style={{ margin: '0 0 8px', fontSize: 12, color: '#fbbf24' }}>
                 {PROGRESS_PICK[progPick] === 'hex' && 'Tap a hex on the board.'}
                 {PROGRESS_PICK[progPick] === 'hex2' && (progHexA === null ? 'Tap the first hex to swap.' : 'Tap the second hex to swap.')}
-                {PROGRESS_PICK[progPick] === 'vertex' && 'Tap a knight on the board.'}
-                {PROGRESS_PICK[progPick] === 'edge' && 'Tap one of your roads or ships on the board.'}
+                {PROGRESS_PICK[progPick] === 'vertex' && 'Tap a starfighter on the board.'}
+                {PROGRESS_PICK[progPick] === 'edge' && 'Tap one of your warp lanes or starships on the board.'}
                 {PROGRESS_PICK[progPick] === 'dice' && 'Pick the two dice for your next roll.'}
                 {PROGRESS_PICK[progPick] === 'resource' && 'Tap a resource to take from everyone.'}
                 {PROGRESS_PICK[progPick] === 'commodity' && 'Tap a commodity to take from everyone.'}
@@ -1332,20 +1342,20 @@ export default function SettlersOfOlympusPage() {
                 </div>
               </div>
             )}
-            {progPick === 'resourceMonopoly' && (
+            {progPick === 'resourceCorner' && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
                 {RESOURCES.map((r) => (
-                  <button key={r} type="button" onClick={() => playProgress('resourceMonopoly', { resource: r })}
+                  <button key={r} type="button" onClick={() => playProgress('resourceCorner', { resource: r })}
                     style={{ background: '#78350f', color: '#fff', border: '2px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 12, cursor: 'pointer' }}>
                     {RESOURCE_ICON[r]} {RESOURCE_LABEL[r]}
                   </button>
                 ))}
               </div>
             )}
-            {progPick === 'tradeMonopoly' && (
+            {progPick === 'tradeCorner' && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
                 {COMMODITIES.map((c) => (
-                  <button key={c} type="button" onClick={() => playProgress('tradeMonopoly', { commodity: c })}
+                  <button key={c} type="button" onClick={() => playProgress('tradeCorner', { commodity: c })}
                     style={{ background: '#78350f', color: '#fff', border: '2px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 12, cursor: 'pointer' }}>
                     {COMMODITY_ICON[c]} {COMMODITY_LABEL[c]}
                   </button>
@@ -1369,10 +1379,10 @@ export default function SettlersOfOlympusPage() {
           </div>
         )}
 
-        {/* Improvements panel (Cities & Knights) */}
-        {impOpen && ex.citiesKnights && (
+        {/* Improvements panel (Stations & Starfighters) */}
+        {impOpen && ex.stationsStarfighters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>City improvements</p>
+            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Station improvements</p>
             <p style={{ margin: '0 0 8px', fontSize: 12, color: '#a1a1aa' }}>Each level costs that many goods of its colour. Level 4 takes the metropolis (+2 points); level 3 gives a special power.</p>
             {IMPROVEMENT_TRACKS.map((track) => {
               const level = me.improvements[track];
@@ -1393,104 +1403,104 @@ export default function SettlersOfOlympusPage() {
                     ))}
                   </span>
                   <Orb symbol="⬆️" label="Improve" small
-                    disabled={!canAct || me.cities < 1 || level >= 5 || (me.commodities[comm] || 0) < cost}
+                    disabled={!canAct || me.stations < 1 || level >= 5 || (me.commodities[comm] || 0) < cost}
                     onClick={() => move({ type: 'buyImprovement', track })} />
                 </div>
               );
             })}
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 10 }}>
-              <Orb symbol="🧱" label="Build wall" small
+              <Orb symbol="🧊" label="Build wall" small
                 disabled={!canAct || me.walls >= 3 || myWallCities.length === 0}
                 onClick={() => setBuildMode('wall')} />
               <Orb symbol="✕" label="Close" small onClick={() => { setImpOpen(false); setBuildMode(null); }} />
             </div>
             <p style={{ margin: '8px 0 0', fontSize: 11, color: '#a1a1aa', textAlign: 'center' }}>
-              A wall costs 2 brick and goes under one of your cities — it lets you hold 2 more cards before discarding on a 7. You have {me.walls} of 3 walls.
+              A wall costs 2 water-ice and goes under one of your stations — it lets you hold 2 more cards before discarding on a 7. You have {me.walls} of 3 walls.
             </p>
           </div>
         )}
 
-        {/* Knights panel (Cities & Knights) */}
-        {knightOpen && ex.citiesKnights && (
+        {/* Starfighters panel (Stations & Starfighters) */}
+        {starfighterOpen && ex.stationsStarfighters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Knights — your army against the barbarians</p>
+            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Starfighters — your army against the void fleets</p>
             <p style={{ margin: '0 0 8px', fontSize: 12, color: '#a1a1aa' }}>
-              Hire a knight (1 sheep + 1 ore) on an open corner of your roads. Rally it (1 wheat) to fight, then tap it and tap a destination to move it or displace a weaker enemy knight. Knights in reserve: basic {me.knightSupply.basic}, strong {me.knightSupply.strong}, mighty {me.knightSupply.mighty}.
+              Hire a starfighter (1 silicon + 1 gold) on an open corner of your warp lanes. Rally it (1 titanium) to fight, then tap it and tap a destination to move it or displace a weaker enemy starfighter. Starfighters in reserve: basic {me.starfighterSupply.basic}, strong {me.starfighterSupply.strong}, mighty {me.starfighterSupply.mighty}.
             </p>
-            {myKnights.length === 0 && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#a1a1aa' }}>No knights on the board yet.</p>}
-            {myKnights.map((v) => (
+            {myStarfighters.length === 0 && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#a1a1aa' }}>No starfighters on the board yet.</p>}
+            {myStarfighters.map((v) => (
               <div key={v.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '4px 0' }}>
                 <span style={{ flex: 1 }}>
-                  Knight level {v.knight.level} — {v.knight.active ? 'active, ready to act' : 'resting'}
+                  Starfighter level {v.starfighter.level} — {v.starfighter.active ? 'active, ready to act' : 'resting'}
                 </span>
-                <button type="button" onClick={() => { setSelectedKnight(v.key); setKnightMoveFrom(v.knight.active ? v.key : null); }}
-                  style={{ background: selectedKnight === v.key ? '#78350f' : '#27272a', color: '#fff', border: '1px solid #555', borderRadius: 8, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
+                <button type="button" onClick={() => { setSelectedStarfighter(v.key); setStarfighterMoveFrom(v.starfighter.active ? v.key : null); }}
+                  style={{ background: selectedStarfighter === v.key ? '#78350f' : '#27272a', color: '#fff', border: '1px solid #555', borderRadius: 8, padding: '4px 8px', fontSize: 12, cursor: 'pointer' }}>
                   Select
                 </button>
               </div>
             ))}
-            {selKnight && selectedKnight && (
+            {selStarfighter && selectedStarfighter && (
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 8 }}>
-                <Orb symbol="⚔️" label="Rally" small
-                  disabled={!canAct || selKnight.active}
-                  onClick={() => move({ type: 'activateKnight', vertex: selectedKnight })} />
+                <Orb symbol="🛩️" label="Rally" small
+                  disabled={!canAct || selStarfighter.active}
+                  onClick={() => move({ type: 'activateStarfighter', vertex: selectedStarfighter })} />
                 <Orb symbol="⬆️" label="Upgrade" small
-                  disabled={!canAct || selKnight.level >= 3}
-                  onClick={() => move({ type: 'upgradeKnight', vertex: selectedKnight })} />
+                  disabled={!canAct || selStarfighter.level >= 3}
+                  onClick={() => move({ type: 'upgradeStarfighter', vertex: selectedStarfighter })} />
                 <Orb symbol="➡️" label="Move" small
-                  disabled={!canAct || !selKnight.active}
-                  onClick={() => setKnightMoveFrom(selectedKnight)} />
+                  disabled={!canAct || !selStarfighter.active}
+                  onClick={() => setStarfighterMoveFrom(selectedStarfighter)} />
               </div>
             )}
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 10 }}>
-              <Orb symbol="🛡️" label="Hire knight" small
-                disabled={!canAct || me.knightSupply.basic < 1}
-                onClick={() => { setBuildMode('knight'); setKnightOpen(false); }} />
-              <Orb symbol="✕" label="Close" small onClick={() => { setKnightOpen(false); setSelectedKnight(null); setKnightMoveFrom(null); }} />
+              <Orb symbol="🛡️" label="Hire starfighter" small
+                disabled={!canAct || me.starfighterSupply.basic < 1}
+                onClick={() => { setBuildMode('starfighter'); setStarfighterOpen(false); }} />
+              <Orb symbol="✕" label="Close" small onClick={() => { setStarfighterOpen(false); setSelectedStarfighter(null); setStarfighterMoveFrom(null); }} />
             </div>
           </div>
         )}
 
-        {/* Barbarian track (Cities & Knights) */}
-        {ex.citiesKnights && (
+        {/* Void Fleet track (Stations & Starfighters) */}
+        {ex.stationsStarfighters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <BarbarianShipMarker size={28} />
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Barbarian ship</span>
+              <VoidFleetShipMarker size={28} />
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Void Fleet starship</span>
               <span style={{ display: 'flex', gap: 3, marginLeft: 'auto' }}>
-                {Array.from({ length: BARBARIAN_TRACK_LENGTH }).map((_, i) => (
-                  <span key={i} style={{ width: 12, height: 12, borderRadius: '50%', background: i < game.barbarianTrack ? '#dc2626' : '#3f3f46', display: 'inline-block', border: '1px solid #555' }} />
+                {Array.from({ length: VOID_FLEET_TRACK_LENGTH }).map((_, i) => (
+                  <span key={i} style={{ width: 12, height: 12, borderRadius: '50%', background: i < game.voidFleetTrack ? '#dc2626' : '#3f3f46', display: 'inline-block', border: '1px solid #555' }} />
                 ))}
               </span>
             </div>
             <p style={{ margin: '6px 0 0', fontSize: 12, color: '#a1a1aa' }}>
-              {game.barbarianTrack}/{BARBARIAN_TRACK_LENGTH} — when the ship reaches 7, the barbarians attack. If your active knights are weaker than the cities, the weakest defender loses a city. The strongest defender earns a Defender of Catan card (+1 point).
+              {game.voidFleetTrack}/{VOID_FLEET_TRACK_LENGTH} — when the starship reaches 7, the void fleets attack. If your active starfighters are weaker than the stations, the weakest defender loses a station. The strongest defender earns a Defender of the Forge card (+1 point).
             </p>
           </div>
         )}
 
-        {/* Fish menu (Fishermen) */}
-        {fishOpen && ex.fishermen && (
+        {/* Biomass menu (Harvesters) */}
+        {biomassOpen && ex.harvesters && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
-            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Spend your fish — you hold {me.fish}</p>
-            {FISH_MENU.map((item) => (
+            <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Spend your biomass — you hold {me.biomass}</p>
+            {BIOMASS_MENU.map((item) => (
               <div key={item.action} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}>
-                <span style={{ flex: 1, fontSize: 13 }}>{item.label} — <b>{item.cost} 🐟</b></span>
-                <Orb symbol="🐟" label="Spend" small
-                  disabled={!canAct || me.fish < item.cost || (item.action === 'devCard' && ex.citiesKnights)}
+                <span style={{ flex: 1, fontSize: 13 }}>{item.label} — <b>{item.cost} 🌿</b></span>
+                <Orb symbol="🌿" label="Spend" small
+                  disabled={!canAct || me.biomass < item.cost || (item.action === 'devCard' && ex.stationsStarfighters)}
                   onClick={() => {
-                    if (item.action === 'steal' || item.action === 'resource') setFishPick(item.action);
-                    else move({ type: 'spendFish', action: item.action });
+                    if (item.action === 'steal' || item.action === 'resource') setBiomassPick(item.action);
+                    else move({ type: 'spendBiomass', action: item.action });
                   }} />
               </div>
             ))}
-            {fishPick === 'steal' && (
+            {biomassPick === 'steal' && (
               <div style={{ marginTop: 8 }}>
                 <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>Steal from whom?</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {game.players.filter((p) => p.id !== pid).map((p) => (
                     <button key={p.id} type="button"
-                      onClick={() => { move({ type: 'spendFish', action: 'steal', victim: p.id }); setFishPick(null); }}
+                      onClick={() => { move({ type: 'spendBiomass', action: 'steal', victim: p.id }); setBiomassPick(null); }}
                       style={{ background: '#78350f', color: '#fff', border: '2px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 12, cursor: 'pointer' }}>
                       {p.name}
                     </button>
@@ -1498,13 +1508,13 @@ export default function SettlersOfOlympusPage() {
                 </div>
               </div>
             )}
-            {fishPick === 'resource' && (
+            {biomassPick === 'resource' && (
               <div style={{ marginTop: 8 }}>
                 <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>Take which resource?</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                   {RESOURCES.map((r) => (
                     <button key={r} type="button"
-                      onClick={() => { move({ type: 'spendFish', action: 'resource', resource: r }); setFishPick(null); }}
+                      onClick={() => { move({ type: 'spendBiomass', action: 'resource', resource: r }); setBiomassPick(null); }}
                       style={{ background: '#78350f', color: '#fff', border: '2px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 12, cursor: 'pointer' }}>
                       {RESOURCE_ICON[r]} {RESOURCE_LABEL[r]}
                     </button>
@@ -1512,15 +1522,15 @@ export default function SettlersOfOlympusPage() {
                 </div>
               </div>
             )}
-            {ex.fishermen && game.oldBootHolder === pid && (
+            {ex.harvesters && game.scrapHullHolder === pid && (
               <div style={{ marginTop: 10, borderTop: '1px solid #333', paddingTop: 8, textAlign: 'center' }}>
-                <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>🥾 You hold the old boot — you need one more point to win. Pass it to someone with as many points as you.</p>
-                <Orb symbol="🥾" label="Pass boot" small onClick={() => setBootOpen((b) => !b)} />
-                {bootOpen && (
+                <p style={{ margin: '0 0 6px', fontSize: 12, color: '#fbbf24' }}>🛰️ You hold the scrap hull — you need one more point to win. Pass it to someone with as many points as you.</p>
+                <Orb symbol="🛰️" label="Pass scrap hull" small onClick={() => setScrapHullOpen((b) => !b)} />
+                {scrapHullOpen && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', marginTop: 8 }}>
                     {game.players.filter((p) => p.id !== pid && victoryPoints(game, p.id) >= victoryPoints(game, pid)).map((p) => (
                       <button key={p.id} type="button"
-                        onClick={() => { move({ type: 'passBoot', to: p.id }); setBootOpen(false); }}
+                        onClick={() => { move({ type: 'passScrapHull', to: p.id }); setScrapHullOpen(false); }}
                         style={{ background: '#78350f', color: '#fff', border: '2px solid #fbbf24', borderRadius: 8, padding: '5px 8px', fontSize: 12, cursor: 'pointer' }}>
                         {p.name} ({victoryPoints(game, p.id)} pts)
                       </button>
@@ -1530,7 +1540,7 @@ export default function SettlersOfOlympusPage() {
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 10 }}>
-              <Orb symbol="✕" label="Close" small onClick={() => { setFishOpen(false); setFishPick(null); }} />
+              <Orb symbol="✕" label="Close" small onClick={() => { setBiomassOpen(false); setBiomassPick(null); }} />
             </div>
           </div>
         )}
@@ -1539,16 +1549,16 @@ export default function SettlersOfOlympusPage() {
         {canAct && buildMode && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center' }}>
             <p style={{ margin: '0 0 8px', fontSize: 13 }}>
-              {buildMode === 'road' && 'Road — tap a glowing road spot. Cost: 1 wood + 1 brick.'}
-              {buildMode === 'settlement' && 'Settlement — tap a glowing corner on your road. Cost: 1 wood + 1 brick + 1 sheep + 1 wheat.'}
-              {buildMode === 'city' && 'City — tap one of your settlements to upgrade it. Cost: 2 wheat + 3 ore.'}
-              {buildMode === 'ship' && 'Ship — tap a glowing water edge. Cost: 1 wood + 1 sheep.'}
-              {buildMode === 'shipMove' && 'Move a ship — tap one of your ships, then a glowing edge.'}
-              {buildMode === 'knight' && 'Hire a knight — tap a glowing corner on your roads. Cost: 1 sheep + 1 ore.'}
-              {buildMode === 'wall' && 'Build a wall — tap one of your cities with no wall. Cost: 2 brick.'}
-              {game.freeRoads > 0 && ' (Road Building: free!)'}
+              {buildMode === 'warpLane' && 'Warp Lane — tap a glowing warp lane spot. Cost: 1 iron + 1 water-ice.'}
+              {buildMode === 'outpost' && 'Outpost — tap a glowing corner on your warp lane. Cost: 1 iron + 1 water-ice + 1 silicon + 1 titanium.'}
+              {buildMode === 'station' && 'Station — tap one of your outposts to upgrade it. Cost: 2 titanium + 3 gold.'}
+              {buildMode === 'starship' && 'Starship — tap a glowing water edge. Cost: 1 iron + 1 silicon.'}
+              {buildMode === 'starshipMove' && 'Move a starship — tap one of your starships, then a glowing edge.'}
+              {buildMode === 'starfighter' && 'Hire a starfighter — tap a glowing corner on your warp lanes. Cost: 1 silicon + 1 gold.'}
+              {buildMode === 'wall' && 'Build a wall — tap one of your stations with no wall. Cost: 2 water-ice.'}
+              {game.freeLanes > 0 && ' (Warp Lane Rush: free!)'}
             </p>
-            <Orb symbol="✕" label="Cancel" small onClick={() => { setBuildMode(null); setShipMoveFrom(null); }} />
+            <Orb symbol="✕" label="Cancel" small onClick={() => { setBuildMode(null); setStarshipMoveFrom(null); }} />
           </div>
         )}
 
@@ -1558,62 +1568,62 @@ export default function SettlersOfOlympusPage() {
             onClick={() => move({ type: 'roll' })} />
           <Orb symbol="🔨" label="Build" disabled={!canAct} active={!!buildMode}
             onClick={() => {
-              setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setKnightOpen(false); setFishOpen(false);
-              setBuildMode((m) => (m ? null : 'road'));
+              setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false);
+              setBuildMode((m) => (m ? null : 'warpLane'));
             }} />
           {buildMode && (
             <>
-              <Orb symbol="🛣️" label="Road" small active={buildMode === 'road'}
-                onClick={() => setBuildMode('road')} />
-              {ex.seafarers && (
+              <Orb symbol="🌀" label="Warp Lane" small active={buildMode === 'warpLane'}
+                onClick={() => setBuildMode('warpLane')} />
+              {ex.starfarers && (
                 <>
-                  <Orb symbol="🚢" label="Ship" small active={buildMode === 'ship'}
-                    onClick={() => setBuildMode('ship')} />
-                  <Orb symbol="⛵" label="Move ship" small active={buildMode === 'shipMove'}
-                    onClick={() => setBuildMode('shipMove')} />
+                  <Orb symbol="🚀" label="Starship" small active={buildMode === 'starship'}
+                    onClick={() => setBuildMode('starship')} />
+                  <Orb symbol="🚀" label="Move starship" small active={buildMode === 'starshipMove'}
+                    onClick={() => setBuildMode('starshipMove')} />
                 </>
               )}
-              <Orb symbol="🏠" label="Settle" small active={buildMode === 'settlement'}
-                onClick={() => setBuildMode('settlement')} />
-              <Orb symbol="🏰" label="City" small active={buildMode === 'city'}
-                onClick={() => setBuildMode('city')} />
-              {ex.citiesKnights && (
-                <Orb symbol="🛡️" label="Knight" small active={buildMode === 'knight'}
-                  onClick={() => setBuildMode('knight')} />
+              <Orb symbol="🛰️" label="Settle" small active={buildMode === 'outpost'}
+                onClick={() => setBuildMode('outpost')} />
+              <Orb symbol="🛸" label="Station" small active={buildMode === 'station'}
+                onClick={() => setBuildMode('station')} />
+              {ex.stationsStarfighters && (
+                <Orb symbol="🛩️" label="Starfighter" small active={buildMode === 'starfighter'}
+                  onClick={() => setBuildMode('starfighter')} />
               )}
             </>
           )}
           <Orb symbol="🔄" label="Trade" disabled={!canAct} active={tradeOpen}
-            onClick={() => { setBuildMode(null); setDevOpen(false); setProgOpen(false); setImpOpen(false); setKnightOpen(false); setFishOpen(false); setTradeOpen((t) => !t); }} />
-          {!ex.citiesKnights && (
+            onClick={() => { setBuildMode(null); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false); setTradeOpen((t) => !t); }} />
+          {!ex.stationsStarfighters && (
             <Orb symbol="🃏" label="Cards" disabled={!canAct} active={devOpen}
               onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen((d) => !d); }} />
           )}
-          {ex.citiesKnights && (
+          {ex.stationsStarfighters && (
             <>
               <Orb symbol="📜" label="Progress" disabled={!canAct} active={progOpen}
-                onClick={() => { setBuildMode(null); setTradeOpen(false); setImpOpen(false); setKnightOpen(false); setProgOpen((d) => !d); }} />
+                onClick={() => { setBuildMode(null); setTradeOpen(false); setImpOpen(false); setStarfighterOpen(false); setProgOpen((d) => !d); }} />
               <Orb symbol="🏛️" label="Improve" disabled={!canAct} active={impOpen}
-                onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setKnightOpen(false); setImpOpen((d) => !d); }} />
-              <Orb symbol="🛡️" label="Knights" disabled={!canAct} active={knightOpen}
-                onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setImpOpen(false); setKnightOpen((d) => !d); }} />
+                onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setStarfighterOpen(false); setImpOpen((d) => !d); }} />
+              <Orb symbol="🛡️" label="Starfighters" disabled={!canAct} active={starfighterOpen}
+                onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen((d) => !d); }} />
             </>
           )}
-          {ex.fishermen && (
-            <Orb symbol="🐟" label="Fish" disabled={!canAct} active={fishOpen}
-              onClick={() => { setBuildMode(null); setTradeOpen(false); setFishOpen((d) => !d); }} />
+          {ex.harvesters && (
+            <Orb symbol="🌿" label="Biomass" disabled={!canAct} active={biomassOpen}
+              onClick={() => { setBuildMode(null); setTradeOpen(false); setBiomassOpen((d) => !d); }} />
           )}
           <Orb symbol="⏭" label="End turn" disabled={!canAct}
-            onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setKnightOpen(false); setFishOpen(false); move({ type: 'endTurn' }); }} />
+            onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen(false); setBiomassOpen(false); move({ type: 'endTurn' }); }} />
         </div>
 
         {/* Build costs, plain English */}
         <p style={{ margin: 0, fontSize: 11, color: '#a1a1aa', textAlign: 'center' }}>
-          Road 🌲🧱 · Settlement 🌲🧱🐑🌾 · City 🌾🌾⛰️⛰️⛰️ · Card 🐑🌾⛰️
-          {ex.seafarers ? ' · Ship 🌲🐑' : ''}
-          {ex.citiesKnights ? ' · Knight 🐑⛰️ · Wall 🧱🧱' : ''}
+          Warp Lane ⛏️🧊 · Outpost ⛏️🧊💠🔩 · Station 🔩🔩🪙🪙🪙 · Card 💠🔩🪙
+          {ex.starfarers ? ' · Starship ⛏️💠' : ''}
+          {ex.stationsStarfighters ? ' · Starfighter 💠🪙 · Wall 🧊🧊' : ''}
           {' '}· First to {winTarget(game)} points wins
-          {ex.fishermen ? ' (boot holders need one more)' : ''}
+          {ex.harvesters ? ' (scrap hull holders need one more)' : ''}
         </p>
 
         {/* Event log */}
@@ -1641,7 +1651,7 @@ export default function SettlersOfOlympusPage() {
         <p style={{ margin: 0, fontSize: 11, color: '#71717a', textAlign: 'center' }}>
           {onlineMode
             ? `Online room ${roomCode} · You are ${me.name} · ${game.players.map((p) => `${p.name}${p.isAI ? ' (agent)' : ''}`).join(', ')}`
-            : `You vs ${game.players.filter((p) => p.isAI).map((p) => p.name).join(', ')} · Bank and port trading only — trade with other players in an online room.`}
+            : `You vs ${game.players.filter((p) => p.isAI).map((p) => p.name).join(', ')} · Bank and hub trading only — trade with other players in an online room.`}
         </p>
       </div>
     </main>

@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 import { apiGuard } from '@/lib/api-guard';
 import {
   getRoom, heartbeat, publicSnapshot, dbErrorResponse,
-} from '@/lib/settlers-of-olympus/rooms-server';
+} from '@/lib/starforge/rooms-server';
 
 export const GET = apiGuard(async function GET(req, { params }) {
   const token = new URL(req.url).searchParams.get('token') || '';
