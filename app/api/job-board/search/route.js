@@ -63,12 +63,14 @@ export async function GET(request) {
   const sources = sourcesParam
     ? sourcesParam.split(',').map((s) => s.trim()).filter(Boolean)
     : null;
+  const countryParam = (url.searchParams.get('country') || 'ca').toLowerCase();
+  const country = countryParam === 'us' ? 'us' : 'ca';
   const limit = Math.min(
     Math.max(parseInt(url.searchParams.get('limit') || '25', 10) || 25, 1),
     100,
   );
 
-  const { jobs, statuses } = await fetchAllLive({ q, limit: limit * 2, sources });
+  const { jobs, statuses } = await fetchAllLive({ q, limit: limit * 2, sources, country });
   let out = dedupeJobs(jobs);
 
   if (category) {

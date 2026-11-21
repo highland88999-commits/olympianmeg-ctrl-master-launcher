@@ -32,6 +32,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { resumeTemplateToText } from '@/lib/job-board/resume.js';
+
 // --- constants ------------------------------------------------------------
 
 // Redwater, AB — Merlin's town, the default search centre.
@@ -60,6 +62,29 @@ const JOB_TYPES = [
 const MAX_RESUME_BYTES = 5 * 1024 * 1024;
 const SAVED_KEY = 'olympus:job-board:saved';
 const RESUME_KEY = 'olympus:job-board:resume';
+
+// --- category graphics ---
+
+// One 900x600 WebP per real taxonomy category, in
+// public/images/job-board/categories/<id>.webp, plus the page background
+// at public/images/job-board/background.webp (1920x1080, very dark
+// low-contrast gold nebula). Only the 20 real taxonomy ids have art:
+// a fallback-grid id, or a job whose category is null / unmapped,
+// renders NO image — never a wrong one, never a broken one.
+const CATEGORY_IMAGE_IDS = new Set([
+  'trades', 'healthcare', 'tech', 'retail-sales', 'hospitality-food',
+  'transport-logistics', 'admin-office', 'education', 'finance-accounting',
+  'manufacturing', 'agriculture-natural-resources',
+  'government-public-service', 'construction', 'engineering', 'legal',
+  'arts-media', 'science-research', 'social-services', 'energy-mining',
+  'security-protective',
+]);
+const BACKGROUND_IMAGE_SRC = '/images/job-board/background.webp';
+
+function categoryImageSrc(id) {
+  if (!id || typeof id !== 'string') return null;
+  return CATEGORY_IMAGE_IDS.has(id) ? `/images/job-board/categories/${id}.webp` : null;
+}
 
 // Built-in taxonomy — the same shape as lib/job-board/taxonomy.js
 // CATEGORIES ({ id, label, subcategories[], keywords[] }). The page swaps
@@ -199,6 +224,7 @@ export default function JobBoardPage() {
   const [savedIds, setSavedIds] = useState([]);
   const matchRef = useRef(null); // scoreJob from lib/job-board/match.js, when present
   const geoRef = useRef(null); // geocodePlace from lib/job-board/geo.js, when present
+  const builtImportRef = useRef(false); // ?resume=built import runs once
 
   // Swap in Worker A's real taxonomy + scorer when the modules exist in
   // the tree. The dynamic import path is built from parts so the build
@@ -406,6 +432,61 @@ export default function JobBoardPage() {
     setResumeError('');
   }, [rememberResume, persistResume]);
 
+  // Import a resume built in the in-house Resume Builder: the builder
+  // sends the user back here with ?resume=built, and the autosaved
+  // template lives in localStorage under 'resume-template'. Render it to
+  // plain text, parse it through the normal parse route, and load it
+  // through applyParsedResume. Runs once (ref guard); the param is
+  // stripped with replaceState so a refresh does not re-import.
+  useEffect(() => {
+    if (builtImportRef.current) return;
+    let params;
+    try {
+      params = new URLSearchParams(window.location.search);
+    } catch {
+      return;
+    }
+    if (params.get('resume') !== 'built') return;
+    builtImportRef.current = true;
+    const stripParam = () => {
+      try {
+        params.delete('resume');
+        const qs = params.toString();
+        window.history.replaceState(
+          null, '',
+          `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash || ''}`,
+        );
+      } catch { /* ignore */ }
+    };
+    (async () => {
+      try {
+        const raw = window.localStorage.getItem('resume-template');
+        if (!raw) throw new Error('no built resume on this device');
+        const stored = JSON.parse(raw);
+        if (!stored || !stored.data || typeof stored.data !== 'object') {
+          throw new Error('no built resume on this device');
+        }
+        const text = resumeTemplateToText(stored.data);
+        const res = await fetch('/api/job-board/parse-resume', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => null);
+          throw new Error((errBody && errBody.error) || `parse returned ${res.status}`);
+        }
+        const data = await res.json();
+        if (!data || !data.resume) throw new Error('parse came back empty');
+        applyParsedResume(data.resume);
+      } catch {
+        setResumeError("Couldn't bring your built resume over — try the upload or paste box instead.");
+      } finally {
+        stripParam();
+      }
+    })();
+  }, [applyParsedResume]);
+
   const parseResumeFile = useCallback(async (file) => {
     if (!file) return;
     if (file.size > MAX_RESUME_BYTES) {
@@ -587,6 +668,7 @@ export default function JobBoardPage() {
 
   return (
     <main style={styles.page}>
+      <img src={BACKGROUND_IMAGE_SRC} alt="" aria-hidden="true" data-testid="job-board-background" style={styles.bgImg} />
       <div style={styles.wrap}>
         {/* Header */}
         <header style={styles.header}>
@@ -658,6 +740,20 @@ export default function JobBoardPage() {
             <span>Remember my resume on this device (off by default)</span>
           </label>
           {resumeError ? <p role="alert" style={styles.error}>{resumeError}</p> : null}
+
+          <div style={{ marginTop: 14 }}>
+            <p style={styles.note}>
+              Don&rsquo;t have a resume? Build one with our Resume Builder —
+              it saves on this device, and you can send it straight back here.
+            </p>
+            <a
+              href="/resume?return=/job-board"
+              data-testid="build-resume-link"
+              style={{ ...styles.buttonGhost, display: 'inline-block', textDecoration: 'none' }}
+            >
+              Build a resume
+            </a>
+          </div>
 
           {resume ? (
             <div style={styles.resumeBox} data-testid="parsed-resume">
@@ -902,6 +998,9 @@ export default function JobBoardPage() {
                 onClick={() => searchCategory(cat.id)}
                 style={category === cat.id ? styles.catActive : styles.cat}
               >
+                {categoryImageSrc(cat.id) ? (
+                  <img src={categoryImageSrc(cat.id)} alt="" data-testid={`category-image-${cat.id}`} style={styles.catImg} />
+                ) : null}
                 <span style={styles.catLabel}>{cat.label}</span>
                 <span style={styles.catSub}>{(cat.subcategories || []).slice(0, 3).map((s) => (typeof s === 'string' ? s : s.label)).join(' · ')}</span>
               </button>
@@ -930,6 +1029,9 @@ export default function JobBoardPage() {
                 {src.status === 'staged' && src.gap ? (
                   <p style={styles.sourceGap}>Not live yet: {src.gap}</p>
                 ) : null}
+                {src.status === 'live' && src.notes ? (
+                  <p style={styles.sourceNote}>{src.notes}</p>
+                ) : null}
               </div>
               {src.url ? (
                 <a href={src.url} target="_blank" rel="noopener noreferrer" style={styles.linkButton}>Visit</a>
@@ -955,8 +1057,14 @@ function JobRow({ job, score, reasons, centre, radiusId, saved, onToggleSave }) 
       : formatDistance(distKm);
   const salary = formatSalary(job.salary);
   const posted = relativePosted(job.postedAt);
+  const thumbSrc = categoryImageSrc(job.category);
   return (
     <article style={styles.job} data-testid={`job-${job.id}`}>
+      <div style={styles.jobMedia}>
+        {thumbSrc ? (
+          <img src={thumbSrc} alt="" data-testid={`job-thumb-${job.category}`} style={styles.jobThumb} />
+        ) : null}
+        <div style={styles.jobMain}>
       <div style={styles.jobTop}>
         <h3 style={styles.jobTitle}>{job.title}</h3>
         {score != null ? (
@@ -978,6 +1086,17 @@ function JobRow({ job, score, reasons, centre, radiusId, saved, onToggleSave }) 
         {[posted, salary, job.category].filter(Boolean).join(' · ')}
       </p>
       {job.description ? <p style={styles.jobDesc}>{job.description.slice(0, 220)}{job.description.length > 220 ? '…' : ''}</p> : null}
+      {job.attribution ? (
+        <p style={styles.attribution}>
+          {typeof job.attribution === 'object' && job.attribution.url ? (
+            <a href={job.attribution.url} target="_blank" rel="noopener noreferrer" style={styles.attributionLink}>
+              {job.attribution.label || 'Listings by Adzuna'}
+            </a>
+          ) : (
+            String(job.attribution)
+          )}
+        </p>
+      ) : null}
       <div style={styles.row}>
         <a
           href={job.url}
@@ -998,6 +1117,8 @@ function JobRow({ job, score, reasons, centre, radiusId, saved, onToggleSave }) 
           {saved ? '★ Saved' : '☆ Save'}
         </button>
       </div>
+        </div>
+      </div>
     </article>
   );
 }
@@ -1013,8 +1134,12 @@ const TEXT = '#f2f0ff';
 const MUTED = '#b9b4d6';
 
 const styles = {
-  page: { background: INDIGO_BG, color: TEXT, minHeight: '100vh', padding: '16px 12px 48px', fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
-  wrap: { maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 },
+  page: { background: INDIGO_BG, color: TEXT, minHeight: '100vh', padding: '16px 12px 48px', fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", position: 'relative' },
+  // Page background graphic, fixed behind the content (the dark page
+  // background above stays underneath as the fallback). Dimmed so the
+  // cards and text stay fully legible; cards are opaque.
+  bgImg: { position: 'fixed', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0, opacity: 0.35, pointerEvents: 'none' },
+  wrap: { maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16, position: 'relative', zIndex: 1 },
   header: { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
   mark: {
     width: 52, height: 52, borderRadius: '50%', flexShrink: 0,
@@ -1069,11 +1194,15 @@ const styles = {
   cat: { background: '#0d0d1f', border: `1px solid ${INDIGO_LINE}`, borderRadius: 12, padding: 12, textAlign: 'left', cursor: 'pointer', color: TEXT },
   catActive: { background: '#3a2f10', border: `1px solid ${GOLD}`, borderRadius: 12, padding: 12, textAlign: 'left', cursor: 'pointer', color: TEXT },
   catLabel: { display: 'block', fontSize: 15, fontWeight: 700 },
+  // Category graphic, full width of the card above the label. Fixed 3:2
+  // aspect (the art is 900x600) so the grid never shifts as images load.
+  catImg: { display: 'block', width: '100%', height: 'auto', aspectRatio: '3 / 2', objectFit: 'cover', borderRadius: 8, marginBottom: 8 },
   catSub: { display: 'block', fontSize: 12, color: MUTED, marginTop: 4, lineHeight: 1.4 },
   sourceRow: { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 0', borderTop: `1px solid ${INDIGO_LINE}` },
   sourceBody: { flex: 1, fontSize: 14, lineHeight: 1.45 },
   sourceKind: { color: MUTED },
   sourceGap: { margin: '4px 0 0', color: '#ffcf99', fontSize: 13 },
+  sourceNote: { margin: '4px 0 0', color: GOLD_SOFT, fontSize: 13 },
   dotLive: { width: 12, height: 12, borderRadius: '50%', background: '#3ddc84', marginTop: 4, flexShrink: 0 },
   dotStaged: { width: 12, height: 12, borderRadius: '50%', background: '#ffb020', marginTop: 4, flexShrink: 0 },
   job: { borderTop: `1px solid ${INDIGO_LINE}`, padding: '14px 0 6px' },
@@ -1085,4 +1214,12 @@ const styles = {
   reasons: { margin: '6px 0 0', color: GOLD_SOFT, fontSize: 13, lineHeight: 1.45 },
   jobMeta: { margin: '6px 0 0', color: MUTED, fontSize: 14, lineHeight: 1.45 },
   jobDesc: { margin: '8px 0 10px', color: TEXT, fontSize: 14, lineHeight: 1.5 },
+  attribution: { margin: '2px 0 10px', fontSize: 12, color: MUTED },
+  attributionLink: { color: GOLD_SOFT },
+  // Thumb row: the category thumb sits left of the title/meta column,
+  // in normal flow — it never overlaps anything, it just widens the
+  // card's first row by its own 72 px.
+  jobMedia: { display: 'flex', gap: 10, alignItems: 'flex-start' },
+  jobMain: { flex: 1, minWidth: 0 },
+  jobThumb: { width: 72, height: 48, objectFit: 'cover', borderRadius: 8, flexShrink: 0 },
 };

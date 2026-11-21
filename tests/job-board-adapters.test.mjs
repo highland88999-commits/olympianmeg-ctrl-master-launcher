@@ -217,9 +217,24 @@ test('dedupeJobs drops duplicate apply URLs and keeps the first', () => {
   assert.deepEqual(out.map((j) => j.id), ['1', '3']);
 });
 
-test('live adapter registry covers the 8 live sources', () => {
-  assert.deepEqual(liveAdapterIds().sort(), [
-    'arbeitnow', 'greenhouse', 'himalayas', 'job-bank-ca', 'jobicy',
-    'remote-ok', 'remotive', 'we-work-remotely',
-  ].sort());
+test('live adapter registry covers the 8 live sources (keys unset)', () => {
+  // Keyed adapters join only when their env vars are set; pin the
+  // baseline by clearing them for this assertion, whatever the ambient
+  // environment holds, then restore.
+  const saved = {};
+  for (const k of ['ADZUNA_APP_ID', 'ADZUNA_APP_KEY', 'USAJOBS_API_KEY']) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    assert.deepEqual(liveAdapterIds().sort(), [
+      'arbeitnow', 'greenhouse', 'himalayas', 'job-bank-ca', 'jobicy',
+      'remote-ok', 'remotive', 'we-work-remotely',
+    ].sort());
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 });

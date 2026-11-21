@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import { isJobBoardReturn } from '@/lib/job-board/resume.js';
+
 // Generic placeholder content only — no real names, contacts, or employers.
 const TEMPLATE = {
   name: 'Alex Morgan',
@@ -139,10 +141,18 @@ export default function ResumePage() {
   const [accent, setAccent] = useState('cyan');
   const [editing, setEditing] = useState(false);
   const [ready, setReady] = useState(false);
+  // Set only when the page was opened with ?return=/job-board (strict
+  // same-origin allowlist in isJobBoardReturn) — the Job Board link.
+  const [returnTo, setReturnTo] = useState(null);
   const accentHex = (ACCENTS.find((a) => a.id === accent) || ACCENTS[0]).hex;
 
   // Load saved template from this device
   useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ret = params.get('return');
+      if (isJobBoardReturn(ret)) setReturnTo(ret);
+    } catch { /* no return param */ }
     try {
       const raw = window.localStorage.getItem('resume-template');
       if (raw) {
@@ -211,6 +221,15 @@ export default function ResumePage() {
   }, []);
 
   const set = (patch) => setData((d) => ({ ...d, ...patch }));
+  // Back to the Job Board with the built resume: the board reads the
+  // autosaved template from this device and parses it. Only ever called
+  // when returnTo passed the same-origin allowlist above.
+  const useOnJobBoard = () => {
+    if (!returnTo) return;
+    const [path, hash] = returnTo.split('#');
+    const sep = path.includes('?') ? '&' : '?';
+    window.location.assign(`${path}${sep}resume=built${hash ? `#${hash}` : ''}`);
+  };
   const setJob = (i, patch) =>
     setData((d) => ({ ...d, jobs: d.jobs.map((j, k) => (k === i ? { ...j, ...patch } : j)) }));
   const addJob = () =>
@@ -267,6 +286,11 @@ export default function ResumePage() {
             <button className="rz-btn" onClick={() => setEditing((e) => !e)} aria-pressed={editing}>
               <Glyph>{IC.sliders}</Glyph>{editing ? 'Hide editor' : 'Customize'}
             </button>
+            {returnTo ? (
+              <button className="rz-btn primary" data-testid="use-on-job-board" onClick={useOnJobBoard}>
+                Use this resume on the Job Board
+              </button>
+            ) : null}
             <button className="rz-btn primary" onClick={() => window.print()}>
               <Glyph>{IC.printer}</Glyph>Print / Save PDF
             </button>

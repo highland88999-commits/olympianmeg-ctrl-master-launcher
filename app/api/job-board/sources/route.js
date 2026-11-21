@@ -5,8 +5,10 @@
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-import { SOURCE_REGISTRY } from '@/lib/job-board/sources.js';
+import { getSourceRegistry } from '@/lib/job-board/sources.js';
 
 export async function GET() {
-  return Response.json(SOURCE_REGISTRY);
+  // Effective status, not the static list: Adzuna reads live only when its
+  // server keys are set, staged with the keys gap otherwise.
+  return Response.json(getSourceRegistry());
 }
