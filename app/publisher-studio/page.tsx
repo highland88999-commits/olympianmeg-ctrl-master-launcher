@@ -13,6 +13,7 @@ import { Orbitron, Rajdhani } from 'next/font/google';
 import 'quill/dist/quill.snow.css';
 import mammoth from 'mammoth';
 import { supabase } from '@/lib/supabase';
+import { needsWalletNudge } from '@/lib/alexandria/wallet-nudge';
 
 // next/font replaces the render-blocking Google Fonts @import (was Orbitron
 // 400;700 + Rajdhani 400;600). Variables cascade from .forge-wrapper.
@@ -168,6 +169,14 @@ export default function PublisherStudio() {
         await saveDraft();
         const htmlContent = quill.root.innerHTML;
         if(!titleInput.value || !authorInput.value || htmlContent === '<p><br></p>' || quill.getText().trim() === '') return alert("Title, Author, and Content are required.");
+
+        // Priced book, no payout address: ask once, gently — publishing is
+        // never blocked. Cancel returns to the editor (the draft was already
+        // saved above); confirm proceeds exactly as before.
+        if (needsWalletNudge(priceInput.value, walletInput.value)) {
+            const ok = confirm("No payout address on file — your 97% will have nowhere to go until you add one. Publish anyway?");
+            if (!ok) return;
+        }
 
         document.getElementById('terminal-overlay').style.display = 'flex';
         let coverUrl = null;
