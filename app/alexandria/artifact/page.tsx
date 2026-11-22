@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Orbitron, Rajdhani } from 'next/font/google';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
+import { paginateHtml, pageTitle } from '@/lib/alexandria/reader';
 
 const orbitron = Orbitron({ subsets: ['latin'], weight: ['400', '700'] });
 const rajdhani = Rajdhani({ subsets: ['latin'], weight: ['400', '600'] });
@@ -15,7 +16,10 @@ export default function ArtifactReader() {
   const [loadingMsg, setLoadingMsg] = useState('Opening your book…');
   const [meta, setMeta] = useState({ title: '…', author: '…' });
   const [coverUrl, setCoverUrl] = useState('');
+  // Each entry is one sanitized HTML page (see lib/alexandria/reader.js).
+  // The Studio stores Quill HTML, so pages are rendered as HTML, not text.
   const [chapters, setChapters] = useState([]);
+  const [noContent, setNoContent] = useState(false);
 
   useEffect(() => {
     let sessionPromise;
@@ -49,8 +53,9 @@ export default function ArtifactReader() {
           setMeta({ title: data.title || 'Untitled', author: data.author || 'Unknown author' });
           if (data.cover_url) setCoverUrl(data.cover_url);
 
-          const chaps = String(data.content || '').split('\n\n').filter(p => p.trim() !== '');
-          setChapters(chaps);
+          const pages = paginateHtml(data.content || '');
+          if (pages.length === 0) setNoContent(true);
+          setChapters(pages);
           setLoadingMsg('');
         });
     });
@@ -73,6 +78,13 @@ export default function ArtifactReader() {
         .chapter-body p { margin: 0 0 1.25rem 0; line-height: 1.85; font-size: clamp(1.05rem, 2.8vw, 1.18rem); color: #d8d8d8; }
         .chapter-body p:last-child { margin-bottom: 0; }
         .chapter-body p:first-child::first-letter { color: var(--neon-gold); font-size: 1.5em; }
+        .chapter-body h1 { font-size: clamp(1.4rem, 5vw, 2rem); margin: 0 0 1.25rem 0; }
+        .chapter-body h2 { font-size: clamp(1.15rem, 4vw, 1.5rem); border-bottom: none; padding-bottom: 0; margin: 0 0 1rem 0; text-align: left; }
+        .chapter-body h3 { color: var(--neon-cyan); font-size: clamp(1.05rem, 3vw, 1.25rem); margin: 0 0 1rem 0; letter-spacing: 1px; }
+        .chapter-body blockquote { border-left: 2px solid var(--neon-cyan); margin: 0 0 1.25rem 0; padding-left: 1rem; color: #b8b8b8; font-style: italic; }
+        .chapter-body ul, .chapter-body ol { margin: 0 0 1.25rem 0; padding-left: 1.5rem; line-height: 1.85; }
+        .chapter-body li { margin-bottom: 0.5rem; }
+        .chapter-body a { color: var(--neon-cyan); }
         .footer { text-align: center; color: rgba(255, 215, 0, 0.6); font-size: 0.8rem; letter-spacing: 3px; text-transform: uppercase; margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid rgba(0, 243, 255, 0.15); line-height: 1.8; }
         .cover-page { background: #050508; background-size: cover; background-position: center; box-shadow: inset 0 0 100px rgba(0,0,0,0.9); align-items: stretch; }
         .cover-page .content { background: transparent; border: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -101,19 +113,26 @@ export default function ArtifactReader() {
             </div>
           </div>
 
-          {chapters.map((chap, idx) => (
+          {chapters.map((pageHtml, idx) => (
             <div className="page" key={idx} aria-label={`Chapter ${idx + 1} of ${chapters.length}`}>
               <div className="content">
-                <h2 className={orbitron.className}>Chapter {idx + 1} of {chapters.length}</h2>
-                <div className="chapter-body">
-                  {chap.split('\n').filter(l => l.trim() !== '').map((line, i) => (
-                    <p key={i}>{line}</p>
-                  ))}
-                </div>
+                <h2 className={orbitron.className}>{pageTitle(pageHtml) || `Chapter ${idx + 1} of ${chapters.length}`}</h2>
+                <div className="chapter-body" dangerouslySetInnerHTML={{ __html: pageHtml }} />
                 <div className={`footer ${orbitron.className}`}>Hardcopy publisher contracts welcome</div>
               </div>
             </div>
           ))}
+          {noContent && (
+            <div className="page" aria-label="No content">
+              <div className="content">
+                <h2 className={orbitron.className}>Nothing to read yet</h2>
+                <div className="chapter-body">
+                  <p>This book has no readable content yet. The author may still be writing it — check back later, or open the Publisher Studio to finish it.</p>
+                </div>
+                <div className={`footer ${orbitron.className}`}>Hardcopy publisher contracts welcome</div>
+              </div>
+            </div>
+          )}
         </div>
         {!loadingMsg && chapters.length > 0 && (
           <div className="page-hint">← Swipe to turn pages →</div>

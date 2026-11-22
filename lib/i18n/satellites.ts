@@ -71,6 +71,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "venus-wifi", route: "/venus-wifi", pos: "HERMES", section: "UTILITIES", constellation: "ARES" },
   { key: "human-ai", route: "/human-ai", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "alexandria", route: "/alexandria", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
+  { key: "vault", route: "/vault", pos: "ATHENA", section: "AI PROGRAMS", constellation: "THOTH" },
   { key: "trifold", route: "/trifold", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
   { key: "oracle", route: "/oracle", pos: "ATHENA", section: "WISDOM", constellation: "THOTH" },
   { key: "world-engine", route: "/world-engine", pos: "HEPHAESTUS", section: "AI PROGRAMS", constellation: "THOTH" },

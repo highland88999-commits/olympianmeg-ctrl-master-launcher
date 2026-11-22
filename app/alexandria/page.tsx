@@ -130,12 +130,21 @@ export default function Alexandria() {
       }
     }, { passive: true });
 
+    // Exposed for the error state's retry button.
+    window.alexandriaRetryLibrary = fetchBooks;
     async function fetchBooks() {
       const { data, error } = await supabase.from('manuscripts').select('*');
-      if (!error && data) {
-        masterLibrary = data;
-        applyFiltersAndRender();
+      if (error || !data) {
+        // Honest failure, not a silent blank shelf: the query can fail
+        // when the table is missing, the connection is down, or the
+        // reader is not allowed to see it.
+        if (gridRef.current) {
+          gridRef.current.innerHTML = `<div class="no-results ${orbitron.className}">The library could not load.<br><span style="color:#ccc;font-family:monospace;font-size:0.85rem;letter-spacing:0;">Check your connection, then try again.</span><br><br><button class="page-btn ${orbitron.className}" onclick="window.alexandriaRetryLibrary()" style="margin-top:0.5rem;">Try again</button></div>`;
+        }
+        return;
       }
+      masterLibrary = data;
+      applyFiltersAndRender();
     }
 
     function applyFiltersAndRender() {
@@ -222,7 +231,14 @@ export default function Alexandria() {
       disposeLibrary();
       gridRef.current.innerHTML = '';
       if (books.length === 0) {
-        gridRef.current.innerHTML = `<div class="no-results ${orbitron.className}">No books found. Try a different search.</div>`;
+        const query = document.getElementById('searchInput')?.value.trim() || '';
+        if (masterLibrary.length === 0) {
+          // Empty shelf, not a failed search: say so, and point at the
+          // one thing a new user can do about it — publish a book.
+          gridRef.current.innerHTML = `<div class="no-results ${orbitron.className}">The shelves are empty for now.<br><span style="color:#ccc;font-family:monospace;font-size:0.85rem;letter-spacing:0;">No books have been published yet. Be the first — open the Studio and mint yours.</span><br><br><button class="page-btn ${orbitron.className}" onclick="window.scrollToPage('studio')" style="margin-top:0.5rem;">Open the Publisher Studio</button></div>`;
+        } else {
+          gridRef.current.innerHTML = `<div class="no-results ${orbitron.className}">No books match &ldquo;${escapeHtml(query)}&rdquo;.<br><span style="color:#ccc;font-family:monospace;font-size:0.85rem;letter-spacing:0;">Try a different title or author, or clear the search to see everything.</span></div>`;
+        }
         return;
       }
 
@@ -247,7 +263,7 @@ export default function Alexandria() {
             <div class="book-author">${author}</div>
             <div class="book-foot">
               <span class="book-price">${displayPrice}</span>
-              <button class="book-btn ${orbitron.className}" data-url="${targetUrl}" style="border-color:${hex};color:${hex};">${BOOK_GLYPH_HTML}<span>${isFree ? 'Read' : 'Buy'}</span></button>
+              <button class="book-btn ${orbitron.className}" data-url="${targetUrl}" style="border-color:${hex};color:${hex};">${BOOK_GLYPH_HTML}<span>Read</span></button>
             </div>
           </div>
         `;
@@ -329,6 +345,7 @@ export default function Alexandria() {
       if (contextGuard) { try { contextGuard.dispose(); } catch (e) {} }
       if (renderer) { try { renderer.dispose(); } catch (e) {} }
       delete window.scrollToPage;
+      delete window.alexandriaRetryLibrary;
     };
   }, [mounted, router]);
 

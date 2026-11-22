@@ -3,8 +3,15 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Script from 'next/script';
 import { Orbitron, Rajdhani } from 'next/font/google';
+// Bundled, not CDN: the editor must work even when the CDN is slow or
+// blocked, and the Studio must never sit blank waiting on a script.
+// Quill is imported DYNAMICALLY inside initEditorAndLogic (below), not
+// at the top of this file: its module touches `document` at import
+// time, which breaks the server prerender (ReferenceError: document
+// is not defined). The CSS import is SSR-safe and stays static.
+import 'quill/dist/quill.snow.css';
+import mammoth from 'mammoth';
 import { supabase } from '@/lib/supabase';
 
 // next/font replaces the render-blocking Google Fonts @import (was Orbitron
@@ -36,21 +43,38 @@ export default function PublisherStudio() {
       }
       setMounted(true);
 
-      const checkScripts = setInterval(() => {
-        if (window.Quill && window.mammoth) {
-          clearInterval(checkScripts);
+      // Quill and mammoth are bundled imports now (no CDN), so the only
+      // wait is for the editor element to exist after the re-render.
+      let tries = 0;
+      const checkDom = setInterval(() => {
+        if (document.getElementById('editor-core')) {
+          clearInterval(checkDom);
           initEditorAndLogic(session.user);
+        } else if (++tries > 50) {
+          // Editor never mounted — say so instead of spinning forever.
+          clearInterval(checkDom);
+          const el = document.getElementById('save-status');
+          if (el) { el.innerText = 'EDITOR DID NOT LOAD — RELOAD THE PAGE'; el.style.color = '#f55'; }
         }
-      }, 200);
+      }, 100);
     })();
   }, [router]);
 
   function initEditorAndLogic(currentUser) {
+    // Quill loads here, on the client after mount — never at module
+    // scope (see the import note above).
+    import('quill').then(({ default: Quill }) => initWithQuill(Quill, currentUser)).catch(() => {
+      const el = document.getElementById('save-status');
+      if (el) { el.innerText = 'EDITOR DID NOT LOAD — RELOAD THE PAGE'; el.style.color = '#f55'; }
+    });
+  }
+
+  function initWithQuill(Quill, currentUser) {
     let currentDraftId = new URLSearchParams(window.location.search).get('id');
     let lastSavedState = "";
     let finalCoverBase64 = null;
 
-    const quill = new window.Quill('#editor-core', {
+    const quill = new Quill('#editor-core', {
         theme: 'snow',
         placeholder: 'Format your manuscript...',
         modules: { toolbar: [ [{ 'header': [1, 2, 3, false] }], ['bold', 'italic', 'underline', 'strike'], [{ 'color': [] }, { 'background': [] }], ['blockquote', 'code-block'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], [{ 'align': [] }], ['clean'] ] }
@@ -81,26 +105,40 @@ export default function PublisherStudio() {
                 lastSavedState = getEditorState();
             }
         } else {
-            const { data } = await supabase.from('drafts').insert([{ author_id: currentUser.id }]).select();
-            if (data && data.length > 0) {
-                currentDraftId = data[0].id;
-                window.history.replaceState({}, '', `?id=${currentDraftId}`);
-                lastSavedState = getEditorState();
-            }
+            // No draft row is created until the author changes something:
+            // a fresh visit must not leave an empty row in the drafts table.
+            lastSavedState = getEditorState();
         }
     }
     loadOrCreateDraft();
 
     async function saveDraft() {
-        if (!currentDraftId) return;
         const currentState = getEditorState();
         if (currentState === lastSavedState) return;
         statusEl.innerText = "SAVING..."; statusEl.style.color = "var(--neon-gold)";
+        if (!currentDraftId) {
+            // First real change: create the draft row now, with the
+            // content already typed, instead of an empty row on entry.
+            const { data, error } = await supabase.from('drafts').insert([{
+                author_id: currentUser.id, title: titleInput.value, author: authorInput.value,
+                price_btc: priceInput.value, wallet_address: walletInput.value,
+                content: quill.root.innerHTML, cover_base64: finalCoverBase64
+            }]).select();
+            if (error || !data || data.length === 0) {
+                statusEl.innerText = "COULD NOT SAVE — CHECK CONNECTION"; statusEl.style.color = "#f55";
+                return;
+            }
+            currentDraftId = data[0].id;
+            window.history.replaceState({}, '', `?id=${currentDraftId}`);
+            lastSavedState = currentState; statusEl.innerText = "ALL CHANGES SAVED"; statusEl.style.color = "#0f0";
+            return;
+        }
         const { error } = await supabase.from('drafts').update({
             title: titleInput.value, author: authorInput.value, price_btc: priceInput.value,
             wallet_address: walletInput.value, content: quill.root.innerHTML, cover_base64: finalCoverBase64
         }).eq('id', currentDraftId);
         if (!error) { lastSavedState = currentState; statusEl.innerText = "ALL CHANGES SAVED"; statusEl.style.color = "#0f0"; }
+        else { statusEl.innerText = "COULD NOT SAVE — CHECK CONNECTION"; statusEl.style.color = "#f55"; }
     }
     setInterval(saveDraft, 5000);
 
@@ -108,7 +146,7 @@ export default function PublisherStudio() {
         const file = e.target.files[0]; if (!file) return;
         const reader = new FileReader();
         if (file.name.endsWith('.docx')) {
-            reader.onload = ev => window.mammoth.convertToHtml({ arrayBuffer: ev.target.result }).then(res => { quill.root.innerHTML = res.value; saveDraft(); });
+            reader.onload = ev => mammoth.convertToHtml({ arrayBuffer: ev.target.result }).then(res => { quill.root.innerHTML = res.value; saveDraft(); });
             reader.readAsArrayBuffer(file);
         } else {
             reader.onload = ev => { quill.root.innerHTML = ev.target.result.split('\n').map(l => `<p>${l}</p>`).join(''); saveDraft(); };
@@ -129,27 +167,40 @@ export default function PublisherStudio() {
     document.getElementById('initBtn').onclick = async () => {
         await saveDraft();
         const htmlContent = quill.root.innerHTML;
-        if(!titleInput.value || !authorInput.value || htmlContent === '<p><br></p>') return alert("Title, Author, and Content are required.");
-        
+        if(!titleInput.value || !authorInput.value || htmlContent === '<p><br></p>' || quill.getText().trim() === '') return alert("Title, Author, and Content are required.");
+
         document.getElementById('terminal-overlay').style.display = 'flex';
         let coverUrl = null;
         if (finalCoverBase64) {
-            const response = await fetch(finalCoverBase64);
-            const blob = await response.blob();
-            const fileName = `cover_${Date.now()}.png`;
-            await supabase.storage.from('covers').upload(fileName, blob, { contentType: 'image/png' });
-            const { data: pubData } = supabase.storage.from('covers').getPublicUrl(fileName);
-            coverUrl = pubData.publicUrl;
+            try {
+                const response = await fetch(finalCoverBase64);
+                const blob = await response.blob();
+                const fileName = `cover_${Date.now()}.png`;
+                const { error: upErr } = await supabase.storage.from('covers').upload(fileName, blob, { contentType: 'image/png' });
+                if (upErr) throw upErr;
+                const { data: pubData } = supabase.storage.from('covers').getPublicUrl(fileName);
+                coverUrl = pubData.publicUrl;
+            } catch (e) {
+                // Cover failed: stop here and say so, instead of leaving
+                // the overlay up and the author guessing.
+                document.getElementById('terminal-overlay').style.display = 'none';
+                return alert("The cover could not be uploaded. Your book was not published — check your connection and try again.");
+            }
         }
 
         const payload = {
-            publisher_id: currentUser.id, title: titleInput.value, author: authorInput.value, 
-            price_btc: priceInput.value, wallet_address: walletInput.value, content: htmlContent, 
+            publisher_id: currentUser.id, title: titleInput.value, author: authorInput.value,
+            price_btc: priceInput.value, wallet_address: walletInput.value, content: htmlContent,
             cover_url: coverUrl, shape: document.getElementById('input-shape').value,
             glow_class: document.getElementById('input-glow').value, hex_color: document.getElementById('input-hex').value
         };
-        await supabase.from('manuscripts').insert([payload]);
-        document.getElementById('term-text').innerHTML = `> SUCCESS. CODEX BOUND.<br><span style="color:#0f0;">ARTIFACT IS NOW LIVE IN ALEXANDRIA.</span>`;
+        const { error: mintErr } = await supabase.from('manuscripts').insert([payload]);
+        if (mintErr) {
+            // Never show SUCCESS for a failed insert.
+            document.getElementById('terminal-overlay').style.display = 'none';
+            return alert("Publishing failed — your book was not saved. Check your connection and try again.");
+        }
+        document.getElementById('term-text').innerHTML = `> SUCCESS. CODEX BOUND.<br><span style="color:#0f0;">ARTIFACT IS NOW LIVE IN ALEXANDRIA.</span><br><br><a href="/alexandria" onclick="if(window.parent&&window.parent.scrollToPage){event.preventDefault();window.parent.scrollToPage('library');}" style="color:var(--neon-cyan);">Open the Library &rarr;</a>`;
     };
   }
 
@@ -157,10 +208,6 @@ export default function PublisherStudio() {
 
   return (
     <>
-      <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet" />
-      <Script src="https://cdn.quilljs.com/1.3.6/quill.min.js" strategy="afterInteractive" />
-      <Script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js" strategy="afterInteractive" />
-
       <style>{`
         .forge-wrapper { --bg-obsidian: #050508; --panel-bg: rgba(12, 12, 18, 0.95); --neon-cyan: #00f2ff; --neon-magenta: #fe53bb; --neon-gold: #FFD700; background-color: var(--bg-obsidian); color: #fff; display: flex; flex-direction: column; min-height: 100dvh; overflow-y: auto; font-family: var(--font-rajdhani), sans-serif; }
         .forge-wrapper::before { content: ""; position: fixed; inset: 0; background-image: linear-gradient(rgba(8, 247, 254, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(8, 247, 254, 0.03) 1px, transparent 1px); background-size: 40px 40px; z-index: -1; pointer-events: none; }
@@ -197,6 +244,7 @@ export default function PublisherStudio() {
 
       <div className={`forge-wrapper ${orbitron.variable} ${rajdhani.variable}`}>
         <header>
+            <a href="/alexandria" onClick={(e) => { if (window.parent && window.parent.scrollToPage) { e.preventDefault(); window.parent.scrollToPage('library'); } }} style={{color:'var(--neon-cyan)', fontFamily:'var(--font-orbitron), sans-serif', fontSize:'0.85rem', letterSpacing:'2px', textDecoration:'none', whiteSpace:'nowrap'}}>← LIBRARY</a>
             <div className="logo">Forge</div>
             <input type="text" id="doc-title" className="doc-title-input" placeholder="UNTITLED DRAFT" />
             <div className="status-indicator" id="save-status">AWAITING INPUT</div>
@@ -272,10 +320,11 @@ export default function PublisherStudio() {
 
             <div className="editor-container">
                 <div className="editor-wrapper">
-                    <div id="editor-core">
-                      <h1>Chapter 1: Genesis</h1>
-                      <p>Begin transmitting your codex here.</p>
-                    </div>
+                    {/* Empty on purpose: the old sample text ("Chapter 1:
+                        Genesis") was publishable as-is, so a book could go
+                        live with no words of its own in it. Quill's
+                        placeholder shows ghost text until the author types. */}
+                    <div id="editor-core"></div>
                 </div>
             </div>
         </div>

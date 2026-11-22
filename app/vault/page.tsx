@@ -187,6 +187,7 @@ export default function Vault() {
       
       <div className={`vault-wrapper ${rajdhani.className}`}>
         <header>
+            <a href="/alexandria" onClick={(e) => { if (window.parent && window.parent.scrollToPage) { e.preventDefault(); window.parent.scrollToPage('library'); } }} style={{color:'var(--neon-cyan)', fontFamily:'var(--font-orbitron), sans-serif', fontSize:'0.85rem', letterSpacing:'2px', textDecoration:'none', whiteSpace:'nowrap'}}>← LIBRARY</a>
             <div className={`logo ${orbitron.className}`}>Reader Vault</div>
         </header>
 
