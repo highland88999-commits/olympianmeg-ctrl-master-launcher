@@ -1,5 +1,5 @@
 // tests/job-board-jsearch.test.mjs — JSearch adapter + registry flip.
-// The fixture is a trimmed slice of the real JSearch /search response
+// The fixture is a trimmed slice of the real JSearch /search-v2 response
 // shape (data[].job_*); tests stub global fetch or run with the key
 // unset, so no test ever hits jsearch.p.rapidapi.com. The key value used
 // in tests is a fake string. Run: node --test tests/job-board-jsearch.test.mjs
@@ -22,7 +22,7 @@ const FAKE_KEY = 'test-key-not-real';
 const FIXTURE = {
   status: 'OK',
   request_id: 'req-123',
-  parameters: { query: 'welder', page: 1, num_pages: 1, country: 'ca' },
+  parameters: { query: 'welder', num_pages: 1, date_posted: 'all', country: 'us', language: 'en' },
   data: [
     {
       job_id: 'abc123',
@@ -202,7 +202,7 @@ test('jsearch: fetchJobs throws when unconfigured (safety net)', async () => {
   });
 });
 
-test('jsearch: fetchJobs sends the key + host headers, one call, country ca', async () => {
+test('jsearch: fetchJobs sends the playground parameter set on /search-v2, one call, country pinned to us', async () => {
   const seen = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, opts) => {
@@ -210,15 +210,19 @@ test('jsearch: fetchJobs sends the key + host headers, one call, country ca', as
     return { ok: true, status: 200, text: async () => JSON.stringify(FIXTURE) };
   };
   try {
+    // country 'ca' is passed in (the fan-out always passes one) and must
+    // NOT reach the API: the free plan only returned data for us.
     const jobs = await withEnvAsync('RAPIDAPI_KEY', FAKE_KEY, () => fetchJobs({ q: 'welder', limit: 10, country: 'ca' }));
     assert.equal(seen.length, 1, 'exactly one call per search');
     const call = seen[0];
-    assert.ok(call.url.startsWith('https://jsearch.p.rapidapi.com/search?'), `search endpoint: ${call.url}`);
+    assert.ok(call.url.startsWith('https://jsearch.p.rapidapi.com/search-v2?'), `search-v2 endpoint: ${call.url}`);
     const params = new URL(call.url).searchParams;
     assert.equal(params.get('query'), 'welder');
-    assert.equal(params.get('page'), '1');
-    assert.equal(params.get('num_pages'), '1');
-    assert.equal(params.get('country'), 'ca');
+    assert.equal(params.get('num_pages'), '1', 'one page = one request credit');
+    assert.equal(params.get('date_posted'), 'all');
+    assert.equal(params.get('country'), 'us', 'country pinned to us');
+    assert.equal(params.get('language'), 'en');
+    assert.equal(params.get('page'), null, 'no page param — the playground sends none');
     assert.equal(call.headers['X-RapidAPI-Key'], FAKE_KEY);
     assert.equal(call.headers['X-RapidAPI-Host'], 'jsearch.p.rapidapi.com');
     assert.equal(jobs.length, 2);
@@ -228,7 +232,7 @@ test('jsearch: fetchJobs sends the key + host headers, one call, country ca', as
   }
 });
 
-test('jsearch: fetchJobs passes country=us through when asked', async () => {
+test('jsearch: num_pages stays 1 even for a large limit (one credit per search)', async () => {
   const seen = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
@@ -236,8 +240,10 @@ test('jsearch: fetchJobs passes country=us through when asked', async () => {
     return { ok: true, status: 200, text: async () => JSON.stringify({ data: [] }) };
   };
   try {
-    await withEnvAsync('RAPIDAPI_KEY', FAKE_KEY, () => fetchJobs({ q: 'welder', limit: 10, country: 'us' }));
-    assert.equal(new URL(seen[0]).searchParams.get('country'), 'us');
+    await withEnvAsync('RAPIDAPI_KEY', FAKE_KEY, () => fetchJobs({ q: 'welder', limit: 50, country: 'us' }));
+    const params = new URL(seen[0]).searchParams;
+    assert.equal(params.get('num_pages'), '1');
+    assert.equal(params.get('country'), 'us');
   } finally {
     globalThis.fetch = realFetch;
   }
