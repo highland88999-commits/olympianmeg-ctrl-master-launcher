@@ -11,6 +11,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { fetchAllLive, dedupeJobs } from '@/lib/job-board/adapters/index.js';
+import { jsearchUpstreamDebug } from '@/lib/job-board/adapters/jsearch.js';
 import { filterByRadius } from '@/lib/job-board/geo.js';
 import { categoryForKeywords } from '@/lib/job-board/taxonomy.js';
 import { matchJobs } from '@/lib/job-board/match.js';
@@ -107,5 +108,16 @@ export async function GET(request) {
   }
   out = out.slice(0, limit);
 
-  return Response.json({ jobs: out, sources: statuses });
+  // TEMPORARY DEBUG (JSearch diagnosis Nov 21-22 — REMOVE before any
+  // other push): with ?jsearchDebug=1, surface the upstream metadata the
+  // adapter recorded (status, body keys, data length — never the key,
+  // never job bodies, never headers).
+  const jsearchDebug = url.searchParams.get('jsearchDebug') === '1'
+    ? jsearchUpstreamDebug.last
+    : null;
+  return Response.json({
+    jobs: out,
+    sources: statuses,
+    ...(jsearchDebug ? { jsearchDebug } : {}),
+  });
 }
