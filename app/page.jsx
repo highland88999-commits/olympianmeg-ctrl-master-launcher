@@ -58,6 +58,7 @@ import {
 // floats where the globe was. Earth 2/3/4 stay live throughout.
 import { useOblivionState } from '@/lib/oblivion/useOblivionState';
 import { hasWitnessFlag, clearWitnessFlag, setWitnessFlag } from '@/lib/oblivion/client';
+import { witnessDecision } from '@/lib/oblivion/state';
 import { formatCountdown } from '@/lib/earth/oblivion';
 
 const HomeScene = dynamic(() => import('@/components/HomeScene'), {
@@ -287,9 +288,39 @@ function NexusHub() {
   // where the globe was. Earth 2/3/4 stay live throughout.
   const oblivion = useOblivionState();
   const [showWitness, setShowWitness] = useState(false);
+  // Honest notice when the witness flag says "watch the explosion"
+  // but the server disagrees (Nov 21: the arm did not land, yet the
+  // collapse played anyway). Tap to dismiss.
+  const [oblivionNotice, setOblivionNotice] = useState(null);
   useEffect(() => {
-    if (hasWitnessFlag()) setShowWitness(true);
-  }, []);
+    // Wait for the first server read: before it resolves there is
+    // nothing to decide from, and a flag alone must never play
+    // the cinematic.
+    if (!oblivion.ready) return;
+    const decision = witnessDecision({
+      flag: hasWitnessFlag(),
+      active: oblivion.active,
+      error: oblivion.error,
+    });
+    if (decision === 'play') {
+      setOblivionNotice(null);
+      setShowWitness(true);
+      return;
+    }
+    if (decision === 'unconfirmed') {
+      // The server could not be checked: do NOT play, and do NOT
+      // clear the flag — the arm may exist. The next poll re-checks.
+      setOblivionNotice('⚡ COULD NOT CONFIRM THE ARM — CHECKING AGAIN');
+      return;
+    }
+    if (decision === 'not-landed') {
+      // The flag is set but the server holds no event: the arm did
+      // not land. Clear the flag and say so honestly — never play
+      // the explosion for an event the server does not have.
+      clearWitnessFlag();
+      setOblivionNotice('⚡ THE ARM DID NOT LAND — EARTH IS STILL HERE');
+    }
+  }, [oblivion.ready, oblivion.active, oblivion.error]);
   // Evacuation: anyone on Earth when the cycle arms is pulled to
   // the hub to witness it (the puller travels themselves from J2;
   // Earth users ride this effect). The witness overlay plays once.
@@ -1370,6 +1401,19 @@ function NexusHub() {
           puller — and anyone evacuated from Earth — watches Earth
           blow up once, then the hub shows the timer cube. The flag
           clears when the sequence ends so it never replays. */}
+      {/* Honest oblivion notice (Nov 21 fix): the flag said "watch"
+          but the server disagreed — the arm did not land, or the
+          state could not be checked. Tap to dismiss. */}
+      {oblivionNotice && (
+        <button
+          type="button"
+          onClick={() => setOblivionNotice(null)}
+          className="fixed left-1/2 top-4 z-[2147483003] -translate-x-1/2 rounded-full border border-amber-300/60 bg-black/80 px-4 py-2 text-center text-sm font-semibold text-amber-200"
+          aria-label="Oblivion notice, tap to dismiss"
+        >
+          {oblivionNotice}
+        </button>
+      )}
       {showWitness && (
         <div className="fixed inset-0" style={{ zIndex: 2147483002 }} role="dialog" aria-label="Earth is gone">
           <OblivionCollapse

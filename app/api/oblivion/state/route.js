@@ -11,6 +11,13 @@
 // the answer is honestly "not armed" — the hub shows Earth, the
 // lever cannot arm (the arm route 503s), and nothing fakes a
 // countdown.
+//
+// HONESTY CONTRACT (Nov 21 fix): armed:false means "no event",
+// never "could not check". A null service client answers an
+// explicit 503, and any other read error propagates to apiGuard
+// (500/503, logged) instead of being swallowed into armed:false —
+// the Nov 21 pull returned ok:true to the phone while this route
+// reported armed:false, and the swallow is where it hid.
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
@@ -24,9 +31,18 @@ export const GET = noCache(apiGuard(async function GET() {
   const now = Date.now();
   const admin = await getServiceClient().catch(() => null);
   if (!admin) {
-    return NextResponse.json({ ok: true, armed: false, endsAt: null, serverNow: now, complete: false, remainingMs: 0 });
+    // The state cannot be checked at all — say so with a 503
+    // instead of pretending no event exists.
+    return NextResponse.json(
+      { ok: false, error: 'Oblivion state could not be checked.' },
+      { status: 503 },
+    );
   }
-  const { event, missing } = await getOblivionEvent(admin).catch(() => ({ event: null, missing: true }));
+  // No swallowing catch here on purpose: getOblivionEvent already
+  // returns { missing: true } for a missing table (42P01), and any
+  // other read error must reach apiGuard (500/503, logged) rather
+  // than masquerading as armed:false.
+  const { event, missing } = await getOblivionEvent(admin);
   if (missing || !event) {
     return NextResponse.json({ ok: true, armed: false, endsAt: null, serverNow: now, complete: false, remainingMs: 0 });
   }

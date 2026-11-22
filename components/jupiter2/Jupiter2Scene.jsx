@@ -2053,6 +2053,17 @@ export default function Jupiter2Scene({
       } else showNotice('⚡ OBLIVION IS NOT READY YET — TRY AGAIN LATER');
       return;
     }
+    // The arm POST said ok — but the Nov 21 pull proved ok:true can
+    // arrive without the server holding the event (the phone showed
+    // the 72:00:00 orb and the explosion played for an event that
+    // never existed). Re-read the state and travel ONLY when the
+    // server confirms armed:true. Anything else is a fake success:
+    // say so plainly and stay on J2 with the lever still warned.
+    const check = await fetchOblivionState();
+    if (!check || !check.armed) {
+      showNotice('⚡ THE ARM DID NOT LAND — TRY AGAIN');
+      return;
+    }
     const lv = leverRef.current;
     const rec = confirmOblivion(lv, Date.now());
     if (rec.armed) setLeverUi({ phase: 'armed', countdown: rec.countdown });
@@ -2114,7 +2125,7 @@ export default function Jupiter2Scene({
       lv.pulled = true;
       lv.warned = false;
       lv.armed = true;
-      lv.armedAtMs = state.endsAtMs - OBLIVION_WAIT_MS;
+      lv.armedAtMs = state.endsAt - OBLIVION_WAIT_MS;
       setLeverUi(leverStatus(lv, Date.now()));
     });
     return () => { cancelled = true; };

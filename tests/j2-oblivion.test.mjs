@@ -13,7 +13,7 @@ import { OBLIVION_WAIT_MS } from '../lib/earth/oblivion.js';
 import {
   cycleState, earthTravelBlocked,
   dragonShieldTierFor, dragonShieldChargesFor, isDragonShieldDragon,
-  DRAGON_SHIELD_DRAGONS,
+  DRAGON_SHIELD_DRAGONS, witnessDecision,
 } from '../lib/oblivion/state.js';
 import {
   GUARD_RESPAWN_MS, GUARD_PATROL_RADIUS_M,
@@ -23,7 +23,7 @@ import {
 import { MOUNTAIN_SINK_M, dirAt, dirToDeck } from '../lib/jupiter2/planet.js';
 import { groundHeight } from '../lib/jupiter2/profile.js';
 import { huntFor, nearestMonsterPrey, isGuardDragonSlot as opIsGuardSlot } from '../lib/jupiter2/operators.js';
-import { confirmOblivion, createLeverState, pullLever } from '../lib/jupiter2/lever.js';
+import { confirmOblivion, createLeverState, pullLever, leverStatus } from '../lib/jupiter2/lever.js';
 
 describe('oblivion cycle', () => {
   it('is 72 hours, exactly', () => {
@@ -167,5 +167,43 @@ describe('lever lock', () => {
     const again = confirmOblivion(lv, 2000);
     assert.equal(again.armed, false);
     assert.equal(again.armedAtMs, 1000);
+  });
+
+  it('a lever rebuilt from the server endsAt shows the armed countdown (Nov 21 fix)', () => {
+    // The mount lock reads GET /api/oblivion/state, which returns
+    // endsAt — never endsAtMs. The old code read state.endsAtMs
+    // (undefined) and armedAtMs came out NaN, breaking the armed
+    // countdown on every revisit while armed.
+    const endsAt = 1_000_000 + OBLIVION_WAIT_MS;
+    const lv = createLeverState();
+    lv.pulled = true;
+    lv.warned = false;
+    lv.armed = true;
+    lv.armedAtMs = endsAt - OBLIVION_WAIT_MS;
+    assert.deepEqual(leverStatus(lv, 1_000_000), { phase: 'armed', countdown: '72:00:00' });
+    assert.deepEqual(leverStatus(lv, 1_000_000 + 3_600_000), { phase: 'armed', countdown: '71:00:00' });
+  });
+});
+
+describe('witness decision (Nov 21 fix)', () => {
+  it('plays only with the flag AND an active server event', () => {
+    assert.equal(witnessDecision({ flag: true, active: true, error: false }), 'play');
+  });
+
+  it('a flag with no active event means the arm did not land — never plays', () => {
+    // Nov 21: the phone showed a fake explosion for an event the
+    // server never held. The flag alone must never play it.
+    assert.equal(witnessDecision({ flag: true, active: false, error: false }), 'not-landed');
+  });
+
+  it('a flag with a check error stays unconfirmed — never plays, never clears', () => {
+    assert.equal(witnessDecision({ flag: true, active: false, error: true }), 'unconfirmed');
+    // An active event wins over a stale error: the server HAS it.
+    assert.equal(witnessDecision({ flag: true, active: true, error: true }), 'play');
+  });
+
+  it('no flag means no witness, whatever the server says', () => {
+    assert.equal(witnessDecision({ flag: false, active: true, error: false }), 'none');
+    assert.equal(witnessDecision({ flag: false, active: false, error: false }), 'none');
   });
 });
