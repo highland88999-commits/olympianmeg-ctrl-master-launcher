@@ -222,7 +222,7 @@ test('live adapter registry covers the 8 live sources (keys unset)', () => {
   // baseline by clearing them for this assertion, whatever the ambient
   // environment holds, then restore.
   const saved = {};
-  for (const k of ['ADZUNA_APP_ID', 'ADZUNA_APP_KEY', 'USAJOBS_API_KEY']) {
+  for (const k of ['ADZUNA_APP_ID', 'ADZUNA_APP_KEY', 'USAJOBS_API_KEY', 'RAPIDAPI_KEY']) {
     saved[k] = process.env[k];
     delete process.env[k];
   }
