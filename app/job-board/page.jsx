@@ -1012,8 +1012,8 @@ export default function JobBoardPage() {
         <section style={styles.card} aria-label="Sources">
           <h2 style={styles.h2}>Sources</h2>
           <p style={styles.note}>
-            Every board the Job Board searches. A source marked staged is not
-            live yet — the board shows it honestly instead of pretending.
+            Every board the Job Board searches. Only live sources are listed
+            — each one returns real openings.
           </p>
           {sourcesError ? <p role="status" style={styles.error}>{sourcesError}</p> : null}
           {sources === null && !sourcesError ? <p style={styles.note}>Loading sources…</p> : null}
