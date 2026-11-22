@@ -1,5 +1,5 @@
 // tests/job-board-jsearch.test.mjs — JSearch adapter + registry flip.
-// The fixture is a trimmed slice of the real JSearch /search-v2 response
+// The fixture is a trimmed slice of the real JSearch /search response
 // shape (data[].job_*); tests stub global fetch or run with the key
 // unset, so no test ever hits jsearch.p.rapidapi.com. The key value used
 // in tests is a fake string. Run: node --test tests/job-board-jsearch.test.mjs
@@ -213,7 +213,7 @@ test('jsearch: fetchJobs sends the key + host headers, one call, country ca', as
     const jobs = await withEnvAsync('RAPIDAPI_KEY', FAKE_KEY, () => fetchJobs({ q: 'welder', limit: 10, country: 'ca' }));
     assert.equal(seen.length, 1, 'exactly one call per search');
     const call = seen[0];
-    assert.ok(call.url.startsWith('https://jsearch.p.rapidapi.com/search-v2?'), `search-v2 endpoint: ${call.url}`);
+    assert.ok(call.url.startsWith('https://jsearch.p.rapidapi.com/search?'), `search endpoint: ${call.url}`);
     const params = new URL(call.url).searchParams;
     assert.equal(params.get('query'), 'welder');
     assert.equal(params.get('page'), '1');
