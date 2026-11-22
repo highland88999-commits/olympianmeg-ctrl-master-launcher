@@ -226,12 +226,20 @@ export const SATELLITES: SatelliteEntry[] = [
   // other UTILITIES everyday tools (notepad / calculator / calendar):
   // ARES/UTILITIES.
   { key: "journal", route: "/journal", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
+  // BUSINESS SERVICES (grants, loans, mentoring, registration, taxes,
+  // hiring, exporting — for startups and existing businesses) sits with
+  // the other UTILITIES everyday tools: ARES/UTILITIES.
+  { key: "business-services", route: "/business-services", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
   // COMPASS (live device heading, coordinates, and global bearings)
   // and WEATHER (Open-Meteo conditions and forecasts for the user's
   // location or any searched place) join the UTILITIES everyday tools:
   // ARES/UTILITIES.
   { key: "compass", route: "/compass", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
   { key: "weather", route: "/weather", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
+  // SOCIAL ASSISTANCE (Omega Social Assistance — government help by
+  // province, state or territory) joins the UTILITIES everyday tools:
+  // ARES/UTILITIES. Social Assistance seat: 217→218, Nov 21, 2026.
+  { key: "social-assistance", route: "/social-assistance", pos: "UTILITIES", section: "UTILITIES", constellation: "ARES" },
   // OMEGA COMMS (the Communications Array — Global / Direct / Squad
   // messaging) sits with HERMES' message routes beside PHONE HOME,
   // its fellow comms tool: ARES/TOOLS.
@@ -271,6 +279,7 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "monopoly", route: "/monopoly", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "starforge", route: "/starforge", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "job-board", route: "/job-board", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
+  { key: "housing", route: "/housing", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "sports-complex", route: "/sports-complex", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   { key: "attractions-complex", route: "/attractions-complex", pos: "ARES", section: "GAMES", constellation: "ZEUS" },
   // REQUEST A BILLBOARD — the user-facing billboard space (request,

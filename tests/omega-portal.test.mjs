@@ -132,7 +132,7 @@ describe('registration — the room is gone from every registry', () => {
     }
   });
 
-  it('the merged roster (deduped by route) is 217 portals', () => {
+  it('the merged roster (deduped by route) is 220 portals', () => {
     const seen = new Set();
     let count = 0;
     for (const e of entries) {
@@ -140,7 +140,7 @@ describe('registration — the room is gone from every registry', () => {
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 217); // Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215); Red Moon seat: 214→215, Nov 17, 2026; Keepsake seat: 213→214, Nov 17, 2026
+    assert.equal(count, 220); // Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215); Red Moon seat: 214→215, Nov 17, 2026; Keepsake seat: 213→214, Nov 17, 2026; Housing seat: 217→218; Social Assistance seat: 218→219; Business Services seat: 219→220 (four-program merge), Nov 21, 2026
   });
 
   it('the old /portal-room route redirects to the menu deep link', () => {
