@@ -296,3 +296,44 @@ test('jsearch: search route reports staged jsearch without the key, no fetch', a
     globalThis.fetch = realFetch;
   }
 });
+
+// /search-v2 (API v5) wraps the jobs: data = { jobs: [...], cursor }.
+// Live Nov 21-22 returned exactly this shape (200/OK, ~48.7 KB body)
+// while the adapter read data as a flat array, so every live search
+// parsed to zero jobs even though the playground showed 10. The
+// parser must read data.jobs (and still accept a flat data array).
+test('jsearch: v5 wrapped shape data.jobs parses; flat data array still accepted', () => {
+  const wrapped = {
+    status: 'OK',
+    request_id: 'req-v5',
+    parameters: { query: 'welder', num_pages: 1, date_posted: 'all', country: 'us', language: 'en' },
+    data: { jobs: FIXTURE.data, cursor: 'cursor-abc' },
+  };
+  const jobs = parseJsearchPayload(wrapped);
+  assert.equal(jobs.length, 2);
+  assert.equal(jobs[0].id, 'jsearch:abc123');
+  assert.equal(jobs[0].title, 'Welder (MIG/TIG)');
+  // Flat-array shape keeps working (older docs / other callers).
+  assert.equal(parseJsearchPayload(FIXTURE).length, 2);
+  // A wrapped shape with no jobs array parses to zero, never throws.
+  assert.equal(parseJsearchPayload({ status: 'OK', data: { cursor: 'x' } }).length, 0);
+  assert.equal(parseJsearchPayload({ status: 'OK', data: null }).length, 0);
+});
+
+test('jsearch: fetchJobs parses the v5 wrapped shape from the wire', async () => {
+  const realFetch = globalThis.fetch;
+  const wrapped = {
+    status: 'OK',
+    request_id: 'req-v5',
+    parameters: { query: 'welder', num_pages: 1, date_posted: 'all', country: 'us', language: 'en' },
+    data: { jobs: FIXTURE.data, cursor: 'cursor-abc' },
+  };
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify(wrapped) });
+  try {
+    const jobs = await withEnvAsync('RAPIDAPI_KEY', FAKE_KEY, () => fetchJobs({ q: 'welder', limit: 10 }));
+    assert.equal(jobs.length, 2);
+    assert.equal(jobs[0].source, 'jsearch');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
