@@ -1,5 +1,5 @@
 /**
- * library.js — the NV2 demo catalog.
+ * library.js — the NV2 catalog.
  *
  * The source repo was a 3D "panning core" that pretended to be a video
  * library: four entries, all pointing at the same sample MP4 on a tutorial
@@ -8,7 +8,21 @@
  * catalog UI — search, categories, procedural poster art, detail views —
  * built around demo entries. Posters are painted on canvas from each entry's
  * seed, so every visit looks the same and nothing downloads.
+ *
+ * HOW TO ADD A TITLE (no code change, no fetch, no remote anything):
+ *   1. If the title has a video file, drop it under
+ *      public/videos/nv2-library/ — the file stays on this site.
+ *   2. Add one row to catalog.json next to this file:
+ *      { "title": "…", "category": "cosmos", "minutes": 12,
+ *        "blurb": "…", "src": "/videos/nv2-library/<file>" }
+ *      Leave "src" off for a demo entry (poster art only, no video file).
+ *   3. Done — the page reads catalog.json at build time. Rows with a
+ *      missing title or an unknown category are dropped, never shown.
+ *   Device-added files (the Add button) are separate: they play from the
+ *   visitor's own device and never leave the browser.
  */
+
+import CATALOG_ROWS from "./catalog.json" with { type: "json" };
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -29,39 +43,83 @@ export const CATEGORIES = [
   { id: "pulse", name: "Pulse Lab", motif: "rings", hue: [40, 70] },
 ];
 
-const CATALOG_ROWS = [
-  // [category, title, minutes, description]
-  ["cosmos", "Drift Through the Orion Arm", 12, "A slow pan across star-forming clouds, painted live on canvas."],
-  ["cosmos", "Saturn's Rings Up Close", 8, "Ice and rock in perfect orbit — a study in rings and light."],
-  ["cosmos", "Nebula Bloom", 15, "Gas clouds folding into new suns, one frame at a time."],
-  ["neon", "Midnight Overdrive", 6, "Rain-slick streets and signs that never sleep."],
-  ["neon", "Arcade District", 9, "The city's loudest block, rendered in pure neon."],
-  ["neon", "Last Train Home", 11, "Empty carriages, full colour — a quiet ride through the grid."],
-  ["nature", "Alpine Morning", 14, "First light crawling over a ridge line."],
-  ["nature", "The Old Forest", 18, "Canopy, mist, and the slow business of growing."],
-  ["nature", "Riverbend", 7, "Water finding the easiest way down, beautifully."],
-  ["deep", "Trench Light", 13, "Bioluminescence in the parts of the ocean sunlight forgot."],
-  ["deep", "Kelp Cathedral", 10, "Green light filtering through a forest that sways."],
-  ["deep", "Current Lines", 5, "Cold water drawing curves you can almost hear."],
-  ["pulse", "Waveform Studies", 4, "Rings and pulses in a lab with the lights low."],
-  ["pulse", "Resonance", 9, "What a struck tuning fork wishes it looked like."],
-  ["pulse", "Signal Garden", 16, "Frequencies planted in rows, blooming on schedule."],
-  ["pulse", "Heartbeat Monitor", 3, "One honest rhythm, drawn over and over."],
-];
-
-/** Full catalog with stable ids, seeds and runtimes. */
-export const CATALOG = CATALOG_ROWS.map(([category, title, minutes, blurb], i) => ({
-  id: `demo-${i + 1}`,
-  title,
-  category,
-  minutes,
-  blurb,
-  seed: 1000 + i * 131,
-  demo: true, // no video file behind this entry — catalog UI only
-}));
-
 export function categoryById(id) {
   return CATEGORIES.find((c) => c.id === id) || null;
+}
+
+/**
+ * Turn raw catalog rows into clean entries. Bad rows are dropped, never
+ * shown: a row needs a title and a known category. Minutes default to 5.
+ * A row is a demo entry (poster art only, no video file) unless it carries
+ * a local src under /videos/nv2-library/ — remote video paths are never
+ * accepted, so nothing here can point off-site.
+ */
+export function normalizeCatalog(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const entries = [];
+  const dropped = [];
+  list.forEach((row, index) => {
+    const title = typeof row?.title === "string" ? row.title.trim() : "";
+    if (!title) {
+      dropped.push({ index, reason: "missing title" });
+      return;
+    }
+    if (!categoryById(row.category)) {
+      dropped.push({ index, reason: `unknown category ${String(row.category)}` });
+      return;
+    }
+    const n = Number(row.minutes);
+    const minutes = Number.isFinite(n) && n > 0 ? Math.round(n) : 5;
+    const src =
+      typeof row.src === "string" && row.src.startsWith("/videos/nv2-library/")
+        ? row.src
+        : null;
+    const demo = row.demo === undefined ? src === null : row.demo === true;
+    entries.push({
+      id: typeof row.id === "string" && row.id ? row.id : `demo-${index + 1}`,
+      title,
+      category: row.category,
+      minutes,
+      blurb: typeof row.blurb === "string" ? row.blurb : "",
+      seed: Number.isFinite(Number(row.seed)) ? Number(row.seed) : 1000 + index * 131,
+      demo,
+      src,
+      featured: row.featured === true,
+    });
+  });
+  return { entries, dropped };
+}
+
+/** Full catalog with stable ids, seeds and runtimes. */
+export const CATALOG = normalizeCatalog(CATALOG_ROWS).entries;
+
+/** The title the hero spotlights: the flagged row, else the first title. */
+export function featuredEntry(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+  return entries.find((e) => e.featured) || entries[0];
+}
+
+/** Pure My List helpers — the page persists the id list in localStorage. */
+export function toggleMyList(list, id) {
+  const ids = Array.isArray(list) ? list : [];
+  return ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id];
+}
+
+export function isInMyList(list, id) {
+  return Array.isArray(list) && list.includes(id);
+}
+
+export function filterMyList(entries, ids) {
+  const set = new Set(Array.isArray(ids) ? ids : []);
+  return (Array.isArray(entries) ? entries : []).filter((e) => set.has(e.id));
+}
+
+/** The video a title can actually play: a device upload, else its local file. */
+export function playableSrc(entry) {
+  if (!entry) return null;
+  if (typeof entry.blobUrl === "string" && entry.blobUrl) return entry.blobUrl;
+  if (typeof entry.src === "string" && entry.src) return entry.src;
+  return null;
 }
 
 /** Pure search + filter. Query matches title and blurb, case-insensitive. */

@@ -9,17 +9,25 @@ import {
   CATEGORIES,
   CATALOG,
   categoryById,
+  featuredEntry,
   filterCatalog,
+  filterMyList,
   formatRuntime,
+  isInMyList,
+  normalizeCatalog,
   paintPoster,
   paintEmblem,
+  playableSrc,
+  toggleMyList,
 } from "../app/nv2-video-library/library.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const appDir = join(here, "../app/nv2-video-library");
 const pageSrc = readFileSync(join(appDir, "page.jsx"), "utf8");
 const libSrc = readFileSync(join(appDir, "library.js"), "utf8");
-const allSrc = pageSrc + "\n" + libSrc;
+const catalogSrc = readFileSync(join(appDir, "catalog.json"), "utf8");
+const catalogRows = JSON.parse(catalogSrc);
+const allSrc = pageSrc + "\n" + libSrc + "\n" + catalogSrc;
 const lower = allSrc.toLowerCase();
 
 test("page.jsx parses as valid JSX", () => {
@@ -64,7 +72,16 @@ test("zero external network requests", () => {
 });
 
 test("no remote video files or hotlinked thumbnails", () => {
-  assert.ok(!/["'][^"']*\.(mp4|mov)["']/i.test(allSrc), "remote/local video file reference found");
+  // A video file reference is only ever allowed as a local path under
+  // /videos/nv2-library/ — the loading path for titles added later.
+  // Anything remote, or any other local video path, is forbidden.
+  assert.ok(!/["']https?:[^"']*\.(mp4|mov)["']/i.test(allSrc), "remote video file reference found");
+  for (const m of allSrc.matchAll(/["']([^"']*\.(?:mp4|mov))["']/gi)) {
+    assert.ok(
+      m[1].startsWith("/videos/nv2-library/"),
+      `video reference outside the local library folder: ${m[1]}`
+    );
+  }
   assert.ok(!/<video[^>]*src\s*=\s*["']https?/i.test(allSrc), "remote <video> src found");
   assert.ok(!/<img[^>]*src\s*=\s*["']https?/i.test(allSrc), "remote <img> src found");
 });
@@ -190,4 +207,132 @@ test("copy is plain English and honest about being a demo", () => {
   for (const word of ["telemetry", "uplink", "repository", "ip address"]) {
     assert.ok(!uiText.includes(word), `jargon in UI copy: ${word}`);
   }
+});
+
+test("catalog.json is the single data source and matches the live catalog", () => {
+  assert.ok(Array.isArray(catalogRows) && catalogRows.length >= 12, "catalog.json too small");
+  const { entries, dropped } = normalizeCatalog(catalogRows);
+  assert.deepEqual(dropped, [], `catalog.json has dropped rows: ${JSON.stringify(dropped)}`);
+  assert.deepEqual(
+    entries.map((e) => e.id),
+    CATALOG.map((e) => e.id),
+    "live catalog drifted from catalog.json"
+  );
+  // Adding a title is a data change: a new row flows through untouched.
+  const extra = normalizeCatalog([
+    ...catalogRows,
+    { title: "Test Title", category: "nature", minutes: 6, blurb: "A test row." },
+  ]);
+  assert.equal(extra.entries.length, CATALOG.length + 1);
+  assert.equal(extra.entries.at(-1).title, "Test Title");
+});
+
+test("normalizeCatalog drops bad rows and never invents content", () => {
+  const { entries, dropped } = normalizeCatalog([
+    { title: "Good One", category: "cosmos", minutes: 12, blurb: "Fine." },
+    { title: "  ", category: "cosmos", minutes: 12, blurb: "No title." },
+    { title: "Wrong Shelf", category: "nope", minutes: 12, blurb: "Bad category." },
+    { title: "No Minutes", category: "neon", blurb: "Minutes default." },
+    { title: "Remote Video", category: "deep", minutes: 5, blurb: "Off-site src.", src: "https://example.com/x.mp4" },
+    { title: "Local File", category: "pulse", minutes: 5, blurb: "On-site src.", src: "/videos/nv2-library/local-file.mp4" },
+  ]);
+  assert.equal(entries.length, 4);
+  assert.deepEqual(
+    entries.map((e) => e.title),
+    ["Good One", "No Minutes", "Remote Video", "Local File"]
+  );
+  assert.equal(dropped.length, 2);
+  assert.equal(entries.find((e) => e.title === "No Minutes").minutes, 5);
+  // a remote src is refused: the entry stays demo with no playable file
+  const remote = entries.find((e) => e.title === "Remote Video");
+  assert.equal(remote.src, null);
+  assert.equal(remote.demo, true);
+  assert.equal(playableSrc(remote), null);
+  const local = entries.find((e) => e.title === "Local File");
+  assert.equal(local.demo, false);
+  assert.equal(local.src, "/videos/nv2-library/local-file.mp4");
+  // stable ids and seeds: the same rows always paint the same posters
+  const again = normalizeCatalog(catalogRows);
+  assert.deepEqual(
+    again.entries.map((e) => [e.id, e.seed]),
+    CATALOG.map((e) => [e.id, e.seed])
+  );
+});
+
+test("normalizeCatalog handles junk input", () => {
+  assert.deepEqual(normalizeCatalog(null), { entries: [], dropped: [] });
+  assert.deepEqual(normalizeCatalog("nope"), { entries: [], dropped: [] });
+  assert.deepEqual(normalizeCatalog([]), { entries: [], dropped: [] });
+});
+
+test("featuredEntry picks the flagged title, else the first", () => {
+  assert.equal(featuredEntry(CATALOG).title, "Drift Through the Orion Arm");
+  assert.equal(featuredEntry([{ title: "A" }, { title: "B" }]).title, "A");
+  assert.equal(featuredEntry([{ title: "A" }, { title: "B", featured: true }]).title, "B");
+  assert.equal(featuredEntry([]), null);
+  assert.equal(featuredEntry(null), null);
+});
+
+test("My List helpers are pure and round-trip", () => {
+  assert.deepEqual(toggleMyList([], "demo-1"), ["demo-1"]);
+  assert.deepEqual(toggleMyList(["demo-1"], "demo-1"), []);
+  assert.deepEqual(toggleMyList(["demo-1"], "demo-2"), ["demo-1", "demo-2"]);
+  assert.deepEqual(toggleMyList(null, "demo-1"), ["demo-1"]);
+  assert.equal(isInMyList(["demo-1"], "demo-1"), true);
+  assert.equal(isInMyList(["demo-1"], "demo-2"), false);
+  assert.equal(isInMyList(null, "demo-1"), false);
+  assert.deepEqual(
+    filterMyList(CATALOG, ["demo-2", "demo-5"]).map((e) => e.id),
+    ["demo-2", "demo-5"]
+  );
+  assert.deepEqual(filterMyList(CATALOG, null), []);
+});
+
+test("playableSrc prefers a device upload, then the local file", () => {
+  assert.equal(playableSrc(null), null);
+  assert.equal(playableSrc(CATALOG[0]), null, "demo entry has no playable file");
+  assert.equal(
+    playableSrc({ src: "/videos/nv2-library/a.mp4" }),
+    "/videos/nv2-library/a.mp4"
+  );
+  assert.equal(
+    playableSrc({ src: "/videos/nv2-library/a.mp4", blobUrl: "blob:xyz" }),
+    "blob:xyz"
+  );
+});
+
+test("loading path is documented where a title gets added", () => {
+  assert.ok(libSrc.includes("catalog.json"), "library.js does not name catalog.json");
+  assert.ok(libSrc.includes("HOW TO ADD A TITLE"), "add-a-title instructions missing");
+  assert.ok(libSrc.includes("/videos/nv2-library/"), "local video folder not documented");
+});
+
+test("page has a hero, browse rows, a player shell, and honest empty states", () => {
+  assert.ok(pageSrc.includes("nv2-hero"), "hero missing");
+  assert.ok(pageSrc.includes("FEATURED"), "hero kicker missing");
+  assert.ok(pageSrc.includes("nv2-row-scroll"), "browse rows missing");
+  assert.ok(pageSrc.includes("nv2-player"), "player shell missing");
+  assert.ok(pageSrc.includes("requestFullscreen"), "player fullscreen missing");
+  assert.ok(pageSrc.includes("No video file behind this title yet"), "player honest empty state missing");
+  assert.ok(pageSrc.includes("The shelves are empty for now"), "empty-shelf state missing");
+  assert.ok(pageSrc.includes("titles arrive once rights are acquired"), "rights honesty note missing");
+  assert.ok(pageSrc.includes("nv2-my-list"), "My List persistence key missing");
+});
+
+test("controls are circle orbs, never rectangles", () => {
+  assert.ok(pageSrc.includes("nv2-orb"), "orb controls missing");
+  // the detail close is a circle orb, not the old rectangular button
+  assert.ok(!pageSrc.includes("nv2-close"), "old rectangular close button still present");
+  assert.ok(pageSrc.includes("nv2-detail-close"), "detail close orb missing");
+  assert.ok(pageSrc.includes("nv2-player-top"), "player orb row missing");
+});
+
+test("upload double-add is guarded", () => {
+  assert.ok(pageSrc.includes("let done = false"), "upload done-guard missing");
+  assert.ok(pageSrc.includes("if (done) return;"), "upload done-guard not checked");
+});
+
+test("Safari bottom-bar clearance has a real rule", () => {
+  assert.ok(pageSrc.includes(".player-clear {"), "player-clear rule missing");
+  assert.ok(pageSrc.includes("safe-area-inset-bottom"), "safe-area clearance missing");
 });
