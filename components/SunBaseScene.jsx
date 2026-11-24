@@ -17,9 +17,12 @@
 // 3.2 m/s, so the room reads huge but is still crossed at the
 // usual pace). The rig is first-person and deliberately small:
 // drag to look, WASD / arrows / the shared WalkJoystick to walk,
-// clamped to the room's own walls. The door is a view, not an
-// exit — leaving is the page's "Back to hub" button, so nobody
-// walks out of their base into the void by accident.
+// clamped to the room's own walls. The doorway IS an exit now
+// (Merlin, Nov 24, 2026): walking through it travels to the hub
+// — the same walk-through travel as a portal piece set to Main
+// Hub — so the glow is a door out, not a dead end. The walker
+// stays clamped to the walls; the trigger fires as the walker
+// steps into the doorway mouth, before the wall.
 //
 // BUILDING (Merlin, Nov 13, 2026): the sun base is a build
 // surface exactly like an Earth 2 parcel — the SAME catalog, the
@@ -41,7 +44,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { buildInteriorRoom } from '@/lib/earth2/interior-room';
+import { buildInteriorRoom, interiorRoomDoor, isDoorwayPoint } from '@/lib/earth2/interior-room';
 import SunBaseCgi from '@/components/SunBaseCgi';
 import {
   buildGhostGroup,
@@ -57,6 +60,7 @@ import {
 } from '@/lib/building/placement';
 import { isPortalPiece } from '@/components/earth2/PortalDestinationPicker';
 import {
+  SUN_BASE_DOORWAY_TRIGGER_DEPTH_M,
   SUN_BASE_EYE_HEIGHT_M,
   SUN_BASE_WALK_SPEED_MPS,
   SUN_BASE_WALL_MARGIN_M,
@@ -188,6 +192,10 @@ function BuildLayer({
   const { camera, gl, scene } = useThree();
   const frame = useMemo(() => sunBaseBuildFrame(spec), [spec]);
   const off = useMemo(() => sunBaseBuildOffset(spec), [spec]);
+  // The room's own door geometry (same numbers the factory
+  // builds from): the doorway-exit trigger reads this, so the
+  // trigger zone and the built doorway can never drift apart.
+  const door = useMemo(() => interiorRoomDoor(spec), [spec]);
   const ghostRef = useRef(null);
   const ghostKeyRef = useRef('');
   const ghostPlacementRef = useRef(null);
@@ -407,6 +415,25 @@ function BuildLayer({
         inside = piece.portalTo;
         break;
       }
+    }
+    // The farmhouse doorway is an exit too (Merlin, Nov 24,
+    // 2026): stepping into the doorway mouth travels to the hub
+    // — the same Main Hub destination a portal piece offers, so
+    // the page's portalWalk resolves it to '/' with no new
+    // mechanism. Room metres: the walker and the door geometry
+    // share the room's own frame (the portal check above crosses
+    // into user metres; this one does not). One firing per
+    // entry, same guard as the portal pieces.
+    if (
+      !inside &&
+      isDoorwayPoint(
+        door,
+        walkerRef.current.x,
+        walkerRef.current.z,
+        SUN_BASE_DOORWAY_TRIGGER_DEPTH_M
+      )
+    ) {
+      inside = { kind: 'map', id: 'map:hub', label: 'Main Hub' };
     }
     if (inside) {
       if (Date.now() >= portalCooldownRef.current) {
