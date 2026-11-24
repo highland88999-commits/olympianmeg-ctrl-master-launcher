@@ -28,7 +28,7 @@ import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
 import { SUN_CENTER } from '../lib/omega-arch';
-import { SUN_BASE_TRIGGER_RADIUS, pullEasedProgress } from '../lib/sun-base';
+import { SUN_BASE_TRIGGER_RADIUS, pullEasedProgress, sunBaseExitSpawn, exitEasedProgress } from '../lib/sun-base';
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
@@ -496,12 +496,16 @@ function SunBackground({ onSelect, freeroam, sunPullRef }) {
   );
 }
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone }) {
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone, sunExit }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
   const portalRef = useRef();
   const routed = useRef(false);
+  // SUN BASE EXIT (Merlin, Nov 24, 2026): the one-shot reverse
+  // transition out of the sun — created on the first frame where
+  // the sunExit prop is true, owned until it hands off.
+  const exitRef = useRef(null);
   const [bulletY, setBulletY] = useState(40);
   // Drag-look offsets while mounted on the bike.
   const lookYaw = useRef(0);
@@ -517,6 +521,54 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   const PORTAL_POS = [dropTarget[0], ATMOSPHERE_Y, dropTarget[2]];
 
   useFrame((state, delta) => {
+    // SUN BASE EXIT (Merlin, Nov 24 ~07:06): coming OUT of the sun
+    // base lands the user just outside the sun on the hub side,
+    // facing the hub — the entry pull in reverse. Same 1.4 s
+    // (SUN_BASE_PULL_MS), same line, opposite direction: the
+    // camera starts deep inside the sun's glare (18 units off the
+    // centre — the pull's own target, so the exit starts exactly
+    // where the entry ended) and drifts OUT to the exit spawn,
+    // ease-out, the flare fading as the user emerges
+    // (pull.progress runs 1 -> 0). The camera faces the hub the
+    // whole way — the end state Merlin ordered — so no 180° turn
+    // at the end. The branch owns the camera from the first frame
+    // and hands off to hub_freeroam exactly once; it runs before
+    // the pull branch and before every launch-state branch, so
+    // the hub intro never gets a frame while an exit is pending.
+    // It holds pull.active true while running: the fly-through
+    // guard in SunBackground keys off pull.active, and the camera
+    // starts deep inside its trigger radius.
+    if (sunExit && !exitRef.current) {
+      exitRef.current = { active: true, done: false, from: null, target: null, lookAt: null, startMs: 0 };
+    }
+    const exit = exitRef.current;
+    if (exit && exit.active) {
+      if (!exit.from) {
+        const spawn = sunBaseExitSpawn(ORBIT_CENTER);
+        exit.from = new THREE.Vector3(spawn.inner[0], spawn.inner[1], spawn.inner[2]);
+        exit.target = new THREE.Vector3(spawn.position[0], spawn.position[1], spawn.position[2]);
+        exit.lookAt = new THREE.Vector3(spawn.lookAt[0], spawn.lookAt[1], spawn.lookAt[2]);
+        exit.startMs = performance.now();
+        if (sunPullRef) {
+          sunPullRef.current.active = true;
+          sunPullRef.current.progress = 1;
+        }
+      }
+      const e = exitEasedProgress(performance.now() - exit.startMs);
+      if (sunPullRef) sunPullRef.current.progress = 1 - e;
+      camera.position.lerpVectors(exit.from, exit.target, e);
+      camera.lookAt(exit.lookAt.x, exit.lookAt.y, exit.lookAt.z);
+      if (e >= 1 && !exit.done) {
+        exit.done = true;
+        exit.active = false;
+        if (sunPullRef) {
+          sunPullRef.current.active = false;
+          sunPullRef.current.progress = 0;
+        }
+        setLaunchState('hub_freeroam');
+      }
+      return;
+    }
     // SUN BASE PULL (Merlin, Nov 13 ~22:18): clicking the sun PULLS
     // the user into it — the camera is visibly drawn toward and into
     // the sun, accelerating (ease-in cubic, lib/sun-base.js), the sun
@@ -1162,6 +1214,7 @@ function HubScene({
   onSunClick,
   onSunPullDone,
   sunPullRef,
+  sunExit,
   onMoonClick,
   onContextLost,
   onFirstFrame,
@@ -1380,6 +1433,7 @@ function HubScene({
           onSatellitePortal={onSatellitePortal}
           sunPullRef={sunPullRef}
           onSunPullDone={onSunPullDone}
+          sunExit={sunExit}
         />
 
         <EarthFlightController

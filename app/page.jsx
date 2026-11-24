@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import Auth from '@/components/Auth';
@@ -43,7 +43,7 @@ import { useRadio } from '@/components/radio/RadioProvider';
 import HubTutorial from '@/components/HubTutorial';
 import PortalRoom from '@/components/PortalRoom';
 import { heavenUnlocked as portalHeavenUnlocked, usePortalProgress } from '@/lib/portal/progress';
-import { SUN_BASE_ROUTE } from '@/lib/sun-base';
+import { SUN_BASE_ROUTE, SUN_BASE_PULL_MS, consumeSunBaseExit } from '@/lib/sun-base';
 import { MOON_ROUTE } from '@/lib/moon';
 import { OMEGA_ROUTE } from '@/lib/omega-arch';
 import {
@@ -124,6 +124,32 @@ function NexusHub() {
     setSunFlash(true);
     window.setTimeout(() => router.push(SUN_BASE_ROUTE), 350);
   }, [router]);
+  // SUN BASE EXIT (Merlin, Nov 24 ~07:06): a hub-bound exit from
+  // /sun-base lands the user just outside the sun, facing the hub
+  // — never at the far default spawn. The one-shot flag is
+  // consumed in a layout effect (not a passive one) so it lands
+  // before the Canvas's first frame — otherwise the hub intro
+  // owns frame one and the exit transition starts a frame late.
+  // The gold overlay below is the entry flash in reverse: full
+  // gold on arrival, fading over the same 1.4 s as the camera
+  // drifts out of the sun.
+  const [sunBaseExit, setSunBaseExit] = useState(false);
+  const [sunExitFlash, setSunExitFlash] = useState(false);
+  const [sunExitFaded, setSunExitFaded] = useState(false);
+  useLayoutEffect(() => {
+    if (!consumeSunBaseExit()) return;
+    setSunBaseExit(true);
+    setSunExitFlash(true);
+  }, []);
+  useEffect(() => {
+    if (!sunExitFlash) return undefined;
+    const fadeTimer = window.setTimeout(() => setSunExitFaded(true), 50);
+    const doneTimer = window.setTimeout(() => setSunExitFlash(false), SUN_BASE_PULL_MS + 150);
+    return () => {
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(doneTimer);
+    };
+  }, [sunExitFlash]);
   // MOON LANDING (Merlin, Nov 13, 2026): clicking the Moon — or flying
   // into it — rides the existing vortex tube to /moon (the one vortex
   // system; satTube already routes on done, same as a satellite drop).
@@ -1357,6 +1383,7 @@ function NexusHub() {
         onSunPullDone={handleSunPullDone}
         onMoonClick={handleMoonClick}
         sunPullRef={sunPullRef}
+        sunExit={sunBaseExit}
         heavenUnlocked={portalHeavenUnlocked(portalProgress)}
         onPlanetJump={handlePlanetJump}
         pendingJump={pendingJump}
@@ -1439,6 +1466,20 @@ function NexusHub() {
           style={{
             position: 'fixed', inset: 0, zIndex: 2147483647, pointerEvents: 'none',
             background: 'radial-gradient(90% 90% at 50% 50%, #fff7d6 0%, #ffd98a 45%, #ff9a3c 100%)',
+          }}
+        />
+      )}
+      {/* Sun-base exit flash: the entry flash in reverse — full gold
+          on arrival from the base, fading over the same 1.4 s as the
+          camera drifts out of the sun. */}
+      {sunExitFlash && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 2147483647, pointerEvents: 'none',
+            background: 'radial-gradient(90% 90% at 50% 50%, #fff7d6 0%, #ffd98a 45%, #ff9a3c 100%)',
+            opacity: sunExitFaded ? 0 : 1,
+            transition: `opacity ${SUN_BASE_PULL_MS}ms ease-out`,
           }}
         />
       )}

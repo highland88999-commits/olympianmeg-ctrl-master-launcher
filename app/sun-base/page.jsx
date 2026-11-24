@@ -61,6 +61,7 @@ import {
   SUN_BASE_OPTIONS,
   SUN_BASE_OPTION_LABELS,
   loadSunBasePick,
+  markSunBaseExit,
   saveSunBasePick,
 } from '@/lib/sun-base';
 import { sunBaseSpecFor } from '@/lib/sun-base-spec';
@@ -323,6 +324,12 @@ export default function SunBasePage() {
     (dest) => {
       const route = resolveSunBasePortalDestination(dest);
       if (route) {
+        // A hub-bound exit from the base (the doorway, or a portal
+        // piece set to Main Hub) lands the user just outside the
+        // sun, facing the hub — mark it so the hub spawns there
+        // (Merlin, Nov 24, 2026). Other destinations keep their
+        // own spawns: Earth 2 and program routes never mark.
+        if (route === '/') markSunBaseExit();
         router.push(route);
         return;
       }
@@ -422,7 +429,13 @@ export default function SunBasePage() {
             </OrbButton>
           )}
           <OrbButton accent={GOLD} size={48}
-            onClick={() => router.push(backRoute)}
+            onClick={() => {
+              // Hub-bound only: the Mars 2 way back keeps its own
+              // spawn — only the hub exit lands outside the sun
+              // (Merlin, Nov 24, 2026).
+              if (backRoute === '/') markSunBaseExit();
+              router.push(backRoute);
+            }}
             ariaLabel={fromMars ? 'Back to Mars 2' : 'Back to hub'}>
             <span aria-hidden="true" style={{ fontSize: 20, lineHeight: 1 }}>←</span>
           </OrbButton>
