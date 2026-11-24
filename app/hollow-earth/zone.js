@@ -76,6 +76,12 @@ import {
 import { AURA_R_M, lightningColorFor } from '../../lib/lightning-aura.js';
 import { rainFor, RAIN_MAX_STREAKS, RAIN_FALL_SPEED_M_S, RAIN_HEIGHT_M } from './elemental-rain.js';
 import { ORB_DROP_SHELL_R, ORB_DROP_CORE_R } from './elemental-orbs.js';
+import { SAFE_ZONES } from './sanctuary.js';
+import {
+  SANCTUARY_GOLD, RING_SEGMENTS, RING_STRUCTURE_SEGMENTS,
+  ringElementColor, structureRingElement, structureRingRadius,
+  sanctuaryRingGeometry,
+} from './sanctuary-ring.js';
 import { kickOffGlb, preloadGlb } from './model-loader.js';
 import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
 import { buildElemental, hazeStateFor } from './elemental.js';
@@ -598,6 +604,15 @@ export function buildWorld(THREE, def, T, opts = {}) {
   // once it loads (applyLandmarkArt) and so update() can pulse
   // the ooze pools and court braziers per frame.
   const landmarkGroups = [];
+  // Phase 2c: every structure wears the sanctuary ring — the
+  // ring is its boundary AND its sanctuary (the same shared
+  // design as the safe zones, sized to the footprint). The list
+  // is collected here, while each landmark's footprint is
+  // known, and the meshes are built below once the watcher
+  // figure exists. The Haven is excepted: its zone ring already
+  // stands on its boundary (the landmark's own pillar ring
+  // marks the same line), so it is not ringed twice.
+  const structureRings = [];
   for (const lm of def.landmarks || []) {
     const built = buildLandmark(lm.type, R, T);
     const seatY = spanSeatY(heightAt, lm.x, lm.z, built.userData.colliderR || 2, { clampDrop: 1.5 });
@@ -615,7 +630,22 @@ export function buildWorld(THREE, def, T, opts = {}) {
     }
     const cr = (built.userData.colliderR || 0) * (lm.s || 1);
     if (cr > 0) colliders.push({ x: lm.x, z: lm.z, r: cr });
+    if (lm.type !== 'haven') {
+      structureRings.push({
+        kind: 'structure', name: lm.type, x: lm.x, z: lm.z,
+        r: structureRingRadius(built.userData.colliderR || 0, lm.s || 1),
+        element: structureRingElement(lm.x, lm.z),
+      });
+    }
   }
+  // Ghorrum's seat is a structure too (a seated watcher ringed
+  // by dressing rocks out to 14 m): its ward-line stands at
+  // 16 m, enclosing the whole seat. He is no monster record, so
+  // the ring changes nothing about him — it marks the seat.
+  structureRings.push({
+    kind: 'structure', name: "Ghorrum's Seat", x: WATCHER.pos.x, z: WATCHER.pos.z,
+    r: 16, element: structureRingElement(WATCHER.pos.x, WATCHER.pos.z),
+  });
 
   // --- scatter: only where its biome holds weight ---
   // G-11: the transition-band mixed gate (scatterAllowedAt) lets
@@ -721,7 +751,12 @@ export function buildWorld(THREE, def, T, opts = {}) {
   // until their GLB loads — no procedural stand-in anywhere.
   // Preload every placed URL up front so first activations
   // swap from cache instead of waiting on a cold fetch.
-  const records = spawnField(def.seed || 77701, { habitatAt: (x, z) => biomeAt(x, z).dominant });
+  const records = spawnField(def.seed || 77701, {
+    habitatAt: (x, z) => biomeAt(x, z).dominant,
+    // Phase 2c: no monster spawns inside a structure ring
+    // either — the landmark rings above are the exclusion list.
+    exclusionRings: structureRings,
+  });
   const monsters = records.map((rec) => createMonster(rec, rng));
   const figures = new Map();
   // Floating HP bars: one sprite per damaged monster, drawn on a
@@ -738,6 +773,11 @@ export function buildWorld(THREE, def, T, opts = {}) {
     try { bar.tex.dispose(); bar.sprite.material.dispose(); } catch { /* noop */ }
     barSprites.delete(id);
   }
+  // Phase 2c: inBase now means "inside ANY sanctuary zone"
+  // (the page feeds isInSanctuary + the structure rings in) —
+  // the flag's name is the old Haven name, its meaning is the
+  // whole sanctuary list. It still gates the same things:
+  // stepMonster's sanctuary break, the aura, the rain, the haze.
   const observer = { x: WORLD_SPAWN.x, z: WORLD_SPAWN.z, quiet: 1, noise: null, inBase: false };
   for (const key of new Set([
     ...PLACED_FIELD_KEYS.map((k) => (MONSTER_MODELS[k] || {}).url).filter(Boolean),
@@ -945,6 +985,84 @@ export function buildWorld(THREE, def, T, opts = {}) {
   kickOffGlb(watcherFig, WATCHER.model.url, WATCHER.model.height);
   let watcherWasLaughing = false;
 
+  // --- SANCTUARY RINGS (Phase 2c, Merlin Nov 24 ~10:06) ---
+  // One shared ring graphic (sanctuary-ring.js: the ward-line
+  // — an element-coloured ground band, two sanctuary-gold edge
+  // lines, a low shimmer veil) wraps the border of every safe
+  // zone and every structure's footprint. The ring IS the
+  // boundary marker: it reads as "safe inside, danger outside"
+  // from both sides (DoubleSide, fog: false, additive), and the
+  // hunter walks straight through it — NO collider is ever
+  // built for a ring (the no-barriers law wins; the ring marks
+  // where safety starts, it does not fence the world in). The
+  // Haven's zone ring stands on its boundary beside the
+  // landmark's own pillar ring — the two marks agree on the
+  // line. 14 zone rings + 19 structure rings (18 landmarks
+  // minus the Haven, plus Ghorrum's seat) = 33 rings.
+  const sanctuaryRingRecs = []; // { kind, name, x, z, r, element, group, bandMat, veilMat, phase }
+  function addSanctuaryRing({ kind, name, x, z, r, element, segments }) {
+    const geo = sanctuaryRingGeometry(x, z, r, heightAt, element, segments);
+    const g = new R.Group();
+    g.userData = { sanctuaryRing: true, kind, name, radiusM: r, element };
+    const flat = (pts) => {
+      // Points arrive as {x, y, z}, colours as [r, g, b] —
+      // both flatten to triples the same way.
+      const arr = new Float32Array(pts.length * 3);
+      pts.forEach((p, i) => {
+        arr[i * 3] = p.x != null ? p.x : p[0];
+        arr[i * 3 + 1] = p.y != null ? p.y : p[1];
+        arr[i * 3 + 2] = p.z != null ? p.z : p[2];
+      });
+      return arr;
+    };
+    // Ground band: the element colour, additive, breathing.
+    const bandGeo = new R.BufferGeometry();
+    bandGeo.setAttribute('position', new R.BufferAttribute(flat(geo.band.positions), 3));
+    bandGeo.setIndex(geo.band.indices);
+    const bandMat = new R.MeshBasicMaterial({
+      color: ringElementColor(element), transparent: true, opacity: 0.5,
+      side: R.DoubleSide, blending: R.AdditiveBlending, depthWrite: false, fog: false,
+    });
+    const band = new R.Mesh(bandGeo, bandMat);
+    band.frustumCulled = false;
+    g.add(band);
+    // Shimmer veil: the element colour fading to black at the
+    // top (additive, so black is invisible — the curtain
+    // dissolves overhead instead of ending in a hard line).
+    const veilGeo = new R.BufferGeometry();
+    veilGeo.setAttribute('position', new R.BufferAttribute(flat(geo.veil.positions), 3));
+    veilGeo.setAttribute('color', new R.BufferAttribute(flat(geo.veil.colors), 3));
+    veilGeo.setIndex(geo.veil.indices);
+    const veilMat = new R.MeshBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.14,
+      side: R.DoubleSide, blending: R.AdditiveBlending, depthWrite: false, fog: false,
+    });
+    const veil = new R.Mesh(veilGeo, veilMat);
+    veil.frustumCulled = false;
+    g.add(veil);
+    // Gold edge lines: the ward-line itself, both edges.
+    for (const pts of [geo.edgeInner, geo.edgeOuter]) {
+      const edgeGeo = new R.BufferGeometry();
+      edgeGeo.setAttribute('position', new R.BufferAttribute(flat(pts), 3));
+      const loop = new R.LineLoop(edgeGeo, new R.LineBasicMaterial({
+        color: SANCTUARY_GOLD, transparent: true, opacity: 0.9, fog: false,
+      }));
+      loop.frustumCulled = false;
+      g.add(loop);
+    }
+    group.add(g);
+    sanctuaryRingRecs.push({
+      kind, name, x, z, r, element, group: g, bandMat, veilMat,
+      phase: (x * 0.37 + z * 0.73) % (Math.PI * 2),
+    });
+  }
+  for (const zone of SAFE_ZONES) {
+    addSanctuaryRing({ kind: 'zone', name: zone.name, x: zone.x, z: zone.z, r: zone.r, element: zone.element, segments: RING_SEGMENTS });
+  }
+  for (const sr of structureRings) {
+    addSanctuaryRing({ ...sr, segments: RING_STRUCTURE_SEGMENTS });
+  }
+
   function setObserver(o) {
     if (o.x != null) observer.x = o.x;
     if (o.z != null) observer.z = o.z;
@@ -992,7 +1110,9 @@ export function buildWorld(THREE, def, T, opts = {}) {
         // kickOffGlb is a no-op for an already-attempted figure
         // by design, and the loaded GLB children are still there.
         if (m.respawnAtMs && Date.now() >= m.respawnAtMs) {
-          respawnMonster(m, rng);
+          // Phase 2c: the respawn never lands inside a sanctuary
+          // zone or a structure ring.
+          respawnMonster(m, rng, Date.now(), structureRings);
           removeRemainsDisc(m.id);
           // fall through: re-activate by proximity below
         } else {
@@ -1023,6 +1143,10 @@ export function buildWorld(THREE, def, T, opts = {}) {
         noise: observer.noise,
         quiet: observer.quiet,
         others: monsters, // monster-vs-monster: the aura's prey list
+        // Phase 2c: prey standing inside a structure ring is
+        // not aura-struck (the safe zones are covered by
+        // isInSanctuary inside stepMonster).
+        sanctuaryRings: structureRings,
       });
       for (const ev of evs) {
         if (ev.kind === 'hit') m.attackT = elapsed; // throw motion at launch
@@ -1073,6 +1197,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
           losClear: (ax, az, bx, bz) => losClear(heightAt, ax, az, bx, bz),
           others: monsters,
           farSlice: true,
+          sanctuaryRings: structureRings,
         });
         for (const ev of farEvs) {
           if (ev.kind === 'aura-strike') routeAuraStrike(ev);
@@ -1082,6 +1207,13 @@ export function buildWorld(THREE, def, T, opts = {}) {
       sliceCursor = far.length > 0 ? (sliceCursor + chunk) % far.length : 0;
     }
     syncAuraRings();
+    // Sanctuary rings breathe: the band + veil pulse gently
+    // (the aura-ring pattern), so the ward-line reads alive
+    // without flashing.
+    for (const rec of sanctuaryRingRecs) {
+      rec.bandMat.opacity = 0.45 + 0.15 * Math.sin(elapsed * 1.5 + rec.phase);
+      rec.veilMat.opacity = 0.11 + 0.04 * Math.sin(elapsed * 1.5 + rec.phase);
+    }
     updateRemains();
     updateOrbDrops();
     // Fly the monster projectiles against the hunter's live position.
@@ -1174,6 +1306,19 @@ export function buildWorld(THREE, def, T, opts = {}) {
       try { group.remove(ring.loop); } catch { /* noop */ }
     }
     auraRings.clear();
+    // Sanctuary rings: remove + dispose every band, veil and
+    // gold edge line (a second dispose() must be a no-op — the
+    // list is emptied, and group.clear() below drops the rest).
+    for (const rec of sanctuaryRingRecs) {
+      try { group.remove(rec.group); } catch { /* noop */ }
+      try {
+        rec.group.traverse((o) => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) o.material.dispose();
+        });
+      } catch { /* noop */ }
+    }
+    sanctuaryRingRecs.length = 0;
     monsterShots.dispose();
     group.clear();
     figures.clear();
@@ -1202,6 +1347,13 @@ export function buildWorld(THREE, def, T, opts = {}) {
     // day/night retint, applied to the dome material instead of
     // scene.background.
     skyDome, landmarkGroups,
+    // Phase 2c: the sanctuary rings as plain data — the page
+    // reads them for its sanctuary predicate (isInsideAnyRing),
+    // the HUD name, and the probe. { kind: 'zone' | 'structure',
+    // name, x, z, r, element } — 14 zones + 19 structures.
+    sanctuaryRings: sanctuaryRingRecs.map((rec) => ({
+      kind: rec.kind, name: rec.name, x: rec.x, z: rec.z, r: rec.r, element: rec.element,
+    })),
     setSkyTint(hex) { applySkyTint(skyDome, hex); },
     setSkyVideoTexture(tex) {
       skyVideoTex = tex || null;

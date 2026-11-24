@@ -35,8 +35,11 @@
 //     never prey. His telegraphed blasts are his own mechanics.
 //   Ghorrum (kind 'watcher' / watcher: true) — EXEMPT, non-hostile.
 //   Mounted monsters never emanate. Dead monsters emit nothing.
-//   Inactive monsters emit nothing. The Haven (inBase) suppresses
-//   every aura — sanctuary means sanctuary for every element.
+//   Inactive monsters emit nothing. Any sanctuary (inBase)
+//   suppresses every aura — sanctuary means sanctuary for
+//   every element. (Phase 2c: inBase used to mean "in The
+//   Haven"; it now means "inside any safe zone or structure
+//   ring" — the flag's name is the old Haven name.)
 //   Lightning is NOT softened against the user: the player is
 //   struck first, always; monster prey only when the player is
 //   outside the aura (the wiring worker keeps that order).
@@ -136,7 +139,8 @@ export function isExemptSource(source) {
 /**
  * Pure guard modelling the spawns.js aura-branch guards: a source
  * may emanate only when it is alive, active, unmounted, not
- * exempt, and the hunter is not inside The Haven (opts.inBase).
+ * exempt, and the hunter is not inside any sanctuary
+ * (opts.inBase — Phase 2c: any safe zone or structure ring).
  * `source` is a monster record (or null); opts carries inBase.
  * Returns false for a null source.
  */

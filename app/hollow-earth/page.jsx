@@ -53,6 +53,7 @@ import {
   poolDpsAt, prunePools, activeSecondary, chillFactorFor,
   applyPlayerBoltSecondary,
 } from './spawns.js';
+import { isInSanctuary, sanctuaryAt, isInsideAnyRing, ringAt } from './sanctuary.js';
 import { getParticleTexture } from '../../lib/particles/sprites.js';
 import {
   createOrbDrop, collectOrbs, pruneOrbs, addOrb, totalOrbs,
@@ -123,6 +124,26 @@ export default function HollowEarthPage() {
   const jumpRef = useRef(false); // JUMP orb edge — consumed by the tick, one frame only
   const worldRef = useRef(null);
   const walkerRef = useRef(null);
+  // Phase 2c: the world's full sanctuary ring list (14 safe
+  // zones + 19 structure rings, from buildWorld) — the page's
+  // sanctuary predicate reads it, so a structure ring protects
+  // exactly like a safe zone. The list is filled right after
+  // buildWorld; until then the zone table alone answers.
+  const sanctuaryRingsRef = useRef([]);
+  // True when (x, z) stands inside any sanctuary — a safe zone
+  // (the table) or a structure ring (the world's list). The
+  // Haven-only check stays isInBase (trade + return point).
+  const inSanctuaryAt = (x, z) => isInSanctuary(x, z)
+    || isInsideAnyRing(x, z, sanctuaryRingsRef.current);
+  // The sanctuary's name at (x, z), for the HUD pill — the
+  // world's list first (it carries the structure names too),
+  // the zone table as the fallback.
+  const sanctuaryNameAt = (x, z) => {
+    const ring = ringAt(x, z, sanctuaryRingsRef.current);
+    if (ring) return ring.name;
+    const zone = sanctuaryAt(x, z);
+    return zone ? zone.name : null;
+  };
   // INNER SPHERE (Nov 16): the sphere walker rides beside the
   // flat walker — walker.pos.x/z stay the deck coordinates
   // every distance rule reads, and sphereRef holds the 3D feet
@@ -210,7 +231,7 @@ export default function HollowEarthPage() {
   const [heroKey, setHeroKey] = useState(() => readProgress().hero);
   const [clusterId, setClusterId] = useState(null);
   const [entry, setEntry] = useState(null); // {kind:'mission',missionId} | {kind:'roam'}
-  const [hud, setHud] = useState({ hp: PLAYER_MAX_HP, shield: 0, kills: 0, inBase: false, weapon: 'melee', sense: null, bossHp: null, bossAwake: false, secondary: null });
+  const [hud, setHud] = useState({ hp: PLAYER_MAX_HP, shield: 0, kills: 0, inBase: false, sanctuary: null, weapon: 'melee', sense: null, bossHp: null, bossAwake: false, secondary: null });
   const [orbHud, setOrbHud] = useState(null); // orb wallet mirror {orbs, shieldTier, weaponTier} — HUD tally + trade panel
   const [tradeOpen, setTradeOpen] = useState(false); // elemental trade panel — The Haven only
   const [dmgFlash, setDmgFlash] = useState(0);
@@ -558,7 +579,7 @@ export default function HollowEarthPage() {
     // not linger into the next hunt. A stale JUMP edge is dropped too.
     weaponRef.current = 'melee';
     jumpRef.current = false;
-    setHud({ hp: hero.maxHp, shield: campaign.shield, kills: campaign.kills, inBase: false, weapon: 'melee', sense: null, bossHp: null, bossAwake: false, secondary: null });
+    setHud({ hp: hero.maxHp, shield: campaign.shield, kills: campaign.kills, inBase: false, sanctuary: null, weapon: 'melee', sense: null, bossHp: null, bossAwake: false, secondary: null });
     // Elemental orbs: the wallet + tiers load device-local on
     // entry (the field drops start empty each entry — uncollected
     // drops do not survive leaving the world).
@@ -633,10 +654,15 @@ export default function HollowEarthPage() {
     // Returns true when the strike must NOT light a burn
     // (already dead, sanctuary, or slain by this hit), false
     // when the hunter took the hit and lives.
-    const damageHunter = (dmg, element, eventKind = 'hit') => {
+    // Phase 2c: sanctuary now means ANY safe zone or structure
+    // ring — except Korus's own blasts (from === 'korus'): his
+    // telegraphed blasts are his own mechanics, exempt like his
+    // aura/prey exemptions, so the throne court stays a real
+    // fight even though its ring is a sanctuary.
+    const damageHunter = (dmg, element, eventKind = 'hit', from = null) => {
       const h = hunterRef.current;
       if (!h || h.hp <= 0) return true;
-      if (isInBase(walker.pos.x, walker.pos.z)) return true; // sanctuary: no damage lands
+      if (from !== 'korus' && inSanctuaryAt(walker.pos.x, walker.pos.z)) return true; // sanctuary: no damage lands
       const res = applyDamage(h, dmg);
       if (res.hpLost > 0) flashDamage();
       if (res.absorbed > 0) notice(`🛡️ Shield absorbed ${res.absorbed} damage${res.shieldBroken ? ' — shield broken!' : ''}.`);
@@ -668,7 +694,7 @@ export default function HollowEarthPage() {
 
     const world = buildWorld(THREE, DATA.WORLD, T, {
       gateOpen: DATA.gateOpen(campaign),
-      onPlayerHit: (dmg, from, archetype, element) => { damageHunter(dmg, element); },
+      onPlayerHit: (dmg, from, archetype, element) => { damageHunter(dmg, element, 'hit', from); },
       onAuraStrike: (ev) => {
         // ELEMENTAL AURA-STRIKE (Merlin, Nov 16 ~00:11 lightning /
         // Nov 16 ~01:33-01:34 all seven elements): the streak
@@ -734,6 +760,9 @@ export default function HollowEarthPage() {
     });
     worldRef.current = world;
     scene.add(world.group);
+    // Phase 2c: the world's sanctuary ring list fills the
+    // page's predicate from here on (zones + structures).
+    sanctuaryRingsRef.current = world.sanctuaryRings || [];
     // INNER SPHERE (Nov 16): the sphere walker starts on the
     // ground at the entry deck point — 3D feet on the shell,
     // heading ref facing north (yaw 0 = north at spawn).
@@ -1199,9 +1228,9 @@ export default function HollowEarthPage() {
       const jump = ride ? false : keys.consumeJump() || jumpRef.current;
       jumpRef.current = false;
       // WS6 frost chill: the walker runs at x0.7 while chilled —
-      // suppressed inside The Haven (full speed there, R4).
+      // suppressed inside any sanctuary (full speed there, R4).
       const hunterNow = hunterRef.current;
-      const chillF = hunterNow && !isInBase(walker.pos.x, walker.pos.z)
+      const chillF = hunterNow && !inSanctuaryAt(walker.pos.x, walker.pos.z)
         ? chillFactorFor(hunterNow, Date.now()) : 1;
       // INNER SPHERE (Nov 16): the flat stepWalker is retired
       // for this realm — the sphere step walks the inside of
@@ -1294,7 +1323,10 @@ export default function HollowEarthPage() {
         x: walker.pos.x, z: walker.pos.z,
         quiet: hero.quiet || 1,
         noise: noiseRef.current,
-        inBase: isInBase(walker.pos.x, walker.pos.z),
+        // Phase 2c: inBase now means "inside ANY sanctuary zone
+        // or structure ring" — the zone's hunt/aura/rain/haze
+        // gates all read this one flag.
+        inBase: inSanctuaryAt(walker.pos.x, walker.pos.z),
         // WS6: hit-driven haze deadlines for the zone's haze dome.
         dimUntil: hunterRef.current ? hunterRef.current.dimUntil || 0 : 0,
         gustUntil: hunterRef.current ? hunterRef.current.gustUntil || 0 : 0,
@@ -1322,7 +1354,7 @@ export default function HollowEarthPage() {
       hazardsRef.current = hazardsRef.current.filter((hz) => {
         if (hzNow < hz.at) return true;
         const d = Math.hypot(walker.pos.x - hz.x, walker.pos.z - hz.z);
-        if (d <= hz.radius && !isInBase(walker.pos.x, walker.pos.z)) {
+        if (d <= hz.radius && !inSanctuaryAt(walker.pos.x, walker.pos.z)) {
           const h = hunterRef.current;
           if (h && h.hp > 0) {
             const res = applyDamage(h, hz.dmg);
@@ -1355,7 +1387,7 @@ export default function HollowEarthPage() {
       const hb = hunterRef.current;
       if (hb && hb.dotRemainingS > 0 && hb.hp > 0) {
         const dotDmg = tickHunterDot(hb, dt);
-        if (dotDmg > 0 && !isInBase(walker.pos.x, walker.pos.z)) {
+        if (dotDmg > 0 && !inSanctuaryAt(walker.pos.x, walker.pos.z)) {
           const res = applyDamage(hb, dotDmg);
           if (res.hpLost > 0) flashDamage();
           setHud((prev) => ({ ...prev, hp: hb.hp, shield: hb.shield }));
@@ -1384,7 +1416,7 @@ export default function HollowEarthPage() {
         poolsRef.current = live;
         const poolDps = poolDpsAt(live, walker.pos.x, walker.pos.z, nowMs);
         const hp2 = hunterRef.current;
-        if (poolDps > 0 && hp2 && hp2.hp > 0 && !isInBase(walker.pos.x, walker.pos.z)) {
+        if (poolDps > 0 && hp2 && hp2.hp > 0 && !inSanctuaryAt(walker.pos.x, walker.pos.z)) {
           const res = applyDamage(hp2, poolDps * dt);
           if (res.hpLost > 0) flashDamage();
           setHud((prev) => ({ ...prev, hp: hp2.hp, shield: hp2.shield }));
@@ -1469,6 +1501,11 @@ export default function HollowEarthPage() {
           shield: h ? h.shield : prev.shield,
           kills: h ? h.kills : prev.kills,
           inBase: isInBase(walker.pos.x, walker.pos.z),
+          // Phase 2c: the HUD names the sanctuary the hunter
+          // stands in (any zone or structure ring), or null in
+          // the wilds. inBase above stays Haven-only — the
+          // trade lives at The Haven, and only there.
+          sanctuary: sanctuaryNameAt(walker.pos.x, walker.pos.z),
           secondary: h ? activeSecondary(h, Date.now()) : null,
           bossHp: world.korus.dead ? 0 : world.korus.dormant ? null : world.korus.hp,
           bossAwake: world.korus.awake,
@@ -1817,12 +1854,16 @@ export default function HollowEarthPage() {
               🔮 {Object.values(ORB_ELEMENTS).filter((o) => (orbHud.orbs[o.element] || 0) > 0).map((o) => `${o.icon}${orbHud.orbs[o.element]}`).join(' ') || '0 orbs'}{orbHud.boltElement ? ` · 🏹${ORB_ELEMENTS[orbHud.boltElement].icon}` : ''}
             </span>
           )}
-          {hud.inBase && <span style={{ background: 'rgba(216,178,92,0.85)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#1a1426', fontSize: 14, fontWeight: 700 }}>🏠 The Haven — sanctuary</span>}
+          {/* Phase 2c: the sanctuary pill names the zone or
+              structure ring the hunter stands in — The Haven,
+              Acid Hollow, the throne court, any of them — and
+              the Wilds pill shows out in the field. */}
+          {hud.sanctuary && <span style={{ background: 'rgba(216,178,92,0.85)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#1a1426', fontSize: 14, fontWeight: 700 }}>🛡️ {hud.sanctuary} — sanctuary</span>}
           {/* Sanctuary/Wilds readout, re-homed from the deleted bar
               (Merlin, Nov 16 ~02:30): display-only, same words the
-              bar showed — the Haven pill above when in base, this
+              bar showed — the sanctuary pill above when inside one, this
               Wilds pill out in the field. */}
-          {!hud.inBase && <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>⚔️ Wilds</span>}
+          {!hud.sanctuary && <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>⚔️ Wilds</span>}
           {/* Trade opens at The Haven only — the button lives in
               the HUD row (pointerEvents re-enabled: the HUD
               column itself is pointer-events none). */}

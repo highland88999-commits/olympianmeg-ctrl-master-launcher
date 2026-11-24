@@ -32,6 +32,11 @@ import {
   birthMsFor, lifespanDaysFor, hungerFor, ageDeathDue,
 } from './monster-life.js'; // the life agents — stepMonster reads
 // the hunger + age verdicts from here, never a second copy
+import {
+  SAFE_ZONES, HAVEN_ZONE, isInSanctuary, isInsideAnyRing, isInsideZone,
+} from './sanctuary.js'; // Phase 2c: the sanctuary table is
+// owned here — spawns.js re-exports The Haven from it and
+// honours the whole list, never a second copy of the numbers.
 
 // PLACED-ONLY FIELD (2026-10-26 rework): only families with a
 // real rigged GLB on disk spawn on the field. The set comes
@@ -437,12 +442,18 @@ export function activeSecondary(h, nowMs = Date.now()) {
  * SPAWN-TO-BASE: a teleport back here at any time, even
  * mid-danger, no cost, with a 10 s anti-spam cooldown
  * (judgment call — short enough to never trap a retreat, long
- * enough that teleport-dodging can't be spammed). */
-export const SAFE_BASE = { x: 0, z: 155, r: 28, name: 'The Haven' };
+ * enough that teleport-dodging can't be spammed).
+ * PHASE 2c (Nov 24): The Haven is now the FIRST of fourteen
+ * safe zones (sanctuary.js SAFE_ZONES) — the sanctuary law
+ * below is unchanged, it simply holds everywhere a zone
+ * stands. SAFE_BASE and isInBase keep their old Haven-only
+ * meanings (trade + return point live here, and only here);
+ * isInSanctuary is the general predicate. */
+export const SAFE_BASE = HAVEN_ZONE;
 export const BASE_TELEPORT_COOLDOWN_S = 10;
 
 export function isInBase(x, z) {
-  return Math.hypot(x - SAFE_BASE.x, z - SAFE_BASE.z) <= SAFE_BASE.r;
+  return isInsideZone(x, z, SAFE_BASE);
 }
 
 export function canTeleport(lastTeleportMs, nowMs) {
@@ -471,8 +482,10 @@ export function canTeleport(lastTeleportMs, nowMs) {
  * Dragons keep their own rare pass: exactly 3 of each PLACED
  * dragon, sampled inside the dragon's habitat band (today only
  * Stormwing: cinder-dragon and muse-dragon GLBs are truncated).
- * The Haven exclusion and the spawn-clear radius apply to every
- * pass. A legacy opts.elementAt reader is still honoured
+ * The sanctuary exclusion (every safe zone + any structure
+ * rings the caller passes in opts.exclusionRings) and the
+ * spawn-clear radius apply to every pass. A legacy
+ * opts.elementAt reader is still honoured
  * (mapped element → primary band) so older callers keep
  * working; a family whose band never matches a degenerate
  * reader falls back to its band's anchor, jittered — anchors
@@ -499,7 +512,21 @@ export function spawnField(seed, opts = {}) {
       : () => Object.keys(FAMILIES_BY_HABITAT)[(rng() * Object.keys(FAMILIES_BY_HABITAT).length) | 0]);
   const records = [];
   const clearOfSpawn = (x, z) => Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) >= SPAWN_CLEAR_R;
-  const clearOfBase = (x, z) => Math.hypot(x - SAFE_BASE.x, z - SAFE_BASE.z) >= SAFE_BASE.r + 10;
+  // Phase 2c: the exclusion is every sanctuary, not just The
+  // Haven — no monster spawns inside any safe zone, and none
+  // inside a caller-supplied structure ring either (the zone
+  // passes the landmark rings through opts.exclusionRings).
+  // The +10 m margin keeps a spawn off the ring itself.
+  const clearOfSanctuary = (x, z) => {
+    for (const zone of SAFE_ZONES) {
+      if (Math.hypot(x - zone.x, z - zone.z) < zone.r + 10) return false;
+    }
+    const rings = opts.exclusionRings || [];
+    for (const ring of rings) {
+      if (ring && Math.hypot(x - ring.x, z - ring.z) < ring.r + 10) return false;
+    }
+    return true;
+  };
   const samplePoint = () => {
     const a = rng() * Math.PI * 2;
     const r = Math.sqrt(rng()) * radius;
@@ -514,17 +541,32 @@ export function spawnField(seed, opts = {}) {
     let guard = 0;
     while (placed < 2 && guard++ < 400) {
       const { x, z } = samplePoint();
-      if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
+      if (!clearOfSpawn(x, z) || !clearOfSanctuary(x, z)) continue;
       if (habitatAt(x, z) !== fam.habitat) continue;
       records.push({ id: `m-${records.length}`, type: key, element: fam.element, x, z });
       placed++;
     }
     // Degenerate reader fallback: the band's anchor, jittered.
+    // Phase 2c: seven of the eight band anchors now sit at safe-
+    // zone centres, so the old ±10 m jitter would spawn inside
+    // a sanctuary — the fallback steps 35–50 m out instead
+    // (clear of a zone's r 24 + 10 m margin) and verifies the
+    // landing is clear of every sanctuary and of spawn.
     while (placed < 2) {
       const anchor = (BIOMES[fam.habitat] || {}).anchor || { x: 0, z: 0 };
+      let fx = anchor.x;
+      let fz = anchor.z;
+      let tries = 0;
+      do {
+        const a = rng() * Math.PI * 2;
+        const rr = 35 + rng() * 15;
+        fx = anchor.x + Math.cos(a) * rr;
+        fz = anchor.z + Math.sin(a) * rr;
+        tries++;
+      } while (tries < 20 && (!clearOfSanctuary(fx, fz) || !clearOfSpawn(fx, fz)));
       records.push({
         id: `m-${records.length}`, type: key, element: fam.element,
-        x: anchor.x + (rng() - 0.5) * 20, z: anchor.z + (rng() - 0.5) * 20,
+        x: fx, z: fz,
       });
       placed++;
     }
@@ -536,7 +578,7 @@ export function spawnField(seed, opts = {}) {
   let guard = 0;
   while (records.length < count && guard++ < count * 40) {
     const { x, z } = samplePoint();
-    if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
+    if (!clearOfSpawn(x, z) || !clearOfSanctuary(x, z)) continue;
     const habitat = habitatAt(x, z);
     const types = (FAMILIES_BY_HABITAT[habitat] || []).filter((k) => PLACED_FIELD.has(k));
     if (types.length === 0) continue;
@@ -553,7 +595,7 @@ export function spawnField(seed, opts = {}) {
     let guard2 = 0;
     while (placed < 3 && guard2++ < 400) {
       const { x, z } = samplePoint();
-      if (!clearOfSpawn(x, z) || !clearOfBase(x, z)) continue;
+      if (!clearOfSpawn(x, z) || !clearOfSanctuary(x, z)) continue;
       if (habitatAt(x, z) !== habitat) continue;
       records.push({ id: `m-${records.length}`, type: dtype, element: MONSTER_TYPES[dtype].element, x, z });
       placed++;
@@ -629,14 +671,20 @@ export const GIVE_UP_S = 20; // JUDGMENT CALL: 20 s unseen and the
  * hearing and wait in their biome's hazards until the hunter
  * closes to AMBUSH_R (or hurts them). On spotting, the monster
  * chases and attacks with its archetype. Lose sight for
- * GIVE_UP_S and it returns to its roam. Chases break at the
- * safe-base boundary (opts.inBase): the hunter inside The Haven
- * is untouchable — hunting monsters drop the chase outright.
+ * GIVE_UP_S and it returns to its roam. Chases break at a
+ * sanctuary boundary (opts.inBase): the hunter inside any safe
+ * zone is untouchable — hunting monsters drop the chase
+ * outright. (Phase 2c: inBase used to mean "inside The Haven";
+ * it now means "inside any sanctuary zone".)
  * opts.quiet (the hunter's quiet factor, 1 = normal) scales the
  * sight and hearing radii down for quiet hunters.
  * opts.others — the field's monster records: the aura's
  * monster-prey list (Korus/Ghorrum are never in it, and are
- * refused as prey outright — see isMonsterPreyTarget). */
+ * refused as prey outright — see isMonsterPreyTarget).
+ * opts.sanctuaryRings — the structure rings (zone.js): prey
+ * standing inside one is not aura-struck, like prey inside a
+ * safe zone. The player case needs no list: opts.inBase
+ * already means "the hunter stands inside any sanctuary". */
 export function stepMonster(m, dt, player, rng, opts = {}) {
   if (m.dead) return [];
   const events = [];
@@ -678,7 +726,7 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   const dz = player.z - m.z;
   const dist = Math.hypot(dx, dz) || 0.001;
 
-  // Sanctuary break: inside The Haven the hunt ends, outright.
+  // Sanctuary break: inside any safe zone the hunt ends, outright.
   if (opts.inBase) {
     if (m.spotted) { m.spotted = false; m.state = 'idle'; m.target = null; }
     return events;
@@ -724,7 +772,8 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   // mechanics (stepKorus, never stepMonster) and Ghorrum is not
   // a monster record, so neither can reach this branch.
   // Sanctuary (inBase) returns above, so no streak lands inside
-  // The Haven. Distance is the same 2D ground distance the
+  // any safe zone — and the prey guard above refuses prey
+  // standing inside one. Distance is the same 2D ground distance the
   // senses use. An unknown element has no ELEMENT_AURA row and
   // never fires.
   // The aura kind is shared by the strike branch below and the
@@ -766,7 +815,15 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
         }
         if ((m.auraCdPrey || 0) <= 0) {
           const prey = nearestMonsterPrey(m, opts.others, auraRow.radiusM);
-          if (prey) {
+          // Phase 2c: no aura damage inside a sanctuary — a prey
+          // monster standing inside any safe zone (or inside a
+          // structure ring the zone passes in
+          // opts.sanctuaryRings) is not struck. The player case
+          // is already covered by the inBase return above.
+          const preyInSanctuary = prey
+            && (isInSanctuary(prey.target.x, prey.target.z)
+              || isInsideAnyRing(prey.target.x, prey.target.z, opts.sanctuaryRings || []));
+          if (prey && !preyInSanctuary) {
             m.auraCdPrey = STRIKE_INTERVAL_S;
             events.push({
               kind: 'aura-strike', element: m.element, from: m.id, target: prey.target.id,
@@ -1135,9 +1192,9 @@ export function tickMonsterBurn(m, dt) {
  * after 45 s: same slot identity (id kept, so the field count
  * never drops), same type, a new position near where it fell
  * (within ~40 m — which keeps it in its habitat band in
- * practice, since it died hunting there — clear of The Haven
- * and the spawn-clear radius), full HP, fresh cooldowns. Korus
- * never respawns: he is not a monster record and carries no
+ * practice, since it died hunting there — clear of every
+ * sanctuary and the spawn-clear radius), full HP, fresh
+ * cooldowns. Korus never respawns: he is not a monster record and carries no
  * respawnAtMs. THE 45 s CLOCK IS THE DECOMPOSITION WINDOW
  * (agents workstream, Nov 16 ~02:31 — the one-death-law call):
  * J2's multi-day decomposition clock is NOT copied — Hollow
@@ -1149,7 +1206,7 @@ export function tickMonsterBurn(m, dt) {
  * instant (age 0, full lifespan ahead), same family, near where
  * it fell. Age death now exists too (birth + lifespan, via
  * stepMonster) — the generation walk is what the respawn IS. */
-export function respawnMonster(m, rng, nowMs = Date.now()) {
+export function respawnMonster(m, rng, nowMs = Date.now(), extraRings = []) {
   const rand = rng || Math.random;
   const maxHp = (m.stats && m.stats.hp) || 100;
   let x = m.x;
@@ -1161,7 +1218,7 @@ export function respawnMonster(m, rng, nowMs = Date.now()) {
     x = m.x + Math.cos(a) * r;
     z = m.z + Math.sin(a) * r;
     guard++;
-  } while (guard < 20 && (isInBase(x, z) || Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) < SPAWN_CLEAR_R));
+  } while (guard < 20 && (isInSanctuary(x, z) || isInsideAnyRing(x, z, extraRings) || Math.hypot(x - WORLD_SPAWN.x, z - WORLD_SPAWN.z) < SPAWN_CLEAR_R));
   m.x = x;
   m.z = z;
   m.hp = maxHp;

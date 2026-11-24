@@ -270,17 +270,21 @@ test('shield absorbs secondary damage first — no bypass anywhere', () => {
   assert.equal(h.shield, 45);
 });
 
-test('Haven suppression gates (step 11): page + zone pin the same gates as damage', () => {
+test('Sanctuary suppression gates (step 11, Phase 2c): page + zone pin the same gates as damage', () => {
   const page = readFileSync('app/hollow-earth/page.jsx', 'utf8');
   const zone = readFileSync('app/hollow-earth/zone.js', 'utf8');
-  // damageHunter early-returns inside The Haven (no hit, no secondary).
-  assert.match(page, /if \(isInBase\(walker\.pos\.x, walker\.pos\.z\)\) return true; \/\/ sanctuary: no damage lands/);
-  // DoT tick deals damage only outside The Haven (the timer still counts down).
-  assert.match(page, /if \(dotDmg > 0 && !isInBase\(walker\.pos\.x, walker\.pos\.z\)\)/);
-  // Pool tick deals damage only outside The Haven.
-  assert.match(page, /if \(poolDps > 0 && hp2 && hp2\.hp > 0 && !isInBase\(walker\.pos\.x, walker\.pos\.z\)\)/);
-  // Hazard resolution still requires !isInBase, and hazards light secondaries.
-  assert.match(page, /if \(d <= hz\.radius && !isInBase\(walker\.pos\.x, walker\.pos\.z\)\)/);
+  // damageHunter early-returns inside ANY sanctuary (no hit, no
+  // secondary) — except Korus's own blasts (from === 'korus'):
+  // his telegraphed blasts are his own mechanics, so the throne
+  // court stays a real fight. Phase 2c generalised the old
+  // Haven-only isInBase guard to inSanctuaryAt (zones + rings).
+  assert.match(page, /if \(from !== 'korus' && inSanctuaryAt\(walker\.pos\.x, walker\.pos\.z\)\) return true; \/\/ sanctuary: no damage lands/);
+  // DoT tick deals damage only outside a sanctuary (the timer still counts down).
+  assert.match(page, /if \(dotDmg > 0 && !inSanctuaryAt\(walker\.pos\.x, walker\.pos\.z\)\)/);
+  // Pool tick deals damage only outside a sanctuary.
+  assert.match(page, /if \(poolDps > 0 && hp2 && hp2\.hp > 0 && !inSanctuaryAt\(walker\.pos\.x, walker\.pos\.z\)\)/);
+  // Hazard resolution still requires !sanctuary, and hazards light secondaries.
+  assert.match(page, /if \(d <= hz\.radius && !inSanctuaryAt\(walker\.pos\.x, walker\.pos\.z\)\)/);
   assert.match(page, /applyHitSecondary\(h, hz\.element, 'hazard'/);
   // The zone passes the hit-driven haze deadlines with the Haven flag.
   assert.match(zone, /haze: hazeStateFor\(\{/);

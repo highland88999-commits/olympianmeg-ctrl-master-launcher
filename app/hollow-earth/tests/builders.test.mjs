@@ -49,6 +49,8 @@ const DATA = await import('../data.js');
 const { buildSkyDome } = await import('../sky.js');
 const SP = await import('../spawns.js');
 const { biomeAt, biomeWeights, BIOMES } = await import('../biomes.js');
+const { SAFE_ZONES } = await import('../sanctuary.js');
+const { ringElementColor, SANCTUARY_GOLD } = await import('../sanctuary-ring.js');
 
 test('landmark registry covers all twelve types incl. haven + korus-throne + frost-spire + court-brazier', () => {
   assert.deepEqual(
@@ -136,8 +138,13 @@ test('WS4 G-01: ground detail textures exist and the terrain wears a map + bumpM
   assert.ok(T.acidRiverTexture(), 'acid river texture returned nothing');
   const world = buildWorld(THREE, DATA.WORLD, T, { gateOpen: false });
   let terrainMat = null;
+  // Phase 2c: the selector must name the TERRAIN, not just "a
+  // vertex-coloured mesh" — the sanctuary veils also carry
+  // vertex colours (their fade), and the old selector took the
+  // LAST match, which is now a veil. The terrain is the one
+  // vertex-coloured MeshStandardMaterial in the world.
   world.group.traverse((o) => {
-    if (o.isMesh && o.material && o.material.vertexColors && o.geometry
+    if (o.isMesh && o.material && o.material.vertexColors && o.material.isMeshStandardMaterial && o.geometry
       && o.geometry.attributes && o.geometry.attributes.color) terrainMat = o.material;
   });
   assert.ok(terrainMat, 'no vertex-coloured terrain mesh found');
@@ -252,4 +259,85 @@ test('WS4 sky dome builder: flat tint until a map lands, tint retints', () => {
   assert.equal(dome.material.color.getHex(), 0x2a1e3f);
   assert.equal(dome.material.map, null);
   assert.equal(dome.material.fog, false);
+});
+
+// ---- Phase 2c (Merlin, Nov 24 ~10:06): sanctuary rings ----
+
+test('Phase 2c: buildWorld hangs one sanctuary ring on every safe zone and every structure', () => {
+  const world = buildWorld(THREE, DATA.WORLD, T, { gateOpen: false });
+  const rings = world.sanctuaryRings;
+  assert.ok(Array.isArray(rings), 'buildWorld must expose its sanctuary rings');
+  assert.equal(rings.length, 33, `expected 33 rings (14 zones + 19 structures), found ${rings.length}`);
+  // Every safe zone wears its ring, at its seat, radius and element.
+  for (const zone of SAFE_ZONES) {
+    const ring = rings.find((r) => r.kind === 'zone' && r.name === zone.name);
+    assert.ok(ring, `no zone ring for ${zone.name}`);
+    assert.equal(ring.x, zone.x);
+    assert.equal(ring.z, zone.z);
+    assert.equal(ring.r, zone.r, `${zone.name} ring radius ${ring.r}, expected ${zone.r}`);
+    assert.equal(ring.element, zone.element);
+  }
+  // Every landmark except the Haven wears a structure ring sized
+  // to its footprint + the 3 m margin — the Haven is not ringed
+  // twice (its zone ring already stands on its boundary).
+  for (const lm of DATA.WORLD.landmarks) {
+    if (lm.type === 'haven') {
+      assert.equal(rings.find((r) => r.name === 'haven'), undefined, 'The Haven must not be ringed twice');
+      continue;
+    }
+    const built = buildLandmark(lm.type, THREE, T);
+    const expectR = (built.userData.colliderR || 0) * (lm.s || 1) + 3;
+    const ring = rings.find((r) => r.kind === 'structure' && r.x === lm.x && r.z === lm.z);
+    assert.ok(ring, `no structure ring for ${lm.type} at (${lm.x},${lm.z})`);
+    assert.equal(ring.r, expectR, `${lm.type} ring radius ${ring.r}, expected ${expectR}`);
+  }
+  // Ghorrum's seat (the watcher + his rock ring) and the throne
+  // court are ringed too — the throne ring is a real sanctuary
+  // against the field; Korus himself is the exemption, not the ring.
+  const seat = rings.find((r) => r.name === "Ghorrum's Seat");
+  assert.ok(seat, 'no ring for Ghorrum’s Seat');
+  assert.equal(seat.r, 16, 'the seat ring encloses the 14 m rock ring');
+  const throne = rings.find((r) => r.name === 'korus-throne');
+  assert.ok(throne, 'no ring for the korus-throne');
+  assert.equal(throne.r, 13, 'throne ring: collider 10 + 3 m margin');
+  world.dispose();
+});
+
+test('Phase 2c: every ring is a band + veil + two gold edges, fog off — and no ring is a collider', () => {
+  const world = buildWorld(THREE, DATA.WORLD, T, { gateOpen: false });
+  const groups = [];
+  world.group.traverse((o) => { if (o.userData && o.userData.sanctuaryRing) groups.push(o); });
+  assert.equal(groups.length, 33, `expected 33 ring groups in the scene, found ${groups.length}`);
+  for (const g of groups) {
+    assert.equal(g.children.length, 4, `${g.userData.name}: a ring is band + veil + 2 gold edges`);
+    const [band, veil, edge1, edge2] = g.children;
+    assert.equal(band.material.color.getHex(), ringElementColor(g.userData.element),
+      `${g.userData.name} band must wear its element colour`);
+    assert.equal(band.material.fog, false, 'the band must read at distance, fog off');
+    assert.equal(band.material.blending, THREE.AdditiveBlending, 'the band is additive light, not paint');
+    assert.equal(veil.material.vertexColors, true, 'the veil fades through vertex colours');
+    assert.equal(veil.material.fog, false, 'the veil must read at distance, fog off');
+    assert.equal(edge1.material.color.getHex(), SANCTUARY_GOLD, 'the inner edge is sanctuary gold');
+    assert.equal(edge2.material.color.getHex(), SANCTUARY_GOLD, 'the outer edge is sanctuary gold');
+    assert.equal(edge1.isLineLoop, true, 'edges are line loops, not meshes');
+    assert.equal(edge2.isLineLoop, true);
+  }
+  // A ring is a marker, never a wall: no collider entry IS a ring.
+  for (const c of world.colliders) {
+    const isRing = world.sanctuaryRings.some((r) => r.x === c.x && r.z === c.z && r.r === c.r);
+    assert.equal(isRing, false, `collider at (${c.x},${c.z}) r ${c.r} is a sanctuary ring — rings must never collide`);
+  }
+  world.dispose();
+});
+
+test('Phase 2c: the ring pulse runs in update() and dispose() removes every ring', () => {
+  const world = buildWorld(THREE, DATA.WORLD, T, { gateOpen: false });
+  world.update(0.1);
+  let before = 0;
+  world.group.traverse((o) => { if (o.userData && o.userData.sanctuaryRing) before++; });
+  assert.equal(before, 33, 'update() must keep all 33 rings');
+  world.dispose();
+  let after = 0;
+  world.group.traverse((o) => { if (o.userData && o.userData.sanctuaryRing) after++; });
+  assert.equal(after, 0, 'dispose() must remove every ring');
 });
