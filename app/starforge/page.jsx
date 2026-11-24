@@ -35,12 +35,26 @@ import {
   offerTrade, respondTrade,
   victoryPoints, vpBreakdown, aiStep,
   deserializeState, onlineActorId, openOffersFor, pendingFreePicks, phaseReason,
-  expansionsOn, winTarget, winTargetFor,
+  expansionsOn, winTarget, winTargetFor, starfightersOn,
 } from '@/lib/starforge/engine.js';
 import {
   createTileHold, tileHoldWake, tileHoldDuration, tileHoldEnd, tileHoldActive,
   tileHoldBackstopMs,
 } from '@/lib/starforge/tile-hold.js';
+import {
+  createExplorersGame, placeSettlement as exPlaceSettlement,
+  rollDice as exRollDice, discardCards as exDiscardCards, movePirate as exMovePirate,
+  buildShip as exBuildShip, buildSettler as exBuildSettler, buildCrew as exBuildCrew,
+  buildHarbor as exBuildHarbor, buyResource as exBuyResource, sellResource as exSellResource,
+  tradeWithBank as exTradeWithBank, endBuild as exEndBuild, moveShip as exMoveShip,
+  loadSettler as exLoadSettler, loadCrew as exLoadCrew, unloadCrew as exUnloadCrew,
+  loadSpice as exLoadSpice, loadFish as exLoadFish, unloadSettler as exUnloadSettler,
+  unloadFish as exUnloadFish, unloadSpice as exUnloadSpice, joinLair as exJoinLair,
+  attackLair as exAttackLair, endTurn as exEndTurn, offerTrade as exOfferTrade,
+  respondTrade as exRespondTrade, aiStep as exAiStep, aiRespondToOffer as exAiRespondToOffer,
+  onlineActorId as exOnlineActorId, deserializeExplorersState,
+} from '@/lib/starforge/explorers.js';
+import ExplorersGame from '@/components/starforge/explorers-ui.jsx';
 import {
   OmegaMark, HexTileArt, TileVideoLayer, TradeHubArt, CardFace, CardBack, DiceFace,
   VoidFleetShipMarker, OutpostPiece, StationPiece, WarpLanePiece, StarshipPiece,
@@ -68,6 +82,8 @@ const EXPANSION_INFO = [
   { key: 'stationsStarfighters', name: 'Stations & Starfighters', desc: 'Commodities, improvements, starfighters and the void fleets.', image: '/images/starforge/menu/stations-starfighters.webp' },
   { key: 'harvesters', name: 'Harvesters', desc: 'Biomass tokens to spend, and the scrap hull.', image: '/images/starforge/menu/harvesters.webp' },
   { key: 'caravans', name: 'Rover Caravans', desc: 'Rovers on the rover route, worth extra points.', image: '/images/starforge/menu/caravans.webp' },
+  { key: 'barbarianAttack', name: 'Barbarian Attack', desc: 'Starfighters defend the island — every 7 brings the Void Fleet closer.', image: '/images/starforge/menu/stations-starfighters.webp' },
+  { key: 'explorersPirates', name: 'Explorers & Pirates', desc: 'Ships, hidden islands, pirate lairs, fish and spice — first to 17 points. A game of its own: pick it alone.', image: '/images/starforge/menu/starfarers.webp' },
 ];
 
 // Progress cards that need a pick before they can be played, and what pick.
@@ -209,7 +225,7 @@ export default function StarforgePage() {
   const [screen, setScreen] = useState('menu'); // 'menu' | 'lobby' | 'game'
   const [onlineMode, setOnlineMode] = useState(false);
   const [playerName, setPlayerName] = useState('You');
-  const [expansions, setExpansions] = useState({ starfarers: false, stationsStarfighters: false, harvesters: false, caravans: false });
+  const [expansions, setExpansions] = useState({ starfarers: false, stationsStarfighters: false, harvesters: false, caravans: false, barbarianAttack: false, explorersPirates: false });
   const [roomCode, setRoomCode] = useState('');
   const [playerToken, setPlayerToken] = useState('');
   const [mySeat, setMySeat] = useState(0);
@@ -254,14 +270,16 @@ export default function StarforgePage() {
   const [counterOf, setCounterOf] = useState(null); // offer being countered
 
   const game = gameRef.current;
+  const isExplorers = game?.mode === 'explorers';
   const ex = game ? expansionsOn(game) : {};
   const pid = onlineMode ? mySeat : 0;
   const me = game ? game.players[pid] : null;
   const cur = game ? currentPlayer(game) : null;
   // Who must act right now — discard-queue head / voidFleet loser /
   // placement actor / turn player. NOT always the turn player.
+  // Explorers & Pirates has its own actor rule (same shape, its own module).
   const actorId = game
-    ? (onlineMode ? onlineActorId(game)
+    ? (onlineMode ? (isExplorers ? exOnlineActorId(game) : onlineActorId(game))
       : game.phase === 'discard' && game.discardQueue.length > 0 ? game.discardQueue[0]
       : game.phase === 'voidFleet' && game.voidFleetLosers.length > 0 ? game.voidFleetLosers[0]
       : game.turn)
@@ -274,10 +292,10 @@ export default function StarforgePage() {
   const mustDiscard = myTurn && game?.phase === 'discard';
   const mustVoidPirate = myTurn && game?.phase === 'voidPirate';
   const mustVoidFleet = myTurn && game?.phase === 'voidFleet';
-  const freePicks = game && me ? pendingFreePicks(game, pid) : 0;
+  const freePicks = game && me && !isExplorers ? pendingFreePicks(game, pid) : 0;
   const incomingOffers = game && onlineMode ? openOffersFor(game, pid) : [];
 
-  const legalOutposts = game && ((isPlacement && actorId === pid) || (canAct && buildMode === 'outpost'))
+  const legalOutposts = game && !isExplorers && ((isPlacement && actorId === pid) || (canAct && buildMode === 'outpost'))
     ? legalOutpostSpots(game, pid) : [];
   const legalWarpLanes = game && ((isPlacement && actorId === pid && game.placementStep === 'warpLane')
     || (canAct && (buildMode === 'warpLane' || game.freeLanes > 0)))
@@ -285,7 +303,7 @@ export default function StarforgePage() {
   const legalStarships = game && ex.starfarers && ((isPlacement && actorId === pid && game.placementStep === 'warpLane')
     || (canAct && (buildMode === 'starship' || game.freeLanes > 0)))
     ? legalStarshipSpots(game, pid) : [];
-  const legalStarfighters = game && ex.stationsStarfighters && canAct && buildMode === 'starfighter'
+  const legalStarfighters = game && starfightersOn(game) && canAct && buildMode === 'starfighter'
     ? legalStarfighterSpots(game, pid) : [];
   const legalRovers = game && ex.caravans && game.roverPending?.player === pid
     ? legalRoverSpots(game, pid) : [];
@@ -306,11 +324,59 @@ export default function StarforgePage() {
     }
   }
 
+  // Local (solo) dispatch for Explorers & Pirates: same action shapes as
+  // applyExplorersOnlineAction, so solo and online handlers stay identical.
+  // A human offer to an agent seat gets an immediate agent answer here —
+  // the server does the same thing in applyExplorersOnlineAction.
+  function dispatchExplorersLocal(g, action) {
+    switch (action.type) {
+      case 'roll': return exRollDice(g);
+      case 'discard': return exDiscardCards(g, pid, action.cards);
+      case 'endTurn': return exEndTurn(g, pid);
+      case 'placeSettlement': return exPlaceSettlement(g, pid, action.vertex);
+      case 'movePirate': return exMovePirate(g, pid, action.hex);
+      case 'buildShip': return exBuildShip(g, pid, action.edge);
+      case 'buildSettler': return exBuildSettler(g, pid);
+      case 'buildCrew': return exBuildCrew(g, pid);
+      case 'buildHarbor': return exBuildHarbor(g, pid, action.vertex);
+      case 'buyResource': return exBuyResource(g, pid, action.resource);
+      case 'sellResource': return exSellResource(g, pid, action.resource);
+      case 'tradeWithBank': return exTradeWithBank(g, pid, action.give, action.get);
+      case 'endBuild': return exEndBuild(g, pid);
+      case 'moveShip': return exMoveShip(g, pid, action.shipId, action.to);
+      case 'loadSettler': return exLoadSettler(g, pid, action.shipId);
+      case 'loadCrew': return exLoadCrew(g, pid, action.shipId, action.count || 1);
+      case 'unloadCrew': return exUnloadCrew(g, pid, action.shipId, action.count || 1);
+      case 'loadSpice': return exLoadSpice(g, pid, action.shipId);
+      case 'loadFish': return exLoadFish(g, pid, action.shipId);
+      case 'unloadSettler': return exUnloadSettler(g, pid, action.shipId, action.vertex);
+      case 'unloadFish': return exUnloadFish(g, pid, action.shipId);
+      case 'unloadSpice': return exUnloadSpice(g, pid, action.shipId);
+      case 'joinLair': return exJoinLair(g, pid, action.shipId, action.lairHexId, action.crew);
+      case 'attackLair': return exAttackLair(g, pid, action.lairHexId);
+      case 'offerTrade': {
+        const events = exOfferTrade(g, pid, action.to, action.offer, action.ask);
+        const target = playerById(g, action.to);
+        if (target?.isAI) {
+          const offer = g.tradeOffers[g.tradeOffers.length - 1];
+          if (offer && offer.status === 'open') {
+            const reply = exAiRespondToOffer(g, action.to, offer);
+            if (reply) events.push(...reply);
+          }
+        }
+        return events;
+      }
+      case 'respondTrade': return exRespondTrade(g, action.offerId, pid, action.choice, action.counterOffer, action.counterAsk);
+      default: return [];
+    }
+  }
+
   // Local (solo) dispatch: one action object, same shapes as the server's
   // applyOnlineAction, so solo and online handlers stay identical.
   function dispatchLocal(action) {
     const g = gameRef.current;
     if (!g) return [];
+    if (g.mode === 'explorers') return dispatchExplorersLocal(g, action);
     switch (action.type) {
       case 'roll': return rollDice(g);
       case 'discard': return discardCards(g, pid, action.cards);
@@ -356,6 +422,12 @@ export default function StarforgePage() {
   }
 
   // ---- online rooms (authoritative server, poll every 2.5s) ----
+  // The room payload carries mode: 'explorers' for E&P rooms (the classic
+  // payload has no mode field) — deserialize with the matching engine.
+  function deserializeGameState(json) {
+    return json && json.mode === 'explorers' ? deserializeExplorersState(json) : deserializeState(json);
+  }
+
   async function onlineAct(action) {
     setOnlineError('');
     try {
@@ -366,7 +438,7 @@ export default function StarforgePage() {
       });
       const data = await res.json();
       if (!data.ok) { setOnlineError(data.error || 'That move was rejected.'); setNotice(data.error || 'That move was rejected.'); return; }
-      gameRef.current = deserializeState(data.state);
+      gameRef.current = deserializeGameState(data.state);
       applyEvents(data.events);
       setLogLines(gameRef.current.log.slice());
       tick();
@@ -436,7 +508,7 @@ export default function StarforgePage() {
       const data = await res.json();
       if (!data.ok) { setOnlineError(data.error || 'Could not start the game.'); return; }
       if (data.state) {
-        gameRef.current = deserializeState(data.state);
+        gameRef.current = deserializeGameState(data.state);
         endTileHold();
         resetPanels();
         setLogLines(gameRef.current.log.slice());
@@ -489,7 +561,7 @@ export default function StarforgePage() {
         if (typeof data.yourSeat === 'number') setMySeat(data.yourSeat);
         if (data.expansions) setRoomExpansions(data.expansions);
         if (data.status === 'playing' && data.state) {
-          gameRef.current = deserializeState(data.state);
+          gameRef.current = deserializeGameState(data.state);
           setLogLines(gameRef.current.log.slice());
           if (screen === 'lobby') { resetPanels(); setScreen('game'); }
           tick();
@@ -516,7 +588,11 @@ export default function StarforgePage() {
   }
 
   function startSolo() {
-    gameRef.current = createGame(Math.floor(Math.random() * 1000000000), (playerName || '').trim() || 'You', { expansions });
+    // Explorers & Pirates is a game of its own — a different engine, not
+    // an expansion on the classic board.
+    gameRef.current = expansions.explorersPirates
+      ? createExplorersGame(Math.floor(Math.random() * 1000000000), (playerName || '').trim() || 'You')
+      : createGame(Math.floor(Math.random() * 1000000000), (playerName || '').trim() || 'You', { expansions });
     endTileHold();
     resetPanels();
     setOnlineMode(false);
@@ -582,13 +658,19 @@ export default function StarforgePage() {
   async function pumpAi() {
     if (pumpRef.current || onlineMode) return;
     const g = gameRef.current;
+    // Explorers & Pirates steps with its own AI and its own phases.
+    const isEx = g.mode === 'explorers';
+    const stepFn = isEx ? exAiStep : aiStep;
+    const phases = isEx
+      ? ['placement', 'roll', 'discard', 'pirate', 'build', 'move']
+      : ['placement', 'roll', 'discard', 'voidPirate', 'play', 'voidFleet'];
     const actingNow = g.phase === 'discard' && g.discardQueue.length > 0
       ? playerById(g, g.discardQueue[0])
       : g.phase === 'voidFleet' && g.voidFleetLosers.length > 0
         ? playerById(g, g.voidFleetLosers[0])
         : currentPlayer(g);
     if (!actingNow || !actingNow.isAI) return;
-    if (!['placement', 'roll', 'discard', 'voidPirate', 'play', 'voidFleet'].includes(g.phase)) return;
+    if (!phases.includes(g.phase)) return;
     pumpRef.current = true;
     try {
       for (let guard = 0; guard < 400 && g && !g.winner; guard++) {
@@ -598,7 +680,7 @@ export default function StarforgePage() {
             ? playerById(g, g.voidFleetLosers[0])
             : currentPlayer(g);
         if (!acting || !acting.isAI) break;
-        if (!['placement', 'roll', 'discard', 'voidPirate', 'play', 'voidFleet'].includes(g.phase)) break;
+        if (!phases.includes(g.phase)) break;
         // Tile-video hold: an AI that rolled a waking number (or moved the
         // pirate) waits the video out before its next step — the same
         // minimum turn duration as a human turn. The wait sits AFTER the
@@ -610,7 +692,7 @@ export default function StarforgePage() {
         // here; the hold still gates the human's End Turn in online rooms.
         await sleep(600);
         while (tileHoldActive(tileHoldRef.current)) await sleep(100);
-        const ev = aiStep(g);
+        const ev = stepFn(g);
         applyEvents(ev);
         tick();
       }
@@ -630,7 +712,18 @@ export default function StarforgePage() {
   }
 
   function toggleExpansion(key) {
-    setExpansions((prev) => ({ ...prev, [key]: !prev[key] }));
+    // Explorers & Pirates is exclusive — a game of its own, not combinable
+    // with the classic expansions (same as the real game).
+    setExpansions((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (key === 'explorersPirates' && next.explorersPirates) {
+        next.starfarers = false; next.stationsStarfighters = false;
+        next.harvesters = false; next.caravans = false; next.barbarianAttack = false;
+      } else if (key !== 'explorersPirates' && next[key]) {
+        next.explorersPirates = false;
+      }
+      return next;
+    });
   }
 
   function playProgress(type, args = {}) {
@@ -685,7 +778,7 @@ export default function StarforgePage() {
       return;
     }
     const v = game.vertices.get(vKey);
-    if (ex.stationsStarfighters && v?.starfighter?.player === pid) {
+    if (starfightersOn(game) && v?.starfighter?.player === pid) {
       setSelectedStarfighter(vKey);
       setStarfighterOpen(true);
       if (v.starfighter.active) setStarfighterMoveFrom(vKey);
@@ -921,6 +1014,20 @@ export default function StarforgePage() {
     );
   }
 
+  // ---- Explorers & Pirates game screen (a different engine, same route) ----
+  // The E&P component owns its whole screen — board, panels, log — and
+  // talks to the page only through move() / onNewGame. key by seed so a
+  // new game resets its local board state (selected ship, build mode).
+  // Bottom padding clears the site's fixed music bar (104 px) so the last
+  // orbs can be scrolled above it and tapped.
+  if (screen === 'game' && game && game.mode === 'explorers') {
+    return (
+      <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 130px', boxSizing: 'border-box' }}>
+        <ExplorersGame key={game.seed} game={game} pid={pid} onlineMode={onlineMode} move={move} onNewGame={newGame} logLines={logLines} notice={notice} onFullscreen={toggleFullscreen} />
+      </main>
+    );
+  }
+
   // ---- Game screen (solo or online) ----
   const bounds = boardBounds(game.hexes);
   const discardNeed = mustDiscard ? game.discardNeed : 0;
@@ -963,7 +1070,7 @@ export default function StarforgePage() {
   // the static Myriad background stays underneath as the fallback if
   // the video cannot play (poster is the same Myriad sky).
   return (
-    <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 24px', position: 'relative', overflow: 'hidden' }}>
+    <main style={{ minHeight: '100vh', ...MYRIAD_BG, color: '#f4f4f5', padding: '10px 10px 130px', position: 'relative', overflow: 'hidden' }}>
       <video data-testid="board-bg-video" src="/videos/starforge/board-bg.mp4" poster="/images/myriad/bg.webp"
         muted loop playsInline autoPlay preload="auto" aria-hidden="true"
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.55, zIndex: 0, pointerEvents: 'none' }} />
@@ -1552,8 +1659,8 @@ export default function StarforgePage() {
           </div>
         )}
 
-        {/* Starfighters panel (Stations & Starfighters) */}
-        {starfighterOpen && ex.stationsStarfighters && (
+        {/* Starfighters panel (Barbarian Attack or Stations & Starfighters) */}
+        {starfighterOpen && starfightersOn(game) && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 700 }}>Starfighters — your army against the void fleets</p>
             <p style={{ margin: '0 0 8px', fontSize: 12, color: '#a1a1aa' }}>
@@ -1593,8 +1700,8 @@ export default function StarforgePage() {
           </div>
         )}
 
-        {/* Void Fleet track (Stations & Starfighters) */}
-        {ex.stationsStarfighters && (
+        {/* Void Fleet track (Barbarian Attack or Stations & Starfighters) */}
+        {starfightersOn(game) && (
           <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <VoidFleetShipMarker size={28} />
@@ -1607,7 +1714,18 @@ export default function StarforgePage() {
             </div>
             <p style={{ margin: '6px 0 0', fontSize: 12, color: '#a1a1aa' }}>
               {game.voidFleetTrack}/{VOID_FLEET_TRACK_LENGTH} — when the starship reaches 7, the void fleets attack. If your active starfighters are weaker than the stations, the weakest defender loses a station. The strongest defender earns a Defender of the Forge card (+1 point).
+              {ex.barbarianAttack && !ex.stationsStarfighters ? ' Every 7 brings the starship one step closer.' : ' The event die brings the starship closer.'}
             </p>
+          </div>
+        )}
+
+        {/* No station to lose (voidFleet) — every station is safe, so the
+            fleets find nothing to sack. The orb clears this loser so the
+            table never waits on a player with nothing to tap. */}
+        {mustVoidFleet && legalDowngrade.length === 0 && (
+          <div style={{ background: '#141414', border: '1px solid #333', borderRadius: 10, padding: 10, textAlign: 'center' }}>
+            <p style={{ margin: '0 0 8px', fontSize: 13 }}>Your stations are all safe — the void fleets find nothing to sack here.</p>
+            <Orb symbol="🛡️" label="Continue" small onClick={() => move({ type: 'downgradeStation', vertex: null })} />
           </div>
         )}
 
@@ -1719,7 +1837,7 @@ export default function StarforgePage() {
                 onClick={() => setBuildMode('outpost')} />
               <Orb symbol="🛸" label="Station" small active={buildMode === 'station'}
                 onClick={() => setBuildMode('station')} />
-              {ex.stationsStarfighters && (
+              {starfightersOn(game) && (
                 <Orb symbol="🛩️" label="Starfighter" small active={buildMode === 'starfighter'}
                   onClick={() => setBuildMode('starfighter')} />
               )}
@@ -1731,14 +1849,16 @@ export default function StarforgePage() {
             <Orb symbol="🃏" label="Cards" disabled={!myTurn} active={devOpen} image="/images/starforge/buttons/cards.webp"
               onClick={() => { setBuildMode(null); setTradeOpen(false); setDevOpen((d) => !d); }} />
           )}
+          {starfightersOn(game) && (
+            <Orb symbol="🛡️" label="Starfighters" disabled={!canAct} active={starfighterOpen}
+              onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen((d) => !d); }} />
+          )}
           {ex.stationsStarfighters && (
             <>
               <Orb symbol="📜" label="Progress" disabled={!canAct} active={progOpen}
                 onClick={() => { setBuildMode(null); setTradeOpen(false); setImpOpen(false); setStarfighterOpen(false); setProgOpen((d) => !d); }} />
               <Orb symbol="🏛️" label="Improve" disabled={!canAct} active={impOpen}
                 onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setStarfighterOpen(false); setImpOpen((d) => !d); }} />
-              <Orb symbol="🛡️" label="Starfighters" disabled={!canAct} active={starfighterOpen}
-                onClick={() => { setBuildMode(null); setTradeOpen(false); setProgOpen(false); setImpOpen(false); setStarfighterOpen((d) => !d); }} />
             </>
           )}
           {ex.harvesters && (
@@ -1758,7 +1878,8 @@ export default function StarforgePage() {
         <p style={{ margin: 0, fontSize: 11, color: '#a1a1aa', textAlign: 'center' }}>
           Warp Lane ⛏️🧊 · Outpost ⛏️🧊💠🔩 · Station 🔩🔩🪙🪙🪙 · Card 💠🔩🪙
           {ex.starfarers ? ' · Starship ⛏️💠' : ''}
-          {ex.stationsStarfighters ? ' · Starfighter 💠🪙 · Wall 🧊🧊' : ''}
+          {starfightersOn(game) ? ' · Starfighter 💠🪙' : ''}
+          {ex.stationsStarfighters ? ' · Wall 🧊🧊' : ''}
           {' '}· First to {winTarget(game)} points wins
           {ex.harvesters ? ' (scrap hull holders need one more)' : ''}
         </p>

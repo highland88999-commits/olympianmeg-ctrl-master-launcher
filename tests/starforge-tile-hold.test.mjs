@@ -146,9 +146,13 @@ test('the solo AI pump waits out the hold before its next step', () => {
   // run during the video. The wait must follow the sleep.
   const sleepAt = pump.indexOf('await sleep(600);');
   const waitAt = pump.indexOf('while (tileHoldActive');
-  const stepAt = pump.indexOf('const ev = aiStep(g);');
+  // The pump steps through stepFn(g) — classic aiStep or the Explorers &
+  // Pirates exAiStep, chosen above in the same function — either way the
+  // step follows the wait.
+  const stepAt = pump.indexOf('stepFn(g)');
   assert.ok(sleepAt > -1 && waitAt > sleepAt, 'hold wait follows the pacing sleep');
-  assert.ok(waitAt < stepAt, 'hold wait precedes the AI step');
+  assert.ok(stepAt > -1 && waitAt < stepAt, 'hold wait precedes the AI step');
+  assert.ok(pump.includes('exAiStep'), 'the pump also steps Explorers & Pirates turns');
 });
 
 test('the hold is in-memory UI state only: reload / new game restores play', () => {

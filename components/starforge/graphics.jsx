@@ -101,12 +101,17 @@ const TERRAIN_FILL = {
   iron: '#6b5a44', waterIce: '#a5e3f0', silicon: '#a8b8cc', titanium: '#9aa5b1',
   gold: '#d4af37', sea: '#0b1026', goldVein: '#8a6d1f', lake: '#274b73',
   oasis: '#3f6212', void: '#14141f',
+  // Explorers & Pirates: shoals swim in deep blue space, starspice grows on
+  // amber ground, a corsair den is dark violet, and the unknown is deep
+  // space a shade lighter than the sea so it reads as a card face-down.
+  fish: '#14304f', spice: '#3d2b12', lair: '#241a3d', unexplored: '#131a35',
 };
 
 const TERRAIN_LABEL = {
   iron: 'iron', waterIce: 'water-ice', silicon: 'silicon', titanium: 'titanium',
   gold: 'gold', sea: 'deep space', goldVein: 'gold vein', lake: 'crater lake',
   oasis: 'waystation', void: 'void',
+  fish: 'fishing shoal', spice: 'spice island', lair: 'pirate lair', unexplored: 'unexplored',
 };
 
 // Pointy-top hex polygon for radius 34 (matches the page's hexPoints()).
@@ -277,6 +282,77 @@ function HexArt({ terrain }) {
           <circle cx="0" cy="-14" r="3" fill="#fbbf24" stroke="#92400e" strokeWidth="1" />
           <ellipse cx="0" cy="22" rx="22" ry="4" fill="#475569" stroke="#1e293b" strokeWidth="1.5" />
           <path d="M-14,22 h28" stroke="#fbbf24" strokeWidth="1.5" strokeDasharray="3 3" />
+        </g>
+      );
+    case 'fish':
+      // A shoal of void-fish — silver bodies, violet fins — schooling in
+      // deep blue space. Reads at phone size as "fish here".
+      return (
+        <g>
+          <g fill="#e5e7eb" stroke="#64748b" strokeWidth="1">
+            <path d="M-24,-12 Q-16,-17 -6,-12 Q-16,-7 -24,-12 Z" />
+            <path d="M-6,-12 L0,-16 L0,-8 Z" />
+            <path d="M2,4 Q10,-1 20,4 Q10,9 2,4 Z" />
+            <path d="M20,4 L26,0 L26,8 Z" />
+            <path d="M-14,18 Q-6,13 4,18 Q-6,23 -14,18 Z" />
+            <path d="M4,18 L10,14 L10,22 Z" />
+          </g>
+          <g fill="#a78bfa">
+            <circle cx="-15" cy="-12" r="1.4" />
+            <circle cx="11" cy="4" r="1.4" />
+            <circle cx="-5" cy="18" r="1.4" />
+          </g>
+          <circle cx="-26" cy="8" r="1.5" fill="#fff" opacity="0.8" />
+          <circle cx="24" cy="-16" r="1.5" fill="#fff" opacity="0.8" />
+        </g>
+      );
+    case 'spice':
+      // Starspice pods — amber leaf-pods with gold hearts and violet glow.
+      // Pods, not coins, so they never read as the gold terrain.
+      return (
+        <g>
+          <g stroke="#92400e" strokeWidth="1.5" strokeLinejoin="round">
+            <polygon points="0,-22 -7,-8 0,2 7,-8" fill="#f59e0b" />
+            <polygon points="-20,6 -26,16 -20,24 -13,16" fill="#f59e0b" />
+            <polygon points="20,6 13,16 20,24 26,16" fill="#f59e0b" />
+          </g>
+          <g fill="#fbbf24">
+            <circle cx="0" cy="-11" r="3" />
+            <circle cx="-20" cy="15" r="2.5" />
+            <circle cx="20" cy="15" r="2.5" />
+          </g>
+          <g fill="#a78bfa">
+            <circle cx="-8" cy="-20" r="1.6" />
+            <circle cx="10" cy="-2" r="1.6" />
+            <circle cx="0" cy="24" r="1.6" />
+          </g>
+        </g>
+      );
+    case 'lair':
+      // A corsair den — a dark asteroid with a violet banner and a
+      // dark-red hull fragment, the CorsairPiece's own colours.
+      return (
+        <g>
+          <polygon points="0,-14 -16,-4 -12,14 6,16 16,2 10,-12" fill="#1f2937" stroke="#0f172a" strokeWidth="1.5" strokeLinejoin="round" />
+          <polygon points="0,-14 -5,-4 0,0 5,-4" fill="#312e81" stroke="#a78bfa" strokeWidth="1" />
+          <path d="M-14,8 L14,8 L10,14 L-10,14 Z" fill="#7f1d1d" stroke="#f8fafc" strokeWidth="1" strokeLinejoin="round" />
+          <circle cx="-6" cy="-6" r="1.6" fill="#fbbf24" />
+          <circle cx="8" cy="6" r="1.2" fill="#fff" />
+          <path d="M-24,-18 l1.5,4 4,1.5 -4,1.5 -1.5,4 -1.5,-4 -4,-1.5 4,-1.5 z" fill="#a78bfa" opacity="0.8" />
+        </g>
+      );
+    case 'unexplored':
+      // Face-down: deep space with the golden omega — the house brand mark
+      // standing in for "unknown". No terrain shows through.
+      return (
+        <g>
+          <path d="M-10,4 A10,10 0 1 1 10,4" fill="none" stroke="#d4af37" strokeWidth="2.5" strokeLinecap="round" />
+          <line x1="-10" y1="4" x2="-10" y2="12" stroke="#d4af37" strokeWidth="2.5" strokeLinecap="round" />
+          <line x1="10" y1="4" x2="10" y2="12" stroke="#d4af37" strokeWidth="2.5" strokeLinecap="round" />
+          <path d="M-24,-16 l1.2,3.2 3.2,1.2 -3.2,1.2 -1.2,3.2 -1.2,-3.2 -3.2,-1.2 3.2,-1.2 z" fill="#fff" opacity="0.7" />
+          <path d="M20,-18 l1.2,3.2 3.2,1.2 -3.2,1.2 -1.2,3.2 -1.2,-3.2 -3.2,-1.2 3.2,-1.2 z" fill="#c7d2fe" opacity="0.7" />
+          <circle cx="-18" cy="18" r="1.5" fill="#fff" opacity="0.8" />
+          <circle cx="22" cy="14" r="1.5" fill="#fff" opacity="0.6" />
         </g>
       );
     default:
@@ -747,6 +823,22 @@ export function StationPiece({ color = '#2563eb', size = 32, x, y }) {
       <rect x="-3" y="-3" width="6" height="6" rx="1" fill={color} stroke="#111827" strokeWidth="1.2" />
       <rect x="-11" y="-2" width="4" height="4" fill={color} stroke="#111827" strokeWidth="1" />
       <rect x="7" y="-2" width="4" height="4" fill={color} stroke="#111827" strokeWidth="1" />
+    </PieceSvg>
+  );
+}
+
+export function HarborPiece({ color = '#2563eb', size = 28, x, y }) {
+  // A harbor is a port, not a station: a docking ring in the player colour
+  // with a gold beacon at its heart and a pier bar below it. The gold dot
+  // (not the station's square) is what tells them apart at phone size.
+  return (
+    <PieceSvg size={size} x={x} y={y} label="Harbor">
+      <circle cx="0" cy="-1" r="8.5" fill="none" stroke={color} strokeWidth="3.5" />
+      <circle cx="0" cy="-1" r="8.5" fill="none" stroke="#111827" strokeWidth="0.8" opacity="0.4" />
+      <circle cx="0" cy="-1" r="2.5" fill="#fbbf24" stroke="#111827" strokeWidth="0.8" />
+      <circle cx="-6" cy="-7" r="1.2" fill="#fbbf24" />
+      <circle cx="6" cy="-7" r="1.2" fill="#fbbf24" />
+      <rect x="-8" y="8" width="16" height="2.5" fill={color} stroke="#111827" strokeWidth="1" />
     </PieceSvg>
   );
 }
