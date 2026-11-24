@@ -77,7 +77,7 @@ import {
   loadProgress, saveProgress,
 } from '@/lib/jupiter2/elemental-orbs';
 import { recordSoulArrival } from '@/lib/land-of-the-dead/souls';
-import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND } from '@/lib/jupiter2/storm';
+import { flashAt, boltFor, rainBases, stormIntensity, RAIN_COUNT, WIND, flashLightPose, boltWorldPoints } from '@/lib/jupiter2/storm';
 import { buildSpeeder, buildOblivionLever, buildMountain } from '@/lib/jupiter2/meshes';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import { useOrbDock } from '@/components/world/useOrbDock';
@@ -712,31 +712,44 @@ function StormRig({ dayF }) {
     cloudMat.map.offset.x = bandFlowOffset(0.004, now);
     cloudMat.map.needsUpdate = true;
     // Lightning: the seeded flash drives the real light, the sky
-    // wash, and one bolt — two on the hard flashes. The bolt is
-    // anchored at the deck cap pole (its old home, near spawn):
-    // the bolt's local frame is y-up from the pole's ground, so a
-    // strike reads on the deck wherever the walker stands on the
-    // planet. (Anchoring it at the camera would put every strike
-    // at the walker's feet.)
+    // wash, and one bolt — two on the hard flashes. The light and
+    // the bolts ride with the walker now (lib/jupiter2/storm.js
+    // flashLightPose / boltWorldPoints): fixed at the spawn pole,
+    // the flash lit only the spawn hemisphere and no bolt ever
+    // struck on the far side — the sky flared, the ground stayed
+    // dark. The strike still lands off the walker's feet (the
+    // bolt's own x/z spread puts it metres away, never on them).
     const flash = flashAt(now);
-    if (flashLight.current) flashLight.current.intensity = flash * 8;
+    // The flash light rides with the walker (flashLightPose):
+    // fixed at the spawn pole it lit only the spawn hemisphere.
+    // Its direction at the pole is unchanged, so the deck under
+    // spawn reads exactly as before. The target is re-aimed every
+    // frame (updateMatrixWorld: the target is not in the scene).
+    if (flashLight.current) {
+      flashLight.current.intensity = flash * 8;
+      const pose = flashLightPose(camGround);
+      flashLight.current.position.set(pose.position.x, pose.position.y, pose.position.z);
+      flashLight.current.target.position.set(pose.target.x, pose.target.y, pose.target.z);
+      flashLight.current.target.updateMatrixWorld();
+    }
     washMat.opacity = flash * 0.3;
     const slot = Math.floor((now - PLANET_CGI_EPOCH_MS) / 90);
     const line = boltRef.current;
     const twin = twinRef.current;
-    const poleGround = groundPointAt({ x: 0, y: 1, z: 0 });
-    const toWorld = (p) => new THREE.Vector3(poleGround.x + p.x, poleGround.y + p.y, poleGround.z + p.z);
+    // The bolts strike near the walker now (boltWorldPoints).
+    const toWorld = (p) => new THREE.Vector3(p.x, p.y, p.z);
+    const boltPts = (pts) => boltWorldPoints(pts, camGround).map(toWorld);
     if (line) {
       if (flash >= 0.45 && slot !== lastSlot.current) {
         lastSlot.current = slot;
         const bolt = boltFor(now);
-        const pts = bolt.points.map((p) => toWorld(p));
+        const pts = boltPts(bolt.points);
         boltGeo.setFromPoints(pts);
         line.visible = true;
         if (twin) {
           const bolt2 = boltFor(now + 47);
           if (flash >= 0.7 && bolt2.points.length >= 8) {
-            twinGeo.setFromPoints(bolt2.points.map((p) => toWorld(p)));
+            twinGeo.setFromPoints(boltPts(bolt2.points));
             twin.visible = true;
           } else {
             twin.visible = false;

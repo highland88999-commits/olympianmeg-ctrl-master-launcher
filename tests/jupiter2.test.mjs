@@ -16,7 +16,7 @@ import {
 import {
   PLANET_R, CAVE_MOUTH_THETA_RAD, LEVER_CAVE_THETA_RAD,
   leverCavePoint, leverCaveMouthPoint, isInCave, thetaFromPole,
-  spherePointFromDeck, deckToDir, deckForwardForYaw,
+  spherePointFromDeck, deckToDir, deckForwardForYaw, groundRadiusAt,
 } from '../lib/jupiter2/planet.js';
 import { sphereTangentBasis } from '../lib/planet-walker.js';
 import {
@@ -241,6 +241,57 @@ describe('speeder (Earth 1 summon contract)', () => {
       const sideways = (basis.right.x * d.x + basis.right.y * d.y + basis.right.z * d.z) / n;
       assert.ok(Math.abs(sideways) < 0.0001, `sideways at yaw ${yaw} is ${sideways.toFixed(4)}, must read 0.0000`);
     }
+  });
+  it('the speeder drives straight through the antipode — no veer, no turn-back, no wall', () => {
+    // The old deck-chart step degenerated at the antipode (an
+    // 83.7° heading error at (45, 270) in the old code's own
+    // measurement; a probe of the old step drove the far side at
+    // up to 179.9° off its nose and covered only 187 m of a
+    // 280 m drive). The 3D step keeps the craft on the shared
+    // basis forward all the way through and around: start 76 m
+    // short of the antipode, drive straight (yaw π, due north
+    // past the far side) at top speed for 280 m. The heading
+    // stays on the nose, the craft stays on the ground, it
+    // reaches the antipode (θ past 3.0), and it covers the full
+    // distance — nothing ends the drive. (A fixed yaw does not
+    // hold one great circle past the shared basis's own
+    // reference switch at θ ≈ π/2 — the walker has the same law
+    // — so the test pins the crossing, not the far-side exit
+    // bearing: the craft comes back around the planet, it never
+    // turns back.)
+    const sp = createSpeederState();
+    summonSpeeder(sp, { x: 0, z: -200, yaw: Math.PI });
+    sp.speed = SPEEDER_SPEED;
+    let worstOff = 0;
+    let maxGroundGap = 0;
+    let maxTheta = 0;
+    let path = 0;
+    for (let i = 0; i < 200; i++) {
+      const before = spherePointFromDeck(sp.x, sp.z);
+      const basis = sphereTangentBasis(before, sp.yaw, PLANET_R);
+      const up = basis.up;
+      stepSpeeder(sp, { fwd: 1, back: 0, left: 0, right: 0, boost: false }, 0.05);
+      const after = spherePointFromDeck(sp.x, sp.z);
+      const d = { x: after.x - before.x, y: after.y - before.y, z: after.z - before.z };
+      path += Math.hypot(d.x, d.y, d.z);
+      // Project out the radial part (the deck swells, the ramp
+      // climb back up): the heading is the tangent direction.
+      const radial = d.x * up.x + d.y * up.y + d.z * up.z;
+      const t = { x: d.x - up.x * radial, y: d.y - up.y * radial, z: d.z - up.z * radial };
+      const n = Math.hypot(t.x, t.y, t.z);
+      assert.ok(n > 0.5, `the speeder keeps moving through the far side (step ${i} moved ${n.toFixed(2)} m)`);
+      const dot = (basis.forward.x * t.x + basis.forward.y * t.y + basis.forward.z * t.z) / n;
+      const off = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+      if (off > worstOff) worstOff = off;
+      const ground = groundRadiusAt(after);
+      maxGroundGap = Math.max(maxGroundGap, Math.abs(Math.hypot(after.x, after.y, after.z) - ground));
+      const th = thetaFromPole(after);
+      if (th > maxTheta) maxTheta = th;
+    }
+    assert.ok(worstOff < 5, `worst heading error through the antipode ${worstOff.toFixed(2)}° must stay under 5°`);
+    assert.ok(maxGroundGap < 0.01, `the speeder stays on the ground (max gap ${maxGroundGap.toFixed(4)} m)`);
+    assert.ok(maxTheta > 3.0, `the drive reaches the antipode (max theta=${maxTheta.toFixed(2)})`);
+    assert.ok(path > 270, `the drive covers its full 280 m through the far side (path=${path.toFixed(1)} m)`);
   });
   it('no steer given keeps the binary WASD steering exactly as before', () => {
     const sp = createSpeederState();
@@ -667,14 +718,20 @@ describe('speeder auto-center + no motion walls (Merlin, Nov 16 ~02:41-02:44)', 
     // x/z); the flat (x, z) maps onto the sphere and wraps past
     // the antipode instead of turning back.
     assert.doesNotMatch(speeder, /clamp/);
-    // The heading is the shared basis forward, read through the
-    // deck-Jacobian helper deckForwardForYaw — the flat
-    // (sin yaw, −cos yaw) step was only pole-exact and crabbed
-    // up to ~20° on the rim; the old line drove along
-    // (−sin yaw, −cos yaw), the mirror.
-    assert.match(speeder, /const f = deckForwardForYaw\(state\.x, state\.z, state\.yaw\);/);
-    assert.match(speeder, /state\.x \+= f\.x \* state\.speed \* dt;/);
-    assert.match(speeder, /state\.z \+= f\.z \* state\.speed \* dt;/);
+    // The heading is the shared basis forward, stepped in 3D —
+    // the flat (sin yaw, −cos yaw) step was only pole-exact and
+    // crabbed up to ~20° on the rim; the old line drove along
+    // (−sin yaw, −cos yaw), the mirror. The deck-Jacobian helper
+    // fixed the rim but degenerates at the antipode (83.7° at
+    // (45, 270)), so the speeder now steps along the basis
+    // forward in 3D and reads its deck coordinates back from the
+    // ground point — the chart is a readout, never the steering.
+    assert.match(speeder, /const feet = spherePointFromDeck\(state\.x, state\.z\);/);
+    assert.match(speeder, /const basis = sphereTangentBasis\(feet, state\.yaw, PLANET_R\);/);
+    assert.match(speeder, /const deck = dirToDeck\(ground\);/);
+    assert.match(speeder, /state\.x = deck\.x;/);
+    assert.match(speeder, /state\.z = deck\.z;/);
+    assert.doesNotMatch(speeder, /deckForwardForYaw/);
     assert.match(sceneSrc, /instead of being clamped and turned back/);
     // The cave corridor has no walls in the ground law, and the
     // drop stays a drop (a fall, not a barrier).
