@@ -202,6 +202,14 @@ test('Hollow Earth and Middle-earth in-world controls are orbs; strike stays a c
   // consumed-and-discarded, never a jump off the saddle.
   assert.match(hollow, /const jump = ride \? false : keys\.consumeJump\(\) \|\| jumpRef\.current;/);
   assert.match(hollow, /if \(ride\) \{ keys\.consumeJump\(\); jumpRef\.current = false; \}/);
+  // Leave / Back-to-hub (Merlin, Nov 16 WS1 D-M3): an orb in every
+  // mode — menu, map and world — wired to the hub (the destination
+  // is held, so / is the plain default, stated in STATE.md).
+  assert.equal((hollow.match(/ariaLabel="Back to hub"/g) || []).length, 3, 'Leave orb in menu, map and world');
+  assert.equal((hollow.match(/<OrbButton href="\/" fn="back-to-hub"/g) || []).length, 3, 'all three Leave orbs are link orbs to /');
+  // The armed bolt + its trade row ride on orbs too, never rectangles.
+  assert.match(hollow, /onClick=\{\(\) => armBolt\(armed \? null : o\.element\)\}/);
+  assert.match(hollow, /Arm bolt — \{orbHud\.boltElement/);
   // The bottom bar is GONE (Merlin, Nov 16 ~02:30 — WS1 Q4 answered
   // by removal): no pill wrapper holds the orbs in world mode, the
   // four orbs are free-floating in one draggable dock, and the
@@ -271,11 +279,11 @@ test('One graphic per button function: every ORB_FUNCTIONS face exists on disk; 
   }
   const missing = faces.filter((f) => !existsSync(new URL(`../public${f}`, import.meta.url)));
   assert.deepEqual(missing, []);
-  // Hollow Earth (the realm in focus) wears its faces: 14 orbs, one
+  // Hollow Earth (the realm in focus) wears its faces: 15 orbs, one
   // fn each, no orb left on its old emoji.
   const hollowWorld = hollow.slice(hollow.indexOf('// ---- world ----'));
-  for (const fn of ['fullscreen', 'fullscreen-exit', 'jump', 'trade', 'mount', 'dismount', 'buy-shield', 'recharge', 'buy-weapon', 'close', 'map', 'weapon', 'home', 'strike']) {
+  for (const fn of ['fullscreen', 'fullscreen-exit', 'jump', 'trade', 'mount', 'dismount', 'buy-shield', 'recharge', 'buy-weapon', 'close', 'map', 'weapon', 'home', 'strike', 'back-to-hub']) {
     assert.match(hollowWorld, new RegExp(`fn="${fn}"`));
   }
-  assert.equal((hollowWorld.match(/fn="/g) || []).length, 14);
+  assert.equal((hollowWorld.match(/fn="/g) || []).length, 15);
 });

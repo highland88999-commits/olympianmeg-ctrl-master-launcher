@@ -77,6 +77,18 @@ export const ORB_ELEMENTS = Object.freeze({
   frost: Object.freeze({ element: 'frost', label: 'Frost', icon: '❄️', color: '#9fd8e8', hex: 0x9fd8e8 }),
 });
 
+/** Drop render size (zone.js syncOrbDrops): the shell radius +
+ * core radius of a live orb on the field. Bone-drop scale
+ * (Merlin, Nov 24 ~08:05 — orbs smaller than the user and the
+ * monsters, comparable to the Earth 2 bone drops): Earth 2's
+ * bone pile (components/earth2/Earth2World.jsx spawnBones) is
+ * four 0.9 m bones, 0.14 m thick, in a ~0.3 m footprint — so
+ * the orb shell is 0.22 m radius (0.44 m across), smaller than
+ * the longest bone and far under the shortest hero (1.15 m
+ * halfling) and every monster (scaleM 2.5+). */
+export const ORB_DROP_SHELL_R = 0.22;
+export const ORB_DROP_CORE_R = 0.10;
+
 /** Spend order for any-mix costs: common elements drain first,
  * the rarest (poison — no live source today) drains last. */
 export const SPEND_ORDER = Object.freeze(['acid', 'fire', 'lightning', 'shadow', 'sand', 'frost', 'poison']);
@@ -350,7 +362,20 @@ export function buyWeaponTier(wallet, currentTier, tier) {
 /** Fresh progress: empty wallet, no upgrades. The shield charge
  * lives in the campaign (data.js), never here. */
 export function createProgress() {
-  return { orbs: createWallet(), shieldTier: 0, weaponTier: 0 };
+  return { orbs: createWallet(), shieldTier: 0, weaponTier: 0, boltElement: null };
+}
+
+/**
+ * Arm the hunter's bolt with an element (or disarm with null).
+ * A free loadout choice — arming costs no orbs; it only decides
+ * which element the next ranged strikes carry, so the bolt has
+ * a secondary where an element applies and stays flat where
+ * none does. Unknown elements disarm (null), never throw.
+ * Returns a new progress object.
+ */
+export function armBoltElement(progress, element) {
+  const base = progress && typeof progress === 'object' ? progress : createProgress();
+  return { ...base, boltElement: ORB_ELEMENTS[element] ? element : null };
 }
 
 /**
@@ -371,7 +396,8 @@ export function loadProgress(storage) {
     for (const el of ELEMENTS) orbs[el] = Math.max(0, Math.floor(Number(orbs[el]) || 0));
     const shieldTier = shieldTierFor(parsed.shieldTier).tier;
     const weaponTier = weaponTierFor(parsed.weaponTier).tier;
-    return { orbs, shieldTier, weaponTier };
+    const boltElement = ORB_ELEMENTS[parsed.boltElement] ? parsed.boltElement : null;
+    return { orbs, shieldTier, weaponTier, boltElement };
   } catch {
     return fallback;
   }
@@ -387,6 +413,7 @@ export function saveProgress(progress, storage) {
       orbs: { ...createWallet(), ...(p.orbs || {}) },
       shieldTier: shieldTierFor(p.shieldTier).tier,
       weaponTier: weaponTierFor(p.weaponTier).tier,
+      boltElement: ORB_ELEMENTS[p.boltElement] ? p.boltElement : null,
     }));
     return true;
   } catch {

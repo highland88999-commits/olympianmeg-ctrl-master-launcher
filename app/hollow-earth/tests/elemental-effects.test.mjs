@@ -15,6 +15,8 @@ import {
   applyHitSecondary, tickHunterDot, clearHunterSecondaries,
   poolDpsAt, prunePools, activeSecondary, chillFactorFor,
   createHunterState, applyDamage,
+  applyMonsterAuraHit, applyPlayerBoltSecondary, monsterSlowFactor, isMonsterBlinded,
+  tickMonsterBurn,
 } from '../spawns.js';
 import { BURN_DPS, BURN_SECONDS } from '../../../lib/lightning-aura.js';
 import { FROST_CHILL_FACTOR } from '../elemental-aura.js';
@@ -288,4 +290,131 @@ test('Haven suppression gates (step 11): page + zone pin the same gates as damag
   // The aura-strike visual already exists (WS3): the zone draws
   // a sky-bolt at the player on a player-target strike.
   assert.match(zone, /drawStrikeBolt\(ev, observer\.x, observer\.z\)/);
+});
+
+test('armed bolt: every element lights its secondary on the monster', () => {
+  const cases = [
+    ['fire', { kind: 'burn', dps: 5, seconds: 3 }],
+    ['lightning', { kind: 'burn', dps: 6, seconds: 3 }],
+    ['poison', { kind: 'venom', dps: 4, seconds: 5 }],
+    ['acid', { kind: 'pool', dps: 4, seconds: 4, radius: 3.5 }],
+  ];
+  for (const [el, want] of cases) {
+    const m = mon(typeFor('melee'), 0, 0);
+    const sec = applyPlayerBoltSecondary(m, el, 1000);
+    assert.equal(sec.kind, want.kind, `${el} kind`);
+    assert.equal(m.burnDps, want.dps, `${el} dps`);
+    assert.equal(m.burnRemainingS, want.seconds, `${el} seconds`);
+    assert.equal(m.dotElement, el);
+    assert.equal(m.dotByPlayer, true, `${el} kill pays the hunter`);
+    if (want.radius) assert.equal(sec.radius, want.radius);
+  }
+  // Frost: slow + chip.
+  const f = mon(typeFor('melee'), 0, 0);
+  const fsec = applyPlayerBoltSecondary(f, 'frost', 1000);
+  assert.equal(fsec.kind, 'chill');
+  assert.equal(f.slowUntil, 4000);
+  assert.equal(f.slowFactor, 0.7);
+  assert.equal(f.burnDps, 2, 'frost chip lights the slot');
+  assert.equal(monsterSlowFactor(f, 2000), 0.7);
+  assert.equal(monsterSlowFactor(f, 4000), 1, 'chill ends at the deadline');
+  // Shadow / sand: blind, and the monster loses the hunter at once.
+  for (const [el, seconds] of [['shadow', 4], ['sand', 2.5]]) {
+    const b = mon(typeFor('melee'), 0, 0);
+    b.spotted = true; b.state = 'stalk'; b.target = { x: 1, z: 1 };
+    const bsec = applyPlayerBoltSecondary(b, el, 1000);
+    assert.equal(bsec.kind, 'blind');
+    assert.equal(bsec.seconds, seconds);
+    assert.equal(b.spotted, false, `${el} blind drops the hunt at once`);
+    assert.equal(b.blindUntil, 1000 + seconds * 1000);
+    assert.equal(isMonsterBlinded(b, 2000), true);
+    assert.equal(isMonsterBlinded(b, 1000 + seconds * 1000), false);
+  }
+  // Unknown element / dead monster: nothing, never throws.
+  assert.equal(applyPlayerBoltSecondary(mon(typeFor('melee'), 0, 0), 'storm', 1000), null);
+  assert.equal(applyPlayerBoltSecondary(mon(typeFor('melee'), 0, 0), null, 1000), null);
+  const dead = mon(typeFor('melee'), 0, 0);
+  dead.dead = true;
+  assert.equal(applyPlayerBoltSecondary(dead, 'fire', 1000), null);
+});
+
+test('bolt DoT slot: higher dps wins, aura re-strike takes the slot back', () => {
+  // A player fire bolt (5/s) cannot steal a lightning aura burn (6/s).
+  const m = mon(typeFor('melee'), 0, 0);
+  applyMonsterAuraHit(m, { dmg: 8, burnDps: 6, burnSeconds: 3, from: 'aura-1', element: 'lightning' });
+  applyPlayerBoltSecondary(m, 'fire', 1000);
+  assert.equal(m.burnDps, 6, 'the stronger aura burn keeps the slot');
+  assert.equal(m.dotByPlayer, false, 'the player owns nothing here');
+  // A player lightning bolt (6/s) wins over a fire aura burn (4/s).
+  const m2 = mon(typeFor('melee'), 0, 0);
+  applyMonsterAuraHit(m2, { dmg: 4, burnDps: 4, burnSeconds: 3, from: 'aura-2', element: 'fire' });
+  applyPlayerBoltSecondary(m2, 'lightning', 1000);
+  assert.equal(m2.burnDps, 6);
+  assert.equal(m2.dotByPlayer, true);
+  // An aura re-strike takes the slot back and clears the player's claim.
+  applyMonsterAuraHit(m2, { dmg: 8, burnDps: 6, burnSeconds: 3, from: 'aura-3', element: 'lightning' });
+  assert.equal(m2.dotByPlayer, false, 'the aura owns the slot again');
+});
+
+test('burn kill ownership: player-lit DoT pays combat, aura burn pays predation', () => {
+  const m = mon(typeFor('melee'), 0, 0);
+  m.hp = 10;
+  applyPlayerBoltSecondary(m, 'fire', 1000); // 5/s x 3 s
+  assert.equal(tickMonsterBurn(m, 2), true, 'the burn finishes it');
+  assert.equal(m.deathCause, 'combat', 'a hunter-lit burn is a hunter kill');
+  assert.equal(m.killerId, null);
+  const a = mon(typeFor('melee'), 0, 0);
+  a.hp = 10;
+  applyMonsterAuraHit(a, { dmg: 0, burnDps: 6, burnSeconds: 3, from: 'aura-9', element: 'lightning' });
+  assert.equal(tickMonsterBurn(a, 2), true);
+  assert.equal(a.deathCause, 'predation');
+  assert.equal(a.killerId, 'aura-9');
+});
+
+test('frost bolt slows the hunt; blind blocks spotting and drops a spotted hunter', () => {
+  const player = { x: 10, z: 0, hp: 100, maxHp: 100, id: 'hunter' };
+  const type = typeFor('melee');
+  // Plain chase: one 1 s step toward the player.
+  const plain = mon(type, 0, 0, Math.PI / 2);
+  stepMonster(plain, 1, player, rng, { losClear: alwaysLos, nowMs: 1000 });
+  assert.equal(plain.spotted, true);
+  const plainMoved = Math.hypot(plain.x, plain.z);
+  assert.ok(plainMoved > 0, 'the unslowed monster closes on the player');
+  // Chilled chase: the same step covers x0.7 ground.
+  const cold = mon(type, 0, 0, Math.PI / 2);
+  applyPlayerBoltSecondary(cold, 'frost', 1000);
+  stepMonster(cold, 1, player, rng, { losClear: alwaysLos, nowMs: 1000 });
+  const coldMoved = Math.hypot(cold.x, cold.z);
+  assert.ok(Math.abs(coldMoved / plainMoved - 0.7) < 0.01, `chilled monster moved ${coldMoved.toFixed(2)} m vs ${plainMoved.toFixed(2)} m plain — expected x0.7`);
+  // Blind blocks spotting outright.
+  const blind = mon(type, 0, 0, Math.PI / 2);
+  applyPlayerBoltSecondary(blind, 'shadow', 1000);
+  stepMonster(blind, 0.1, player, rng, { losClear: alwaysLos, nowMs: 1000 });
+  assert.equal(blind.spotted, false, 'a blinded monster cannot spot the player');
+  assert.ok(Math.abs(blind.x) < 0.5, 'a blinded monster does not close on the player');
+  // A spotted monster unspots the moment the blind lands, and
+  // spots again once it wears off.
+  const hunted = mon(type, 0, 0, Math.PI / 2);
+  stepMonster(hunted, 0.1, player, rng, { losClear: alwaysLos, nowMs: 1000 });
+  assert.equal(hunted.spotted, true);
+  applyPlayerBoltSecondary(hunted, 'sand', 2000);
+  assert.equal(hunted.spotted, false, 'sand blind drops the hunt at once');
+  stepMonster(hunted, 0.1, player, rng, { losClear: alwaysLos, nowMs: 2000 });
+  assert.equal(hunted.spotted, false, 'still blind, still cannot spot');
+  stepMonster(hunted, 0.1, player, rng, { losClear: alwaysLos, nowMs: 5000 });
+  assert.equal(hunted.spotted, true, 'once the blind wears off it spots again');
+});
+
+test('bolt wiring in the page: armed bolt lights the monster secondary, orbs are bone-drop scale', () => {
+  const page = readFileSync(new URL('../page.jsx', import.meta.url), 'utf8');
+  const zone = readFileSync(new URL('../zone.js', import.meta.url), 'utf8');
+  assert.match(page, /applyPlayerBoltSecondary\(m, armed, Date\.now\(\)\)/);
+  assert.match(page, /if \(sec && sec\.kind === 'pool'\) createPool\(m\.x, m\.z\)/);
+  assert.match(page, /if \(cause === 'combat'\) \{\s*registerHunterKill\(victim, true\);/);
+  assert.match(page, /boltColor = \(armedElement && ELEMENT_COLORS\[armedElement\]\) \|\| style\.color/);
+  assert.match(page, /onClick=\{\(\) => armBolt\(armed \? null : o\.element\)\}/);
+  assert.match(page, /Arm bolt — \{orbHud\.boltElement/);
+  assert.match(zone, /new R\.SphereGeometry\(ORB_DROP_SHELL_R, 12, 10\)/);
+  assert.match(zone, /new R\.SphereGeometry\(ORB_DROP_CORE_R, 8, 6\)/);
+  assert.match(zone, /from '\.\/elemental-orbs\.js'/);
 });

@@ -284,6 +284,87 @@ export function tickHunterDot(h, dt) {
   return dmg;
 }
 
+/** Walker speed factor for a monster slowed by a frost bolt (1 when no chill runs). */
+export function monsterSlowFactor(m, nowMs = Date.now()) {
+  if (!m || !(m.slowUntil > nowMs)) return 1;
+  return m.slowFactor || 0.7;
+}
+
+/** True while a monster is blinded by a shadow/sand bolt. */
+export function isMonsterBlinded(m, nowMs = Date.now()) {
+  return Boolean(m && m.blindUntil && m.blindUntil > nowMs);
+}
+
+/* ---------------- PLAYER BOLT SECONDARIES (Phase 2, Nov 24) ----------------
+ * The hunter's bolt carries an element only when ARMED (the
+ * trade panel arms it with one of the 7 elements — a free
+ * loadout choice, device-local, elemental-orbs.js). An armed
+ * ranged strike lights the same secondary the element lights on
+ * the hunter — same numbers from ELEMENT_SECONDARY, same
+ * one-slot law — on the MONSTER it hits. Melee stays flat steel:
+ * the bolt is the elemental carrier, and the task names the bolt.
+ * Korus is exempt (damageKorus never calls this). Monster-vs-
+ * monster is untouched: aura burns still own the slot through
+ * applyMonsterAuraHit, and a player application only wins it
+ * when its dps is higher (refresh-not-stack, higher-dps-wins —
+ * the hunter-side R2 law, mirrored). Lightning's auraOnly rule
+ * does NOT apply here: it bars monster archetype hits from
+ * double-dipping with the aura, and the player's bolt is not
+ * the aura — so an armed lightning bolt burns 6/s x 3 s like
+ * the aura's own numbers, read from the same table, never
+ * re-typed.
+ *   fire / lightning  burn in the monster's one DoT slot
+ *   poison            venom in the same slot (4/s x 5 s)
+ *   frost             chill: slow x0.7 for 3 s + 2/s chip
+ *   acid              corrosion in the slot (4/s x 4 s, the pool
+ *                     numbers — a moving monster walks out of a
+ *                     static pool in a step, so the corrosive
+ *                     rides the slot; the page still leaves a
+ *                     real pool at the strike point)
+ *   shadow / sand     BLIND: the monster loses the hunter for
+ *                     the dim/gust duration (4 s / 2.5 s)
+ * A DoT kill by the player's bolt pays like a player kill:
+ * tickMonsterBurn marks 'combat' with no killer when
+ * dotByPlayer is set, so the page's kill rewards + orb drop run
+ * — an aura burn killing the same slot still marks 'predation'
+ * to its striker. */
+export function applyPlayerBoltSecondary(m, element, nowMs = Date.now()) {
+  if (!m || m.dead || !element || !ELEMENT_SECONDARY[element]) return null;
+  const sec = ELEMENT_SECONDARY[element];
+  if (sec.kind === 'dim' || sec.kind === 'gust') {
+    m.spotted = false;
+    m.target = null;
+    m.state = 'idle';
+    m.unseenT = 0;
+    m.blindUntil = nowMs + sec.seconds * 1000;
+    return { kind: 'blind', seconds: sec.seconds };
+  }
+  if (sec.kind === 'chill') {
+    m.slowUntil = nowMs + sec.seconds * 1000;
+    m.slowFactor = sec.speedFactor;
+    if ((m.burnRemainingS > 0 ? (m.burnDps || 0) : 0) <= sec.dps) {
+      m.burnDps = sec.dps;
+      m.burnRemainingS = sec.seconds;
+      m.dotElement = element;
+      m.dotByPlayer = true;
+      m.lastAuraStrikerId = null;
+    }
+    return { kind: 'chill', seconds: sec.seconds };
+  }
+  // burn / venom / pool: the monster's one DoT slot, higher
+  // dps wins, refresh-not-stack. An aura burn already running
+  // stronger keeps the slot — the player's application then
+  // lights nothing and owns nothing.
+  if ((m.burnRemainingS > 0 ? (m.burnDps || 0) : 0) <= sec.dps) {
+    m.burnDps = sec.dps;
+    m.burnRemainingS = sec.seconds;
+    m.dotElement = element;
+    m.dotByPlayer = true;
+    m.lastAuraStrikerId = null;
+  }
+  return { kind: sec.kind, dps: sec.dps, seconds: sec.seconds, ...(sec.kind === 'pool' ? { radius: sec.radius } : {}) };
+}
+
 /** Walker speed factor from a frost chill (1 when no chill runs).
  * The page multiplies the sphere step's speed line by this; inside
  * The Haven the caller passes 1 (suppression, R4). */
@@ -701,7 +782,14 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
 
   // --- spotting (uses the facing BEFORE this tick's movement) ---
   const isAmbusher = m.stats.attitude === 'ambush';
-  if (!m.spotted) {
+  // BLIND (player bolt, shadow/sand): a blinded monster cannot
+  // spot the hunter — sight, hearing and proximity all stay shut
+  // until blindUntil lapses — and a spotted monster loses the
+  // hunt the moment the blind lands. Prey hunts are position-
+  // tracked, not sight, so they are untouched by this.
+  const blinded = isMonsterBlinded(m, nowMs);
+  if (blinded && m.spotted) { m.spotted = false; m.state = 'idle'; m.target = null; m.unseenT = 0; }
+  if (!blinded && !m.spotted) {
     let seen = false;
     let via = null;
     if (dist <= PROXIMITY_R) { seen = true; via = 'proximity'; }
@@ -725,7 +813,7 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
       if (m.state === 'idle') m.state = 'stalk';
       if (via === 'sight' || via === 'proximity') events.push({ kind: 'spotted', from: m.id, via });
     }
-  } else {
+  } else if (!blinded) {
     // --- tracking: sight refreshes the trail, else it goes cold ---
     let seen = false;
     if (dist <= PROXIMITY_R) seen = true;
@@ -806,7 +894,7 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
         const pdz = prey.target.z - m.z;
         const pdist = Math.hypot(pdx, pdz) || 0.001;
         m.faceYaw = Math.atan2(pdx, pdz);
-        const close = Math.min(m.stats.speed * 1.5 * dt, pdist);
+        const close = Math.min(m.stats.speed * monsterSlowFactor(m, nowMs) * 1.5 * dt, pdist);
         m.x += (pdx / pdist) * close;
         m.z += (pdz / pdist) * close;
         if (m.state === 'idle') m.state = 'stalk';
@@ -836,7 +924,7 @@ export function stepMonster(m, dt, player, rng, opts = {}) {
   const nx = tdx / tdist;
   const nz = tdz / tdist;
   m.faceYaw = Math.atan2(nx, nz);
-  const speed = m.stats.speed;
+  const speed = m.stats.speed * monsterSlowFactor(m, nowMs);
   const arch = ARCHETYPES[m.stats.archetype] || ARCHETYPES.melee;
   if (m.stats.archetype === 'ranged') {
     if (dist < 10) { m.x -= nx * speed * 0.6 * dt; m.z -= nz * speed * 0.6 * dt; }
@@ -1014,6 +1102,9 @@ export function applyMonsterAuraHit(m, ev) {
   // The striker who lit this burn owns the kill if the burn
   // finishes the victim (tickMonsterBurn inherits it).
   if (ev && ev.from) m.lastAuraStrikerId = ev.from;
+  // The aura takes the slot outright: a player-lit DoT running
+  // here is replaced, so its kill no longer pays the hunter.
+  m.dotByPlayer = false;
   m.hp = Math.max(0, (m.hp || 0) - (ev && ev.dmg != null ? ev.dmg : BURN_HIT_DMG));
   m.burnDps = ev && ev.burnDps != null ? ev.burnDps : BURN_DPS;
   m.burnRemainingS = ev && ev.burnSeconds != null ? ev.burnSeconds : BURN_SECONDS;
@@ -1027,8 +1118,15 @@ export function tickMonsterBurn(m, dt) {
   const s = Math.min(Math.max(dt || 0, 0), m.burnRemainingS);
   m.hp = Math.max(0, (m.hp || 0) - (m.burnDps || 0) * s);
   m.burnRemainingS = Math.max(0, m.burnRemainingS - s);
-  if (m.burnRemainingS <= 0) m.burnDps = 0;
-  if (m.hp <= 0) { markMonsterDead(m, 'predation', m.lastAuraStrikerId || null); return true; }
+  if (m.burnRemainingS <= 0) { m.burnDps = 0; m.dotElement = null; }
+  if (m.hp <= 0) {
+    // A burn the hunter lit with an armed bolt pays like a
+    // hunter kill ('combat', no killer); an aura burn still
+    // pays predation to its striker.
+    if (m.dotByPlayer) { m.dotByPlayer = false; markMonsterDead(m, 'combat', null); }
+    else markMonsterDead(m, 'predation', m.lastAuraStrikerId || null);
+    return true;
+  }
   return false;
 }
 
@@ -1080,6 +1178,11 @@ export function respawnMonster(m, rng, nowMs = Date.now()) {
   m.auraCdPrey = 0;
   m.burnDps = 0;
   m.burnRemainingS = 0;
+  m.dotElement = null;
+  m.dotByPlayer = false;
+  m.slowUntil = 0;
+  m.slowFactor = 1;
+  m.blindUntil = 0;
   m.lastAuraStrikerId = null;
   m.chargeT = 0;
   m.deathCause = null;

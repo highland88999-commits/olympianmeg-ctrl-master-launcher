@@ -5,10 +5,11 @@ import assert from 'node:assert/strict';
 import {
   ORB_STORAGE_KEY, ORB_ELEMENTS, SPEND_ORDER,
   ORB_COLLECT_RADIUS_M, ORB_DESPAWN_MS, ORB_MAX_LIVE,
+  ORB_DROP_SHELL_R, ORB_DROP_CORE_R,
   orbFor, elementForMonster, createOrbDrop, orbExpired, pruneOrbs, collectOrbs,
   createWallet, totalOrbs, addOrb, spendOrbs,
   SHIELD_TIERS, SHIELD_RECHARGE_COST, shieldTierFor, buyShieldTier, rechargeShield, absorbDamage,
-  WEAPON_TIERS, weaponTierFor, weaponReady, buyWeaponTier,
+  WEAPON_TIERS, weaponTierFor, weaponReady, buyWeaponTier, armBoltElement,
   createProgress, loadProgress, saveProgress,
 } from '../elemental-orbs.js';
 import { ELEMENTS } from '../spawns.js';
@@ -190,7 +191,7 @@ test('weapon cooldown gates fire by tier', () => {
 test('progress round-trips through storage; corrupt saves fall back clean', () => {
   const store = memStore();
   assert.deepEqual(loadProgress(store), createProgress());
-  const p = { orbs: { ...createWallet(), fire: 7, frost: 2 }, shieldTier: 2, weaponTier: 1 };
+  const p = { orbs: { ...createWallet(), fire: 7, frost: 2 }, shieldTier: 2, weaponTier: 1, boltElement: null };
   assert.equal(saveProgress(p, store), true);
   assert.deepEqual(loadProgress(store), p);
   const bad = memStore({ [ORB_STORAGE_KEY]: 'not json{' });
@@ -202,4 +203,31 @@ test('progress round-trips through storage; corrupt saves fall back clean', () =
   assert.equal(loaded.shieldTier, 3); // clamped
   assert.equal(loaded.weaponTier, 0);
   assert.equal(saveProgress(null, null), false); // no storage anywhere: never throws
+});
+
+test('orb drop render size is bone-drop scale: shell 0.22 m, core 0.10 m', () => {
+  assert.equal(ORB_DROP_SHELL_R, 0.22);
+  assert.equal(ORB_DROP_CORE_R, 0.10);
+  // Smaller than Earth 2's longest bone (0.9 m), far under the
+  // shortest hero (1.15 m halfling) and every monster (scaleM 2.5+).
+  assert.ok(ORB_DROP_SHELL_R * 2 < 0.9, 'shell diameter under the longest bone');
+  assert.ok(ORB_DROP_SHELL_R * 2 < 1.15, 'shell diameter under the shortest hero');
+});
+
+test('bolt arming: free loadout choice, round-trips, unknown disarms', () => {
+  const p = createProgress();
+  assert.equal(p.boltElement, null, 'a fresh wallet arms nothing');
+  assert.equal(armBoltElement(p, 'fire').boltElement, 'fire');
+  assert.equal(armBoltElement(p, 'storm').boltElement, null, 'unknown element disarms, never throws');
+  assert.equal(armBoltElement(p, null).boltElement, null);
+  assert.equal(armBoltElement(null, 'frost').boltElement, 'frost', 'null progress still arms');
+  for (const el of ELEMENTS) assert.equal(armBoltElement(p, el).boltElement, el);
+  // Round-trip through storage, and old saves without the field load unarmed.
+  const store = memStore();
+  assert.equal(saveProgress(armBoltElement(p, 'acid'), store), true);
+  assert.equal(loadProgress(store).boltElement, 'acid');
+  const old = memStore({ [ORB_STORAGE_KEY]: JSON.stringify({ orbs: { fire: 3 }, shieldTier: 1, weaponTier: 0 }) });
+  assert.equal(loadProgress(old).boltElement, null, 'pre-arm saves load unarmed');
+  const bad = memStore({ [ORB_STORAGE_KEY]: JSON.stringify({ orbs: {}, boltElement: 'storm' }) });
+  assert.equal(loadProgress(bad).boltElement, null, 'an unknown saved element loads unarmed');
 });

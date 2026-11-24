@@ -6,6 +6,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHeightFunction } from '../../../app/star-wars/zone.js';
+import { WORLD } from '../data.js';
+import { biomeAt, biomeWeights } from '../biomes.js';
 import {
   SPHERE_R, HE_GRAVITY, HE_JUMP_V, HE_WALK_SPEED, STEP_WALL_M, STEEP_FALL_GRADIENT,
   POLE_DIR, deckToDir, dirToDeck, thetaFromPole, azimuthOf, dirAt,
@@ -269,4 +272,35 @@ test('no motion walls: no clamp, no turn-back, no bounds anywhere in Hollow Eart
   assert.doesNotMatch(planet, /clampBounds|\.bounds\b/, 'the sphere law holds no bounds object');
   // The walker proves it by walking: the rim test above already
   // walks 2000 m round the shell and comes back — no wall stops it.
+});
+
+test('infinite walk on the REAL terrain: height + biome defined everywhere, circuit closes', () => {
+  const heightAt = createHeightFunction({ seed: WORLD.seed, groundAmp: WORLD.groundAmp });
+  // The field functions never go non-finite anywhere on the deck
+  // domain the walker can reach (r <= πR ≈ 1200) — and beyond it.
+  for (const [x, z] of [[0, 95], [1200, 0], [-1200, 0], [0, 1200], [850, 850], [-1200, -1200], [5000, -3000]]) {
+    const h = heightAt(x, z);
+    assert.ok(Number.isFinite(h), `heightAt(${x},${z}) must be finite, got ${h}`);
+    const b = biomeAt(x, z);
+    assert.ok(b && typeof b.dominant === 'string', `biomeAt(${x},${z}) must name a band`);
+    const w = biomeWeights(x, z);
+    const total = Object.values(w).reduce((a, v) => a + v, 0);
+    assert.ok(Number.isFinite(total) && Math.abs(total - 1) < 1e-6, `biome weights at (${x},${z}) must sum to 1, got ${total}`);
+  }
+  // A full great-circle circuit on the real terrain: the walker
+  // never leaves the shell, never NaNs, and comes back around.
+  const planet = { gravity: 18, walkSpeed: 10, jumpSpeed: 6, heightAt };
+  let s = sphereStateForDeck(0, 95, heightAt);
+  const start = { ...s.feet };
+  const steps = Math.round((2 * Math.PI * SPHERE_R) / (10 * 0.05));
+  let airborne = 0;
+  for (let i = 0; i < steps; i++) {
+    s = stepHollowEarthWalker(s, { fwd: 1, strafe: 0, jump: false, yaw: 0 }, 0.05, planet);
+    assert.ok(Number.isFinite(s.feet.x) && Number.isFinite(s.feet.y) && Number.isFinite(s.feet.z), `step ${i}: feet went non-finite`);
+    assert.ok(Number.isFinite(s.deck.x) && Number.isFinite(s.deck.z), `step ${i}: deck went non-finite`);
+    if (!s.grounded) airborne++;
+  }
+  assert.ok(airborne < steps * 0.01, `walker airborne ${airborne}/${steps} steps on real terrain — the shell should carry it`);
+  const back = Math.hypot(s.feet.x - start.x, s.feet.y - start.y, s.feet.z - start.z);
+  assert.ok(back < 5, `after one real-terrain circuit the walker is ${back.toFixed(2)} m from its start, expected < 5 m`);
 });

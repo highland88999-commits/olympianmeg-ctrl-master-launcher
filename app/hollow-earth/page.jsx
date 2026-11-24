@@ -51,12 +51,13 @@ import {
   monsterColliders, ELEMENT_COLORS,
   applyHitSecondary, tickHunterDot, clearHunterSecondaries,
   poolDpsAt, prunePools, activeSecondary, chillFactorFor,
+  applyPlayerBoltSecondary,
 } from './spawns.js';
 import { getParticleTexture } from '../../lib/particles/sprites.js';
 import {
   createOrbDrop, collectOrbs, pruneOrbs, addOrb, totalOrbs,
   loadProgress as loadOrbProgress, saveProgress as saveOrbProgress,
-  buyShieldTier, buyWeaponTier, rechargeShield,
+  buyShieldTier, buyWeaponTier, rechargeShield, armBoltElement,
   shieldTierFor, weaponTierFor, SHIELD_TIERS, WEAPON_TIERS,
   SHIELD_RECHARGE_COST, ORB_ELEMENTS,
 } from './elemental-orbs.js';
@@ -485,6 +486,20 @@ export default function HollowEarthPage() {
     applyOrbProgress({ ...prog, orbs: res.wallet, weaponTier: res.tier });
     notice(`🏹 ${weaponTierFor(res.tier).label} — ${weaponTierFor(res.tier).dmg} dmg, ${weaponTierFor(res.tier).rangeM} m.`);
   };
+  /* ARM BOLT (Phase 2, Nov 24): load the bolt with one of the
+   * 7 elements — a free loadout choice, not a purchase. An
+   * armed ranged strike lights that element's secondary on the
+   * monster it hits; unarmed, the bolt stays flat, as before.
+   * The choice persists device-local with the orb progress. */
+  const armBolt = (element) => {
+    const prog = orbProgressRef.current || loadOrbProgress();
+    const next = armBoltElement(prog, element);
+    applyOrbProgress(next);
+    if (next.boltElement) {
+      const row = ORB_ELEMENTS[next.boltElement];
+      notice(`🏹 Bolt armed — ${row.icon} ${row.label}. Ranged strikes carry ${row.label.toLowerCase()}.`);
+    } else notice('🏹 Bolt disarmed — plain shots.');
+  };
   // Leaving The Haven closes the trade panel — the trade lives
   // in the sanctuary, not in the field.
   useEffect(() => {
@@ -670,10 +685,21 @@ export default function HollowEarthPage() {
         damageHunter(ev.dmg, ev.element || null, 'aura');
       },
       onMonsterKilled: ({ victim, killer, cause }) => {
+        if (!victim) return;
+        // A burn the hunter lit with an armed bolt (cause
+        // 'combat', no killer) pays like a hunter kill — heal /
+        // shield, orb drop, campaign + mission progress — it only
+        // arrives here because the DoT finished the monster
+        // between strikes. The mission check runs too: a DoT kill
+        // can complete a hunt mission without another strike.
+        if (cause === 'combat') {
+          registerHunterKill(victim, true);
+          checkMission();
+          return;
+        }
         // Monster-vs-monster kill feed (savagery step 1): a short
         // toast naming killer + victim — no heal, no shield, no
         // Korus-gate progress (MvM pays the hunter nothing).
-        if (!victim) return;
         const victimName = (MONSTER_TYPES[victim.type] && MONSTER_TYPES[victim.type].name) || victim.type;
         const killerName = killer
           ? ((MONSTER_TYPES[killer.type] && MONSTER_TYPES[killer.type].name) || killer.type)
@@ -952,6 +978,10 @@ export default function HollowEarthPage() {
       const feet = s ? s.feet : spherePointFromDeck(walker.pos.x, walker.pos.z, world.groundHeight);
       const kind = boltKindFor(equippedRef.current, hero.ranged.kind);
       const style = BOLT_STYLE[kind];
+      // An armed bolt wears its element's colour, so the element
+      // reads at a glance before it lands.
+      const armedElement = orbProgressRef.current ? orbProgressRef.current.boltElement : null;
+      const boltColor = (armedElement && ELEMENT_COLORS[armedElement]) || style.color;
       const origin = new THREE.Vector3(
         feet.x + up.x * hero.height * 0.85 + frame.forward.x * 0.4 + frame.right.x * 0.45,
         feet.y + up.y * hero.height * 0.85 + frame.forward.y * 0.4 + frame.right.y * 0.45,
@@ -963,7 +993,7 @@ export default function HollowEarthPage() {
       dir.normalize();
       const mesh = new THREE.Mesh(
         new THREE.BoxGeometry(style.thick, style.thick, style.len),
-        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, fog: false }),
+        new THREE.MeshBasicMaterial({ color: boltColor, transparent: true, fog: false }),
       );
       mesh.position.copy(origin);
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
@@ -978,6 +1008,48 @@ export default function HollowEarthPage() {
       const life = Math.min(dist / BOLT_SPEED, BOLT_MAX_LIFE);
       blasts.push({ mesh, head: head || null, vx: dir.x * BOLT_SPEED, vy: dir.y * BOLT_SPEED, vz: dir.z * BOLT_SPEED, life, maxLife: life });
     };
+    // A hunter kill's full reward, one place: orb drop + heal /
+    // shield + campaign + mission count + HUD. The strike site
+    // pays it the moment damageMonster returns true; a burn the
+    // hunter lit with an armed bolt pays it too, when the DoT
+    // finishes the monster between strikes (the zone forwards
+    // cause 'combat' through onMonsterKilled). Monster-vs-monster
+    // kills never reach this — the page's onMonsterKilled toasts
+    // those and pays nothing.
+    function registerHunterKill(m, withImpact) {
+      if (withImpact) spawnImpact(m, true);
+      /* Elemental orb drop (Merlin, Nov 16 ~01:52): a hunter
+       * kill drops one orb of the monster's family element at
+       * the death point. Monster-vs-monster kills never reach
+       * this site (they flow through zone.js onMonsterKilled),
+       * so they drop nothing — the J2 user-kill-only law. */
+      const drop = createOrbDrop({
+        monster: m, killerId: 'user',
+        // The drop's y is the real 3D ground height at the
+        // death point — collectOrbs measures a 3D segment,
+        // so a flat heightAt would miss every far-side drop.
+        position: spherePointFromDeck(m.x, m.z, world.groundHeight),
+        nowMs: Date.now(),
+      });
+      if (drop) {
+        orbDropsRef.current = pruneOrbs([...orbDropsRef.current, drop], Date.now());
+        if (world.setOrbDrops) world.setOrbDrops(orbDropsRef.current);
+      }
+      const h = hunterRef.current;
+      const res = onMonsterKilled(h);
+      missionKillsRef.current += 1;
+      if (res.shieldGranted) notice(`🛡️ SHIELD GAINED — 30 kills! It absorbs 50 damage until broken.`);
+      else if (res.heal > 0) notice(`❤️ +${res.heal} health for the kill.`);
+      else notice(monsterLifeFor(m, Date.now()).line);
+      setCampaign((c) => {
+        let nc = DATA.recordKill(c);
+        nc = DATA.setShield(nc, h.shield);
+        DATA.saveCampaign(nc);
+        return nc;
+      });
+      setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield, kills: h.kills }));
+    }
+
     function attack() {
       const now = performance.now();
       const spec = weaponSpec();
@@ -1049,38 +1121,20 @@ export default function HollowEarthPage() {
        * struck, never a record) and stays unwired. */
       for (const m of hits) {
         const died = damageMonster(m, spec.dmg);
-        if (!died) { m.hitFlash = 1; spawnImpact(m, false); notice(monsterLifeFor(m, Date.now()).line); continue; }
-        spawnImpact(m, true);
-        /* Elemental orb drop (Merlin, Nov 16 ~01:52): a hunter
-         * kill drops one orb of the monster's family element at
-         * the death point. Monster-vs-monster kills never reach
-         * this site (they flow through zone.js onMonsterKilled),
-         * so they drop nothing — the J2 user-kill-only law. */
-        const drop = createOrbDrop({
-          monster: m, killerId: 'user',
-          // The drop's y is the real 3D ground height at the
-          // death point — collectOrbs measures a 3D segment,
-          // so a flat heightAt would miss every far-side drop.
-          position: spherePointFromDeck(m.x, m.z, world.groundHeight),
-          nowMs: Date.now(),
-        });
-        if (drop) {
-          orbDropsRef.current = pruneOrbs([...orbDropsRef.current, drop], Date.now());
-          if (world.setOrbDrops) world.setOrbDrops(orbDropsRef.current);
+        // ARMED BOLT (ranged only — melee stays flat steel): the
+        // strike lights the armed element's secondary on the
+        // monster — burn/venom/chill in its one DoT slot, acid
+        // corrosion + a real pool at the strike point, shadow /
+        // sand blind. Unarmed, the bolt stays flat, as before.
+        if (weaponRef.current !== 'melee') {
+          const armed = orbProgressRef.current ? orbProgressRef.current.boltElement : null;
+          if (armed) {
+            const sec = applyPlayerBoltSecondary(m, armed, Date.now());
+            if (sec && sec.kind === 'pool') createPool(m.x, m.z);
+          }
         }
-        const h = hunterRef.current;
-        const res = onMonsterKilled(h);
-        missionKillsRef.current += 1;
-        if (res.shieldGranted) notice(`🛡️ SHIELD GAINED — 30 kills! It absorbs 50 damage until broken.`);
-        else if (res.heal > 0) notice(`❤️ +${res.heal} health for the kill.`);
-        else notice(monsterLifeFor(m, Date.now()).line);
-        setCampaign((c) => {
-          let nc = DATA.recordKill(c);
-          nc = DATA.setShield(nc, h.shield);
-          DATA.saveCampaign(nc);
-          return nc;
-        });
-        setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield, kills: h.kills }));
+        if (!died) { m.hitFlash = 1; spawnImpact(m, false); notice(monsterLifeFor(m, Date.now()).line); continue; }
+        registerHunterKill(m, true);
       }
       checkMission();
     }
@@ -1576,6 +1630,12 @@ export default function HollowEarthPage() {
             style={{ marginTop: '0.5rem', padding: '0.5rem 2rem', borderRadius: 999, border: 'none', background: GOLD, color: '#1a1426', fontWeight: 800, fontSize: 15, lineHeight: 1.2, cursor: 'pointer' }}>
             Enter as {hero.name} →
           </button>
+          {/* Leave — the way out of Hollow Earth from the menu (Merlin, Nov 16 WS1 D-M3; the destination is held, so the hub / is the plain default). */}
+          <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'center' }}>
+            <OrbButton href="/" fn="back-to-hub" size={44} accent={GOLD} ariaLabel="Back to hub" title="Back to hub">
+              <OrbLabel>HUB</OrbLabel>
+            </OrbButton>
+          </div>
         </div>
       </div>
     );
@@ -1599,7 +1659,13 @@ export default function HollowEarthPage() {
     return (
       <div style={{ minHeight: '100vh', background: '#17121f', color: '#fff', padding: `${L.padTop}px 0.75rem ${L.padBottom}px`, fontFamily: 'Georgia, serif' }}>
         <div style={{ maxWidth: 760, margin: '0 auto' }}>
-          <button type="button" onClick={() => setMode('menu')} style={{ background: 'none', border: 'none', color: GOLD, cursor: 'pointer', fontSize: 13, lineHeight: 1.15, padding: 0 }}>← Hunters</button>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <button type="button" onClick={() => setMode('menu')} style={{ background: 'none', border: 'none', color: GOLD, cursor: 'pointer', fontSize: 13, lineHeight: 1.15, padding: 0 }}>← Hunters</button>
+            {/* Leave — the way out from the map (Merlin, Nov 16 WS1 D-M3; destination held, hub / is the plain default). */}
+            <OrbButton href="/" fn="back-to-hub" size={44} accent={GOLD} ariaLabel="Back to hub" title="Back to hub">
+              <OrbLabel>HUB</OrbLabel>
+            </OrbButton>
+          </div>
           <h1 style={{ color: GOLD, fontSize: 18, lineHeight: 1.15, margin: '0.1rem 0' }}>Olympian Monsterverse</h1>
           <p style={{ opacity: 0.8, fontSize: 12, lineHeight: 1.25, margin: 0 }}>Entering as <b>{hero.name}</b> · ❤️ {hero.maxHp} · {hero.meleeLabel} {hero.meleeDmg}</p>
           <div style={{ border: '1px solid rgba(216,178,92,0.5)', borderRadius: 10, padding: '0.3rem 0.6rem', margin: '0 0 0.5rem', background: 'rgba(216,178,92,0.08)', fontSize: 13, lineHeight: 1.2 }}>
@@ -1733,6 +1799,10 @@ export default function HollowEarthPage() {
           by construction now: everything stacks, nothing floats. */}
       <div style={{ position: 'absolute', top: 'max(0.75rem, env(safe-area-inset-top))', left: '1rem', right: '4.75rem', display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {/* Leave — Back to hub (Merlin, Nov 16 WS1 D-M3; destination held, hub / is the plain default). */}
+          <OrbButton href="/" fn="back-to-hub" size={44} accent={GOLD} ariaLabel="Back to hub" title="Back to hub" style={{ pointerEvents: 'auto' }}>
+            <OrbLabel>HUB</OrbLabel>
+          </OrbButton>
           <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
             ❤️ {hud.hp}/{hero.maxHp}{hud.shield > 0 ? ` · 🛡️ ${hud.shield}` : ''}
           </span>
@@ -1744,7 +1814,7 @@ export default function HollowEarthPage() {
               elements only; empty wallet reads "0 orbs". */}
           {orbHud && (
             <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
-              🔮 {Object.values(ORB_ELEMENTS).filter((o) => (orbHud.orbs[o.element] || 0) > 0).map((o) => `${o.icon}${orbHud.orbs[o.element]}`).join(' ') || '0 orbs'}
+              🔮 {Object.values(ORB_ELEMENTS).filter((o) => (orbHud.orbs[o.element] || 0) > 0).map((o) => `${o.icon}${orbHud.orbs[o.element]}`).join(' ') || '0 orbs'}{orbHud.boltElement ? ` · 🏹${ORB_ELEMENTS[orbHud.boltElement].icon}` : ''}
             </span>
           )}
           {hud.inBase && <span style={{ background: 'rgba(216,178,92,0.85)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#1a1426', fontSize: 14, fontWeight: 700 }}>🏠 The Haven — sanctuary</span>}
@@ -1854,6 +1924,23 @@ export default function HollowEarthPage() {
                 </OrbButton>
               </div>
             ))}
+            {/* ARM BOLT (Phase 2, Nov 24): load the bolt with one
+                of the 7 elements — free, tap to arm, tap again to
+                disarm. An armed ranged strike lights that
+                element's secondary on the monster it hits. */}
+            <h3 style={{ color: GOLD, margin: '0 0 0.5rem', fontSize: 15 }}>🏹 Arm bolt — {orbHud.boltElement ? `${ORB_ELEMENTS[orbHud.boltElement].icon} ${ORB_ELEMENTS[orbHud.boltElement].label}` : 'plain'}</h3>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+              {Object.values(ORB_ELEMENTS).map((o) => {
+                const armed = orbHud.boltElement === o.element;
+                return (
+                  <OrbButton key={o.element} size={44} accent={armed ? o.color : 'rgba(255,255,255,0.35)'} active={armed}
+                    onClick={() => armBolt(armed ? null : o.element)}
+                    ariaLabel={armed ? `Bolt armed with ${o.label} — tap to disarm` : `Arm bolt with ${o.label}`}>
+                    <span style={{ fontSize: 18, lineHeight: 1 }}>{o.icon}</span>
+                  </OrbButton>
+                );
+              })}
+            </div>
             <p style={{ fontSize: 12, opacity: 0.7, margin: '0.75rem 0 1rem' }}>Any orbs pay — acid first, poison last. The 30-kill shield is separate and cannot be recharged here.</p>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <OrbButton fn="close" accent={GOLD} onClick={() => setTradeOpen(false)} ariaLabel="Close trade">

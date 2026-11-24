@@ -75,6 +75,7 @@ import {
 } from './spawns.js';
 import { AURA_R_M, lightningColorFor } from '../../lib/lightning-aura.js';
 import { rainFor, RAIN_MAX_STREAKS, RAIN_FALL_SPEED_M_S, RAIN_HEIGHT_M } from './elemental-rain.js';
+import { ORB_DROP_SHELL_R, ORB_DROP_CORE_R } from './elemental-orbs.js';
 import { kickOffGlb, preloadGlb } from './model-loader.js';
 import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
 import { buildElemental, hazeStateFor } from './elemental.js';
@@ -493,7 +494,10 @@ export function buildWorld(THREE, def, T, opts = {}) {
   }
   // ELEMENTAL ORB DROPS (Merlin, Nov 16 ~01:52): a hunter kill
   // leaves one small glowing orb in the monster's element colour
-  // at the death point. Unlit basic materials — no new lights.
+  // at the death point. Bone-drop scale (Merlin, Nov 24 ~08:05):
+  // the shell is ORB_DROP_SHELL_R (0.22 m) — smaller than Earth
+  // 2's longest bone (0.9 m) and far under the shortest hero
+  // and every monster. Unlit basic materials — no new lights.
   // The page owns the drop list (create/collect/prune) and pushes
   // it through setOrbDrops; this only renders it, bobbing at
   // ground height (0.9 m + a 0.25 m sine bob).
@@ -506,11 +510,11 @@ export function buildWorld(THREE, def, T, opts = {}) {
       if (orbDropMeshes.has(d.id)) continue;
       const color = ELEMENT_COLORS[d.element] || 0xffffff;
       const shell = new R.Mesh(
-        new R.SphereGeometry(0.35, 12, 10),
+        new R.SphereGeometry(ORB_DROP_SHELL_R, 12, 10),
         new R.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, fog: false }),
       );
       const core = new R.Mesh(
-        new R.SphereGeometry(0.16, 8, 6),
+        new R.SphereGeometry(ORB_DROP_CORE_R, 8, 6),
         new R.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, fog: false }),
       );
       const g = new R.Group();
