@@ -10,14 +10,18 @@
 // elements — the wall-videos discipline, in flat terms.
 //
 // Each face wears its own portal video (/videos/portals/<key>.mp4,
-// muted + looping + inline) when it has one; a portal with no video
-// (earth-2, mars-moon — by design) or whose video failed wears the
-// shared painted swirl (lib/portal-swirl.js) with a ring in its
-// section hue. Starts are staggered 120 ms per slot, exactly like
-// the wall's; every face pauses while the tab is hidden, and a face
-// unmount pauses its video and unloads it. Reduced motion keeps the
-// first frame, unmoving. Tapping a portal hands its face rect to
-// the parent, which sucks the user into the video.
+// muted + inline) when it has one — PAUSED on its first frame, the
+// Starforge tile pattern (Nov 24, 2026): preload="metadata" loads
+// the opening frame only, nothing decodes or plays on load. A tap
+// ignites the video in the fullscreen suck-in overlay, exactly as
+// before. A portal with no video (earth-2 — by design) or whose
+// video failed wears the shared painted swirl (lib/portal-swirl.js)
+// with a ring in its section hue. Starts are staggered 120 ms per
+// slot, exactly like the wall's; every face pauses while the tab is
+// hidden, and a face unmount pauses its video and unloads it.
+// Reduced motion keeps the first frame, unmoving — as does every
+// face now. Tapping a portal hands its face rect to the parent,
+// which sucks the user into the video.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { portalHasVideo } from '@/lib/portal-videos';
@@ -49,7 +53,7 @@ export function getSwirlDataUrl() {
 // video element lives only while this face is mounted — the grid
 // mounts one page at a time, so only the current page ever holds
 // video elements.
-function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
+function FlatPortalFace({ item, slotIndex, registerVideo }) {
   const videoRef = useRef(null);
   const [failed, setFailed] = useState(false);
   const hasVideo = portalHasVideo(item.key) && !failed;
@@ -65,7 +69,6 @@ function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
         : false;
     let disposed = false;
     let loadTimer = null;
-    let playTimer = null;
     const onError = () => {
       if (!disposed) setFailed(true);
     };
@@ -74,12 +77,10 @@ function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
       video.dataset.gridReady = '1';
       if (reduced) {
         video.dataset.gridStill = '1';
-        return; // still face: the first frame, unmoving
       }
-      playTimer = setTimeout(() => {
-        if (disposed || document.hidden || pausedRef.current) return;
-        video.play().catch(() => {});
-      }, slotIndex * VIDEO_START_STAGGER_MS);
+      // No play() here — every face stays paused on its first frame
+      // (Starforge tile pattern, Nov 24, 2026). The video ignites
+      // only on tap, in the fullscreen suck-in overlay.
     };
     video.addEventListener('error', onError);
     video.addEventListener('canplay', onCanPlay);
@@ -87,17 +88,18 @@ function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
     // frame: a face's src only starts loading in its stagger slot,
     // while the face is mounted. (The video element carries no src
     // in its JSX on purpose — the stagger is the load gate.)
+    // preload="metadata": the first frame only, so the paused face
+    // shows its opening frame — never a decode burst on load.
     loadTimer = setTimeout(() => {
       if (disposed) return;
       video.src = `/videos/portals/${item.key}.mp4`;
-      video.preload = 'auto';
+      video.preload = 'metadata';
       video.load();
     }, slotIndex * VIDEO_START_STAGGER_MS);
     registerVideo(item.key, video);
     return () => {
       disposed = true;
       if (loadTimer) clearTimeout(loadTimer);
-      if (playTimer) clearTimeout(playTimer);
       video.removeEventListener('error', onError);
       video.removeEventListener('canplay', onCanPlay);
       video.pause();
@@ -107,7 +109,7 @@ function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
       } catch {}
       registerVideo(item.key, null);
     };
-  }, [item.key, slotIndex, hasVideo, pausedRef, registerVideo]);
+  }, [item.key, slotIndex, hasVideo, registerVideo]);
 
   return (
     <span
@@ -121,9 +123,8 @@ function FlatPortalFace({ item, slotIndex, pausedRef, registerVideo }) {
           ref={videoRef}
           className="absolute inset-0 h-full w-full object-cover"
           muted
-          loop
           playsInline
-          preload="none"
+          preload="metadata"
         />
       ) : (
         <span
@@ -145,28 +146,19 @@ export default function PortalFlatGrid({ pageItems, onTap, paused }) {
   // unregisters on unmount, so only the mounted page's videos are
   // ever in it.
   const videosRef = useRef(new Map());
-  const pausedRef = useRef(!!paused);
-  pausedRef.current = !!paused;
   const registerVideo = useCallback((key, vid) => {
     if (vid) videosRef.current.set(key, vid);
     else videosRef.current.delete(key);
   }, []);
 
-  // Every grid video pauses while the tab is hidden and resumes on
-  // return — 42 decodes never run behind a hidden tab. Only videos
-  // that loaded (gridReady) and are not reduced-motion stills
-  // (gridStill) resume; a video whose stagger slot fell while hidden
-  // starts here instead.
+  // Every grid video pauses while the tab is hidden. Nothing resumes
+  // on return — faces stay paused on their first frame (Starforge
+  // tile pattern, Nov 24, 2026); the video ignites only on tap, in
+  // the fullscreen suck-in overlay.
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) {
         for (const vid of videosRef.current.values()) vid.pause();
-      } else {
-        for (const vid of videosRef.current.values()) {
-          if (vid.dataset.gridReady === '1' && vid.dataset.gridStill !== '1' && !pausedRef.current) {
-            vid.play().catch(() => {});
-          }
-        }
       }
     };
     document.addEventListener('visibilitychange', onVis);
@@ -174,18 +166,12 @@ export default function PortalFlatGrid({ pageItems, onTap, paused }) {
   }, []);
 
   // While the user is being sucked into a portal video, the grid
-  // faces behind the fullscreen overlay pause; they resume when the
-  // suck-in closes without traveling.
+  // faces behind the fullscreen overlay pause. Nothing resumes when
+  // the suck-in closes without traveling — faces stay paused on
+  // their first frame until the next tap.
   useEffect(() => {
-    if (paused) {
-      for (const vid of videosRef.current.values()) vid.pause();
-      return undefined;
-    }
-    for (const vid of videosRef.current.values()) {
-      if (vid.dataset.gridReady === '1' && vid.dataset.gridStill !== '1' && !document.hidden) {
-        vid.play().catch(() => {});
-      }
-    }
+    if (!paused) return undefined;
+    for (const vid of videosRef.current.values()) vid.pause();
     return undefined;
   }, [paused]);
 
@@ -211,7 +197,6 @@ export default function PortalFlatGrid({ pageItems, onTap, paused }) {
           <FlatPortalFace
             item={item}
             slotIndex={i}
-            pausedRef={pausedRef}
             registerVideo={registerVideo}
           />
           {/* The name in BOLD underneath — where the portal goes. */}

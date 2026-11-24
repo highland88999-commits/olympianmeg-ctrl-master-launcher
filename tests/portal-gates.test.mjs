@@ -54,10 +54,12 @@ test('both gates import the transit speed and turn on the frame delta', () => {
     hub.includes("import { TUBE_SPIN_RAD_PER_SEC } from '@/app/nexus-vortex/lib/tube.js'"),
     'the gates import the tube speed — no second copy of the value'
   );
-  // Two useFrame loops (disc + aurora fan), both taking the delta.
-  assert.equal((hub.match(/useFrame\(\(state, delta\) =>/g) || []).length, 2, 'disc + aurora fan both read delta');
-  // The speed times the delta, in both loops.
-  assert.equal((hub.match(/TUBE_SPIN_RAD_PER_SEC \* delta/g) || []).length, 2, 'face/nanites + fan share one rate');
+  // One useFrame loop (the disc only — the aurora fan was removed
+  // Nov 24, 2026 with the Aurora system, so the disc is the only
+  // turning part left in the hub).
+  assert.equal((hub.match(/useFrame\(\(state, delta\) =>/g) || []).length, 1, 'disc only reads delta');
+  // The speed times the delta, in the one loop.
+  assert.equal((hub.match(/TUBE_SPIN_RAD_PER_SEC \* delta/g) || []).length, 1, 'face/nanites share one rate');
   assert.ok(hub.includes('spinRef.current.rotation.y += spin'), 'face turns on the shared spin');
   assert.ok(hub.includes('naniteRef.current.rotation.y += spin'), 'nanites turn on the shared spin');
   // No fixed per-frame rate left anywhere in the file.

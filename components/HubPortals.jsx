@@ -4,7 +4,10 @@
 // discs/rings lying flat, not vertical doorways (Merlin's correction,
 // Nov 13 ~01:34):
 //   · HEAVEN REALMS PORTAL — a horizontal disc ABOVE the tower top,
-//     aurora system, transparent effect, aurora field streaming down.
+//     transparent effect. (The aurora field streaming down from it
+//     was removed Nov 24, 2026 — Merlin: "remove the Aurora system
+//     from the hub". The disc, its swirl, nanites and transit rings
+//     stay exactly as they are.)
 //   · NETHER-REALMS PORTAL — a horizontal disc BELOW Earth (where the
 //     descent starts), filled with nanites / light particles.
 //
@@ -20,9 +23,10 @@
 // and every turning part of every gate turns at ONE speed: the
 // transit tube's spin, TUBE_SPIN_RAD_PER_SEC (1.4 rad/s,
 // app/nexus-vortex/lib/tube.js), frame-rate independent via the
-// useFrame delta. Before this the face, the nanites and the aurora
-// fan each turned at a different fixed per-frame rate (0.004 /
-// 0.0012 / 0.0006) — none of them the transit's speed.
+// useFrame delta. Before this the face and the nanites each turned
+// at a different fixed per-frame rate (0.004 / 0.0012) — neither of
+// them the transit's speed. (The aurora fan that used to turn with
+// them was removed Nov 24, 2026, with the Aurora system.)
 //
 // The Heaven portal starts LOCKED: it is not rendered at all until
 // the traveller has made 1 Nether Realm visit (heavenUnlocked).
@@ -100,25 +104,6 @@ function transitRingTexture() {
   return tex;
 }
 
-function auroraShaftTexture() {
-  const c = document.createElement('canvas');
-  c.width = 64;
-  c.height = 256;
-  const g = c.getContext('2d');
-  const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, 'rgba(126,240,200,0)');
-  grad.addColorStop(0.25, 'rgba(126,240,200,0.55)');
-  grad.addColorStop(0.5, 'rgba(140,220,255,0.9)');
-  grad.addColorStop(0.75, 'rgba(180,160,255,0.55)');
-  grad.addColorStop(1, 'rgba(126,240,200,0)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 256);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-// Nanite points scattered in a flat disc (the portal's fill).
 function nanitePositions(count, radius, seed) {
   const rand = rng(seed);
   const arr = new Float32Array(count * 3);
@@ -145,10 +130,10 @@ function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, li
   const lightRef = useRef();
   const frameRef = useRef(0);
 
-  // ONE SPEED (Merlin, Nov 13 ~22:27): the face, the nanites and the
-  // aurora fan all turn at the transit tube's spin —
-  // TUBE_SPIN_RAD_PER_SEC (1.4 rad/s) — frame-rate independent via
-  // the useFrame delta. No fixed per-frame rate anywhere.
+  // ONE SPEED (Merlin, Nov 13 ~22:27): the face and the nanites
+  // turn at the transit tube's spin — TUBE_SPIN_RAD_PER_SEC
+  // (1.4 rad/s) — frame-rate independent via the useFrame delta.
+  // No fixed per-frame rate anywhere.
   useFrame((state, delta) => {
     frameRef.current += 1;
     const t = state.clock.elapsedTime;
@@ -224,49 +209,6 @@ function PortalDisc({ def, palette, naniteColors, label, labelColor, onClick, li
   );
 }
 
-// The AURORA FIELD — vertical light shafts streaming down from the
-// Heaven portal toward Earth (Merlin's diagram: the vertical lines
-// from the Heaven portal ARE the aurora field). A fan of translucent
-// sheets through the axis between hub and Earth, slowly turning and
-// breathing — the same slow-moving-light discipline as torch light.
-function AuroraField() {
-  const tex = useMemo(() => auroraShaftTexture(), []);
-  const mat = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        map: tex,
-        transparent: true,
-        opacity: 0.45,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-      }),
-    [tex]
-  );
-  const fanRef = useRef();
-  const frameRef = useRef(0);
-  // ONE SPEED (Merlin, Nov 13 ~22:27): the aurora fan turns with the
-  // gates — the transit tube's spin, frame-rate independent.
-  useFrame((state, delta) => {
-    frameRef.current += 1;
-    if (fanRef.current) fanRef.current.rotation.y += TUBE_SPIN_RAD_PER_SEC * delta;
-    if (frameRef.current % 3 !== 1) return;
-    const t = state.clock.elapsedTime;
-    mat.opacity = 0.38 + 0.14 * Math.sin(t * 0.45) * Math.sin(t * 0.23 + 1.3);
-  });
-  const sheets = [];
-  for (let i = 0; i < 10; i += 1) sheets.push((i / 10) * Math.PI);
-  return (
-    <group ref={fanRef} position={[0, 51, -100]}>
-      {sheets.map((a) => (
-        <mesh key={a} rotation={[0, a, 0]} material={mat}>
-          <planeGeometry args={[14, 88]} />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
 export default function HubPortals({ heavenUnlocked, onPortalClick }) {
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -295,7 +237,6 @@ export default function HubPortals({ heavenUnlocked, onPortalClick }) {
             <circleGeometry args={[62, 48]} />
             <meshBasicMaterial color="#7ef0c8" transparent opacity={0.08} side={THREE.DoubleSide} depthWrite={false} />
           </mesh>
-          <AuroraField />
         </>
       )}
       {/* NETHER-REALMS PORTAL — below Earth, where the descent starts. */}

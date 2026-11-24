@@ -328,9 +328,9 @@ describe('the panel + grid (static)', () => {
     assert.ok(grid.includes('VIDEO_START_STAGGER_MS'), 'grid starts are staggered so 42 decodes never spin up on one frame');
     assert.ok(grid.includes('visibilitychange'), 'every grid video pauses while the tab is hidden');
     assert.ok(grid.includes('muted'), 'grid videos are muted');
-    assert.ok(grid.includes('loop'), 'grid videos loop');
+    assert.ok(!/<video[^>]*\bloop\b/.test(grid), 'grid face videos never loop — paused first frame, Starforge pattern');
     assert.ok(grid.includes('playsInline'), 'grid videos play inline');
-    assert.ok(grid.includes("preload=\"none\"") || grid.includes("preload = 'none'") || grid.includes("video.preload = 'auto'"), 'a face only starts loading in its stagger slot, while mounted');
+    assert.ok(grid.includes("video.preload = 'metadata'"), 'a face loads metadata only — first frame, no decode burst on load');
     assert.ok(grid.includes('removeAttribute(\'src\')'), 'unmount unloads the video — a video element exists only while its portal is mounted');
     assert.ok(grid.includes('getSwirlDataUrl'), 'the shared swirl is the face for portals without a video');
     assert.ok(grid.includes('SECTION_HUES[item.section]'), 'faces keep their section hue');

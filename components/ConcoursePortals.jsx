@@ -630,16 +630,18 @@ export default function ConcoursePortals({
         {/* The Arch itself, wearing its wrap video — the merged
             menu's front door (the 2D Portal Room's top video, kept
             here now that the room is gone). A compact strip so the
-            grid keeps its room on a phone. */}
+            grid keeps its room on a phone. Paused on its first frame
+            like the grid faces (Starforge tile pattern, Nov 24,
+            2026): it used to autoplay alongside the 42 grid videos
+            on every Concourse open. */}
         <div className="mx-5 mt-3 overflow-hidden rounded-2xl border border-amber-300/30 shadow-[0_0_24px_rgba(255,180,60,0.15)]">
           <div className="relative h-[92px] w-full">
             <video
               className="absolute inset-0 h-full w-full object-cover"
               src={OMEGA_WRAP_VIDEO}
-              autoPlay
               muted
-              loop
               playsInline
+              preload="metadata"
             />
             <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
             <div className="absolute inset-0 flex items-center justify-center">

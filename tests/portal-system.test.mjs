@@ -266,7 +266,8 @@ test('hub mounts both discs behind the street-level gate, heaven gated on unlock
   const hub = src('../components/HubPortals.jsx');
   assert.ok(hub.includes('heavenUnlocked &&'), 'heaven disc renders only when unlocked');
   assert.ok(hub.includes('window.__hubPortals'), 'headless probe hook');
-  assert.ok(hub.includes('AuroraField'), 'aurora field streams down from the heaven disc');
+  assert.ok(!hub.includes('AuroraField'), 'the aurora field is gone (removed Nov 24, 2026 — Merlin: remove the Aurora system from the hub)');
+  assert.ok(!hub.includes('auroraShaftTexture'), 'the aurora shaft texture went with it');
   assert.ok(hub.includes('paintPortalSwirl'), 'discs reuse the living swirl painter');
 });
 
