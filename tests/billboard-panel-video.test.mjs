@@ -1,7 +1,7 @@
 // tests/billboard-panel-video.test.mjs
 // Hub tower panel video playback (Merlin, 2026-10-27): real video on
 // the panel face — no static first-frame poster, no prompt bars, no
-// tint — preloaded in billboard-number order 1→44 before the towers
+// tint — preloaded in billboard-number order before the towers
 // present.
 // Run: node tests/billboard-panel-video.test.mjs (from the repo root).
 // No browser, no network — asserts on the pure helpers and on the
@@ -10,8 +10,9 @@
 // Rules under test:
 // - Cover-fit math fills the face edge to edge, center-cropped,
 //   never stretched, never spilling outside the frame.
-// - The preload list runs 1→44, includes every rotating entry's
-//   video, skips images, and dedupes identical URLs to first sight.
+// - The preload list runs the whole board run in order, includes
+//   every rotating entry's video, skips images, and dedupes identical
+//   URLs to first sight.
 // - The preload runner loads strictly in order, dedupes, and never
 //   throws on a dead video (the hub gate can never hang).
 // - Hub panel faces carry no prompt bars; the tap-to-link path and
@@ -79,7 +80,7 @@ t('cover-fit rejects NaN', videoCoverFit(4.0, 7.0, NaN, 9) === null);
   }
 }
 
-// --- preload list: 1→44 order, every rotating video, deduped ---
+// --- preload list: whole board run in order, every rotating video, deduped ---
 {
   const A = 'https://example.com/a.mp4';
   const B = 'https://example.com/b.jpg';
@@ -102,7 +103,7 @@ t('cover-fit rejects NaN', videoCoverFit(4.0, 7.0, NaN, 9) === null);
   const numberFor = (ti, pi) => ti * 4 + pi + 1;
   const list = collectPanelVideoUrls(towers, numberFor);
   t(
-    'preload list is 1→44 with first-sight dedupe',
+    'preload list is board order with first-sight dedupe',
     JSON.stringify(list) === JSON.stringify([
       { number: 1, url: A },
       { number: 3, url: C },
@@ -116,8 +117,13 @@ t('preload list rejects bad input', collectPanelVideoUrls(null, () => 1).length 
 t('preload list rejects bad numberFor', collectPanelVideoUrls([[{ key: 'x' }]], null).length === 0);
 {
   const towers = [[{ key: 'x', creativeType: 'video', creativeUrl: 'u' }]];
-  t('preload list drops out-of-range numbers', collectPanelVideoUrls(towers, () => 45).length === 0);
+  // The whole board run (96 boards, Nov 2026) — the old 1→44 cap is
+  // gone; only non-positive / non-integer numbers are dropped.
+  t('preload list keeps board 45', collectPanelVideoUrls(towers, () => 45).length === 1);
+  t('preload list keeps board 96', collectPanelVideoUrls(towers, () => 96).length === 1);
   t('preload list drops number 0', collectPanelVideoUrls(towers, () => 0).length === 0);
+  t('preload list drops negative numbers', collectPanelVideoUrls(towers, () => -3).length === 0);
+  t('preload list drops non-integer numbers', collectPanelVideoUrls(towers, () => 1.5).length === 0);
 }
 
 // --- preload runner: strict order, dedupe, never throws ---
@@ -210,7 +216,7 @@ t(
     !godTowerSrc.includes('viewers: new Set()')
 );
 t(
-  'panel elements preload metadata only (132 faces must not all buffer media at mount)',
+  'panel elements preload metadata only (288 faces must not all buffer media at mount)',
   godTowerSrc.includes("video.preload = 'metadata'") &&
     !godTowerSrc.includes("video.preload = 'auto'")
 );

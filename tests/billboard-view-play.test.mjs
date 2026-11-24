@@ -48,7 +48,7 @@ describe('billboard view-play (per panel)', () => {
     assert.ok(!tower.includes('currentTime=0'), 'no currentTime reset (tight)');
   });
 
-  it('panel elements preload metadata only — 132 faces must not all buffer media at mount', () => {
+  it('panel elements preload metadata only — 288 faces must not all buffer media at mount', () => {
     assert.ok(tower.includes("video.preload = 'metadata'"), 'metadata preload');
     assert.ok(!tower.includes("video.preload = 'auto'"), 'no auto preload');
   });

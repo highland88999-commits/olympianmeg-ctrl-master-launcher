@@ -6,19 +6,20 @@
 // Each tower carries three LEVELS of four ad panels (Merlin,
 // 2026-10-27: "It's levels" — Level 1 TOP (Merlin: "Multiverse = multi level one"),
 // Level 2 MIDDLE, Level 3 BOTTOM, with a name level and ring
-// breaks between levels). Level 2 is the current 44 billboards
-// ("currently there" in his sketch): it reads the real billboard
-// inventory (lib/partners.js, assigned deterministically by
-// lib/tower-panels.js); its boards keep their 1–44 board numbers
-// (billboardNumberFor) for the manager and manifest, while the
-// badges visitors see run top to bottom (Merlin, 2026-10-27:
-// "Make sure you number them from top to bottom"): top 1–44,
-// middle 45–88, bottom 89–132, for 3 × 44 = 132 faces. Levels 1
-// and 3 are house-only for now (display badges only, code only,
-// not a product decision): every new face plays the same house
-// video through the existing panel video path, and the new
-// levels are NOT wired into the manager, manifest, queue,
-// playlist, pricing, or cap. The god's
+// breaks between levels). There are 24 towers × 12 faces = 288
+// faces; boards run 1–96 (billboardNumberFor) for the manager and
+// manifest, while the badges visitors see run top to bottom
+// (Merlin, 2026-10-27: "Make sure you number them from top to
+// bottom"): top = board, middle = board + 44, bottom = board + 88,
+// so badges collide across levels (badge 45 is board 45 top and
+// board 1 middle) — the load order below uses board order, which
+// is unambiguous. Level 2 reads the real billboard inventory
+// (lib/partners.js, assigned deterministically by
+// lib/tower-panels.js). Levels 1 and 3 are house-only for now
+// (display badges only, code only, not a product decision): every
+// new face plays the same house video through the existing panel
+// video path, and the new levels are NOT wired into the manager,
+// manifest, queue, playlist, pricing, or cap. The god's
 // name sits in the name levels BETWEEN the billboard levels — not
 // on the pillar surface (covered by the boxes) and not above the
 // box.
@@ -52,6 +53,8 @@ import {
   videoCoverFit,
   collectPanelVideoUrls,
   preloadInOrder,
+  panelVideoBadgeOrder,
+  pickNextPanelVideoLoad,
 } from '@/lib/billboards/panel-video';
 
 // Tower panel faces: a slot's real image creative paints cover-fit on
@@ -203,9 +206,9 @@ function usePanelFaceTexture(slot, stakeTex) {
 // billboard's video must play only while THAT billboard is in view,
 // pause when it leaves the screen, and resume from where it paused
 // when it comes back. The old shared record could not do that: the
-// house video plays on all 88 level-1+3 faces and Stake on all 10
-// middle panel-0 faces, so the shared element played whenever ANY
-// of its faces was in view — effectively always in the hub — and a
+// house video plays on all 192 level-1+3 faces, so the shared
+// element played whenever ANY of its faces was in view —
+// effectively always in the hub — and a
 // face that left the screen kept playing (driven by another face),
 // so coming back never resumed from where it paused. A shared
 // element has one play state and one currentTime; only per-panel
@@ -219,12 +222,26 @@ function usePanelFaceTexture(slot, stakeTex) {
 // position, so rotating back resumes it.
 const panelVideoRecords = new Map();
 const PANEL_VIDEO_LOAD_TIMEOUT_MS = 20000;
+// Per-step timeout of the sequential load queue (Merlin, 2026-11-24):
+// a slow panel never blocks the queue past this; its element keeps
+// loading in the background and flips ready through its permanent
+// listeners when its data arrives.
+const PANEL_VIDEO_QUEUE_STEP_TIMEOUT_MS = 5000;
 let panelVideoVisibilityWired = false;
 
 // Record key: panel id + URL. Two faces showing the same file are
 // two records — that is the whole point (independent play state).
 function panelVideoRecordKey(viewerId, url) {
   return `${viewerId}::${url}`;
+}
+
+// Mark one panel's video ready and wake its subscribers. Shared by
+// the canplay / loadeddata / playing listeners and by the readyState
+// poll in awaitPanelVideoReady below.
+function setPanelVideoReady(rec) {
+  if (!rec || rec.ready) return;
+  rec.ready = true;
+  if (typeof rec.notify === 'function') rec.notify();
 }
 
 function refreshPanelVideoPlayback() {
@@ -248,11 +265,14 @@ function getPanelVideoRecord(recordKey, url) {
   video.muted = true;
   video.playsInline = true;
   video.loop = true;
-  // metadata, not auto: 132 faces each hold an element, and 'auto'
+  // metadata, not auto: 288 faces each hold an element, and 'auto'
   // would buffer media on all of them at mount. Metadata is enough
-  // for canplay; the media itself streams on first play (cache-warm
-  // from the ordered preload below), and the honest canvas face
-  // covers the gap until the first frame arrives.
+  // for canplay; the media itself streams on first play, and the
+  // honest canvas face covers the gap until the first frame arrives.
+  // NO src here (Merlin, 2026-11-24 — sequential loading): the
+  // record is created unfetched and joins the load queue below, which
+  // assigns src one panel at a time in badge order. Setting src at
+  // creation used to fetch ~192 videos in parallel at hub mount.
   video.preload = 'metadata';
   video.crossOrigin = 'anonymous';
   const texture = new THREE.VideoTexture(video);
@@ -264,6 +284,7 @@ function getPanelVideoRecord(recordKey, url) {
     ready: false,
     failed: false,
     inView: false,
+    srcAssigned: false,
     listeners: new Set(),
   };
   const notify = () => {
@@ -283,14 +304,23 @@ function getPanelVideoRecord(recordKey, url) {
       }
     }
   });
-  video.addEventListener('canplay', () => {
-    if (!rec.ready) { rec.ready = true; notify(); }
-  });
+  // Ready on the first of canplay / loadeddata / playing: a detached
+  // element on iOS may never fire canplay even once its data is there
+  // (HomeScene's Oct 27 note), so one signal alone can leave a face
+  // grey forever. 'playing' matters most: the in-view gate calls
+  // play(), so a face that comes into view and starts playing lights
+  // up even if canplay never fires. The readyState poll in
+  // awaitPanelVideoReady below is the event-independent backstop.
+  video.addEventListener('canplay', () => setPanelVideoReady(rec));
+  video.addEventListener('loadeddata', () => setPanelVideoReady(rec));
+  video.addEventListener('playing', () => setPanelVideoReady(rec));
   video.addEventListener('error', () => {
     if (!rec.failed) { rec.failed = true; notify(); }
   });
-  video.src = url;
   panelVideoRecords.set(recordKey, rec);
+  // Sequential loading (Merlin, 2026-11-24): this record's src is
+  // assigned by the queue below, in badge order — never here.
+  enqueuePanelVideoLoad(recordKey, url);
   if (!panelVideoVisibilityWired && typeof document !== 'undefined' && document.addEventListener) {
     panelVideoVisibilityWired = true;
     document.addEventListener('visibilitychange', refreshPanelVideoPlayback);
@@ -308,37 +338,128 @@ function setPanelVideoViewer(viewerId, url, inView) {
   refreshPanelVideoPlayback();
 }
 
+// ---- Sequential panel-video loading (Merlin, 2026-11-24) ----
+// Load the billboard videos ONE AT A TIME in badge order (1, 2, 3,
+// ...), never in parallel. Before this, every panel set src the
+// moment its record was created — ~192 elements fetching at hub
+// mount — which stalled the hub on his phone (grey faces, reload
+// loop). Now a record is created unfetched (no src) and joins this
+// queue; the runner below assigns src strictly in badge order, one
+// panel at a time. A shared URL is fetched once over the network:
+// the first panel with that URL does the real download, later panels
+// with the same URL are served from the browser cache — one download
+// serves the ring, and every face sharing it still plays it through
+// its own per-panel element (per-panel play/pause/resume from
+// 4ca42887 is untouched — only WHEN an element starts loading
+// changes). A slow panel never blocks the queue past
+// PANEL_VIDEO_QUEUE_STEP_TIMEOUT_MS: its element keeps loading in
+// the background and flips ready through its permanent listeners
+// when its data arrives.
+const panelVideoLoadQueue = [];
+let panelVideoLoadSeq = 0;
+let panelVideoLoadRunning = false;
+
+function enqueuePanelVideoLoad(recordKey, url) {
+  if (panelVideoLoadQueue.some((e) => e.recordKey === recordKey)) return;
+  const viewerId = recordKey.slice(0, recordKey.lastIndexOf('::'));
+  panelVideoLoadQueue.push({
+    recordKey,
+    url,
+    order: panelVideoBadgeOrder(viewerId),
+    seq: panelVideoLoadSeq++,
+  });
+  ensurePanelVideoLoadRunner();
+}
+
+function ensurePanelVideoLoadRunner() {
+  if (panelVideoLoadRunning) return;
+  panelVideoLoadRunning = true;
+  runPanelVideoLoadQueue()
+    .catch(() => {})
+    .finally(() => { panelVideoLoadRunning = false; });
+}
+
+async function runPanelVideoLoadQueue() {
+  while (panelVideoLoadQueue.length > 0) {
+    const idx = pickNextPanelVideoLoad(panelVideoLoadQueue);
+    if (idx < 0) return;
+    const [entry] = panelVideoLoadQueue.splice(idx, 1);
+    try {
+      await loadPanelVideoEntry(entry);
+    } catch {
+      // One panel's load never breaks the queue — the next panel
+      // still loads in its turn.
+    }
+  }
+}
+
+// Load one queued panel: assign its src (the ONLY src assignment in
+// this file) and await its readiness, or the step timeout —
+// whichever comes first. A timeout leaves the element loading in
+// the background; the queue moves on.
+async function loadPanelVideoEntry(entry) {
+  const rec = panelVideoRecords.get(entry.recordKey);
+  if (!rec || rec.failed) return false;
+  if (rec.ready) return true;
+  if (!rec.srcAssigned) {
+    rec.video.src = entry.url;
+    rec.srcAssigned = true;
+  }
+  return awaitPanelVideoReady(rec, PANEL_VIDEO_QUEUE_STEP_TIMEOUT_MS);
+}
+
+// Await one record's readiness: resolves true once its video can
+// play, false on error or timeout. Readiness is event-independent:
+// besides the canplay / loadeddata / playing listeners, a readyState
+// poll catches a record whose data arrived without any event firing
+// (HAVE_CURRENT_DATA = a frame is available). A timeout never marks
+// the record failed and never throws: a slow video may still arrive
+// later, and the subscribed panel upgrades to it when it does.
+function awaitPanelVideoReady(rec, timeoutMs) {
+  if (rec.ready) return Promise.resolve(true);
+  if (rec.failed) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      clearInterval(poll);
+      rec.listeners.delete(onChange);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const poll = setInterval(() => {
+      if (rec.ready) finish(true);
+      else if (rec.failed) finish(false);
+      else if (rec.video && rec.video.readyState >= 2) {
+        setPanelVideoReady(rec);
+        finish(true);
+      }
+    }, 250);
+    const onChange = () => finish(rec.ready);
+    rec.listeners.add(onChange);
+  });
+}
+
 // Resolve true once this panel's video can play, false on error or
 // timeout. A timeout never marks the record failed: a slow video may
 // still arrive later, and the subscribed panel upgrades to it when
 // it does.
 function ensurePanelVideo(url, panelKey) {
   const rec = getPanelVideoRecord(panelVideoRecordKey(panelKey, url), url);
-  if (rec.ready) return Promise.resolve(true);
-  if (rec.failed) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      rec.listeners.delete(onChange);
-      resolve(false);
-    }, PANEL_VIDEO_LOAD_TIMEOUT_MS);
-    const onChange = () => {
-      clearTimeout(timer);
-      rec.listeners.delete(onChange);
-      resolve(rec.ready);
-    };
-    rec.listeners.add(onChange);
-  });
+  return awaitPanelVideoReady(rec, PANEL_VIDEO_LOAD_TIMEOUT_MS);
 }
 
 // Preload the ring's panel videos in strict board-number order
-// 1→44 (the middle level's inventory numbers — see
-// lib/billboards/panel-video.js). Used by the hub load
-// sequence before the towers present. Never rejects: failures
-// resolve false and those panels keep their honest face. Warming
-// creates the middle-level panel's own record (badge = board + 44),
-// so its element is ready to play the moment its face comes into
-// view; the same URL on other faces warms through the shared
-// browser cache when their records are created on mount.
+// (the whole board run — see lib/billboards/panel-video.js). Used
+// by the hub load sequence before the towers present. Never
+// rejects: failures resolve false and those panels keep their
+// honest face. Warming creates the middle-level panel's own record
+// (badge = board + 44) and awaits it through the sequential queue
+// below, so its element is ready to play the moment its face comes
+// into view; the same URL on other faces warms through the shared
+// browser cache when the queue reaches their records.
 export function preloadHubPanelVideos(towersPanels) {
   const items = collectPanelVideoUrls(towersPanels, billboardNumberFor);
   const numberByUrl = new Map(items.map((it) => [it.url, it.number]));
@@ -400,9 +521,10 @@ function useRotatingEntry(slot) {
 
 // Per-billboard number badge (Merlin, 2026-10-20; renumbered
 // top to bottom 2026-10-27): each panel face carries its OWN
-// number from the single 1–132 run down the tower — top 1–44,
-// middle 45–88, bottom 89–132 (lib/tower-panels.js level badge
-// helpers). White digits on a small
+// badge — board number + level base (top +0, middle +44, bottom
+// +88; lib/tower-panels.js level badge helpers). Badges collide
+// across levels, so the load order uses board order. White digits
+// on a small
 // black plate that only borders the number — the plate width follows
 // the digit count, so it hugs one-digit and two-digit numbers alike.
 // It sits proud of the panel's top area (no z-fighting) and rotates
@@ -699,9 +821,9 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
             face/border/backing) and the same TowerAdPanel with
             house-only slots, so they play the same house video
             through the shared video record and keep their own
-            in-view guard seats (the seat id follows the badge, so
-            the ranges stay disjoint: top 1–44, middle 45–88,
-            bottom 89–132). */}
+            in-view guard seats (the seat id follows the badge;
+            badges collide across levels, so the sequential load
+            order uses board order, not badge ranges). */}
         {[0, Math.PI / 2, Math.PI, -Math.PI / 2].map((angle, i) => (
           <group key={`ad-top-${i}`} rotation={[0, angle, 0]}>
             <group position={[0, 14.2, 10.12]}>
