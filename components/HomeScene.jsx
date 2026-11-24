@@ -1035,8 +1035,9 @@ function TextureProvider({ onLaunchExternal }) {
 // (Merlin, 2026-10-20): eleven rainbow rings centered on MARS
 // (MARS_CENTER, lib/god-orbits.js) — they belong to the planet, out
 // where the planets live. The loading spot is dead center of the hub
-// and the satellites' circle (the towers at 150, colliders reaching
-// 172) is the boundary: no part of any ring is inside that circle or
+// and the satellites' circle (the towers at 150 — no longer colliders
+// since Nov 24, pass-through by Merlin's order, so the visual ring
+// itself is the boundary) is the boundary: no part of any ring is inside that circle or
 // between the loading spot and the satellites (nearest ring arc
 // ≈ 201 from ORBIT_CENTER; the planets share this outer zone at
 // lanes 195–231 and clear the ring tori by ≈ 17, sampled). The

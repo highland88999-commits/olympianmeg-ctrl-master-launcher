@@ -453,8 +453,9 @@ t('GodTower labels itself with the god name (billboard + hull)',
   gtSrc.includes('{god}'));
 t('GodTower takes the god color for name, panel backing, and buttons',
   gtSrc.includes('color={color}') && gtSrc.includes('btnHovered ? "#ffffff" : color'));
-t('GodTower registers its own solid collider',
-  gtSrc.includes('registerBoxCollider(') && gtSrc.includes('`tower-${god}`'));
+t('GodTower registers NO tower collider — pass-through (Merlin 2026-11-24)',
+  !gtSrc.includes('registerBoxCollider(') && !gtSrc.includes('`tower-${god}`') &&
+  !gtSrc.includes('registerTowerCollider'));
 t('GodTower is memoized around the ad inventory',
   gtSrc.includes('export default memo(GodTower)'));
 const hsSrc2 = stripComments(readFileSync('components/HomeScene.jsx', 'utf8'));

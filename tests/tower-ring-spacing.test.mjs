@@ -11,11 +11,15 @@
 // Then 150 → 159.11 (Merlin: "move the billboards further out ... I
 // need enough space for users to easily pass between them to explore
 // other places", refined: "perfect the geometry"): the towers stop
-// spinning, hold a fixed yaw square to the ring, and wear ONE oriented
+// spinning, hold a fixed yaw square to the ring, and wore ONE oriented
 // box collider each (lib/tower-collider.js) — the box fits the square
 // body, so the gap between adjacent boxes is exactly the chord minus
 // the box width: an even 8.00 between every pair (5.60 spare for the
-// flyer at r1.2, 2.00 for the bike at r3.0). The planet lanes stay at
+// flyer at r1.2, 2.00 for the bike at r3.0). Since 2026-11-24 (Merlin:
+// pass through the billboards and god towers freely) the towers
+// register NO collider at all — users fly/walk straight through them
+// — while the square bodies, fixed yaw, and 8.00 gaps stay exactly
+// as measured. The planet lanes stay at
 // 195–231 — they cannot move out (planet 23 would hit Mars; sampled
 // over a full assembly rotation, 1440 steps, even +5.83 on the lanes
 // drops its Mars clearance to 56.89, below the 58 gate). The bike
@@ -167,15 +171,22 @@ describe('tower ring spacing (moved out 150 -> 159.11, box colliders)', () => {
     );
   });
 
-  it('GodTower registers one box collider per tower, no spheres', () => {
+  it('GodTower registers NO tower collider (pass-through, Merlin 2026-11-24)', () => {
+    // Users fly/walk straight through the towers and their billboards:
+    // no box, no sphere, no collider id at all. The square bodies,
+    // fixed yaw, and 8.00 gaps are unchanged — only the invisible
+    // wall is gone.
     assert.ok(
-      towerSrc.includes('registerBoxCollider(') &&
-        towerSrc.includes('`tower-${god}`'),
-      'box collider registered'
+      !towerSrc.includes('registerBoxCollider('),
+      'no box collider registered for towers'
+    );
+    assert.ok(
+      !towerSrc.includes('`tower-${god}`'),
+      'no tower collider id at all'
     );
     assert.ok(
       !/(?<![A-Za-z])registerCollider\(`tower-\$\{god\}`/.test(towerSrc),
-      'sphere collider gone (unregisterCollider cleanup does not count)'
+      'no sphere collider either (unregisterCollider cleanup does not count)'
     );
     assert.ok(
       !towerSrc.includes('tower-${god}-top') && !towerSrc.includes('tower-${god}-bottom'),

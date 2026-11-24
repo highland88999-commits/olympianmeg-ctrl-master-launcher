@@ -1,7 +1,10 @@
 // tests/hub-collision-box.test.mjs
 // Oriented-box colliders (lib/hub-collision.js registerBoxCollider):
-// the god towers wear boxes, not spheres, so users can pass between
-// them. A box sweep must stop the body at the face it enters, slide
+// the god towers USED to wear boxes, not spheres, so users could pass
+// between them. Since 2026-11-24 (Merlin: pass through the billboards
+// and god towers freely) the towers register no collider at all —
+// the box helper + its math stay tested here for other/future solids.
+// A box sweep must stop the body at the face it enters, slide
 // it along that face (tangential motion preserved), respect the box's
 // yaw, push a body that starts inside back out, and let a body pass
 // cleanly through the gap between two boxes. Spheres keep working

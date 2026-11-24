@@ -25,9 +25,12 @@
 // Panel 0 is ALWAYS Merlin's native stake.com placement — his own
 // inventory, never removed, never rotated out. Panels 1–3 rotate the
 // affiliate partners, Betty, and YOUR AD HERE fillers so the forty panels
-// are no longer forty identical stake placeholders. Towers are solid: each
-// registers its own sphere collider (bounce/deflect, never kill). They bob
-// gently and rotate slowly, Zeus-style.
+// are no longer forty identical stake placeholders. Towers are
+// PASS-THROUGH (Merlin, 2026-11-24): users fly/walk straight through
+// them and their billboards freely — no collider is registered for a
+// tower at all. Visually they stay fully solid, exactly as before:
+// no transparency, no fading, no ghost effect, nothing that looks
+// passable. They bob gently, Zeus-style; the old in-place spin is gone.
 
 'use client';
 import { useState, useRef, useMemo, useEffect, memo } from 'react';
@@ -35,11 +38,8 @@ import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import VanGoghText from './VanGoghText';
 import * as THREE from 'three';
-import { registerBoxCollider, unregisterCollider } from '@/lib/hub-collision';
 import {
-  towerBoxHalfExtents,
   towerFixedYaw,
-  TOWER_BOX_Y_CENTER,
 } from '@/lib/tower-collider';
 import {
   createBillboardFaceCanvas,
@@ -47,7 +47,7 @@ import {
 } from '@/lib/billboard-face';
 import { STAKE_SLOT } from '@/lib/partners';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
-import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, middleLevelBillboardNumberFor, bottomLevelBillboardNumberFor } from '@/lib/tower-panels';
+import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, middleLevelBillboardNumberFor, bottomLevelBillboardNumberFor, MIDDLE_LEVEL_BADGE_BASE } from '@/lib/tower-panels';
 import {
   videoCoverFit,
   collectPanelVideoUrls,
@@ -197,23 +197,40 @@ function usePanelFaceTexture(slot, stakeTex) {
   return tex;
 }
 
-// ---- Shared hub panel video playback (browser-only) ----
-// One video element + one VideoTexture per unique creative URL,
-// shared by every panel showing that URL. All 44 currently share one
-// file, so the ring decodes once, not 44 times. Panels subscribe for
-// ready/failed state and report in-view status; the guard below plays
-// a video only while at least one panel showing it is in view, and
-// pauses it when none is (the documented reason the old path used
-// static posters). A failed video never takes a panel down: the
-// panel keeps its honest branded canvas face.
+// ---- Per-panel hub video playback (browser-only) ----
+// One video element + one VideoTexture PER PANEL (keyed by panel +
+// URL), NOT one shared element per URL. Merlin, 2026-11-24: a
+// billboard's video must play only while THAT billboard is in view,
+// pause when it leaves the screen, and resume from where it paused
+// when it comes back. The old shared record could not do that: the
+// house video plays on all 88 level-1+3 faces and Stake on all 10
+// middle panel-0 faces, so the shared element played whenever ANY
+// of its faces was in view — effectively always in the hub — and a
+// face that left the screen kept playing (driven by another face),
+// so coming back never resumed from where it paused. A shared
+// element has one play state and one currentTime; only per-panel
+// elements give per-panel play/pause/resume. The facing+frustum
+// guard below is unchanged — only the record it notifies changed.
+// Decode cost stays bounded: only front-facing in-frustum faces
+// play (a handful at once from any camera), the rest sit paused.
+// A failed video never takes a panel down: the panel keeps its
+// honest branded canvas face. Rotation to a new entry creates
+// that (panel, url) record; the old record stays paused with its
+// position, so rotating back resumes it.
 const panelVideoRecords = new Map();
 const PANEL_VIDEO_LOAD_TIMEOUT_MS = 20000;
 let panelVideoVisibilityWired = false;
 
+// Record key: panel id + URL. Two faces showing the same file are
+// two records — that is the whole point (independent play state).
+function panelVideoRecordKey(viewerId, url) {
+  return `${viewerId}::${url}`;
+}
+
 function refreshPanelVideoPlayback() {
   const hidden = typeof document !== 'undefined' && document.hidden;
   for (const rec of panelVideoRecords.values()) {
-    if (rec.viewers.size > 0 && !hidden) {
+    if (rec.inView && !hidden) {
       if (rec.video.paused) {
         const p = rec.video.play();
         if (p && p.catch) p.catch(() => {});
@@ -224,14 +241,19 @@ function refreshPanelVideoPlayback() {
   }
 }
 
-function getPanelVideoRecord(url) {
-  let rec = panelVideoRecords.get(url);
+function getPanelVideoRecord(recordKey, url) {
+  let rec = panelVideoRecords.get(recordKey);
   if (rec) return rec;
   const video = document.createElement('video');
   video.muted = true;
   video.playsInline = true;
   video.loop = true;
-  video.preload = 'auto';
+  // metadata, not auto: 132 faces each hold an element, and 'auto'
+  // would buffer media on all of them at mount. Metadata is enough
+  // for canplay; the media itself streams on first play (cache-warm
+  // from the ordered preload below), and the honest canvas face
+  // covers the gap until the first frame arrives.
+  video.preload = 'metadata';
   video.crossOrigin = 'anonymous';
   const texture = new THREE.VideoTexture(video);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -241,7 +263,7 @@ function getPanelVideoRecord(url) {
     texture,
     ready: false,
     failed: false,
-    viewers: new Set(),
+    inView: false,
     listeners: new Set(),
   };
   const notify = () => {
@@ -268,7 +290,7 @@ function getPanelVideoRecord(url) {
     if (!rec.failed) { rec.failed = true; notify(); }
   });
   video.src = url;
-  panelVideoRecords.set(url, rec);
+  panelVideoRecords.set(recordKey, rec);
   if (!panelVideoVisibilityWired && typeof document !== 'undefined' && document.addEventListener) {
     panelVideoVisibilityWired = true;
     document.addEventListener('visibilitychange', refreshPanelVideoPlayback);
@@ -276,19 +298,22 @@ function getPanelVideoRecord(url) {
   return rec;
 }
 
-function setPanelVideoViewer(url, viewerId, inView) {
-  const rec = panelVideoRecords.get(url);
+// Per-panel in-view seat: this panel's video plays only while THIS
+// panel is in view. Pause keeps currentTime, so coming back resumes
+// from where it paused — never a restart.
+function setPanelVideoViewer(viewerId, url, inView) {
+  const rec = panelVideoRecords.get(panelVideoRecordKey(viewerId, url));
   if (!rec) return;
-  if (inView) rec.viewers.add(viewerId);
-  else rec.viewers.delete(viewerId);
+  rec.inView = inView;
   refreshPanelVideoPlayback();
 }
 
-// Resolve true once this URL can play, false on error or timeout.
-// A timeout never marks the record failed: a slow video may still
-// arrive later, and subscribed panels upgrade to it when it does.
-function ensurePanelVideo(url) {
-  const rec = getPanelVideoRecord(url);
+// Resolve true once this panel's video can play, false on error or
+// timeout. A timeout never marks the record failed: a slow video may
+// still arrive later, and the subscribed panel upgrades to it when
+// it does.
+function ensurePanelVideo(url, panelKey) {
+  const rec = getPanelVideoRecord(panelVideoRecordKey(panelKey, url), url);
   if (rec.ready) return Promise.resolve(true);
   if (rec.failed) return Promise.resolve(false);
   return new Promise((resolve) => {
@@ -309,28 +334,38 @@ function ensurePanelVideo(url) {
 // 1→44 (the middle level's inventory numbers — see
 // lib/billboards/panel-video.js). Used by the hub load
 // sequence before the towers present. Never rejects: failures
-// resolve false and those panels keep their honest face.
+// resolve false and those panels keep their honest face. Warming
+// creates the middle-level panel's own record (badge = board + 44),
+// so its element is ready to play the moment its face comes into
+// view; the same URL on other faces warms through the shared
+// browser cache when their records are created on mount.
 export function preloadHubPanelVideos(towersPanels) {
   const items = collectPanelVideoUrls(towersPanels, billboardNumberFor);
-  return preloadInOrder(items, ensurePanelVideo);
+  const numberByUrl = new Map(items.map((it) => [it.url, it.number]));
+  return preloadInOrder(items, (url) => {
+    const number = numberByUrl.get(url);
+    if (!Number.isInteger(number)) return Promise.resolve(false);
+    return ensurePanelVideo(url, `panel-${number + MIDDLE_LEVEL_BADGE_BASE}`);
+  });
 }
 
-// Subscribe a panel to one video URL's ready/failed state. Returns
-// { texture, ready, failed }; texture is null until the URL is
-// known (no URL, no video). The honest canvas face covers the gap.
-function usePanelVideoState(creativeUrl) {
+// Subscribe a panel to its own video URL's ready/failed state.
+// Returns { texture, ready, failed }; texture is null until the
+// URL is known (no URL, no video). The honest canvas face covers
+// the gap.
+function usePanelVideoState(viewerId, creativeUrl) {
   const [state, setState] = useState({ texture: null, ready: false, failed: false });
   useEffect(() => {
     if (!creativeUrl) {
       setState({ texture: null, ready: false, failed: false });
       return undefined;
     }
-    const rec = getPanelVideoRecord(creativeUrl);
+    const rec = getPanelVideoRecord(panelVideoRecordKey(viewerId, creativeUrl), creativeUrl);
     const sync = () => setState({ texture: rec.texture, ready: rec.ready, failed: rec.failed });
     sync();
     rec.listeners.add(sync);
     return () => { rec.listeners.delete(sync); };
-  }, [creativeUrl]);
+  }, [viewerId, creativeUrl]);
   return state;
 }
 
@@ -425,14 +460,15 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
   // the video fails). Tapping the face still opens the entry's link;
   // panels without a link keep the inquiry fallback.
   const videoUrl = effectiveSlot.creativeType === 'video' ? effectiveSlot.creativeUrl : null;
-  const videoState = usePanelVideoState(videoUrl);
   const viewerId = `panel-${badgeNumber ?? slot.key}`;
+  const videoState = usePanelVideoState(viewerId, videoUrl);
   const inViewRef = useRef(false);
 
-  // GPU guard: a panel's video plays only while that panel is in
+  // GPU guard: a panel's video plays only while THAT panel is in
   // view (front-facing AND inside the camera frustum); off-screen
-  // panels pause. The shared record plays while ANY of its panels
-  // is in view, so one shared file decodes once, not per panel.
+  // panels pause, and coming back resumes from where it paused.
+  // Each panel owns its video element (per-panel record above), so
+  // one face leaving the screen never pauses — or resumes — another.
   useFrame(({ camera }) => {
     if (!videoUrl || !faceRef.current) return;
     const mesh = faceRef.current;
@@ -446,7 +482,7 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
     const inView = facing && _panelFrustum.intersectsObject(mesh);
     if (inView !== inViewRef.current) {
       inViewRef.current = inView;
-      setPanelVideoViewer(videoUrl, viewerId, inView);
+      setPanelVideoViewer(viewerId, videoUrl, inView);
     }
   });
 
@@ -457,7 +493,7 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
     const url = videoUrl;
     return () => {
       inViewRef.current = false;
-      if (url) setPanelVideoViewer(url, id, false);
+      if (url) setPanelVideoViewer(id, url, false);
     };
   }, [videoUrl, viewerId]);
 
@@ -554,25 +590,17 @@ function GodTower({ god, color, position, onLaunchExternal, textures, panels = p
     }
   });
 
-  // Solid: ONE oriented box, the tower's real square body (face plane
-  // 10.48 group units × 1.6 scale = 16.77 half-side; vertical centre
-  // +2.25, half 38.75 — pillar bottom to god-label top, plus the
-  // ±0.5 bob). The old 3 spheres r26 overlapped by 12.84 between
-  // adjacent towers and formed a continuous wall with no gap at all;
-  // the box leaves the measured 8.00 clear between neighbours.
-  // The centre getter uses the static mount position: the box's
-  // vertical half covers the bob, as the spheres' generosity did.
-  useEffect(() => {
-    registerBoxCollider(
-      `tower-${god}`,
-      () => ({ x: position[0], y: position[1] + TOWER_BOX_Y_CENTER, z: position[2] }),
-      towerBoxHalfExtents(),
-      () => fixedYaw
-    );
-    return () => {
-      unregisterCollider(`tower-${god}`);
-    };
-  }, [god, position, fixedYaw]);
+  // Pass-through (Merlin, 2026-11-24): NO collider is registered
+  // for this tower — users fly/walk straight through the tower and
+  // its billboards freely. The tower's square body used to wear one
+  // oriented box collider (face plane 10.48 × 1.6 scale = 16.77
+  // half-side); the box math stays in lib/tower-collider.js (the
+  // fixed yaw below still squares the tower to the ring, and the
+  // helpers stay tested), but nothing registers it anymore. The
+  // tower LOOKS exactly as solid as before: no material, opacity,
+  // texture, or geometry change here — only the invisible wall is
+  // gone. Every other hub collider (planets, moon, asteroids,
+  // satellites) is untouched and still solid.
 
   const { propTex, bodyTex, hullTex, tailTex, adTex } = textures;
   const darkMetal = useMemo(() => new THREE.MeshStandardMaterial({ color: '#222222', metalness: 0.9, roughness: 0.2, emissive: '#121214', emissiveIntensity: 0.5 }), []);

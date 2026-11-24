@@ -201,5 +201,39 @@ t(
     godTowerSrc.includes("color={faceTex ? (hovered ? '#dddddd' : '#ffffff') : '#0a0f1e'}")
 );
 
+// --- per-panel view-play (Merlin, 2026-11-24): play in view, pause
+// out of view, resume from where it paused — per PANEL, not per URL ---
+t(
+  'per-panel records: one video element per panel, keyed by panel + URL',
+  godTowerSrc.includes('panelVideoRecordKey(viewerId, url)') &&
+    godTowerSrc.includes('`${viewerId}::${url}`') &&
+    !godTowerSrc.includes('viewers: new Set()')
+);
+t(
+  'panel elements preload metadata only (132 faces must not all buffer media at mount)',
+  godTowerSrc.includes("video.preload = 'metadata'") &&
+    !godTowerSrc.includes("video.preload = 'auto'")
+);
+t(
+  'in-view seat is per panel: play/pause follows this panel only',
+  godTowerSrc.includes('setPanelVideoViewer(viewerId, videoUrl, inView)') &&
+    godTowerSrc.includes('rec.inView = inView')
+);
+t(
+  'resume, never restart: no currentTime reset on the play path',
+  !godTowerSrc.includes('currentTime = 0') &&
+    !godTowerSrc.includes('currentTime=0')
+);
+t(
+  'preload warms the middle faces in board order via their own records',
+  godTowerSrc.includes('`panel-${number + MIDDLE_LEVEL_BADGE_BASE}`') &&
+    godTowerSrc.includes('ensurePanelVideo(url, `panel-${number + MIDDLE_LEVEL_BADGE_BASE}`)')
+);
+t(
+  'tab-hide still pauses every panel video, visible resumes the in-view ones',
+  godTowerSrc.includes("document.addEventListener('visibilitychange', refreshPanelVideoPlayback)") &&
+    godTowerSrc.includes('const hidden = typeof document !== \'undefined\' && document.hidden')
+);
+
 console.log(`\nbillboard-panel-video: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

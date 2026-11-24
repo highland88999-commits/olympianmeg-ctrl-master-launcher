@@ -188,7 +188,7 @@ describe('tower panel box geometry', () => {
       'video true-color material');
     assert.ok(tower.includes('const facing = _panelNormal.dot(_panelToCam) > 0;'), 'front-facing check');
     assert.ok(tower.includes('_panelFrustum.intersectsObject(mesh)'), 'frustum check');
-    assert.ok(tower.includes('setPanelVideoViewer(videoUrl, viewerId, inView)'), 'in-view guard seat');
+    assert.ok(tower.includes('setPanelVideoViewer(viewerId, videoUrl, inView)'), 'in-view guard seat (per panel)');
   });
 });
 
@@ -296,12 +296,15 @@ describe('tower levels', () => {
     assert.ok(4.5 < facePlaneDistance, 'cone max radius 4.5 < face plane distance 10.48: enclosed, not piercing');
   });
 
-  it('all three levels get one box collider covering the widened box', () => {
-    // 2026-11-13 (billboards out): the three r26 spheres are gone —
-    // one oriented box is the tower's solid body. The box IS the
-    // widened box (its faces are the face planes), so it covers every
-    // level by construction; this pins the vertical span instead.
-    assert.ok(tower.includes('registerBoxCollider('), 'box collider registered');
+  it('all three levels are pass-through: no tower collider (Merlin 2026-11-24)', () => {
+    // 2026-11-24 (pass-through): the oriented box is GONE — users fly
+    // and walk straight through the towers and their billboards. The
+    // box GEOMETRY below is unchanged (the tower is still a square
+    // box visually, faces still at the face planes); only the
+    // invisible wall is removed. The lib/tower-collider.js span math
+    // stays as the geometry record.
+    assert.ok(!tower.includes('registerBoxCollider('), 'no box collider registered');
+    assert.ok(!tower.includes('`tower-${god}`'), 'no tower collider id');
     assert.ok(!tower.includes('tower-${god}-top'), 'top sphere gone');
     assert.ok(!tower.includes('tower-${god}-bottom'), 'bottom sphere gone');
     assert.ok(!/(?<![A-Za-z])registerCollider\(`tower-\$\{god\}`/.test(tower), 'sphere registration gone');
