@@ -54,6 +54,7 @@ import {
   applyPlayerBoltSecondary,
 } from './spawns.js';
 import { isInSanctuary, sanctuaryAt, isInsideAnyRing, ringAt } from './sanctuary.js';
+import { pickPortalDestination, PORTAL_TRIGGER_R_M, PORTAL_COOLDOWN_S } from './sanctuary-portal.js';
 import { getParticleTexture } from '../../lib/particles/sprites.js';
 import {
   createOrbDrop, collectOrbs, pruneOrbs, addOrb, totalOrbs,
@@ -78,6 +79,8 @@ import {
   liftedPoint, frameFromRef, orientationQuat, flatQuat,
 } from '../../lib/hollow-earth/planet.js';
 import { nearestMountInRange, riderSeatOffsetY, mountYawForWalker, dismountSpot, rideSpeedForMount, MOUNT_BLEND_S, mountSpot, tryMount, dismountRide } from './riding';
+import { createSpeederState, isSpeederDriving, summonSpeeder, dismountSpeeder, resyncSpeeder, stepSpeeder, speederSphereState, SPEEDER_SPEED, SPEEDER_SEAT_LIFT_M } from './speeder';
+import { buildSpeeder } from '../../lib/jupiter2/meshes';
 import { createKeyInput, attachDragLook } from '@/lib/world/walk-input';
 import { firstConnectedPad, newlyPressedButtons, pressedButtonSet, triggerRisingEdge, triggerValue, GAMEPAD_BUTTONS } from '@/lib/gamepad';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -166,6 +169,7 @@ export default function HollowEarthPage() {
   const heroFigRef = useRef(null);
   const toastTimer = useRef(null);
   const lastTeleportRef = useRef(null);
+  const lastPortalMsRef = useRef(0); // sanctuary portal travel: the 5 s re-fire guard (Date.now ms)
   const hazardsRef = useRef([]);
   const hazardMeshesRef = useRef([]);
   const poolsRef = useRef([]); // WS6 acid pools: {x, z, radius, dps, until, ring, disc}
@@ -189,6 +193,14 @@ export default function HollowEarthPage() {
   const seatHeightRef = useRef(0); // saddle height above ground, metres
   const mountPromptRef = useRef(null); // monster id with a live prompt
   const rideApiRef = useRef(null); // { mountPrompted, dismount } for the buttons
+  /* SPEEDER (Merlin, Nov 24 ~16:51): the Jupiter 2 landspeeder as
+   * a rideable vehicle — a separate path from the monster mounts
+   * (speeder.js), never both at once. speederRef is the frame
+   * loop's truth; speederDriving is its React mirror, for the
+   * SUMMON / DISMOUNT orbs and the JUMP hide. */
+  const speederRef = useRef(createSpeederState());
+  const speederApiRef = useRef(null); // { summon, dismount } for the buttons
+  const [speederDriving, setSpeederDriving] = useState(false);
   // The backpack's equipped weapon, read at strike time (a ref so
   // the zone effect's attack closure never goes stale when the
   // traveller equips mid-hunt).
@@ -264,6 +276,20 @@ export default function HollowEarthPage() {
     window.addEventListener('keydown', down);
     return () => window.removeEventListener('keydown', down);
   }, [fullscreen]);
+  // iOS Safari "Search" pill (Merlin, Nov 16 — J2 videos): the pill
+  // strands when a focused search field (the hub menu's) unmounts
+  // during navigation to this page, and it lands on top of the HUB
+  // orb — the Nov 24 dive video shows it covering the HUB orb with
+  // the browser's own four-dot button riding its right end (neither
+  // is our DOM: no "Search" text renders anywhere on this page).
+  // Hollow Earth carries no search field of its own, so blur on
+  // entry — the same blur the hub (app/page.jsx) and Jupiter 2
+  // (app/jupiter-2/page.jsx) run when their search fields close.
+  useEffect(() => {
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+  }, []);
   useEffect(() => {
     if (typeof document === 'undefined') return undefined;
     const onChange = () => setFullscreen(Boolean(document.fullscreenElement));
@@ -532,7 +558,9 @@ export default function HollowEarthPage() {
     if (!w) return;
     // Riding home still means getting off first — the mount
     // waits where it was left, it does not teleport with you.
+    // The speeder parks the same way.
     if (rideApiRef.current) rideApiRef.current.dismount();
+    if (speederApiRef.current) speederApiRef.current.dismount();
     if (!canTeleport(lastTeleportRef.current, Date.now())) {
       notice('🏠 The Haven call needs a moment to recharge (10 s).');
       return;
@@ -672,6 +700,7 @@ export default function HollowEarthPage() {
         // The mount stays where it fell — dismount first, or the
         // rider would respawn still sitting on it.
         if (rideApiRef.current) rideApiRef.current.dismount();
+        if (speederApiRef.current) speederApiRef.current.dismount();
         respawnAtBase();
         h.hp = hero.maxHp;
         clearSecondaries();
@@ -838,7 +867,7 @@ export default function HollowEarthPage() {
     // (zone.js: m.mounted) and strike() never targets it, so
     // the rider can never strike their own mount.
     const mountMonster = (m) => {
-      if (!m || rideRef.current) return;
+      if (!m || rideRef.current || speederRef.current.mounted) return;
       const spot = mountSpot(m);
       walker.pos.x = spot.x;
       walker.pos.z = spot.z;
@@ -885,6 +914,54 @@ export default function HollowEarthPage() {
       },
       dismount: dismountMonster,
     };
+
+    // ── Speeder (Merlin, Nov 24 ~16:51) ──────────────────────
+    // The Jupiter 2 landspeeder as a rideable vehicle: J2's GLB +
+    // loader (buildSpeeder — the mesh is posed every frame from
+    // the speeder state below; the GLB loads async into the slot,
+    // and a missing GLB leaves the slot empty, never a
+    // placeholder, the creatures' law) and Hollow Earth's own
+    // drive math (speeder.js — the inner-sphere step). SUMMON
+    // materializes the craft at the walker and auto-mounts it
+    // (J2's contract); DISMOUNT parks it where it stands (the
+    // mount leave-behaviour — J2's vanish law does NOT apply
+    // here), and SUMMON brings it back. Precedence: a monster
+    // mount already held wins — summon refuses while mounted,
+    // and mounting refuses while driving (mountMonster above).
+    const speederGroup = buildSpeeder();
+    scene.add(speederGroup);
+    const summonSpeederRide = () => {
+      if (rideRef.current || speederRef.current.mounted) return;
+      const sp = speederRef.current;
+      const sphere = sphereRef.current;
+      summonSpeeder(sp, {
+        x: walker.pos.x, z: walker.pos.z, yaw: walker.yaw,
+        ref: sphere ? sphere.ref : null,
+      }, world.groundHeight);
+      rideBlendRef.current = 0;
+      seatHeightRef.current = SPEEDER_SEAT_LIFT_M;
+      setSpeederDriving(true);
+      notice('🛸 Speeder summoned — ride with the stick; Shift boosts.');
+    };
+    const dismountSpeederRide = () => {
+      const sp = speederRef.current;
+      if (!sp.mounted) return;
+      const pose = dismountSpeeder(sp, world.groundHeight);
+      // Settle the landing spot out of solid geometry with the
+      // walker's own push-out — never inside the craft, never
+      // inside a landmark. No bounds clamp: the sphere has no
+      // edge to clamp against.
+      const settled = { x: pose.x, z: pose.z };
+      resolveColliders(settled, [...world.colliders, ...monsterColliders(world.monsters, world.korus)]);
+      walker.pos.x = settled.x;
+      walker.pos.z = settled.z;
+      walker.yaw = pose.yaw;
+      walker.jumpY = 0; walker.jumpV = 0; walker.grounded = true;
+      sphereRef.current = sphereStateForDeck(settled.x, settled.z, world.groundHeight);
+      setSpeederDriving(false);
+      notice('🚶 Dismounted — the speeder waits where you left it.');
+    };
+    speederApiRef.current = { summon: summonSpeederRide, dismount: dismountSpeederRide };
 
     const keys = createKeyInput();
     keys.attach();
@@ -1080,6 +1157,11 @@ export default function HollowEarthPage() {
     }
 
     function attack() {
+      // Sanctuary: no hunting from the saddle while the rider
+      // stands inside a sanctuary — the speeder must never be a
+      // way to hunt from inside one. (The mounted rider keeps
+      // its existing behaviour; this gate is the speeder's own.)
+      if (isSpeederDriving(speederRef.current) && inSanctuaryAt(walker.pos.x, walker.pos.z)) return;
       const now = performance.now();
       const spec = weaponSpec();
       if (now - lastStrike < spec.cooldown * 1000) return;
@@ -1220,12 +1302,18 @@ export default function HollowEarthPage() {
         } else { gpButtons = new Set(); gpPrevRt = 0; }
       }
       const ride = rideRef.current;
+      // The speeder's drive state, read fresh every frame — the
+      // same shape as `ride` above, for the vehicle path.
+      const speeder = speederRef.current;
+      const driving = isSpeederDriving(speeder);
       // JUMP (Merlin, Nov 16): Space (keys.consumeJump) or the JUMP
       // orb (jumpRef) — edge-triggered, consumed for exactly one
       // frame. Mounted, the press is consumed and discarded (the
-      // Middle-earth pattern): no jumping from the saddle.
-      if (ride) { keys.consumeJump(); jumpRef.current = false; }
-      const jump = ride ? false : keys.consumeJump() || jumpRef.current;
+      // Middle-earth pattern): no jumping from the saddle — and
+      // no jumping from the speeder either (the JUMP orb hides
+      // while driving; a Space press is swallowed the same way).
+      if (ride || driving) { keys.consumeJump(); jumpRef.current = false; }
+      const jump = (ride || driving) ? false : keys.consumeJump() || jumpRef.current;
       jumpRef.current = false;
       // WS6 frost chill: the walker runs at x0.7 while chilled —
       // suppressed inside any sanctuary (full speed there, R4).
@@ -1242,18 +1330,47 @@ export default function HollowEarthPage() {
       // and a push-out re-syncs the sphere deck from the
       // settled point (a collider push is horizontal; the
       // step re-projects onto the ground next frame).
-      const speed = ride ? rideSpeedForMount(ride.mount.stats) : 10 * (hero.speedMult || 1) * chillF;
-      let s = sphereRef.current || sphereStateForDeck(walker.pos.x, walker.pos.z, world.groundHeight);
-      s = stepHollowEarthWalker(s, {
-        fwd: keys.state.fwd + joyRef.current.y,
-        strafe: keys.state.strafe + joyRef.current.x,
-        sprint: ride ? false : keys.state.sprint,
-        jump,
-        yaw: walker.yaw,
-      }, dt, { heightAt: world.groundHeight, walkSpeed: speed });
-      sphereRef.current = s;
-      walker.pos.x = s.deck.x;
-      walker.pos.z = s.deck.z;
+      //
+      // SPEEDER (Nov 24): while driving, the speeder steps
+      // instead of the walker — the joystick throttles (stick
+      // y) + steers (stick x, analog like J2), WASD the same
+      // way (W/S throttle, A/D steer), Shift boosts. The
+      // heading delta folds into walker.yaw (J2's pattern),
+      // so the camera follows the nose and a drag-look offset
+      // survives as an offset from the heading. The walker IS
+      // the speeder's deck from here on, so the camera, the
+      // observer and the sanctuary flag all follow the craft.
+      let s;
+      if (driving) {
+        const prevYaw = speeder.yaw;
+        stepSpeeder(speeder, {
+          fwd: Math.max(0, keys.state.fwd) + Math.max(0, joyRef.current.y),
+          back: Math.max(0, -keys.state.fwd) + Math.max(0, -joyRef.current.y),
+          // Stick x steers when held (right = negative steer);
+          // otherwise A/D steer at full rate — the step's own
+          // fallback reads left/right, so the keys arrive as
+          // the strafe sign here (D/right = −1 steer).
+          steer: (-joyRef.current.x) || (-keys.state.strafe) || undefined,
+          boost: keys.state.sprint,
+        }, dt, { heightAt: world.groundHeight });
+        walker.yaw += speeder.yaw - prevYaw;
+        walker.pos.x = speeder.x;
+        walker.pos.z = speeder.z;
+        s = sphereRef.current = speederSphereState(speeder);
+      } else {
+        const speed = ride ? rideSpeedForMount(ride.mount.stats) : 10 * (hero.speedMult || 1) * chillF;
+        s = sphereRef.current || sphereStateForDeck(walker.pos.x, walker.pos.z, world.groundHeight);
+        s = stepHollowEarthWalker(s, {
+          fwd: keys.state.fwd + joyRef.current.y,
+          strafe: keys.state.strafe + joyRef.current.x,
+          sprint: ride ? false : keys.state.sprint,
+          jump,
+          yaw: walker.yaw,
+        }, dt, { heightAt: world.groundHeight, walkSpeed: speed });
+        sphereRef.current = s;
+        walker.pos.x = s.deck.x;
+        walker.pos.z = s.deck.z;
+      }
       {
         // Solid characters: landmarks + scatter colliders PLUS
         // every active monster and Korus, rebuilt each frame
@@ -1267,7 +1384,16 @@ export default function HollowEarthPage() {
         if (settled.x !== walker.pos.x || settled.z !== walker.pos.z) {
           walker.pos.x = settled.x;
           walker.pos.z = settled.z;
-          sphereRef.current = sphereStateForDeck(settled.x, settled.z, world.groundHeight);
+          // A push-out while driving re-seats the speeder, not
+          // the sphere walker — resyncSpeeder transports the
+          // heading ref onto the new feet, so a push never
+          // resets the heading to compass north.
+          if (driving) {
+            resyncSpeeder(speeder, settled.x, settled.z, world.groundHeight);
+            sphereRef.current = speederSphereState(speeder);
+          } else {
+            sphereRef.current = sphereStateForDeck(settled.x, settled.z, world.groundHeight);
+          }
         }
       }
       if (ride) {
@@ -1276,11 +1402,95 @@ export default function HollowEarthPage() {
         mm.z = walker.pos.z;
         mm.faceYaw = mountYawForWalker(walker.yaw);
       }
+      // The speeder mesh follows its state — parked or driving,
+      // it stands where it was left. Pose is J2's makeBasis
+      // pattern: right / up / −forward from the transported
+      // frame, so the nose sits exactly on the drive direction
+      // on the whole shell, antipode included; the flame is the
+      // same blue engine flame, lit only while driving.
+      if (speederGroup) {
+        speederGroup.visible = speeder.summoned;
+        if (speeder.summoned && speeder.feet && speeder.ref) {
+          const spUp = sphereUpAtDeck(speeder.x, speeder.z);
+          const spFrame = frameFromRef(speeder.feet, speeder.ref, speeder.yaw);
+          speederGroup.position.set(
+            speeder.feet.x + spUp.x * 0.1,
+            speeder.feet.y + spUp.y * 0.1,
+            speeder.feet.z + spUp.z * 0.1,
+          );
+          const m = new THREE.Matrix4().makeBasis(
+            new THREE.Vector3(spFrame.right.x, spFrame.right.y, spFrame.right.z),
+            new THREE.Vector3(spUp.x, spUp.y, spUp.z),
+            new THREE.Vector3(-spFrame.forward.x, -spFrame.forward.y, -spFrame.forward.z),
+          );
+          speederGroup.quaternion.setFromRotationMatrix(m);
+          if (speederGroup.userData.glowMat) {
+            speederGroup.userData.glowMat.opacity = 0.6 + Math.min(1, Math.abs(speeder.speed) / SPEEDER_SPEED) * 0.4;
+          }
+          const flame = speederGroup.userData.flame;
+          if (flame) {
+            const drivingNow = Math.abs(speeder.speed) > 1;
+            flame.group.visible = drivingNow;
+            if (drivingNow) {
+              const tt = Date.now() / 1000;
+              const ratio = Math.min(1, Math.abs(speeder.speed) / SPEEDER_SPEED);
+              const flick = 0.85 + 0.25 * Math.sin(tt * 29 + flame.phase)
+                + 0.12 * Math.sin(tt * 47 + flame.phase * 1.3);
+              const w = Math.max(0.4, flick);
+              flame.outer.scale.set(w, (0.7 + 0.6 * ratio) * flick, w);
+              flame.inner.scale.set(w, (0.6 + 0.5 * ratio) * flick, w);
+            }
+          }
+        }
+      }
+      /* SANCTUARY PORTAL (Merlin, Nov 24 ~16:51): walk through
+       * the portal at a sanctuary's heart and it carries you
+       * out to monsters of that sanctuary's element — one-way,
+       * player only, no monster ever travels it. The trigger is
+       * radial (within PORTAL_TRIGGER_R_M of the portal seat at
+       * ground level) and only fires inside a zone sanctuary,
+       * so a landing — always wilds, never a sanctuary — can
+       * never re-fire on arrival; a 5 s cooldown is the
+       * backstop against a double fire on one crossing.
+       * Mounted, the rider dismounts first (the death path's
+       * order): the mount waits where it was left, inside the
+       * sanctuary. The sphere walker is reset at the landing
+       * with the heading facing the anchor monster, and the
+       * orb-collect segment is re-seeded so the jump cannot
+       * sweep-collect drops across the map. */
+      {
+        const zone = sanctuaryAt(walker.pos.x, walker.pos.z);
+        const portal = zone
+          ? (world.sanctuaryPortals || []).find((p) => p.name === zone.name)
+          : null;
+        if (portal && Math.hypot(walker.pos.x - portal.x, walker.pos.z - portal.z) <= PORTAL_TRIGGER_R_M
+          && Date.now() - lastPortalMsRef.current >= PORTAL_COOLDOWN_S * 1000) {
+          const dest = pickPortalDestination(zone, { monsters: world.monsters, rings: sanctuaryRingsRef.current });
+          lastPortalMsRef.current = Date.now();
+          if (dest) {
+            // Driving through a portal parks the speeder first
+            // (it waits in the sanctuary), then the mount
+            // dismounts — the death path's order, ride last so
+            // its dismount stays adjacent to the teleport.
+            if (speederApiRef.current) speederApiRef.current.dismount();
+            if (rideApiRef.current) rideApiRef.current.dismount();
+            walker.pos.x = dest.x;
+            walker.pos.z = dest.z;
+            walker.yaw = dest.faceYaw;
+            sphereRef.current = sphereStateForDeck(dest.x, dest.z, world.groundHeight);
+            prevWalkerPosRef.current = null;
+            notice(`🌀 Through the portal — ${dest.element} monsters ahead.`);
+          } else {
+            notice('🌀 The portal shimmers, but finds no road — no monsters of this kind walk the wilds yet.');
+          }
+        }
+      }
       /* mount prompt: the nearest mountable monster in range,
        * threshold crossings only (the Earth 2 board-prompt
        * pattern) — the button appears before the walker is
-       * pressed against the mount, and never while mounted */
-      if (!rideRef.current) {
+       * pressed against the mount, and never while mounted —
+       * or while driving the speeder (one orb in the slot). */
+      if (!rideRef.current && !isSpeederDriving(speederRef.current)) {
         const near = nearestMountInRange(world.monsters, walker.pos.x, walker.pos.z);
         const nearId = near ? near.id : null;
         if (nearId !== mountPromptRef.current) {
@@ -1362,6 +1572,7 @@ export default function HollowEarthPage() {
             setHud((prev) => ({ ...prev, hp: h.hp, shield: h.shield }));
             if (h.hp <= 0) {
               if (rideApiRef.current) rideApiRef.current.dismount();
+              if (speederApiRef.current) speederApiRef.current.dismount();
               respawnAtBase();
               h.hp = hero.maxHp;
               clearSecondaries();
@@ -1393,6 +1604,7 @@ export default function HollowEarthPage() {
           setHud((prev) => ({ ...prev, hp: hb.hp, shield: hb.shield }));
           if (hb.hp <= 0) {
             if (rideApiRef.current) rideApiRef.current.dismount();
+            if (speederApiRef.current) speederApiRef.current.dismount();
             respawnAtBase();
             hb.hp = hero.maxHp;
             clearSecondaries();
@@ -1422,6 +1634,7 @@ export default function HollowEarthPage() {
           setHud((prev) => ({ ...prev, hp: hp2.hp, shield: hp2.shield }));
           if (hp2.hp <= 0) {
             if (rideApiRef.current) rideApiRef.current.dismount();
+            if (speederApiRef.current) speederApiRef.current.dismount();
             respawnAtBase();
             hp2.hp = hero.maxHp;
             clearSecondaries();
@@ -1464,15 +1677,20 @@ export default function HollowEarthPage() {
       // Mount/dismount blend: the hero rises into the saddle
       // (and sinks back down) over MOUNT_BLEND_S, never
       // snapping — and slides from trailing a step behind the
-      // walker to sitting on the mount as the blend rises.
+      // walker to sitting on the mount as the blend rises. The
+      // speeder rides the same blend: while driving, the seat
+      // height is the speeder's lift, so the eye rises onto the
+      // craft instead of snapping.
       const rideNow = rideRef.current;
-      const blendTarget = rideNow ? 1 : 0;
+      const drivingNow = isSpeederDriving(speederRef.current);
+      const blendTarget = (rideNow || drivingNow) ? 1 : 0;
       const b0 = rideBlendRef.current;
       rideBlendRef.current = blendTarget > b0
         ? Math.min(1, b0 + dt / MOUNT_BLEND_S)
         : Math.max(0, b0 - dt / MOUNT_BLEND_S);
       const blend = rideBlendRef.current;
-      if (rideNow) seatHeightRef.current = riderSeatOffsetY(rideNow.mount.stats.scaleM, hero.height);
+      if (drivingNow) seatHeightRef.current = SPEEDER_SEAT_LIFT_M;
+      else if (rideNow) seatHeightRef.current = riderSeatOffsetY(rideNow.mount.stats.scaleM, hero.height);
       const trail = 1.2 * (1 - blend);
       // Hero figure trails a step behind the walker on foot,
       // and sits on the mount while riding — on the shell, at
@@ -1583,6 +1801,13 @@ export default function HollowEarthPage() {
       mountPromptRef.current = null;
       setMounted(null);
       setMountPrompt(null);
+      // The speeder never survives leaving the world either: the
+      // parked craft dies with the effect, and the next entry
+      // starts on foot (SUMMON brings a fresh one).
+      speederRef.current = createSpeederState();
+      speederApiRef.current = null;
+      setSpeederDriving(false);
+      try { scene.remove(speederGroup); } catch { /* noop */ }
       renderer.dispose();
       worldRef.current = null;
       walkerRef.current = null;
@@ -1815,12 +2040,17 @@ export default function HollowEarthPage() {
           CORNER_CLEAR lift existed only to clear it). A press while
           mounted is swallowed by the tick, never a jump off the
           saddle. Measured clear of the dock: at 320 px the dock's
-          right edge is x 198, JUMP's left edge x 232. */}
-      <OrbButton fn="jump" ariaLabel="Jump" size={76}
-        onPointerDown={() => { jumpRef.current = true; }}
-        style={{ position: 'absolute', right: 12, bottom: BOTTOM_CLEAR, zIndex: 6 }}>
-        <span style={{ fontSize: 15 }}>JUMP</span>
-      </OrbButton>
+          right edge is x 210 (142 home + 68 wide), JUMP's left edge x 232. While driving
+          the speeder the orb HIDES entirely (Mars 2 / J2 law —
+          no jumping from the speeder); a Space press is swallowed
+          by the tick the same way. */}
+      {!speederDriving && (
+        <OrbButton fn="jump" ariaLabel="Jump" size={76}
+          onPointerDown={() => { jumpRef.current = true; }}
+          style={{ position: 'absolute', right: 12, bottom: BOTTOM_CLEAR, zIndex: 6 }}>
+          <span style={{ fontSize: 15 }}>JUMP</span>
+        </OrbButton>
+      )}
       {/* Crosshair reticle, from the backpack law */}
       <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', color: '#fff', fontSize: 22, opacity: 0.85, pointerEvents: 'none' }}>
         {weaponReticle === 'crosshair' ? '✛' : weaponReticle === 'chevron' ? '⌃' : '•'}
@@ -1841,7 +2071,7 @@ export default function HollowEarthPage() {
             <OrbLabel>HUB</OrbLabel>
           </OrbButton>
           <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
-            ❤️ {hud.hp}/{hero.maxHp}{hud.shield > 0 ? ` · 🛡️ ${hud.shield}` : ''}
+            ❤️ {Math.round(hud.hp)}/{hero.maxHp}{hud.shield > 0 ? ` · 🛡️ ${hud.shield}` : ''}
           </span>
           <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>
             ☠️ {hud.kills} kills{hud.shield <= 0 ? ` · shield in ${killsToShield}` : ''}
@@ -1866,9 +2096,12 @@ export default function HollowEarthPage() {
           {!hud.sanctuary && <span style={{ background: 'rgba(0,0,0,0.55)', borderRadius: 999, padding: '0.3rem 0.8rem', color: '#fff', fontSize: 14 }}>⚔️ Wilds</span>}
           {/* Trade opens at The Haven only — the button lives in
               the HUD row (pointerEvents re-enabled: the HUD
-              column itself is pointer-events none). */}
+              column itself is pointer-events none). 56 px, not
+              44: the TRADE label measures 36 px and the 44 px
+              orb only shows 32 px of it, so it read "TRAD" beside
+              the sanctuary pill (Nov 24 dive round). */}
           {hud.inBase && orbHud && (
-            <OrbButton fn="trade" size={44} accent={GOLD} onClick={() => setTradeOpen(true)} ariaLabel="Open elemental trade" style={{ pointerEvents: 'auto' }}>
+            <OrbButton fn="trade" size={56} accent={GOLD} onClick={() => setTradeOpen(true)} ariaLabel="Open elemental trade" style={{ pointerEvents: 'auto' }}>
               <OrbLabel>TRADE</OrbLabel>
             </OrbButton>
           )}
@@ -1897,15 +2130,25 @@ export default function HollowEarthPage() {
           <div style={{ alignSelf: 'center', background: 'rgba(0,0,0,0.7)', borderRadius: 999, padding: '0.4rem 1rem', color: '#fff', fontSize: 14, textAlign: 'center', maxWidth: '90vw' }}>{toast}</div>
         )}
       </div>
-      {/* MOUNTS (Merlin, 2026-11-15): the mount prompt lives in its
-          own absolutely-positioned slot (MOUNT_SLOT), centred below
-          the HUD and clear of the boss bar — a visible plain circle
-          orb, like the egg-steal button, never hidden inside a
-          collapsed panel. It sits OUTSIDE the HUD column's flow, so
-          a toast appearing or fading never shifts it under the
-          thumb. While mounted it becomes the Dismount orb; walking
-          away is NOT dismount. */}
-      {mountPrompt && !mounted && (
+      {/* MOUNTS (Merlin, 2026-11-15) + SPEEDER (Merlin, Nov 24):
+          the mount prompt lives in its own absolutely-positioned
+          slot (MOUNT_SLOT), centred below the HUD and clear of the
+          boss bar — a visible plain circle orb, like the egg-steal
+          button, never hidden inside a collapsed panel. It sits
+          OUTSIDE the HUD column's flow, so a toast appearing or
+          fading never shifts it under the thumb. While mounted it
+          becomes the Dismount orb; walking away is NOT dismount.
+          The slot is SINGLE-OCCUPANCY: exactly one of MOUNT
+          (prompt) / OFF (monster-mounted) / SUMMON (on foot, no
+          prompt) / DISMOUNT (driving the speeder) ever renders —
+          the four conditions are mutually exclusive by
+          construction (the prompt is suppressed while mounted or
+          driving, and mount and speeder can never be held at
+          once), so no two orbs can ever sit on each other here.
+          The SUMMON / DISMOUNT labels wear J2's own 8 px face
+          (Jupiter2Scene) so DISMOUNT's 8 letters fit the 56 px
+          circle. */}
+      {mountPrompt && !mounted && !speederDriving && (
         <OrbButton fn="mount" accent={GOLD} onClick={() => { if (rideApiRef.current) rideApiRef.current.mountPrompted(); }}
           ariaLabel={`Mount ${mountPrompt.name}`}
           style={MOUNT_SLOT}>
@@ -1917,6 +2160,20 @@ export default function HollowEarthPage() {
           ariaLabel="Dismount"
           style={MOUNT_SLOT}>
           <OrbLabel>OFF</OrbLabel>
+        </OrbButton>
+      )}
+      {!mounted && !speederDriving && !mountPrompt && (
+        <OrbButton fn="summon" ariaLabel="Summon speeder" accent={GOLD}
+          onClick={() => { if (speederApiRef.current) speederApiRef.current.summon(); }}
+          style={MOUNT_SLOT}>
+          <span style={{ fontSize: 8, letterSpacing: 1, lineHeight: 1 }}>SUMMON</span>
+        </OrbButton>
+      )}
+      {speederDriving && (
+        <OrbButton fn="dismount" ariaLabel="Dismount speeder" accent={GOLD}
+          onClick={() => { if (speederApiRef.current) speederApiRef.current.dismount(); }}
+          style={MOUNT_SLOT}>
+          <span style={{ fontSize: 8, letterSpacing: 1, lineHeight: 1 }}>DISMOUNT</span>
         </OrbButton>
       )}
       {korusDead && (
@@ -1998,9 +2255,9 @@ export default function HollowEarthPage() {
           to the joystick. Default arrangement, measured from the
           fixed orb sizes: a vertical column, left 142 (= 12 +
           118 px joystick + 12 gap), bottom BOTTOM_CLEAR, 8 px gaps,
-          56 px wide, 212 px tall (44+8+44+8+56+8+44). Top to bottom:
+          68 px wide, 240 px tall (44+8+68+8+44+8+60). Top to bottom:
           MAP, WEAPON, SPAWN, STRIKE — Map at the far top end,
-          Strike at the bottom by the thumb, 116 px of Spawn +
+          Strike at the bottom by the thumb, 128 px of Spawn +
           Weapon between their near edges, so Map NEVER sits next
           to Strike. One label per orb; plain circles, no rectangles.
           The weapon orb wears the shared weapon face + damage; the full
@@ -2010,17 +2267,22 @@ export default function HollowEarthPage() {
         style={{ position: 'absolute', ...dockStyle, zIndex: 10, display: 'flex', flexDirection: 'column', gap: ORB_DOCK_GAP, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', cursor: dockDragPx ? 'grabbing' : 'grab' }}>
         <OrbButton fn="map" size={44} accent="#d8b25c" onClick={() => { if (dockTapGuard()) return; setMode('map'); }} ariaLabel="Map">
         </OrbButton>
-        {/* Weapon orb: 56 px, not 44 — the glyph + damage + the
+        {/* Weapon orb: 68 px, not 56 — the glyph + damage + the
             visible class word (MELEE/RANGED) need three stacked
-            rows, and 44 px clips the 6-letter word. */}
-        <OrbButton fn="weapon" size={56} accent="#d8b25c" onClick={() => { if (dockTapGuard()) return; setHud((p) => { const w = p.weapon === 'melee' ? 'ranged' : 'melee'; weaponRef.current = w; return { ...p, weapon: w }; }); }}
+            rows (35 px face + 9 px damage + 9 px label + 2 px
+            gaps = 55 px), and 56 px only holds 44 px: the label
+            flex-shrank to 4 px tall (Nov 24 dive round). */}
+        <OrbButton fn="weapon" size={68} accent="#d8b25c" onClick={() => { if (dockTapGuard()) return; setHud((p) => { const w = p.weapon === 'melee' ? 'ranged' : 'melee'; weaponRef.current = w; return { ...p, weapon: w }; }); }}
           ariaLabel={`Weapon: ${weaponLabel} — tap to switch weapon`}>
-          <span style={{ fontSize: 9, lineHeight: 1 }}>{weaponFace.dmg}</span>
+          <span style={{ fontSize: 9, lineHeight: 1, flexShrink: 0 }}>{weaponFace.dmg}</span>
           <OrbLabel>{weaponClassLabel}</OrbLabel>
         </OrbButton>
         <OrbButton fn="home" size={44} accent="#d8b25c" onClick={() => { if (dockTapGuard()) return; spawnToBase(); }} title="Spawn to base — return to The Haven" ariaLabel="Spawn to base — return to The Haven">
         </OrbButton>
-        <OrbButton fn="strike" size={44} accent="#ff5544" onClick={() => { if (dockTapGuard()) return; if (worldRef.current && worldRef.current.attack) worldRef.current.attack(); }}
+        {/* STRIKE orb: 60 px, not 44 — the 6-letter label measures
+            39 px and the 44 px orb only shows 32 px of it, so it
+            read "STRIK" (Nov 24 dive round). */}
+        <OrbButton fn="strike" size={60} accent="#ff5544" onClick={() => { if (dockTapGuard()) return; if (worldRef.current && worldRef.current.attack) worldRef.current.attack(); }}
           ariaLabel="Strike">
           <OrbLabel>STRIKE</OrbLabel>
         </OrbButton>

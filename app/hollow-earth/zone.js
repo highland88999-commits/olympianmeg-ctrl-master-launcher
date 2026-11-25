@@ -56,6 +56,7 @@ import * as ThreeJS from 'three';
 import { createHeightFunction, spanSeatY } from '../star-wars/zone.js';
 import { biomeWeights, biomeAt, BIOMES } from './biomes.js';
 import { buildLandmark, animateLandmark, applyLandmarkArt } from './landmarks.js';
+import { sharedTexture } from './textures.js';
 import { buildSkyDome, applySkyTint, setSkyDomeMap } from './sky.js';
 import { buildAmbientParticles } from './ambient.js';
 import { buildAmbientLife } from './ambient-life.js';
@@ -82,6 +83,9 @@ import {
   ringElementColor, structureRingElement, structureRingRadius,
   sanctuaryRingGeometry,
 } from './sanctuary-ring.js';
+import {
+  buildSanctuaryPortal, portalSeatForZone, portalYawForZone,
+} from './sanctuary-portal.js';
 import { kickOffGlb, preloadGlb } from './model-loader.js';
 import { WATCHER, watcherGazeYaw, watcherBlinkOpen, watcherLaughing } from './watcher.js';
 import { buildElemental, hazeStateFor } from './elemental.js';
@@ -106,6 +110,31 @@ const SCATTER_COLOR = {
   'spore-cap': 0xc06ae0, 'gloom-pillar': 0x3a3a40, 'dune-bone': 0xd8bc82, 'peak-rock': 0x7a7a82,
   'frost-shard': 0x9fd8e8,
 };
+
+/* Dive round (Nov 24): every scatter kind wears its procedural
+ * map — one shared texture per kind, never one per piece.
+ * Colour rule (textures.js): the colour stays as the multiplier
+ * where it is light, and goes white where the texture itself
+ * carries the colour — ember-rock and gloom-pillar are too dark
+ * to multiply through. A stub T (no maker) leaves the piece
+ * flat, never a crash. */
+const SCATTER_TEXTURE = {
+  'ooze-bubble': 'acidBubbleTexture', 'ember-rock': 'emberRockTexture',
+  'storm-crystal': 'stormCrystalTexture', 'spore-cap': 'sporeCapTexture',
+  'gloom-pillar': 'darkStoneTexture', 'dune-bone': 'sandstoneTexture',
+  'peak-rock': 'mountainStoneTexture', 'frost-shard': 'iceTexture',
+};
+const SCATTER_TEX_WHITE = new Set(['ember-rock', 'gloom-pillar']);
+
+function scatterMat(T, kind, extra) {
+  const m = {
+    color: SCATTER_TEX_WHITE.has(kind) ? 0xffffff : (SCATTER_COLOR[kind] || 0x888888),
+    ...(extra || {}),
+  };
+  const mapTex = sharedTexture(T, SCATTER_TEXTURE[kind]);
+  if (mapTex) m.map = mapTex;
+  return m;
+}
 
 /* G-11 — transition-band mixed scatter gate: a scatter kind
  * spawns where its own biome holds weight >= 0.35, as before —
@@ -674,14 +703,14 @@ export function buildWorld(THREE, def, T, opts = {}) {
       if (sc.kind === 'ooze-bubble' || sc.kind === 'spore-cap') {
         piece = new R.Mesh(
           new R.SphereGeometry(0.5 * s, 8, 6),
-          new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind] || 0x888888, roughness: 0.8 })
+          new R.MeshStandardMaterial(scatterMat(T, sc.kind, { roughness: 0.8 }))
         );
         const p = liftedPoint(x, z, 0.3 * s, heightAt);
         piece.position.set(p.x, p.y, p.z);
       } else if (sc.kind === 'storm-crystal' || sc.kind === 'frost-shard') {
         piece = new R.Mesh(
           new R.ConeGeometry(0.5 * s, 2.2 * s, 5),
-          new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind], emissive: sc.kind === 'frost-shard' ? 0x4a7a8a : 0x887a00, emissiveIntensity: 0.5 })
+          new R.MeshStandardMaterial(scatterMat(T, sc.kind, { emissive: sc.kind === 'frost-shard' ? 0x4a7a8a : 0x887a00, emissiveIntensity: 0.5 }))
         );
         const p = liftedPoint(x, z, 1.1 * s, heightAt);
         piece.position.set(p.x, p.y, p.z);
@@ -689,7 +718,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
       } else {
         piece = new R.Mesh(
           new R.CylinderGeometry(0.4 * s, 0.7 * s, 1.6 * s, 6),
-          new R.MeshStandardMaterial({ color: SCATTER_COLOR[sc.kind] || 0x888888, roughness: 1 })
+          new R.MeshStandardMaterial(scatterMat(T, sc.kind, { roughness: 1 }))
         );
         const p = liftedPoint(x, z, 0.8 * s, heightAt);
         piece.position.set(p.x, p.y, p.z);
@@ -718,7 +747,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
     const s = 1.5 + dressRng() * 1.5;
     const rock = new R.Mesh(
       new R.CylinderGeometry(0.4 * s, 0.7 * s, 1.6 * s, 6),
-      new R.MeshStandardMaterial({ color: SCATTER_COLOR['peak-rock'], roughness: 1 })
+      new R.MeshStandardMaterial(scatterMat(T, 'peak-rock', { roughness: 1 }))
     );
     const rp = liftedPoint(x, z, 0.8 * s, heightAt);
     rock.position.set(rp.x, rp.y, rp.z);
@@ -733,7 +762,7 @@ export function buildWorld(THREE, def, T, opts = {}) {
     const s = 1 + dressRng() * 1.2;
     const shard = new R.Mesh(
       new R.ConeGeometry(0.5 * s, 2.2 * s, 5),
-      new R.MeshStandardMaterial({ color: SCATTER_COLOR['frost-shard'], emissive: 0x4a7a8a, emissiveIntensity: 0.5 })
+      new R.MeshStandardMaterial(scatterMat(T, 'frost-shard', { emissive: 0x4a7a8a, emissiveIntensity: 0.5 }))
     );
     const sp = liftedPoint(x, z, 1.1 * s, heightAt);
     shard.position.set(sp.x, sp.y, sp.z);
@@ -1063,6 +1092,38 @@ export function buildWorld(THREE, def, T, opts = {}) {
     addSanctuaryRing({ ...sr, segments: RING_STRUCTURE_SEGMENTS });
   }
 
+  // --- SANCTUARY PORTALS (dive round, Merlin Nov 24 ~16:51) ---
+  // One walk-through portal at the heart of every sanctuary —
+  // the ward-line made into a gate (sanctuary-portal.js: the
+  // element-coloured arch + glow disc + gold trim and foot-ring,
+  // breathing like the rings). The seat is the zone centre
+  // wherever the centre is open, and just clear of the blocking
+  // landmark collider where one covers it (portalSeatForZone) —
+  // the walker must be able to reach the trigger, and a portal
+  // seated inside a collider could never fire. NO COLLIDER is
+  // ever built for a portal (buildSanctuaryPortal's colliderR
+  // is 0 and nothing here pushes it into `colliders`): the
+  // walker passes straight through, and the page's tick fires
+  // the travel. The band landmarks stay where they are — they
+  // are mission targets and band markers, never portals — so
+  // nothing here removes or replaces a landmark.
+  const sanctuaryPortalRecs = []; // { name, x, z, element, group, glowMat, archMat, phase }
+  for (const zone of SAFE_ZONES) {
+    const seat = portalSeatForZone(zone, colliders);
+    const built = buildSanctuaryPortal(zone, R);
+    const gp = liftedPoint(seat.x, seat.z, 0, heightAt);
+    built.position.set(gp.x, gp.y, gp.z);
+    built.quaternion.copy(orientationQuat(gp, portalYawForZone(zone, seat)));
+    group.add(built);
+    sanctuaryPortalRecs.push({
+      name: zone.name, x: seat.x, z: seat.z, element: zone.element,
+      group: built,
+      glowMat: built.userData.portal.glowMat,
+      archMat: built.userData.portal.archMat,
+      phase: (seat.x * 0.37 + seat.z * 0.73) % (Math.PI * 2),
+    });
+  }
+
   function setObserver(o) {
     if (o.x != null) observer.x = o.x;
     if (o.z != null) observer.z = o.z;
@@ -1214,6 +1275,14 @@ export function buildWorld(THREE, def, T, opts = {}) {
       rec.bandMat.opacity = 0.45 + 0.15 * Math.sin(elapsed * 1.5 + rec.phase);
       rec.veilMat.opacity = 0.11 + 0.04 * Math.sin(elapsed * 1.5 + rec.phase);
     }
+    // Sanctuary portals breathe with them: the glow disc and
+    // the arch's emissive pulse on the same slow cycle.
+    for (const rec of sanctuaryPortalRecs) {
+      rec.glowMat.opacity = 0.42 + 0.14 * Math.sin(elapsed * 1.5 + rec.phase);
+      if (rec.archMat.emissiveIntensity != null) {
+        rec.archMat.emissiveIntensity = 0.8 + 0.25 * Math.sin(elapsed * 1.5 + rec.phase);
+      }
+    }
     updateRemains();
     updateOrbDrops();
     // Fly the monster projectiles against the hunter's live position.
@@ -1319,6 +1388,19 @@ export function buildWorld(THREE, def, T, opts = {}) {
       } catch { /* noop */ }
     }
     sanctuaryRingRecs.length = 0;
+    // Sanctuary portals: remove + dispose every arch, disc and
+    // foot-ring (a second dispose() must be a no-op — the list
+    // is emptied, and group.clear() below drops the rest).
+    for (const rec of sanctuaryPortalRecs) {
+      try { group.remove(rec.group); } catch { /* noop */ }
+      try {
+        rec.group.traverse((o) => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material) o.material.dispose();
+        });
+      } catch { /* noop */ }
+    }
+    sanctuaryPortalRecs.length = 0;
     monsterShots.dispose();
     group.clear();
     figures.clear();
@@ -1353,6 +1435,12 @@ export function buildWorld(THREE, def, T, opts = {}) {
     // name, x, z, r, element } — 14 zones + 19 structures.
     sanctuaryRings: sanctuaryRingRecs.map((rec) => ({
       kind: rec.kind, name: rec.name, x: rec.x, z: rec.z, r: rec.r, element: rec.element,
+    })),
+    // The sanctuary portals as plain data — the page reads them
+    // for its walk-through trigger ({ name, x, z, element } —
+    // one per safe zone, seated where the mesh stands).
+    sanctuaryPortals: sanctuaryPortalRecs.map((rec) => ({
+      name: rec.name, x: rec.x, z: rec.z, element: rec.element,
     })),
     setSkyTint(hex) { applySkyTint(skyDome, hex); },
     setSkyVideoTexture(tex) {

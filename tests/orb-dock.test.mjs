@@ -31,11 +31,14 @@ function memStore(initial) {
   };
 }
 
-test('dock box: 56 wide, 212 tall — Map/Weapon/Spawn/Strike + 8 px gaps', () => {
-  assert.equal(ORB_DOCK_WIDTH, 56);
+test('dock box: 68 wide, 240 tall — Map/Weapon/Spawn/Strike + 8 px gaps', () => {
+  assert.equal(ORB_DOCK_WIDTH, 68);
   assert.equal(ORB_DOCK_GAP, 8);
-  // 44 + 8 + 44 + 8 + 56 + 8 + 44 = 212.
-  assert.equal(ORB_DOCK_HEIGHT, 44 + 8 + 44 + 8 + 56 + 8 + 44);
+  // 44 + 8 + 68 + 8 + 44 + 8 + 60 = 240 (Nov 24 dive round: the
+  // weapon orb grew to 68 and Strike to 60 so their labels fit —
+  // the box constants must match the real orbs, or the clamp
+  // below would let the dock park half off-screen).
+  assert.equal(ORB_DOCK_HEIGHT, 44 + 8 + 68 + 8 + 44 + 8 + 60);
   assert.equal(ORB_DOCK_DRAG_THRESHOLD_PX, 8);
   // Home: left 142 (= 12 + 118 joystick + 12 gap), bottom 24.
   assert.equal(ORB_DOCK_HOME_LEFT_PX, 12 + 118 + 12);
@@ -107,7 +110,7 @@ test('fractions round-trip through pixels for a phone viewport', () => {
   assert.equal(Math.round(homePx.y), vh - ORB_DOCK_HOME_BOTTOM_PX - ORB_DOCK_HEIGHT);
 });
 
-test('clamp keeps the whole 56x212 box on screen with an 8 px margin', () => {
+test('clamp keeps the whole 68x240 box on screen with an 8 px margin', () => {
   const vw = 390;
   const vh = 844;
   assert.deepEqual(clampOrbDockPx({ x: -50, y: -50 }, vw, vh), { x: 8, y: 8 });

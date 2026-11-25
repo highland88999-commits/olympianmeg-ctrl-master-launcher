@@ -109,9 +109,16 @@ export default function OrbButton({
 
 // The short label that rides under an orb's icon — small enough to
 // fit inside the circle, never truncated mid-word into another control.
+// flexShrink 0 (Nov 24 dive round): the orb is a flex column, and a
+// stack taller than the content box used to SQUASH the label instead
+// of spilling — MELEE measured 4 px tall (scrollHeight 10) inside
+// the 56 px weapon orb, STRIKE 7 px tall inside its 44 px orb. A
+// label that fits keeps its exact box; one that doesn't now spills
+// visibly instead of silently cutting a word in half, and the size
+// tests pin the stacks that must fit.
 export function OrbLabel({ children }) {
   return (
-    <span style={{ fontSize: 9, letterSpacing: 1, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%' }}>
+    <span style={{ fontSize: 9, letterSpacing: 1, lineHeight: 1, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%', flexShrink: 0 }}>
       {children}
     </span>
   );
