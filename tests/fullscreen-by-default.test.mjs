@@ -93,8 +93,11 @@ describe('fullscreen by default — the three toggle pages mount fullscreen', ()
   it('the fullscreen orb stays at the very top right (circle orb controls law)', () => {
     // Jupiter 2's own orb: absolute, 12 px off the top-right corner.
     assert.ok(j2.includes("style={{ position: 'absolute', right: 12, top: 12, zIndex: 9 }}"), 'jupiter-2: fullscreen orb absolute top-right of the stage');
-    // The shared core's orb: absolute, 14 px off the top-right corner.
-    assert.ok(core.includes("style={{ position: 'absolute', right: 14, top: 14, zIndex: 9"), 'core: fullscreen orb absolute top-right of the stage');
+    // The shared core's orb: absolute, 14 px off the top-right corner
+    // by default — a world with a header strip (Mars 2's compass)
+    // passes topOffsetPx to drop it below the strip.
+    assert.ok(core.includes("style={{ position: 'absolute', right: 14, top: 14 + topOffsetPx, zIndex: 9"), 'core: fullscreen orb absolute top-right of the stage');
+    assert.ok(core.includes('topOffsetPx = 0'), 'core: the offset defaults to 0, so the orb stays 14 px down');
     // Both orbs are OrbButtons (plain circles), not rectangles.
     assert.ok(j2.includes('OrbButton ariaLabel="Enter fullscreen"'), 'jupiter-2: the enter control is an orb');
     assert.ok(core.includes('<OrbButton fn={fullscreen'), 'core: the fullscreen control is an orb');

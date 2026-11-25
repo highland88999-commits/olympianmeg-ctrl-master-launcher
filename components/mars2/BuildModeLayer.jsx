@@ -19,9 +19,10 @@
 
 'use client';
 import { useEffect, useMemo, useRef } from 'react';
-import { useThree } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { getTerrainHeight } from '@/lib/mars/engine';
+import { mars2TerrainHeight } from '@/lib/mars2/terrain';
+import { zoneDiscGeometry, zoneRingGeometry } from '@/lib/mars2/zone-geometry';
 import { BUILDING_SCALE, PLOT_SIZE_M } from '@/lib/mars2/build-mode';
 import { materialById } from '@/lib/economy/materials';
 
@@ -33,6 +34,7 @@ function plotFrameGeometry(size) {
       new THREE.BoxGeometry(w, 0.12, d),
       new THREE.MeshBasicMaterial({ color: '#ffb37a', transparent: true, opacity: 0.9 }),
     );
+    m.material.userData.frameBar = true;
     m.position.set(x, 0.06, z);
     return m;
   };
@@ -43,6 +45,24 @@ function plotFrameGeometry(size) {
   g.add(bar(t, size, -h, 0));
   g.add(bar(t, size, h, 0));
   return g;
+}
+
+function MinePlotPulse({ group, active }) {
+  // Unclaimed mine plots glow brighter and pulse until the first
+  // mine is staked — the starter guidance, in 3D: the free mines
+  // are the thing a new user is looking for. When the first mine
+  // lands, the pulse stops and the bars sit at their normal 0.9.
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    group.traverse((o) => {
+      if (o.material && o.material.userData && o.material.userData.frameBar) {
+        o.material.opacity = active
+          ? 0.6 + 0.4 * (0.5 + 0.5 * Math.sin(t * 3))
+          : 0.9;
+      }
+    });
+  });
+  return null;
 }
 
 function MineMesh({ building, plot }) {
@@ -139,6 +159,31 @@ export default function BuildModeLayer({
     return set;
   }, [buildings]);
 
+  // The first mine staked anywhere ends the starter pulse.
+  const hasAnyMine = useMemo(
+    () => (buildings || []).some((b) => b.kind === 'mine'),
+    [buildings],
+  );
+
+  // Zone tint + boundary line, DRAPED over the terrain: the
+  // geometry vertices already carry world coordinates and the
+  // levelled height, so the meshes sit at the origin, unrotated.
+  const zoneGeoms = useMemo(() => {
+    const heightAt = (x, z) => mars2TerrainHeight(x, z, profile);
+    return (areas || []).map((a) => ({
+      area: a,
+      disc: zoneDiscGeometry(a, heightAt),
+      ring: zoneRingGeometry(a, heightAt),
+    }));
+  }, [areas, profile]);
+
+  useEffect(() => () => {
+    for (const g of zoneGeoms) {
+      g.disc.dispose();
+      g.ring.dispose();
+    }
+  }, [zoneGeoms]);
+
   const plotById = useMemo(() => {
     const map = new Map();
     for (const p of plots || []) map.set(p.id, p);
@@ -211,17 +256,16 @@ export default function BuildModeLayer({
   return (
     <group>
       {/* Mining areas — build mode only: one tinted disc each, in
-          its material's colour, so the designated ground reads. */}
-      {buildMode && (areas || []).map((a) => {
+          its material's colour, draped flush with the dirt, plus
+          the boundary line hugging the rim. */}
+      {buildMode && zoneGeoms.map(({ area: a, disc, ring }) => {
         const mat = materialById(a.materialId) || { color: '#c98a5a' };
         return (
-          <group key={a.id} position={[a.x, a.y + 0.08, a.z]}>
-            <mesh rotation={[-Math.PI / 2, 0, 0]}>
-              <circleGeometry args={[a.radius, 40]} />
+          <group key={a.id}>
+            <mesh geometry={disc}>
               <meshBasicMaterial color={mat.color} transparent opacity={0.16} depthWrite={false} />
             </mesh>
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-              <ringGeometry args={[a.radius - 0.4, a.radius, 48]} />
+            <mesh geometry={ring}>
               <meshBasicMaterial color={mat.color} transparent opacity={0.7} depthWrite={false} />
             </mesh>
           </group>
@@ -243,7 +287,7 @@ export default function BuildModeLayer({
             <mesh
               key={plot.id}
               rotation={[-Math.PI / 2, 0, 0]}
-              position={[plot.x, getTerrainHeight(plot.x, plot.z, profile) + 0.05, plot.z]}
+              position={[plot.x, mars2TerrainHeight(plot.x, plot.z, profile) + 0.05, plot.z]}
               ref={(el) => {
                 if (el) {
                   el.userData.plotId = plot.id;
@@ -268,7 +312,7 @@ export default function BuildModeLayer({
           <primitive
             key={plot.id}
             object={group}
-            position={[plot.x, getTerrainHeight(plot.x, plot.z, profile) + 0.05, plot.z]}
+            position={[plot.x, mars2TerrainHeight(plot.x, plot.z, profile) + 0.05, plot.z]}
             ref={(el) => {
               if (el) {
                 el.userData.plotId = plot.id;
@@ -286,6 +330,8 @@ export default function BuildModeLayer({
                 <meshBasicMaterial color="#ffd9a0" transparent opacity={0.22} depthWrite={false} />
               </mesh>
             )}
+            {/* unclaimed mine plots pulse until the first mine is staked */}
+            {plot.kind === 'mine' && <MinePlotPulse group={group} active={!hasAnyMine} />}
           </primitive>
         );
       })}

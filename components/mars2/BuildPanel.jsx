@@ -14,6 +14,7 @@
 import { MINE_CAPACITY, MINE_CREW_SLOTS, BARRACKS_CREW_CAPACITY, buildCost, upgradeCost, CREW_RECRUIT_COST, EXTRA_MINE_COST, barracksCapacity, crewIdle, mineOutputPerMin } from '@/lib/mars2/build-mode';
 import { materialById } from '@/lib/economy/materials';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
+import { MARS2_COMPASS_TOP_OFFSET_PX } from './Mars2Compass';
 
 const ACCENT = '#e07840';
 
@@ -60,7 +61,7 @@ export default function BuildPanel({
         role="group"
         aria-label="Mars 2 build mode collapsed"
         style={{
-          position: 'absolute', top: 140, right: 10, zIndex: 6,
+          position: 'absolute', top: 140 + MARS2_COMPASS_TOP_OFFSET_PX, right: 10, zIndex: 6,
           background: 'linear-gradient(rgba(16,7,3,0.96), rgba(16,7,3,0.96))',
           border: `1px solid ${ACCENT}`, borderRadius: 999, padding: '4px 6px',
           display: 'flex', alignItems: 'center', gap: 4,
@@ -82,7 +83,7 @@ export default function BuildPanel({
       role="group"
       aria-label="Mars 2 build mode"
       style={{
-        position: 'absolute', top: 140, right: 10, zIndex: 6, width: 264,
+        position: 'absolute', top: 140 + MARS2_COMPASS_TOP_OFFSET_PX, right: 10, zIndex: 6, width: 264,
         maxHeight: 'calc(100% - 300px)', overflowY: 'auto',
         background: 'linear-gradient(rgba(16,7,3,0.96), rgba(16,7,3,0.96))',
         border: `1px solid ${ACCENT}`, borderRadius: 14, padding: '12px 14px',
@@ -98,6 +99,20 @@ export default function BuildPanel({
       <div style={{ color: '#c99a78', marginTop: 4, lineHeight: 1.5 }}>
         Tap a glowing plot to build. Mines go only in the tinted mining areas.
       </div>
+
+      {/* Starter guidance (Merlin, Nov 25): a zero-building user
+          sees only unaffordable barracks and recruits and no pointer
+          to the free mines. Say it plainly, above the selection, so
+          it reads on ANY plot — barracks included. */}
+      {(state.buildings || []).length === 0 && (
+        <div style={{ marginTop: 10, border: '1px solid #9dffb0', borderRadius: 10, padding: '8px 10px', lineHeight: 1.5, background: 'rgba(157,255,176,0.07)' }}>
+          <div style={{ color: '#9dffb0', letterSpacing: 2, fontSize: 11 }}>START HERE — FREE</div>
+          <div style={{ marginTop: 4 }}>
+            Your first mine in each tinted area is FREE — tap a pulsing plot and stake a claim.
+            It earns 2/min on its own, no crew needed. Barracks and recruits come after your mines are earning.
+          </div>
+        </div>
+      )}
 
       {/* The shared materials wallet — the same backpack materials
           the rest of the ecosystem collects. */}

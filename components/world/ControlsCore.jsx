@@ -45,6 +45,9 @@
 //   columnBottom: px floor of the right column (default 14; worlds
 //     with a bottom-right button row pass a higher floor so the
 //     column parks above it — Earth 3 / Earth 4 pass 80).
+//   topOffsetPx: px the TOP controls drop (default 0). Mars 2 passes
+//     its compass strip height so the fullscreen orb and the hint
+//     pill sit below the compass instead of under it.
 
 import { useEffect, useState } from 'react';
 import WalkJoystick from '@/components/world/WalkJoystick';
@@ -75,6 +78,7 @@ export default function ControlsCore({
   fullscreen,
   onToggleFullscreen,
   columnBottom,
+  topOffsetPx = 0,
   children,
 }) {
   const config = resolveControlsCore({
@@ -175,7 +179,7 @@ export default function ControlsCore({
         <OrbButton fn={fullscreen ? 'fullscreen-exit' : 'fullscreen'} accent={config.accent}
           ariaLabel={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           onClick={onToggleFullscreen}
-          style={{ position: 'absolute', right: 14, top: 14, zIndex: 9, pointerEvents: 'auto' }}>
+          style={{ position: 'absolute', right: 14, top: 14 + topOffsetPx, zIndex: 9, pointerEvents: 'auto' }}>
           <OrbLabel>{fullscreen ? 'EXIT' : 'FULL'}</OrbLabel>
         </OrbButton>
       )}
@@ -184,7 +188,7 @@ export default function ControlsCore({
       {config.hint && hintShown && (
         <div role="status"
           style={{
-            position: 'absolute', left: '50%', top: 12, transform: 'translateX(-50%)',
+            position: 'absolute', left: '50%', top: 12 + topOffsetPx, transform: 'translateX(-50%)',
             zIndex: 8, maxWidth: 'calc(100% - 130px)', textAlign: 'center',
             background: 'rgba(0,0,0,0.65)', border: `1px solid ${config.accent}`,
             borderRadius: 999, padding: '7px 14px', fontSize: 12, letterSpacing: 0.5,

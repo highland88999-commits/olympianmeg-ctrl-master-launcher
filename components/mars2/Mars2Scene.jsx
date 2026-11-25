@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { SeedRNG, getTerrainHeight } from '@/lib/mars/engine';
+import { SeedRNG } from '@/lib/mars/engine';
+import { mars2TerrainHeight } from '@/lib/mars2/terrain';
 import { terrainMaterial, disposeTerrainMaterial, monsSite, monsSlopeMaterial, monsCapMaterial, hazeSpriteTexture, devilStreakTexture, DUST_DEVIL_COUNT, DUST_DEVIL_AREA, HAZE_COUNT } from '@/lib/mars/cgi';
 import { makeDustField, updateDustField, devilFor, PLANET_CGI_EPOCH_MS } from '@/lib/planet-cgi/motion';
 import { getParticleTexture } from '@/lib/particles/sprites';
@@ -16,6 +17,7 @@ import {
   OUTPOST_TUBE_X0_LOCAL, OUTPOST_TUBE_X1_LOCAL,
   OUTPOST_WALKER_BODY_R_M, OUTPOST_ROVER_BODY_R_M,
 } from '@/lib/mars2/world';
+import { MARS2_COMPASS_TOP_OFFSET_PX } from './Mars2Compass';
 import { dayNightFor, dateMsForSolarTime, getDayNightPlace, rgbStr } from '@/lib/day-night';
 import { makeMoonTexture } from '../HubMoon';
 import { materialForHardware } from '@/lib/mars2/textures';
@@ -264,7 +266,7 @@ function Mars2Cgi({ profile, dayF }) {
       if (!g) continue;
       g.visible = d.alive;
       if (!d.alive) continue;
-      const gy = getTerrainHeight(cam.x + d.x, cam.z + d.z, profile);
+      const gy = mars2TerrainHeight(cam.x + d.x, cam.z + d.z, profile);
       g.position.set(d.x, gy + d.height / 2, d.z);
       g.rotation.y = d.spin;
       g.scale.set(d.radius, d.height, d.radius);
@@ -692,8 +694,13 @@ function AirlockDoor({ site, walkerRef, doorMat }) {
   );
 }
 
-function Outpost({ profile, walkerRef }) {
-  const site = useMemo(() => outpostSite(profile), [profile]);
+function Outpost({ profile, walkerRef, outpostSiteOverride }) {
+  // The assigned site wins; without one (server unavailable) the
+  // shared seeded site is the fallback — the game still loads.
+  const site = useMemo(
+    () => outpostSiteOverride || outpostSite(profile),
+    [profile, outpostSiteOverride],
+  );
   const angle = useMemo(() => outpostDoorAngle(site), [site]);
   const mats = useMemo(() => ({
     dome: materialForHardware('domeFabric', profile.seed),
@@ -727,7 +734,7 @@ function Outpost({ profile, walkerRef }) {
     return (lx, lz) => {
       const wx = site.x + (lx * c + lz * s) * OUTPOST_SCALE;
       const wz = site.z + (-lx * s + lz * c) * OUTPOST_SCALE;
-      return (getTerrainHeight(wx, wz, profile) + 0.08 - site.y) / OUTPOST_SCALE;
+      return (mars2TerrainHeight(wx, wz, profile) + 0.08 - site.y) / OUTPOST_SCALE;
     };
   }, [site, angle, profile]);
   const floorGeo = useMemo(() => buildInteriorFloor(floorY), [floorY]);
@@ -1302,10 +1309,13 @@ const WORLD_LABELS = [
   { key: 'ship', text: 'SPACE ORB' },
 ];
 
-function LabelProjector({ profile, roverRef, shipRef, labelRef }) {
+function LabelProjector({ profile, roverRef, shipRef, labelRef, outpostSiteOverride }) {
   const { camera, size } = useThree();
   const mons = useMemo(() => monsSite(profile), [profile]);
-  const outpost = useMemo(() => outpostSite(profile), [profile]);
+  const outpost = useMemo(
+    () => outpostSiteOverride || outpostSite(profile),
+    [profile, outpostSiteOverride],
+  );
   const tmp = useMemo(() => new THREE.Vector3(), []);
   useFrame(() => {
     const nodes = labelRef.current.nodes || {};
@@ -1348,7 +1358,7 @@ function LabelProjector({ profile, roverRef, shipRef, labelRef }) {
 // back to 100, and the page is told (onRespawn) to drop the mode
 // to walk. HP changes reach the HUD through onHpChange (throttled
 // to whole points, like the rover telemetry).
-function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, onHpChange, onRespawn }) {
+function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, groundHeight, onHpChange, onRespawn }) {
   const hpRef = useRef(MARS2_MAX_HP);
   const accRef = useRef(0);
   const lastSentRef = useRef(MARS2_MAX_HP);
@@ -1371,8 +1381,14 @@ function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, onHpChange, on
     hpRef.current = next.hp;
     if (next.died) {
       hpRef.current = MARS2_MAX_HP;
-      p.set(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z);
-      yawRef.current = 0.6;
+      // Respawn on foot at the assigned outpost's door front
+      // (2.4 m past the portal ring), facing the door — the
+      // outpost is home, so death walks you back to it.
+      const door = outpostLocalToWorld(-11, 0, outpost);
+      p.set(door.x, groundHeight(door.x, door.z) + EYE_HEIGHT, door.z);
+      const dx = outpost.x - door.x;
+      const dz = outpost.z - door.z;
+      yawRef.current = Math.atan2(-dx, -dz);
       if (onRespawn) onRespawn();
     }
     if (Math.abs(hpRef.current - lastSentRef.current) >= 1 || next.died) {
@@ -1383,8 +1399,40 @@ function Mars2HealthTicker({ walkerRef, yawRef, modeRef, outpost, onHpChange, on
   return null;
 }
 
+// --- compass pose ----------------------------------------------------------
+// The compass strip (Merlin, Nov 25, 2026) needs the walker's
+// heading + position. Heading comes from the camera's world
+// direction (0° = north/-Z, clockwise — the same law as
+// bearingBetween in lib/mars2/compass.js); position from the
+// walker ref, which the ship rig also keeps current in flight.
+// Throttled: at most every 0.25 s, and only when the heading
+// moved ≥2° or the position moved ≥2 m, so standing still costs
+// the page no re-renders.
+function PoseReporter({ walkerRef, onPoseChange }) {
+  const { camera } = useThree();
+  const lastRef = useRef({ t: 0, headingDeg: null, x: null, z: null });
+  const dir = useMemo(() => new THREE.Vector3(), []);
+  useFrame(() => {
+    if (!onPoseChange) return;
+    const now = performance.now() / 1000;
+    const last = lastRef.current;
+    if (now - last.t < 0.25) return;
+    camera.getWorldDirection(dir);
+    const headingDeg = ((Math.atan2(dir.x, -dir.z) * 180 / Math.PI) % 360 + 360) % 360;
+    const p = walkerRef.current;
+    if (!p) return;
+    const headingMoved = last.headingDeg === null
+      || Math.abs(((headingDeg - last.headingDeg + 540) % 360) - 180) >= 2;
+    const posMoved = last.x === null || Math.hypot(p.x - last.x, p.z - last.z) >= 2;
+    if (!headingMoved && !posMoved) return;
+    lastRef.current = { t: now, headingDeg, x: p.x, z: p.z };
+    onPoseChange({ headingDeg, x: p.x, z: p.z });
+  });
+  return null;
+}
+
 // --- scene composition ---------------------------------------------------------
-function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, shipCmd, onShipChange, flightAxis, onSpaceEnter, onHpChange, onRespawn, buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot }) {
+function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverChange, jumpRef, labelRef, shipCmd, onShipChange, flightAxis, onSpaceEnter, onHpChange, onRespawn, buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot, outpostSiteOverride, onPoseChange }) {
   const orbitRef = useRef();
   const walkerRef = useRef(new THREE.Vector3(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z));
   const yawRef = useRef(0.6);
@@ -1401,8 +1449,16 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
   const flightAxisRef = useRef(flightAxis);
   flightAxisRef.current = flightAxis;
   const dayF = mars2DayFactor(timeOfDay);
-  const groundHeight = (x, z) => getTerrainHeight(x, z, profile);
-  const outpost = useMemo(() => outpostSite(profile), [profile]);
+  // One height law for everything standing on Mars 2: the mining
+  // zones are levelled flat (lib/mars2/terrain.js), so the walker,
+  // the rover, the ship and the chunks all read the same ground.
+  const groundHeight = (x, z) => mars2TerrainHeight(x, z, profile);
+  // The assigned outpost wins; without one the shared seeded site
+  // is the fallback — the game still loads.
+  const outpost = useMemo(
+    () => outpostSiteOverride || outpostSite(profile),
+    [profile, outpostSiteOverride],
+  );
 
   // Rover commands from the page: summon boards the rover at the
   // walker's side; dismount steps the walker out beside it and
@@ -1509,10 +1565,10 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       <OlympusMons profile={profile} />
       <Mars2Cgi profile={profile} dayF={dayF} />
       <Mars2Weather profile={profile} dayF={dayF} spaceFRef={spaceFRef} />
-      <Outpost profile={profile} walkerRef={walkerRef} />
+      <Outpost profile={profile} walkerRef={walkerRef} outpostSiteOverride={outpostSiteOverride} />
       {/* Storm health: the ticker watches the storm + shelter and
           reports HP to the page; death respawns at the outpost. */}
-      <Mars2HealthTicker walkerRef={walkerRef} yawRef={yawRef} modeRef={modeRef} outpost={outpost} onHpChange={onHpChange} onRespawn={onRespawn} />
+      <Mars2HealthTicker walkerRef={walkerRef} yawRef={yawRef} modeRef={modeRef} outpost={outpost} groundHeight={groundHeight} onHpChange={onHpChange} onRespawn={onRespawn} />
       {/* Build mode: plots + mining areas (build mode only),
           mines + barracks (always, once built). */}
       <BuildModeLayer
@@ -1526,7 +1582,8 @@ function SceneContent({ profile, timeOfDay, mode, inputRef, roverCmd, onRoverCha
       />
       <RoverModel roverRef={roverRef} />
       <ShipModel shipRef={shipRef} />
-      <LabelProjector profile={profile} roverRef={roverRef} shipRef={shipRef} labelRef={labelRef} />
+      <LabelProjector profile={profile} roverRef={roverRef} shipRef={shipRef} labelRef={labelRef} outpostSiteOverride={outpostSiteOverride} />
+      <PoseReporter walkerRef={walkerRef} onPoseChange={onPoseChange} />
 
       {mode === 'orbit' && (
         <OrbitControls ref={orbitRef} makeDefault enableDamping dampingFactor={0.08}
@@ -1581,7 +1638,7 @@ function ThuleWindPill() {
   const fill = gaugeFill01(kmh);
   return (
     <div style={{
-      position: 'absolute', top: 96, right: 10, zIndex: 5,
+      position: 'absolute', top: 96 + MARS2_COMPASS_TOP_OFFSET_PX, right: 10, zIndex: 5,
       color: '#ffe3cc', fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
       background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
       pointerEvents: 'none', whiteSpace: 'nowrap',
@@ -1615,7 +1672,7 @@ function StormWarningBanner() {
   const ss = String(s % 60).padStart(2, '0');
   return (
     <div style={{
-      position: 'absolute', top: 172, left: '50%', transform: 'translateX(-50%)', zIndex: 6,
+      position: 'absolute', top: 172 + MARS2_COMPASS_TOP_OFFSET_PX, left: '50%', transform: 'translateX(-50%)', zIndex: 6,
       color: '#fff3e0', fontSize: 12, fontWeight: 700, letterSpacing: 1.5,
       textShadow: '0 1px 4px #000', textAlign: 'center',
       background: 'rgba(160, 40, 0, 0.72)', padding: '8px 14px', borderRadius: 8,
@@ -1632,7 +1689,7 @@ function Mars2HpPill({ hp, maxHp }) {
   const color = pct > 0.5 ? '#ffe3cc' : pct > 0.25 ? '#ffb37a' : '#ff6a5a';
   return (
     <div style={{
-      position: 'absolute', top: 132, right: 10, zIndex: 5,
+      position: 'absolute', top: 132 + MARS2_COMPASS_TOP_OFFSET_PX, right: 10, zIndex: 5,
       color, fontSize: 11, letterSpacing: 2, textShadow: '0 1px 4px #000',
       background: 'rgba(0,0,0,0.35)', padding: '6px 12px', borderRadius: 8,
       pointerEvents: 'none', whiteSpace: 'nowrap', fontWeight: 700,
@@ -1648,6 +1705,7 @@ export default function Mars2Scene({
   shipCmd, onShipChange, flightAxis = 'horizontal', onSpaceEnter,
   onRespawn,
   buildMode, buildState, buildPlots, buildAreas, selectedPlotId, onSelectPlot,
+  outpostSiteOverride, onPoseChange,
 }) {
   useKeys(inputRef);
   const [ready, setReady] = useState(false);
@@ -1688,6 +1746,7 @@ export default function Mars2Scene({
           buildMode={buildMode} buildState={buildState} buildPlots={buildPlots}
           buildAreas={buildAreas} selectedPlotId={selectedPlotId} onSelectPlot={onSelectPlot}
           onHpChange={handleHpChange} onRespawn={onRespawn}
+          outpostSiteOverride={outpostSiteOverride} onPoseChange={onPoseChange}
         />
       </Canvas>
       {/* World labels — screen-space, clamped inside the stage by
@@ -1722,7 +1781,7 @@ export default function Mars2Scene({
           2-minute storm warning — get inside before the sand hits. */}
       <Mars2HpPill hp={hp} maxHp={MARS2_MAX_HP} />
       <StormWarningBanner />
-      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 5 }}>
+      <div style={{ position: 'absolute', top: 10 + MARS2_COMPASS_TOP_OFFSET_PX, left: 10, zIndex: 5 }}>
         <BackpackHud realm="mars" realmLabel="Mars 2" docked
           displayNote="Mars keeps its own arms — the pack rides along." />
       </div>

@@ -167,11 +167,21 @@ describe('fullscreen clearance — the controls strip steps aside while building
   });
 });
 
-describe('wiring — no API route is needed (device-local by design)', () => {
-  it('the page never fetches a mars2 mining route', () => {
+describe('wiring — the mining loop needs no API route (device-local by design)', () => {
+  it('the page never fetches a mars2 MINING route — mining is localStorage + backpack', () => {
     const page = read('app/mars-2/page.jsx');
-    assert.ok(!page.includes('/api/mars2'), 'no mars2 API route is called');
-    assert.ok(!page.includes('fetch('), 'the build loop makes no network calls at all');
+    assert.ok(!page.includes('/api/mars2/mining'), 'no mars2 mining route is called');
+    assert.ok(!page.includes('/api/mars2/build'), 'no mars2 build route is called');
+    assert.ok(page.includes('loadBuildState'), 'build state loads from localStorage');
+    assert.ok(page.includes('saveBuildState'), 'build state saves to localStorage');
+    assert.ok(page.includes('updateBackpack'), 'materials land in the backpack');
+  });
+
+  it('the only mars2 fetch is the OUTPOST site (green-lit Nov 25) — never the mine loop', () => {
+    const page = read('app/mars-2/page.jsx');
+    assert.ok(page.includes('fetchMyOutpost'), 'the outpost site comes from the server');
+    assert.ok(fs.existsSync(path.join(repo, 'app/api/mars2/outpost/route.js')), 'outpost route exists');
+    assert.ok(!fs.existsSync(path.join(repo, 'app/api/mars2/mining')), 'no mining route dir exists');
   });
 
   it('there is no mars2 mining table to read — the loop is localStorage + backpack', () => {
@@ -179,6 +189,10 @@ describe('wiring — no API route is needed (device-local by design)', () => {
     assert.ok(page.includes('loadBuildState'), 'build state loads from localStorage');
     assert.ok(page.includes('saveBuildState'), 'build state saves to localStorage');
     assert.ok(page.includes('updateBackpack'), 'materials land in the backpack');
-    assert.ok(!fs.existsSync(path.join(repo, 'app/api/mars2')), 'no /api/mars2 route dir exists');
+    // The outposts table is a different concern: it stores outpost
+    // SITES (one row per user), never mining state or materials.
+    const sql = read('supabase/mars2-outposts.sql');
+    assert.ok(sql.includes('mars2_outposts'), 'outposts table is for sites only');
+    assert.ok(!sql.includes('material'), 'no materials in the outposts table');
   });
 });

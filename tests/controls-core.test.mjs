@@ -182,7 +182,11 @@ test('ControlsCore.jsx composes WalkJoystick + OrbButton + useOrbDock (no bespok
   assert.match(coreJsx, /fn="fire"/);
   assert.match(coreJsx, /ariaLabel="Open backpack"/);
   assert.match(coreJsx, /Open merchant for upgrades/);
-  assert.match(coreJsx, /position: 'absolute', right: 14, top: 14, zIndex: 9/);
+  assert.match(coreJsx, /position: 'absolute', right: 14, top: 14 \+ topOffsetPx, zIndex: 9/);
+  // The offset defaults to 0, so every world without a header strip
+  // still reads the orb at exactly 14 px down (Mars 2's compass
+  // passes 54 to drop it below the strip).
+  assert.match(coreJsx, /topOffsetPx = 0/);
   assert.doesNotMatch(coreJsx, /<button/);
   assert.doesNotMatch(coreJsx, /borderRadius: '50%'|border-radius: 50%/);
   // The overlay never eats canvas drags: pointer-events none on the

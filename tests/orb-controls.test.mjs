@@ -133,8 +133,11 @@ test('Earth 3 and Earth 4 fullscreen orbs sit top-right of the stage; HUD button
   // Universal controls core (Merlin, Nov 16 ~03:49): the fullscreen
   // orb and the JUMP orb moved out of these pages into ControlsCore —
   // the top-right pin is asserted on the core itself, and each page
-  // passes its fullscreen state + jump handler in.
-  assert.match(core, /position: 'absolute', right: 14, top: 14, zIndex: 9/);
+  // passes its fullscreen state + jump handler in. The orb sits 14 px
+  // down by default; a header strip (Mars 2's compass) drops it via
+  // the optional topOffsetPx, which defaults to 0.
+  assert.match(core, /position: 'absolute', right: 14, top: 14 \+ topOffsetPx, zIndex: 9/);
+  assert.match(core, /topOffsetPx = 0/);
   assert.match(core, /ariaLabel="Jump"/);
   for (const page of [earth3, earth4]) {
     assert.match(page, /import ControlsCore from "@\/components\/world\/ControlsCore"/);

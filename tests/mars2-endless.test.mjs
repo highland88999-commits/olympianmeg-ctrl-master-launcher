@@ -16,13 +16,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { generateMarsProfile, getTerrainHeight, MARS_RIM_CAP_M } from '../lib/mars/engine.js';
+import { generateMarsProfile, MARS_RIM_CAP_M } from '../lib/mars/engine.js';
 import {
   CHUNK_M, CHUNK_TILES, STREAM_RADIUS_CHUNKS, STREAM_CHUNK_COUNT,
   chunkFor, chunkKey, chunkBounds, chunksAround, chunkSetDiff,
   chunkHeightField,
 } from '../lib/mars2/streaming.js';
 import { MARS2_SEED, WORLD_RADIUS, WALKER_SPAWN, outpostSite } from '../lib/mars2/world.js';
+import { mars2TerrainHeight } from '../lib/mars2/terrain.js';
 import { monsSite } from '../lib/mars/cgi.js';
 import {
   ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS,
@@ -38,7 +39,11 @@ const repo = path.resolve(__dirname, '..');
 const read = (p) => fs.readFileSync(path.join(repo, p), 'utf8');
 
 const profile = generateMarsProfile(MARS2_SEED);
-const ground = (x, z) => getTerrainHeight(x, z, profile);
+// The one height law for Mars 2: the mining zones are levelled
+// flat (Nov 25), so the chunk field, the rover and the ship all
+// read the levelled height — identical to the raw field outside
+// the zones, flat inside them.
+const ground = (x, z) => mars2TerrainHeight(x, z, profile);
 const keys = (over = {}) => ({ fwd: false, back: false, left: false, right: false, ...over });
 
 describe('mars-2 endless: chunk law', () => {

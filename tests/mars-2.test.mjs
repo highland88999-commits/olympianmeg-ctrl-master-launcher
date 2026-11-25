@@ -809,7 +809,7 @@ describe('mars-2 outpost round 2 (Merlin, Nov 17, 2026 — phone video ~23:37)',
     const scene = read('components/mars2/Mars2Scene.jsx');
     assert.ok(scene.includes('AirlockDoor'), 'a real door hangs in the airlock mouth');
     assert.ok(scene.includes('walkerRef={walkerRef}'), 'the door watches the walker');
-    assert.ok(scene.includes('<Outpost profile={profile} walkerRef={walkerRef} />'), 'the outpost gets the walker ref');
+    assert.ok(scene.includes('<Outpost profile={profile} walkerRef={walkerRef} outpostSiteOverride={outpostSiteOverride} />'), 'the outpost gets the walker ref (and the assigned site when the server has one)');
     assert.ok(scene.includes('AIRLOCK_DOOR_OPEN_M'), 'the door opens on approach (1.5 m — tight, so it is closed at the 2.1 m spawn)');
     assert.ok(scene.includes('AIRLOCK_DOOR_OPEN_RAD'), 'the door swings open, flat to the wall');
     assert.ok(scene.includes('torusGeometry args={[0.6, 0.06, 8, 24]}'), 'the portal ring is bigger (0.6 m) and frames the doorway');
@@ -932,7 +932,11 @@ describe('mars-2 outpost round 2 (Merlin, Nov 17, 2026 — phone video ~23:37)',
     assert.ok(scene.includes("mode === 'fly'"), 'the ship shelters (enclosed orb)');
     assert.ok(scene.includes("mode !== 'walk' && mode !== 'drive' && mode !== 'fly'"), 'orbit mode is a spectator: no drain');
     assert.ok(scene.includes('Mars2HpPill'), 'an HP pill shows the walker’s health');
-    assert.ok(scene.includes('p.set(WALKER_SPAWN.x, EYE_HEIGHT, WALKER_SPAWN.z)'), 'death respawns at the outpost spawn');
+    // Death respawns on foot at the ASSIGNED outpost's door front
+    // (Nov 25 — per-user outposts), facing the door, standing on
+    // the levelled ground — not the walker spawn.
+    assert.ok(scene.includes('outpostLocalToWorld(-11, 0, outpost)'), 'death respawns at the assigned outpost door front');
+    assert.ok(scene.includes('groundHeight(door.x, door.z)'), 'respawn stands on the levelled ground');
     assert.ok(scene.includes('onRespawn'), 'the ticker tells the page on death');
     assert.ok(scene.includes('onHpChange'), 'HP reaches the HUD');
     const page = read('app/mars-2/page.jsx');

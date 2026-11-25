@@ -5,7 +5,10 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { generateMarsProfile } from "@/lib/mars/engine";
 import { timeOfDay01, getDayNightPlace, requestDayNightPlace, dayNightFor } from "@/lib/day-night";
-import { MARS2_SEED, MARS2_WORLD_NAME } from "@/lib/mars2/world";
+import { MARS2_SEED, MARS2_WORLD_NAME, outpostSite } from "@/lib/mars2/world";
+import Mars2Compass, { MARS2_COMPASS_TOP_OFFSET_PX } from "@/components/mars2/Mars2Compass";
+import { fetchMyOutpost, fetchFriendsOutposts } from "@/lib/mars2/outposts-client";
+import { mars2TerrainHeight } from "@/lib/mars2/terrain";
 import { ROVER_NAME, ROVER_ID, ROVER_TOP_SPEED_MPS, WALK_SPEED_MPS, roverSpeedKmh } from "@/lib/mars2/rovers";
 import { SHIP_NAME, SHIP_ID, SHIP_BLURB, SHIP_TOP_SPEED_MPS, shipSpeedKmh } from "@/lib/mars2/spaceship";
 import { IcSunrise, IcSun, IcSunset, IcMoon, IcRoute } from "@/app/artemis-ui/icons";
@@ -201,6 +204,45 @@ export default function Mars2Page() {
   // (it covers most of the stage on a phone). Tapping a plot
   // reopens it; the BUILD orb exits build mode outright.
   const [buildPanelCollapsed, setBuildPanelCollapsed] = useState(false);
+
+  // Compass + per-user outposts (Merlin, Nov 25, 2026): the scene
+  // reports the walker's pose (heading + position, throttled);
+  // the server hands over my outpost site and my accepted
+  // friends' sites. Until the server answers — or if it never
+  // does (table not run yet) — the shared seeded site is home,
+  // exactly as before, and the compass still reads.
+  const [pose, setPose] = useState(null);
+  const [myOutpost, setMyOutpost] = useState(null);
+  const [friendsOutposts, setFriendsOutposts] = useState([]);
+  const [selectedMarker, setSelectedMarker] = useState(null);
+  const [overlayMinimized, setOverlayMinimized] = useState(false);
+  const [guidanceId, setGuidanceId] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { supabase } = await import("@/lib/supabase");
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token || null;
+        const mine = await fetchMyOutpost(token);
+        if (!cancelled && mine) setMyOutpost(mine);
+        const friends = await fetchFriendsOutposts(token);
+        if (!cancelled && friends) setFriendsOutposts(friends);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  // The scene's outpost override: my assigned site, with its
+  // ground height, or null (shared site) until it arrives.
+  const outpostSiteOverride = useMemo(() => {
+    if (!myOutpost) return null;
+    return {
+      x: myOutpost.x,
+      z: myOutpost.z,
+      y: mars2TerrainHeight(myOutpost.x, myOutpost.z, profile),
+    };
+  }, [myOutpost, profile]);
+  const homeSite = outpostSiteOverride || outpostSite(profile);
   function handleSelectPlot(plotId) {
     setSelectedPlotId(plotId);
     if (plotId) setBuildPanelCollapsed(false);
@@ -511,7 +553,7 @@ export default function Mars2Page() {
         .mars2 .sub { color: #c99a78; font-size: 0.9rem; max-width: 60ch; }
         .mars2 .stage { position: relative; margin: 10px 16px 0; border: 1px solid #5a3220; border-radius: 14px; overflow: hidden; height: min(62dvh, 560px); min-height: 320px; background: #000; }
         .mars2 .stage canvas { touch-action: none; }
-        .mars2 .roverbar { position: absolute; left: 12px; top: 12px; z-index: 5;
+        .mars2 .roverbar { position: absolute; left: 12px; top: ${12 + MARS2_COMPASS_TOP_OFFSET_PX}px; z-index: 5;
           max-width: calc(100% - 92px);
           background: linear-gradient(rgba(16,7,3,0.93), rgba(16,7,3,0.93)); border: 1px solid ${ACCENT}; border-radius: 10px; padding: 10px 14px;
           font-size: 0.8rem; letter-spacing: 1px; color: #f0dcc8; }
@@ -545,6 +587,25 @@ export default function Mars2Page() {
       </header>
 
       <div className="stage" style={fullscreen ? { position: "fixed", inset: 0, zIndex: 80, margin: 0, height: "100dvh", borderRadius: 0, border: "none" } : undefined}>
+        {/* Compass strip (Merlin, Nov 25, 2026): the header of the
+            stage — heading, ticks, home (green) + friends' (blue)
+            outpost markers. The other top controls drop below it
+            by MARS2_COMPASS_TOP_OFFSET_PX, so nothing overlaps. */}
+        <Mars2Compass
+          headingDeg={pose ? pose.headingDeg : 0}
+          position={pose ? { x: pose.x, z: pose.z } : null}
+          home={homeSite}
+          friends={friendsOutposts}
+          guidanceId={guidanceId}
+          selectedMarker={selectedMarker}
+          overlayMinimized={overlayMinimized}
+          onSelectMarker={(m) => { setSelectedMarker(m); setOverlayMinimized(false); }}
+          onCloseOverlay={() => setSelectedMarker(null)}
+          onMinimizeOverlay={() => setOverlayMinimized(true)}
+          onExpandOverlay={() => setOverlayMinimized(false)}
+          onGuide={(m) => setGuidanceId(m.id)}
+          onClearGuide={() => setGuidanceId(null)}
+        />
         <Mars2Scene
           profile={profile}
           worldKey={MARS2_SEED}
@@ -565,6 +626,8 @@ export default function Mars2Page() {
           onShipChange={handleShipChange}
           flightAxis={flightAxis}
           onSpaceEnter={handleSpaceEnter}
+          outpostSiteOverride={outpostSiteOverride}
+          onPoseChange={setPose}
         />
         {/* Build mode panel — inside the stage, so it stays
             reachable in fullscreen too (the fixed stage covers
@@ -601,6 +664,7 @@ export default function Mars2Page() {
             Mars 2 has no backpack, no weapon and no merchant, so
             those core slots stay off — nothing invented. */}
         <ControlsCore world="mars-2" accent={ACCENT}
+          topOffsetPx={MARS2_COMPASS_TOP_OFFSET_PX}
           onMove={mode === "orbit" ? undefined : onMarsMove}
           onJump={mode === "walk" && !rover.active ? () => { jumpRef.current = true; } : undefined}
           fullscreen={fullscreen} onToggleFullscreen={() => setFullscreen((f) => !f)}
@@ -658,7 +722,7 @@ export default function Mars2Page() {
               </div>
             )}
             {panelMinimized && (
-              <OrbButton fn="expand" ariaLabel="Expand Mars 2 controls" title="Expand Mars 2 controls" onClick={() => setPanelMinimized(false)} style={{ position: "absolute", left: 12, top: 88, zIndex: 6 }}>
+              <OrbButton fn="expand" ariaLabel="Expand Mars 2 controls" title="Expand Mars 2 controls" onClick={() => setPanelMinimized(false)} style={{ position: "absolute", left: 12, top: 88 + MARS2_COMPASS_TOP_OFFSET_PX, zIndex: 6 }}>
                 <OrbLabel>PANEL</OrbLabel>
               </OrbButton>
             )}
