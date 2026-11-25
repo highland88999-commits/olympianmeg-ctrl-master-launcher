@@ -57,7 +57,7 @@ import {
   loadOrbDockMap, saveOrbDockMap, resolveOrbDockMap,
   orbDockPxToFrac, dragOrbDockTopLeft,
   isOrbDockDrag, orbDockStorageKeyFor, orbDockUiStateKeyFor,
-  orbDockFracRect, rectsOverlap, pushRectOutOfExclusions, pruneOrbDockMap,
+  orbDockFracRect, rectsOverlap, exclusionAppliesTo, pushRectOutOfExclusions, pruneOrbDockMap,
 } from '@/lib/world/orb-dock';
 
 /** px side of an orb by id when the caller passes no size (orbs are square). */
@@ -195,7 +195,10 @@ export function useOrbDock(world, sizes = {}, options = {}) {
     const exclusions = exclusionsRef.current;
     if (stageSize && exclusions && exclusions.length > 0) {
       const rect = orbDockFracRect(frac, stageSize.w, stageSize.h, s);
-      if (exclusions.some((ex) => rectsOverlap(rect, ex, 0))) {
+      // An orb's own home slot never counts against it (see
+      // exclusionAppliesTo): a stored spot on its own home renders
+      // there, as before — every OTHER control's slot still does.
+      if (exclusions.some((ex) => exclusionAppliesTo(ex, id) && rectsOverlap(rect, ex, 0))) {
         return { position: 'absolute', ...defaults, zIndex: 6, cursor: 'grab' };
       }
     }
@@ -258,9 +261,10 @@ export function useOrbDock(world, sizes = {}, options = {}) {
         // An exclusion (another control's fixed slot) slides the orb
         // along its edge instead of letting it park on top: the
         // dropped spot is already valid, so it always persists.
+        // The orb's own home slot never pushes it (exceptOwner=id).
         const excl = exclusionsRef.current;
         const spot = excl && excl.length > 0
-          ? pushRectOutOfExclusions({ x: tl.x, y: tl.y, w: s, h: s }, excl, vw, vh)
+          ? pushRectOutOfExclusions({ x: tl.x, y: tl.y, w: s, h: s }, excl, vw, vh, id)
           : tl;
         info.x = spot.x;
         info.y = spot.y;

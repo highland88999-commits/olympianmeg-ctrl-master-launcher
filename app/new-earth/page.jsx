@@ -69,10 +69,11 @@ export default function NewEarthPage() {
   // for earth 2"): Earth 2's mechanism is a fixed inset-0 overlay
   // that takes over the whole screen when you enter the world, with
   // an exit back to the menu. This page's stage is the same shape:
-  // boxed by default, fixed inset-0 at z-80 when entered, Escape
-  // or the exit button drops it back. The scene exposes resize(),
+  // fullscreen BY DEFAULT (Merlin, Nov 24 dive round item 3) —
+  // the stage mounts fixed inset-0 at z-80, and Escape or the
+  // EXIT orb drops it back to the boxed stage. The scene exposes resize(),
   // called on the next frame after the stage changes size.
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(true);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -458,14 +459,14 @@ export default function NewEarthPage() {
 
           {caption && !tour.active && (
             <div className="ne-card" role="dialog" aria-label={caption.name}>
-              <h2><Glyph size={15}>{IC.pin}</Glyph>{caption.name}</h2>
+              <h2 style={{ paddingRight: 64 }}><Glyph size={15}>{IC.pin}</Glyph>{caption.name}</h2>
               <div className="tag">{caption.tagline}</div>
               <span className="vbadge">Vision concept</span>
               <p>{caption.caption}</p>
               <div className="crow">
                 <OrbButton accent={ACCENT} onClick={() => visit(caption.id)} ariaLabel={`Visit ${caption.name}`}><Glyph size={13}>{IC.eye}</Glyph><OrbLabel>VISIT</OrbLabel></OrbButton>
-                <OrbButton accent={ACCENT} onClick={() => setCaption(null)} ariaLabel="Close"><Glyph size={13}>{IC.x}</Glyph></OrbButton>
               </div>
+              <OrbButton accent={ACCENT} onClick={() => setCaption(null)} ariaLabel="Close" size={44} style={{ position: 'absolute', top: 10, right: 10 }}><Glyph size={13}>{IC.x}</Glyph></OrbButton>
             </div>
           )}
           {caption && tour.active && (

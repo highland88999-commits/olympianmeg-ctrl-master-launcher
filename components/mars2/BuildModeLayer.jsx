@@ -231,8 +231,39 @@ export default function BuildModeLayer({
           selected one glows bright; occupied plots are the
           building itself, so no frame. */}
       {buildMode && frames.map(({ plot, group }) => {
-        if (occupied.has(plot.id)) return null;
         const selected = plot.id === selectedPlotId;
+        if (occupied.has(plot.id)) {
+          // A built plot has no frame — the building stands there —
+          // but it still needs a tap target, or tapping a built
+          // mine selects nothing and the panel never shows it. An
+          // invisible plane on the ground, registered in the same
+          // raycast map as the frames; the selected highlight reads
+          // the same as an empty plot's.
+          return (
+            <mesh
+              key={plot.id}
+              rotation={[-Math.PI / 2, 0, 0]}
+              position={[plot.x, getTerrainHeight(plot.x, plot.z, profile) + 0.05, plot.z]}
+              ref={(el) => {
+                if (el) {
+                  el.userData.plotId = plot.id;
+                  plotMeshes.current.set(plot.id, el);
+                } else {
+                  plotMeshes.current.delete(plot.id);
+                }
+              }}
+            >
+              <planeGeometry args={[PLOT_SIZE_M, PLOT_SIZE_M]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+              {selected && (
+                <mesh position={[0, 0, 0.02]}>
+                  <planeGeometry args={[PLOT_SIZE_M, PLOT_SIZE_M]} />
+                  <meshBasicMaterial color="#ffd9a0" transparent opacity={0.22} depthWrite={false} />
+                </mesh>
+              )}
+            </mesh>
+          );
+        }
         return (
           <primitive
             key={plot.id}

@@ -30,21 +30,26 @@ describe('the fullscreen mechanism is Earth 2’s, on all three pages', () => {
   });
   it('all three pages hold a fullscreen state and a fixed inset-0 stage', () => {
     for (const [name, src] of [['jupiter-2', j2], ['earth-3', e3], ['earth-4', e4]]) {
-      assert.ok(src.includes('useState(false)') || src.includes('fullscreen'), `${name}: a fullscreen state`);
+      assert.ok(src.includes('const [fullscreen, setFullscreen] = useState(true)'), `${name}: a fullscreen state, true by default (Nov 24 dive round item 3)`);
       assert.ok(src.includes('position: "fixed", inset: 0') || src.includes("position: 'fixed', inset: 0"), `${name}: the stage goes fixed inset-0`);
       assert.ok(src.includes('zIndex: 80'), `${name}: the fullscreen stage sits at z-80`);
       assert.ok(src.includes('100dvh'), `${name}: the fullscreen stage is a full viewport tall`);
     }
   });
-  it('all three pages box the stage by default — no first-paint layout regression', () => {
+  it('all three pages mount fullscreen by default — the boxed stage is the exited state', () => {
+    // Merlin, Nov 24 dive round item 3: Jupiter 2, Earth 3 and
+    // Earth 4 load fullscreen by default. The fixed style is still
+    // conditional on the fullscreen state (so EXIT / Escape drops
+    // back to the boxed stage), but the initial state is true —
+    // the boxed layout is what you get AFTER exiting, not what
+    // first paints.
     for (const [name, src] of [['jupiter-2', j2], ['earth-3', e3], ['earth-4', e4]]) {
-      // The fixed style is conditional on the fullscreen state, so
-      // the boxed layout is what first paints.
-      assert.ok(src.includes('fullscreen ?'), `${name}: the fixed style is conditional, not the default`);
+      assert.ok(src.includes('const [fullscreen, setFullscreen] = useState(true)'), `${name}: fullscreen mounts true by default`);
+      assert.ok(src.includes('fullscreen ?'), `${name}: the fixed style is conditional, so exiting returns to the boxed stage`);
     }
-    assert.ok(j2.includes('min(62dvh, 560px)'), 'jupiter-2 keeps its boxed height by default');
-    assert.ok(e3.includes('min(64dvh, 600px)'), 'earth-3 keeps its boxed height by default');
-    assert.ok(e4.includes('min(64dvh, 600px)'), 'earth-4 keeps its boxed height by default');
+    assert.ok(j2.includes('min(62dvh, 560px)'), 'jupiter-2 keeps its boxed height as the exited state');
+    assert.ok(e3.includes('min(64dvh, 600px)'), 'earth-3 keeps its boxed height as the exited state');
+    assert.ok(e4.includes('min(64dvh, 600px)'), 'earth-4 keeps its boxed height as the exited state');
   });
   it('every page offers an enter button and an in-stage exit button', () => {
     // Orb law (Merlin, Nov 16): the FULLSCREEN / EXIT FULLSCREEN pills

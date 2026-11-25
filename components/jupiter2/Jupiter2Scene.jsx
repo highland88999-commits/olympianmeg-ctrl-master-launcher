@@ -90,6 +90,7 @@ import { useOrbDock } from '@/components/world/useOrbDock';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { useBackpack } from '@/lib/backpack/store';
 import { equippedWeaponEntry, equippedDamageForSlot, weaponHand } from '@/lib/backpack/backpack';
+import { JUPITER2_ORB_SIZES } from '@/lib/jupiter2/hud-layout';
 
 // JUPITER 2 — walkable storm surface (Merlin, Nov 15 ~01:11, spec Nov 10).
 // The user stands ON the cloud deck INSIDE the storm at street level:
@@ -107,11 +108,13 @@ import { equippedWeaponEntry, equippedDamageForSlot, weaponHand } from '@/lib/ba
 const ACCENT = '#e8a35c';
 
 // Orb dock sizes (lib/world/orb-dock.js — the one shared mechanism,
-// also used by Hollow Earth): px side per draggable orb in this
-// scene — boost/shoot/fire 64, summon/trade 56, dismount 64. The
-// stick is NOT dock-owned any more (Merlin, Nov 16 — the J2 layout:
-// fixed bottom-left, never moves), so it has no entry here.
-const J2_SCENE_ORB_SIZES = { boost: 64, shoot: 64, fire: 64, summon: 56, dismount: 64, trade: 56 };
+// also used by Hollow Earth): the one J2 map lives in
+// lib/jupiter2/hud-layout.js (JUPITER2_ORB_SIZES — the page's dock
+// instance uses the same map, so its prune measures the scene's orbs
+// at their true sizes). The stick is NOT dock-owned any more
+// (Merlin, Nov 16 — the J2 layout: fixed bottom-left, never moves),
+// so it has no entry here.
+const J2_SCENE_ORB_SIZES = JUPITER2_ORB_SIZES;
 
 // The Hawkins loader normalizes the demobat to its manifest height
 // (7 Hawkins units); Jupiter 2 stands it DEMOBAT_HEIGHT_M tall.
@@ -567,7 +570,11 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, onFire, panel
           J2 layout: FIRE below it, BACKPACK above it), and BOOST at
           the old bottom 104 would sit on top of JUMP while riding.
           JUMP and BOOST now sit side by side at bottom 88, each its
-          own circle orb, one label per orb, never overlapping. */}
+          own circle orb, one label per orb, never overlapping.
+          Right 100, not 104 (Merlin, Nov 24 — J2 riding overlap
+          fix): at a 320 px viewport the 104 column sat exactly flush
+          on the joystick and measured a 2 px box overlap; 100 clears
+          the stick by 2 px and keeps 12 px to JUMP. */}
       {riding && (
         <button type="button" aria-label="Boost"
           {...orbDock.bind('boost', {
@@ -580,7 +587,7 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, onFire, panel
           onPointerCancel={boostHold.onPointerCancel}
           onLostPointerCapture={boostHold.onLostPointerCapture}
           style={{
-            ...orbDock.styleFor('boost', { right: 104, bottom: 88 }),
+            ...orbDock.styleFor('boost', { right: 100, bottom: 88 }),
             width: 64, height: 64, borderRadius: '50%',
             touchAction: 'none', border: '1px solid rgba(57,200,255,0.7)',
             background: 'rgba(10,20,30,0.5)', color: '#bfe9ff', fontSize: 12, letterSpacing: 1,
@@ -588,15 +595,17 @@ export function Jupiter2TouchControls({ inputRef, riding, onShoot, onFire, panel
       )}
       {/* SHOOT — the speeder blaster (Merlin, Nov 16 ~01:16). Its own
           plain circle orb, LEFT of the page's JUMP orb: JUMP spans
-          right 12–88, SHOOT spans right 104–168 (16 px clear), and
+          right 12–88, SHOOT spans right 100–164 (12 px clear), and
           below BOOST (bottom 88) — so it never overlaps either.
+          Right 100, not 104, for the same 320 px joystick clearance
+          as BOOST (Merlin, Nov 24 — J2 riding overlap fix).
           Riding only; on foot the blaster is inactive, so no orb.
           Tap to fire; the blaster's own cooldown paces repeat shots. */}
       {riding && onShoot && (
         <OrbButton size={64} onClick={() => { if (orbDock.tapGuard()) return; onShoot(); }} ariaLabel="Shoot the speeder blaster"
           accent="#39c8ff"
           {...orbDock.bind('shoot', {})}
-          style={orbDock.styleFor('shoot', { right: 104, bottom: 12 })}>
+          style={orbDock.styleFor('shoot', { right: 100, bottom: 12 })}>
           <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>🎯</span>
           <OrbLabel>SHOOT</OrbLabel>
         </OrbButton>
@@ -1547,10 +1556,12 @@ export default function Jupiter2Scene({
   // owns the JUMP orb's instance; the ids are disjoint, and every
   // save merges against a fresh storage read, so neither instance
   // can clobber the other's newer save. The page measures the stage
-  // and passes the backpack's fixed home slot as an exclusion
-  // (lib/jupiter2/hud-layout.js): no dock orb may park on the
-  // backpack, and a stored spot already covering it is repaired
-  // back to its home (Merlin, Nov 16 — J2 overlap fix).
+  // and passes EVERY control's slot as an exclusion (lib/jupiter2/
+  // hud-layout.js jupiter2DockExclusions): no dock orb may park on
+  // another control, and a stored spot already covering one is
+  // repaired back to its home (Merlin, Nov 24 — J2 riding overlap
+  // fix: DISMOUNT was overlapped by a stored dragged spot, and the
+  // dock had only ever known the backpack's slot).
   const dock = useOrbDock('jupiter-2', J2_SCENE_ORB_SIZES, { stageSize, exclusions });
 
   // Show a short centred notice for 3 s (the tick clears it).

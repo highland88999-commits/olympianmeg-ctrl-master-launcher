@@ -139,8 +139,8 @@ describe('right column (walking mode)', () => {
       ['dismount', 12, 76, 64, 64],
       ['trade (walk)', 12, 76, 56, 56],
       ['trade (ride)', 12, 148, 56, 56],
-      ['shoot', stage - 104 - 64, stage - 12 - 64, 64, 64],
-      ['boost', stage - 104 - 64, stage - 88 - 64, 64, 64],
+      ['shoot', stage - 100 - 64, stage - 12 - 64, 64, 64],
+      ['boost', stage - 100 - 64, stage - 88 - 64, 64, 64],
       ['fire', stage - 12 - 64, stage - 12 - 64, 64, 64],
       ['jump', stage - 12 - 76, stage - 88 - 76, 76, 76],
       ['backpack', stage - 12 - 56, stage - 176 - 56, 56, 56],
@@ -156,15 +156,18 @@ describe('right column (walking mode)', () => {
     // Top row: SUMMON 12–68, HP 76–132, ORBS 140–196 — disjoint.
     assert.ok(76 - (12 + 56) === 8 && 140 - (76 + 56) === 8);
     // Riding set, same 320 px stage: JUMP right 12–88 bottom 88–164,
-    // BOOST right 104–168 bottom 88–152, SHOOT right 104–168 bottom
+    // BOOST right 100–164 bottom 88–152, SHOOT right 100–164 bottom
     // 12–76, BACKPACK right 12–68 bottom 176–232. BOOST sits directly
+    // (Nov 24: right 100, not 104 — at a 320 px viewport the boxed
+    // stage is 286 px wide, and the 104 column sat exactly flush on
+    // the joystick and measured a 2 px box overlap; 100 clears it.)
     // above SHOOT (12 px gap) and side by side with JUMP — it moved
     // off its old bottom-104 slot, which would have sat on top of
     // JUMP once JUMP moved up the column.
     const riding = [
       ['JUMP', 320 - 12 - 76, 320 - 88 - 76, 76, 76],
-      ['BOOST', 320 - 104 - 64, 320 - 88 - 64, 64, 64],
-      ['SHOOT', 320 - 104 - 64, 320 - 12 - 64, 64, 64],
+      ['BOOST', 320 - 100 - 64, 320 - 88 - 64, 64, 64],
+      ['SHOOT', 320 - 100 - 64, 320 - 12 - 64, 64, 64],
       ['BACKPACK', 320 - 12 - 56, 320 - 176 - 56, 56, 56],
     ];
     const overlaps = (a, b) =>
@@ -174,7 +177,7 @@ describe('right column (walking mode)', () => {
         assert.ok(!overlaps(riding[i], riding[j]), `${riding[i][0]} must not overlap ${riding[j][0]} while riding`);
       }
     }
-    assert.ok(scene.includes("styleFor('boost', { right: 104, bottom: 88 })"));
+    assert.ok(scene.includes("styleFor('boost', { right: 100, bottom: 88 })"));
   });
 
   it('a dragged orb clamps fully on screen (shared dock law)', () => {
@@ -391,10 +394,13 @@ describe('control buttons never overlap (Merlin, Nov 16 — J2 overlap fix)', ()
   });
 
   it('both dock instances carry the exclusion (scene + page)', () => {
-    assert.ok(page.includes("import { backpackHomeExclusionRect } from \"@/lib/jupiter2/hud-layout\";"));
+    // Nov 24: the exclusion is the full set now (jupiter2DockExclusions),
+    // not the backpack's slot alone — DISMOUNT was overlapped by a
+    // stored dragged spot the dock had never known about.
+    assert.ok(page.includes('import { jupiter2DockExclusions, JUPITER2_ORB_SIZES } from "@/lib/jupiter2/hud-layout";'));
     assert.ok(page.includes('new ResizeObserver(apply)'), 'the page measures the stage');
     assert.ok(page.includes('const exclusions = useMemo('));
-    assert.ok(page.includes("useOrbDock('jupiter-2', J2_PAGE_ORB_SIZES, { stageSize, exclusions })"));
+    assert.ok(page.includes("useOrbDock('jupiter-2', JUPITER2_ORB_SIZES, { stageSize, exclusions })"));
     assert.ok(page.includes('stageSize={stageSize}'));
     assert.ok(page.includes('exclusions={exclusions}'));
     assert.ok(scene.includes('stageSize = null, exclusions = null'));

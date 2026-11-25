@@ -945,7 +945,7 @@ export default function StarWarsPage() {
               <div style={styles.lifeName}>{lifeCard.name}</div>
               <div style={styles.lifeMeta}>{lifeCard.kind}{lifeCard.planet ? ` · ${lifeCard.planet}` : ''}</div>
               {lifeCard.line && <div style={styles.lifeLine}>{lifeCard.line}</div>}
-              <OrbButton accent="#ffe81f" size={48} onClick={() => setLifeCard(null)} ariaLabel="Close">
+              <OrbButton accent="#ffe81f" size={48} onClick={() => setLifeCard(null)} ariaLabel="Close" style={{ position: 'absolute', top: 10, right: 10 }}>
                 <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>✕</span>
               </OrbButton>
             </div>
@@ -1192,7 +1192,7 @@ const styles = {
     borderRadius: 14, padding: 16, pointerEvents: 'auto', maxWidth: 440, margin: '0 auto',
     boxShadow: '0 18px 50px rgba(0,0,0,0.6)', textAlign: 'center',
   },
-  lifeName: { color: '#fff', fontSize: 18, fontWeight: 700, letterSpacing: 1 },
+  lifeName: { color: '#fff', fontSize: 18, fontWeight: 700, letterSpacing: 1, paddingRight: 64 },
   lifeMeta: { color: '#9fb4d8', fontSize: 12, letterSpacing: 2, marginTop: 4, textTransform: 'uppercase' },
   lifeLine: { color: '#ffe9b0', fontSize: 14, lineHeight: 1.6, margin: '10px 0 12px' },
   stickWrap: {

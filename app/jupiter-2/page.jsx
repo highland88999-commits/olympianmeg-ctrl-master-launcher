@@ -10,7 +10,7 @@ import { prefetchHawkins } from "@/lib/hawkins/loader";
 import { preloadGlb } from "@/app/hollow-earth/model-loader";
 import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
 import { useOrbDock } from "@/components/world/useOrbDock";
-import { backpackHomeExclusionRect } from "@/lib/jupiter2/hud-layout";
+import { jupiter2DockExclusions, JUPITER2_ORB_SIZES } from "@/lib/jupiter2/hud-layout";
 
 // R3F scene loads client-side only (WebGL).
 const Jupiter2Scene = dynamic(() => import("@/components/jupiter2/Jupiter2Scene"), {
@@ -26,9 +26,10 @@ const ACCENT = "#e8a35c";
 const PRESET_ICONS = [IcSunrise, IcSun, IcSunset, IcMoon];
 
 // Orb dock sizes (lib/world/orb-dock.js — the one shared mechanism,
-// also used by Hollow Earth): px side per draggable orb on this page.
-// JUMP only here — the scene owns the rest.
-const J2_PAGE_ORB_SIZES = { jump: 76 };
+// also used by Hollow Earth): px side per draggable orb. The whole
+// J2 map, not just JUMP — the page's dock instance prunes the shared
+// map too, so it must measure the scene's orbs at their true sizes
+// (lib/jupiter2/hud-layout.js JUPITER2_ORB_SIZES, the one map).
 
 // Same clock helpers the other surface pages use (t: 0..1 of a day).
 function timeLabel(t) {
@@ -83,20 +84,25 @@ export default function Jupiter2Page() {
   // for earth 2"): Earth 2's mechanism is a fixed inset-0 overlay
   // that takes over the whole screen when you enter the world, with
   // an exit back to the menu. This page's stage is the same shape:
-  // boxed by default, fixed inset-0 at z-80 when entered, Escape
-  // or the exit button drops it back to the menu. The R3F canvas
+  // fullscreen BY DEFAULT (Merlin, Nov 24 dive round item 3) —
+  // the stage mounts fixed inset-0 at z-80, and Escape or the
+  // EXIT orb drops it back to the boxed stage. The R3F canvas
   // resizes itself to its parent, so no resize call is needed.
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(true);
   // Orb dock (Merlin, Nov 16 ~02:35 — the Hollow Earth mirror): JUMP
   // is free-floating and draggable; its spot persists per user under
   // `olympus:jupiter-2:orb-dock:v1` (lib/world/orb-dock.js). The
   // fullscreen orb stays fixed top-right — the law puts it there,
   // and a draggable maximize would drift off its corner.
-  // The stage is measured (ResizeObserver) so the dock knows the
-  // backpack's fixed home slot as an exclusion (lib/jupiter2/
-  // hud-layout.js): a dragged JUMP can never park on the backpack,
-  // and a stored spot already covering it is repaired back to its
-  // home. The scene's dock instance gets the same measurement.
+  // The stage is measured (ResizeObserver) so the dock knows EVERY
+  // control's slot as an exclusion (lib/jupiter2/hud-layout.js
+  // jupiter2DockExclusions): a dragged orb can never park on another
+  // control, and a stored spot already covering one is repaired back
+  // to its home. Nov 16 the list held only the backpack's home —
+  // Nov 24 Merlin found DISMOUNT overlapped by another button while
+  // riding, and the cause was a stored dragged spot: the dock knew
+  // no slot but the backpack's. The scene's dock instance gets the
+  // same measurement.
   const stageRef = useRef(null);
   const [stageSize, setStageSize] = useState(null);
   useEffect(() => {
@@ -109,10 +115,10 @@ export default function Jupiter2Page() {
     return () => ro.disconnect();
   }, []);
   const exclusions = useMemo(
-    () => (stageSize ? [backpackHomeExclusionRect(stageSize.w, stageSize.h)] : null),
+    () => (stageSize ? jupiter2DockExclusions(stageSize.w, stageSize.h) : null),
     [stageSize],
   );
-  const dock = useOrbDock('jupiter-2', J2_PAGE_ORB_SIZES, { stageSize, exclusions });
+  const dock = useOrbDock('jupiter-2', JUPITER2_ORB_SIZES, { stageSize, exclusions });
 
   // iOS Safari "Search" pill (Merlin, Nov 16 — J2 videos): the pill
   // strands when a focused search field (the hub menu's) unmounts
@@ -273,7 +279,7 @@ export default function Jupiter2Page() {
             <div className="meta">{selected.niche} · {selected.stage} · {selected.activity}</div>
             <p>Diet: {selected.diet}</p>
             <p>{selected.habit}</p>
-            <OrbButton ariaLabel="Close creature panel" onClick={() => select(null)}>
+            <OrbButton ariaLabel="Close creature panel" onClick={() => select(null)} size={48} style={{ position: 'absolute', top: 8, right: 8, zIndex: 6 }}>
               <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>✕</span>
               <OrbLabel>CLOSE</OrbLabel>
             </OrbButton>

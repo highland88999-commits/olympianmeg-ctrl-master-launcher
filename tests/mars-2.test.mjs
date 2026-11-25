@@ -551,7 +551,7 @@ describe('mars-2 fullscreen controls (Merlin, Nov 17, 2026 — phone check)', ()
     assert.ok(page.includes('<div className="fs-row">{timeSlider}</div>'), 'row 1 is the TIME slider');
     assert.ok(page.includes('<div className="fs-row">{timeOrbs}</div>'), 'row 2 is the time orbs');
     assert.ok(page.includes('<div className="fs-row">{modeOrbs}</div>'), 'row 3 is the mode orbs');
-    assert.ok(page.includes('{fullscreen && ('), 'the panel only renders in fullscreen');
+    assert.ok(page.includes('{fullscreen && !buildMode && ('), 'the panel only renders in fullscreen, and steps aside while build mode owns the stage (dive round item 4)');
     // Normal layout: the same fragments render below the stage.
     assert.ok(page.includes('{!fullscreen && ('), 'the below-stage controls hide in fullscreen');
     assert.ok(page.includes('{timeSlider}'), 'time controls sit below the stage normally');

@@ -50,7 +50,7 @@ describe('mars-2 merged panel (Merlin, Nov 18, 2026 — phone check)', () => {
     assert.ok(page.includes('ariaLabel="Minimize panel"'), 'the MIN orb names itself');
     assert.ok(page.includes('onClick={() => setPanelMinimized(true)}'), 'MIN collapses the panel');
     assert.ok(page.includes('{!panelMinimized && ('), 'the panel renders only while open');
-    assert.ok(page.includes('{fullscreen && ('), 'the panel only renders in fullscreen');
+    assert.ok(page.includes('{fullscreen && !buildMode && ('), 'the panel only renders in fullscreen, and steps aside while build mode owns the stage (dive round item 4)');
   });
 
   it('minimized, the panel is ONE orb top-left under the hint line; tap it to expand', () => {

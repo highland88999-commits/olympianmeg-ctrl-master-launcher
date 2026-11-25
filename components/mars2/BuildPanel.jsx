@@ -11,7 +11,7 @@
 // itself is a sheet, not a button.
 
 'use client';
-import { MINE_CAPACITY, MINE_CREW_SLOTS, BARRACKS_CREW_CAPACITY, buildCost, upgradeCost, CREW_RECRUIT_COST, barracksCapacity, crewIdle, mineOutputPerMin } from '@/lib/mars2/build-mode';
+import { MINE_CAPACITY, MINE_CREW_SLOTS, BARRACKS_CREW_CAPACITY, buildCost, upgradeCost, CREW_RECRUIT_COST, EXTRA_MINE_COST, barracksCapacity, crewIdle, mineOutputPerMin } from '@/lib/mars2/build-mode';
 import { materialById } from '@/lib/economy/materials';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 
@@ -43,6 +43,13 @@ export default function BuildPanel({
     ? (areas || []).find((a) => a.id === selectedPlot.areaId) || null
     : null;
   const selectedMaterial = selectedArea ? materialById(selectedArea.materialId) : null;
+  // Whether this mining area already holds a mine: the first claim
+  // in an area is free, every further mine costs 20 iron ore — and
+  // the MINE button must price the real cost, not always FREE.
+  const areaHasMine = selectedPlot && selectedPlot.kind === 'mine' && (state.buildings || []).some((b) => {
+    const p = (plots || []).find((pp) => pp.id === b.plotId);
+    return b.kind === 'mine' && p && p.areaId === selectedPlot.areaId;
+  });
 
   // Collapsed: a small chip in the same corner — build mode stays
   // on and the plots stay visible, so the user can see the land
@@ -119,13 +126,10 @@ export default function BuildPanel({
                 <span aria-hidden="true" style={{ fontSize: 18, lineHeight: 1 }}>⛏</span>
                 <OrbLabel>MINE</OrbLabel>
               </OrbButton>
-              <span style={{ color: '#c99a78' }}>{costText([])}</span>
+              <span style={{ color: '#c99a78' }}>{costText(areaHasMine ? [...EXTRA_MINE_COST] : [])}</span>
             </div>
           )}
-          {!selectedBuilding && selectedPlot.kind === 'mine' && (state.buildings || []).some((b) => {
-            const p = (plots || []).find((pp) => pp.id === b.plotId);
-            return b.kind === 'mine' && p && p.areaId === selectedPlot.areaId;
-          }) && (
+          {areaHasMine && !selectedBuilding && selectedPlot.kind === 'mine' && (
             <div style={{ color: '#c99a78', marginTop: 4 }}>
               This area already has a mine — another costs 20 iron ore.
             </div>

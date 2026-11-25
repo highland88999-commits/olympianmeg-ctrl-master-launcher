@@ -61,10 +61,11 @@ export default function Earth4Page() {
   // for earth 2"): Earth 2's mechanism is a fixed inset-0 overlay
   // that takes over the whole screen when you enter the world, with
   // an exit back to the menu. This page's stage is the same shape:
-  // boxed by default, fixed inset-0 at z-80 when entered, Escape
-  // or the exit button drops it back. The scene exposes resize(),
+  // fullscreen BY DEFAULT (Merlin, Nov 24 dive round item 3) —
+  // the stage mounts fixed inset-0 at z-80, and Escape or the
+  // EXIT orb drops it back to the boxed stage. The scene exposes resize(),
   // called on the next frame after the stage changes size.
-  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreen, setFullscreen] = useState(true);
 
   useEffect(() => {
     if (!fullscreen) return undefined;
@@ -225,7 +226,6 @@ export default function Earth4Page() {
         .e4-card .tag { font-size: 0.72rem; letter-spacing: 2px; color: #8fb89a; text-transform: uppercase; margin-bottom: 6px; }
         .e4-card p { margin: 0 0 10px; font-size: 0.88rem; line-height: 1.55; color: #dcefe0; }
         .e4-card .vbadge { display: inline-block; font-size: 0.66rem; letter-spacing: 1.5px; text-transform: uppercase; border: 1px solid #c9a86a; color: #c9a86a; border-radius: 999px; padding: 2px 10px; margin-bottom: 10px; }
-        .e4-card .crow { display: flex; gap: 8px; }
         .e4-card .cx { margin-left: auto; min-width: 44px; }
         .e4-placebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 16px 0; padding: 10px 14px; border: 1px solid rgba(125,223,154,0.4); border-radius: 12px; background: rgba(8,26,17,0.82); font-size: 0.82rem; }
         .e4-placebar .e4-placeinfo { flex: 1; min-width: 200px; color: #dcefe0; }
@@ -290,7 +290,7 @@ export default function Earth4Page() {
 
           {species && (
             <div className="e4-card" role="dialog" aria-label={species.name}>
-              <h2>{species.name}</h2>
+              <h2 style={{ paddingRight: 64 }}>{species.name}</h2>
               <div className="tag">{species.family ? `${species.family} · ` : ""}{species.class}{species.order ? ` · ${species.order}` : ""}</div>
               <span className="vbadge">Procedural model — built from the anatomy plan</span>
               <p>
@@ -309,9 +309,7 @@ export default function Earth4Page() {
                       + `${species.life.social && species.life.social.groupSize > 1 ? ` · in a group of ${species.life.social.groupSize}` : ""}`}
                 </p>
               )}
-              <div className="crow">
-                <OrbButton accent={ACCENT} onClick={() => setSpecies(null)} ariaLabel="Close"><Glyph size={13}>{IC.x}</Glyph></OrbButton>
-              </div>
+              <OrbButton accent={ACCENT} onClick={() => setSpecies(null)} ariaLabel="Close" size={44} style={{ position: 'absolute', top: 10, right: 10 }}><Glyph size={13}>{IC.x}</Glyph></OrbButton>
             </div>
           )}
         </div>

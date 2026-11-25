@@ -225,8 +225,10 @@ test('Jupiter 2 uses the ONE shared mechanism — no second orb-dock copy anywhe
   // the J2 layout): a plain div at left 16, bottom 16, it steers,
   // it never moves.
   assert.match(j2scene, /position: 'absolute', left: 16, bottom: 16, zIndex: 6,/);
-  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 104, bottom: 88 \}\)/);
-  assert.match(j2scene, /orbDock\.styleFor\('shoot', \{ right: 104, bottom: 12 \}\)/);
+  // Nov 24: right 100, not 104 — the 104 column sat flush on the
+  // joystick at a 320 px viewport and measured a 2 px box overlap.
+  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 100, bottom: 88 \}\)/);
+  assert.match(j2scene, /orbDock\.styleFor\('shoot', \{ right: 100, bottom: 12 \}\)/);
   assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 88 \}\)/);
   // Drag-vs-tap: a drag stands the press action down (JUMP's queued
   // jump, BOOST's held key) and the tap guard is checked before
@@ -345,13 +347,13 @@ test('useOrbDock enforces exclusions: render guard, prune effect, drag slide', (
   // Render guard: a stored spot covering an exclusion falls back
   // to the caller's CSS home slot.
   assert.match(hook, /orbDockFracRect\(frac, stageSize\.w, stageSize\.h, s\)/);
-  assert.match(hook, /exclusions\.some\(\(ex\) => rectsOverlap\(rect, ex, 0\)\)/);
+  assert.match(hook, /exclusions\.some\(\(ex\) => exclusionAppliesTo\(ex, id\) && rectsOverlap\(rect, ex, 0\)\)/);
   // Prune effect: drops stored spots that cover an exclusion and
   // persists the cleaned map.
   assert.match(hook, /pruneOrbDockMap\(mapRef\.current, exclusions, stageSize\.w, stageSize\.h, sizesRef\.current\)/);
   // Live drag: the orb slides along the exclusion instead of
   // parking on it.
-  assert.match(hook, /pushRectOutOfExclusions\(\{ x: tl\.x, y: tl\.y, w: s, h: s \}, excl, vw, vh\)/);
+  assert.match(hook, /pushRectOutOfExclusions\(\{ x: tl\.x, y: tl\.y, w: s, h: s \}, excl, vw, vh, id\)/);
   // Callers that pass no options keep today's behaviour exactly:
   // the guard, the prune and the slide all no-op without them.
   assert.match(hook, /if \(stageSize && exclusions && exclusions\.length > 0\)/);

@@ -638,8 +638,13 @@ export default function Mars2Page() {
             so the panel's 150 px + safe-area floor clears it by
             12 px) where they never cover the stick, JUMP, roverbar,
             Thule pill or the fullscreen orb. Normal layout keeps
-            them below the stage, exactly as before. */}
-        {fullscreen && (
+            them below the stage, exactly as before. They hide
+            while build mode is on (dive round item 4, Nov 24):
+            the strip runs ~390 px tall once its orb rows wrap, and
+            it ran under the build panel at both widths — the panel
+            owns the stage while building, and its own ✕ exits
+            build mode, which brings the strip back. */}
+        {fullscreen && !buildMode && (
           <>
             {!panelMinimized && (
               <div className="fs-controls" role="group" aria-label="Mars 2 controls">

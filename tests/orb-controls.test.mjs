@@ -84,18 +84,20 @@ test('Jupiter 2 fullscreen top row cannot pile up: free-floating speeder orbs to
 test('JUMP and the speeder action button never share a corner: BOOST parks above JUMP', () => {
   // JUMP orb moved to bottom 88 (Merlin, Nov 16 — the J2 layout:
   // BACKPACK above it, FIRE below it). BOOST moved with it: right
-  // 104, bottom 88 — directly above SHOOT, side by side with JUMP.
-  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 104, bottom: 88 \}\)/);
+  // 100, bottom 88 — directly above SHOOT, side by side with JUMP.
+  // (Nov 24: right 100, not 104 — the 104 column sat flush on the
+  // joystick at a 320 px viewport and measured a 2 px box overlap.)
+  assert.match(j2scene, /orbDock\.styleFor\('boost', \{ right: 100, bottom: 88 \}\)/);
   assert.match(j2page, /dock\.styleFor\('jump', \{ right: 12, bottom: 88 \}\)/);
 });
 
 test('SHOOT orb has its own spot: left of JUMP, below BOOST, riding only, wired to the blaster', () => {
-  // SHOOT: right 104–168, bottom 12–76 — 16 px clear of JUMP (right 12–88),
+  // SHOOT: right 100–164, bottom 12–76 — 12 px clear of JUMP (right 12–88),
   // below BOOST (bottom 104). One label per orb, never overlapping.
   // Docked now (the Hollow Earth mirror): same spot, draggable.
   assert.match(j2scene, /<OrbButton size=\{64\} onClick=/);
   assert.match(j2scene, /ariaLabel="Shoot the speeder blaster"/);
-  assert.match(j2scene, /orbDock\.styleFor\('shoot', \{ right: 104, bottom: 12 \}\)/);
+  assert.match(j2scene, /orbDock\.styleFor\('shoot', \{ right: 100, bottom: 12 \}\)/);
   assert.match(j2scene, /orbDock\.bind\('shoot'/);
   assert.match(j2scene, /\{riding && onShoot && \(/);
   assert.match(j2scene, /<OrbLabel>SHOOT<\/OrbLabel>/);
