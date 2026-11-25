@@ -8,12 +8,14 @@
 // planet (65 from centre vs radius 55) and outside the atmosphere
 // shell gate (57.5). The Nether disc follows Earth, 35 below its
 // underside; Heaven disc, Earth and Nether all share the hub axis.
-// The star field grows with it (HubScene Stars 400/200/20000).
+// The star field grows with it (HubStars 400/200/20000, endless since
+// Nov 25, 2026 — the shell rides on the camera now).
 // Run: node tests/hub-earth-center.test.mjs (from the repo root).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS } from '../lib/god-orbits.js';
+import { HUB_STAR_PARAMS } from '../lib/hub-stars.js';
 import { HEAVEN_PORTAL, NETHER_PORTAL } from '../lib/portal/realms.js';
 import { moonPositionAt, MOON_ORBIT_RADIUS } from '../lib/hub-layout.js';
 
@@ -88,12 +90,15 @@ test('every Earth-centre copy in the codebase agrees', () => {
 });
 
 test('the hub star field is greatly expanded', () => {
+  // Endless stars (Merlin, Nov 25, 2026 — infinite hub space): the
+  // finite drei <Stars> shell is gone; HubStars renders the same field
+  // (400/200/20000/5) from a seeded generator and rides on the camera,
+  // so the stars never end. Params live in lib/hub-stars.js now.
   const scene = src('../components/HomeScene.jsx');
-  const m = scene.match(/<Stars radius=\{(\d+)\} depth=\{(\d+)\} count=\{(\d+)\} factor=\{(\d+)\}/);
-  assert.ok(m, 'HomeScene must render a drei Stars field');
-  const [, radius, depth, count, factor] = m.map(Number);
-  assert.ok(radius >= 400, `star radius ${radius} must be at least 400 (was 100)`);
-  assert.ok(depth >= 200, `star depth ${depth} must be at least 200 (was 50)`);
-  assert.ok(count >= 20000, `star count ${count} must be at least 20000 (was 7000)`);
-  assert.ok(factor >= 5, `star factor ${factor} must be at least 5 (was 4)`);
+  assert.ok(scene.includes('<HubStars />'), 'HomeScene must mount HubStars');
+  assert.ok(!/<Stars\s+radius=/.test(scene), 'HomeScene must no longer mount the finite drei Stars shell');
+  assert.ok(HUB_STAR_PARAMS.radius >= 400, `star radius ${HUB_STAR_PARAMS.radius} must be at least 400 (was 100)`);
+  assert.ok(HUB_STAR_PARAMS.depth >= 200, `star depth ${HUB_STAR_PARAMS.depth} must be at least 200 (was 50)`);
+  assert.ok(HUB_STAR_PARAMS.count >= 20000, `star count ${HUB_STAR_PARAMS.count} must be at least 20000 (was 7000)`);
+  assert.ok(HUB_STAR_PARAMS.factor >= 5, `star factor ${HUB_STAR_PARAMS.factor} must be at least 5 (was 4)`);
 });

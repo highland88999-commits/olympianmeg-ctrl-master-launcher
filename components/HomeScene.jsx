@@ -8,7 +8,7 @@
 // byte-identical to the inline version — this is a pure code-split.
 import { useState, useEffect, useRef, useMemo, useCallback, Suspense, Component, cloneElement, isValidElement } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Stars, Billboard } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useRouter } from 'next/navigation';
@@ -24,6 +24,7 @@ import { PlanetRealmContent } from './planets/PlanetRealmContent';
 import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import HubTieFlight from './HubTieFlight';
+import HubStars from './HubStars';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
@@ -1295,7 +1296,12 @@ function HubScene({
             {vgogh ? (
               <VanGoghSky />
             ) : (
-              <Stars radius={400} depth={200} count={20000} factor={5} saturation={0} fade speed={1} />
+              // Endless stars (Merlin, Nov 25, 2026 — infinite hub space):
+              // the old drei <Stars> shell sat fixed on the origin, so
+              // flying out left the sky behind. HubStars renders the
+              // same field (400/200/20000/5) in a shell that rides on
+              // the camera — the stars never end, nothing pops in.
+              <HubStars />
             )}
 
             {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's

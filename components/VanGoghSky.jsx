@@ -122,12 +122,19 @@ export const VANGOGH_SKY_RADIUS = 900;
 
 export default function VanGoghSky() {
   const matRef = useRef(null);
+  const meshRef = useRef(null);
   const uniforms = useMemo(() => ({ uTime: { value: 0 } }), []);
-  useFrame((_, dt) => {
+  useFrame(({ camera }, dt) => {
     if (matRef.current) matRef.current.uniforms.uTime.value += Math.min(dt, 0.1);
+    // Endless sky (Merlin, Nov 25, 2026 — infinite hub space): the r900
+    // sphere was centred on the origin, so flying past it left the sky
+    // behind. It rides on the camera now. The shader is direction-only
+    // (vDir from local position), so the picture is unchanged near home.
+    if (meshRef.current) meshRef.current.position.copy(camera.position);
   });
   return (
     <mesh
+      ref={meshRef}
       scale={[VANGOGH_SKY_RADIUS, VANGOGH_SKY_RADIUS, VANGOGH_SKY_RADIUS]}
       renderOrder={-10}
       frustumCulled={false}
