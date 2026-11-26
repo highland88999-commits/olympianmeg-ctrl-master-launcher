@@ -1,12 +1,15 @@
 'use client';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   getGroundVideoTexture,
   getGroundDetailTexture,
   getGroundEnvMap,
+  getSceneGroundVideoTexture,
+  onSceneGroundVideoReady,
   startGroundVideo,
+  startSceneGroundVideo,
   GROUND_MIRROR_METALNESS,
   GROUND_MIRROR_ROUGHNESS,
   GROUND_MIRROR_EMISSIVE_INTENSITY,
@@ -15,6 +18,7 @@ import {
   GROUND_DETAIL_OVERLAY_LIFT,
   GROUND_DETAIL_OVERLAY_OFFSET_M,
 } from '@/lib/earth/ground-video';
+import { useEarthScene, earthSceneUrl, earthSceneAfter } from '@/lib/earth/earth-sky-scenes';
 import { TERRAIN_RADIUS } from '@/lib/terrain';
 
 // PrerenderedEarthGround — the Earth 1 ground, baked once.
@@ -54,8 +58,27 @@ import { TERRAIN_RADIUS } from '@/lib/terrain';
 export default function PrerenderedEarthGround() {
   const gl = useThree((s) => s.gl);
 
+  // Scene pairs (Merlin, 2026-11-25 ~19:14): the ground wears the
+  // current scene's earth video when one has shipped, else the
+  // 9-colour floor loop. displayScene lags the rotation by one
+  // ready-gate: the swap only lands once the new scene's video
+  // has data, so the ground never flashes black mid-drive. The
+  // NEXT scene is warmed now, so it is ready by swap time.
+  const scene = useEarthScene();
+  const [displayScene, setDisplayScene] = useState(scene);
+  useEffect(() => {
+    if (!scene) {
+      setDisplayScene(null);
+      return undefined;
+    }
+    const next = earthSceneAfter(scene);
+    if (next) getSceneGroundVideoTexture(earthSceneUrl(next, 'earth'));
+    return onSceneGroundVideoReady(earthSceneUrl(scene, 'earth'), () => setDisplayScene(scene));
+  }, [scene]);
+  const displayUrl = displayScene ? earthSceneUrl(displayScene, 'earth') : null;
+
   const material = useMemo(() => {
-    const videoTex = getGroundVideoTexture();
+    const videoTex = displayUrl ? getSceneGroundVideoTexture(displayUrl) : getGroundVideoTexture();
     if (!videoTex) return null;
     // Full-frame equirect wrap: the shared texture already
     // wraps the whole frame (the sheets' square crop is gone
@@ -89,7 +112,7 @@ export default function PrerenderedEarthGround() {
       depthWrite: true,
       side: THREE.DoubleSide,
     });
-  }, [gl]);
+  }, [gl, displayUrl]);
 
   // The detail OVERLAY (round 3 — the part that makes the
   // scratches plainly visible): a second sphere 5 cm above the
@@ -122,10 +145,12 @@ export default function PrerenderedEarthGround() {
   // Make sure the floor video is playing: getGroundVideoTexture
   // starts it on creation, but a mount-time play covers an
   // autoplay block at creation (this mount follows the user's
-  // tap to dive to street).
+  // tap to dive to street). Same for a scene earth video, on
+  // every scene change.
   useEffect(() => {
-    startGroundVideo();
-  }, []);
+    if (displayUrl) startSceneGroundVideo(displayUrl);
+    else startGroundVideo();
+  }, [displayUrl]);
 
   // The map is the SHARED floor video texture — never disposed
   // (disposing it would kill the video for every other reader).

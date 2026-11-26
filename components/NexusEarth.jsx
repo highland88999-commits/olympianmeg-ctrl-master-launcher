@@ -11,8 +11,11 @@ import EarthBoostPads from '@/components/EarthBoostPads';
 import EarthPeers from '@/components/EarthPeers';
 import { StreetFillLight } from '@/components/StreetGroundPatch';
 import PrerenderedEarthGround from '@/components/earth/PrerenderedEarthGround';
+import EarthSceneSky from '@/components/earth/EarthSceneSky';
 import { EarthCracks, EarthOrbitCracks } from '@/components/earth/EarthCracks';
-import { startGroundVideo, stopGroundVideo } from '@/lib/earth/ground-video';
+import { startGroundVideo, stopGroundVideo, stopSceneGroundVideos } from '@/lib/earth/ground-video';
+import { useEarthScene, earthSceneUrl } from '@/lib/earth/earth-sky-scenes';
+import { useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import { loadHeightData } from '@/lib/earth/heightmap';
 import { setStreetFlatActive } from '@/lib/earth/street-flat';
 import { sunVector, getDayNightPlace, requestDayNightPlace } from '@/lib/day-night';
@@ -86,6 +89,14 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   const streetAmbientRef = useRef(null); // street ambient (black-car fix, below)
   const streetSunDiscRef = useRef(null); // visible sun core at street level (house sun treatment)
   const streetSunGlowRef = useRef(null); // visible sun halo at street level
+  // Scene pairs (Merlin, 2026-11-25 ~19:14): the current scene's
+  // sky video, live only once it has data (the hook returns null
+  // while loading or on error — the shader dome underneath stays
+  // the sky). Same scene as the ground wears (useEarthScene), so
+  // earth and sky can never disagree.
+  const scene = useEarthScene();
+  const sceneSkyTex = useNetherVideoTexture(scene ? earthSceneUrl(scene, 'sky') : null);
+  const sceneSkyLiveRef = useRef(false);
   // The halo texture is canvas-only: no DOM on the server render,
   // so the sprite mounts untextured there and picks the glow up
   // on the client render (the HubMoon guard pattern).
@@ -156,12 +167,12 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
         // the street sun directional above.
         if (streetSunDiscRef.current) {
           streetSunDiscRef.current.position.set(v.x * 70, v.y * 70, v.z * 70);
-          streetSunDiscRef.current.visible = dayF > 0;
+          streetSunDiscRef.current.visible = dayF > 0 && !sceneSkyLiveRef.current;
           streetSunDiscRef.current.material.opacity = dayF;
         }
         if (streetSunGlowRef.current) {
           streetSunGlowRef.current.position.set(v.x * 70, v.y * 70, v.z * 70);
-          streetSunGlowRef.current.visible = dayF > 0;
+          streetSunGlowRef.current.visible = dayF > 0 && !sceneSkyLiveRef.current;
           streetSunGlowRef.current.material.opacity = 0.85 * dayF;
         }
       } catch {}
@@ -170,6 +181,19 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
     const id = setInterval(updateSun, 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Scene sky mirror: while a scene sky video is live, the scene
+  // carries its own sun/moon baked in, so the rig's visible sun
+  // disc + halo hide at once (updateSun above also respects this
+  // ref on its 1 s tick). When the video drops (scene change,
+  // load error) the ref clears and the rig sun returns.
+  useEffect(() => {
+    sceneSkyLiveRef.current = !!sceneSkyTex;
+    if (sceneSkyTex) {
+      if (streetSunDiscRef.current) streetSunDiscRef.current.visible = false;
+      if (streetSunGlowRef.current) streetSunGlowRef.current.visible = false;
+    }
+  }, [sceneSkyTex]);
 
 
 
@@ -197,10 +221,13 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
   // Floor video lifecycle: the video starts with the scene
   // (muted + loop, so autoplay is allowed) and pauses on
   // unmount — the ground texture decodes only while Earth 1
-  // is on screen.
+  // is on screen. Scene earth videos pause with it.
   useEffect(() => {
     startGroundVideo();
-    return () => stopGroundVideo();
+    return () => {
+      stopGroundVideo();
+      stopSceneGroundVideos();
+    };
   }, []);
 
 
@@ -317,6 +344,13 @@ export default function NexusEarth({ onSelect, onGlobeClick, quatRef, focus, pha
             as the detail ground. */}
         {effectiveLayer === 'terrain' && roaming && <EarthCracks />}
         {effectiveLayer === 'terrain' && <StreetFillLight active={roaming} />}
+        {/* Scene sky video dome (Merlin, 2026-11-25 ~19:14): the
+            sky half of the current earth+sky scene pair — a BackSide
+            sphere one step larger than the shader dome, wearing the
+            scene's sky video when live, rendering nothing while it
+            loads so the shader dome underneath stays the sky. Same
+            roaming gate as the shader dome. */}
+        {effectiveLayer === 'terrain' && roaming && <EarthSceneSky tex={sceneSkyTex} />}
         {/* Day sky dome at street level: blue during day, transparent at night.
             Uses sun direction to fade — day side gets blue sky, night side
             stays clear so stars show through. Replaces the atmosphere shell

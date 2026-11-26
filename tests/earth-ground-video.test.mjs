@@ -34,6 +34,11 @@ import {
   startGroundVideo,
   stopGroundVideo,
   onGroundVideoReady,
+  getSceneGroundVideoTexture,
+  sceneGroundVideoHasError,
+  startSceneGroundVideo,
+  stopSceneGroundVideos,
+  onSceneGroundVideoReady,
   getOrbVideoTexture,
   acquireOrbVideo,
   releaseOrbVideo,
@@ -134,6 +139,26 @@ t('onGroundVideoReady returns an unsubscribe without a document',
     releaseOrbVideo('pink');
   } catch { threw = true; }
   t('video lifecycle calls never throw without a document', !threw);
+}
+
+// --- Scene ground videos (Merlin, 2026-11-25 ~19:14): one decoder
+// per scene earth URL, same lazy-singleton contract — every browser
+// singleton answers null (never throws) without a document. ---
+t('scene ground texture is null without a document',
+  getSceneGroundVideoTexture('/videos/earth1/scenes/golden-grassland-earth.mp4') === null);
+t('scene ground texture is null for a null url', getSceneGroundVideoTexture(null) === null);
+t('scene ground video has no error without a document',
+  sceneGroundVideoHasError('/videos/earth1/scenes/golden-grassland-earth.mp4') === false);
+t('onSceneGroundVideoReady returns an unsubscribe without a document',
+  typeof onSceneGroundVideoReady('/videos/earth1/scenes/golden-grassland-earth.mp4', () => {}) === 'function');
+{
+  let threw = false;
+  try {
+    startSceneGroundVideo('/videos/earth1/scenes/golden-grassland-earth.mp4');
+    startSceneGroundVideo(null);
+    stopSceneGroundVideos();
+  } catch { threw = true; }
+  t('scene video lifecycle calls never throw without a document', !threw);
 }
 
 console.log(`earth-ground-video: ${passed} passed, ${failed} failed`);
