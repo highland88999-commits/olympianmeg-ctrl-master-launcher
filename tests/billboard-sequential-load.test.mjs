@@ -233,6 +233,56 @@ t('queue pick on bad input is -1', pickNextPanelVideoLoad(null) === -1);
   );
 }
 
+// --- hold-then-release (Merlin, 2026-11-25 — hub crash round):
+//     no billboard video src is assigned until the hub has loaded
+//     AND the intro rotation has ended; after release, srcs assign
+//     in badge order. Records are still created unfetched while
+//     held — the hold only moves WHEN the first src is assigned. ---
+{
+  // Faithful model of the GodTower hold + runner: the runner awaits
+  // the release once before its FIRST load step, then picks the min
+  // (order, seq) each iteration, exactly like runPanelVideoLoadQueue.
+  let held = true;
+  const waiters = [];
+  const release = () => {
+    if (!held) return;
+    held = false;
+    const ws = waiters.splice(0);
+    for (const resolve of ws) resolve();
+  };
+  const awaitRelease = () => {
+    if (!held) return Promise.resolve();
+    return new Promise((resolve) => { waiters.push(resolve); });
+  };
+  const queue = [
+    { recordKey: 'panel-5::h', url: 'h', order: 5, seq: 0 },
+    { recordKey: 'panel-2::h', url: 'h', order: 2, seq: 1 },
+    { recordKey: 'panel-1::h', url: 'h', order: 1, seq: 2 },
+  ];
+  const srcAssigned = [];
+  const runner = (async () => {
+    await awaitRelease();
+    const work = [...queue];
+    while (work.length > 0) {
+      const idx = pickNextPanelVideoLoad(work);
+      const [entry] = work.splice(idx, 1);
+      srcAssigned.push(entry.recordKey); // the queue's src assignment
+    }
+  })();
+  // Records are created unfetched while held: let the runner tick.
+  await new Promise((r) => setTimeout(r, 10));
+  t('held: no src assigned while the gate is held', srcAssigned.length === 0);
+  release();
+  await runner;
+  t(
+    'released: srcs assign in badge order 1, 2, 5',
+    JSON.stringify(srcAssigned) === JSON.stringify(['panel-1::h', 'panel-2::h', 'panel-5::h'])
+  );
+  // One-way latch: a second release is a no-op and never re-holds.
+  release();
+  t('release is a one-way latch', held === false);
+}
+
 // --- wired source guards (same grep style as the hub suites) ---
 const godTowerSrc = readFileSync(
   new URL('../components/GodTower.jsx', import.meta.url),
@@ -281,6 +331,60 @@ t(
   homeSceneSrc.includes('preloadHubPanelVideos(towerPanels)') &&
     godTowerSrc.includes('export function preloadHubPanelVideos(towersPanels)') &&
     godTowerSrc.includes('collectPanelVideoUrls(towersPanels, billboardNumberFor)')
+);
+// --- hold-then-release wiring (Merlin, 2026-11-25) ---
+t(
+  'hold: panel-video load starts held',
+  godTowerSrc.includes('let panelVideoLoadHeld = true')
+);
+t(
+  'hold: release is exported for the hub load gate',
+  godTowerSrc.includes('export function releasePanelVideoLoad()')
+);
+t(
+  'hold: release is a one-way latch — clears the flag and drains the waiters',
+  godTowerSrc.includes('panelVideoLoadHeld = false') &&
+    godTowerSrc.includes('panelVideoLoadWaiters = [];')
+);
+t(
+  'hold: the queue waits on the release before its first load step',
+  godTowerSrc.includes('await awaitPanelVideoLoadRelease();') &&
+    godTowerSrc.indexOf('await awaitPanelVideoLoadRelease();') <
+      godTowerSrc.indexOf('while (panelVideoLoadQueue.length > 0)')
+);
+t(
+  'hold: still exactly one src assignment in the file, inside the queue step',
+  (godTowerSrc.match(/video\.src = /g) || []).length === 1 &&
+    godTowerSrc.includes('rec.video.src = entry.url;')
+);
+t(
+  'gate: HomeScene imports the release',
+  homeSceneSrc.includes('releasePanelVideoLoad') &&
+    homeSceneSrc.includes("import GodTower, { preloadHubPanelVideos, releasePanelVideoLoad } from './GodTower';")
+);
+t(
+  'gate: TextureProvider receives appState and the first-frame flag',
+  homeSceneSrc.includes('function TextureProvider({ onLaunchExternal, appState, hubFirstFrame })') &&
+    homeSceneSrc.includes('<TextureProvider onLaunchExternal={onLaunchExternal} appState={appState} hubFirstFrame={hubFirstFrame} />')
+);
+t(
+  'gate: release fires only on textures + first frame + intro ended',
+  homeSceneSrc.includes("if (textures && hubFirstFrame && appState !== 'hub_intro')") &&
+    homeSceneSrc.includes('releasePanelVideoLoad();')
+);
+t(
+  'gate: the release effect depends only on textures + intro + first frame — never the manifest / paused / solo fetches',
+  homeSceneSrc.includes('}, [textures, appState, hubFirstFrame]);')
+);
+t(
+  'gate: first frame is recorded in HubScene and forwarded to the signal',
+  homeSceneSrc.includes('const [hubFirstFrame, setHubFirstFrame] = useState(false);') &&
+    homeSceneSrc.includes('<FirstFrameReporter onFirstFrame={handleFirstFrame} />') &&
+    homeSceneSrc.includes('onFirstFrame?.();')
+);
+t(
+  'gate: the warmer is still called unconditionally (its 20 s per-URL await resolves false while held and returns cleanly)',
+  homeSceneSrc.includes('preloadHubPanelVideos(towerPanels).catch(() => {});')
 );
 // --- 4ca42887 invariants survive the sequential change ---
 t(

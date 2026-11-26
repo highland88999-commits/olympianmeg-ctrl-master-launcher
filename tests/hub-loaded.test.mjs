@@ -64,7 +64,14 @@ describe('the hub-loaded wiring (source pins)', () => {
     const scene = read('components/HomeScene.jsx');
     assert.ok(scene.includes("import { fireHubLoaded } from '../lib/hub-loaded'"), 'imports the signal');
     assert.ok(scene.includes('FirstFrameReporter'), 'has the first-frame reporter');
-    assert.ok(scene.includes('<FirstFrameReporter onFirstFrame={onFirstFrame} />'), 'reporter rides in the Canvas');
+    // Merlin, 2026-11-25 (hub crash round): the reporter now rides
+    // through handleFirstFrame, which records the first frame for
+    // the billboard video load gate AND still forwards to the
+    // wrapper's onFirstFrame (fireHubLoadedOnce) — the signal
+    // itself is unchanged.
+    assert.ok(scene.includes('<FirstFrameReporter onFirstFrame={handleFirstFrame} />'), 'reporter rides in the Canvas');
+    assert.ok(scene.includes('setHubFirstFrame(true)'), 'first frame is recorded for the billboard gate');
+    assert.ok(scene.includes('onFirstFrame?.();'), 'the recorded first frame still forwards to the signal');
     assert.ok(scene.includes('onFirstFrame={fireHubLoadedOnce}'), 'first frame fires the signal once');
   });
 

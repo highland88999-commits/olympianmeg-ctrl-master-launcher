@@ -44,7 +44,7 @@ import { fireHubLoaded } from '../lib/hub-loaded';
 import { panelsForTower } from '../lib/tower-panels';
 import { manifestToOverrides, applyOverridesToTowerPanels } from '../lib/billboards/overrides';
 import { dropPausedOverrides } from '../lib/billboards/subscriptions';
-import GodTower, { preloadHubPanelVideos } from './GodTower';
+import GodTower, { preloadHubPanelVideos, releasePanelVideoLoad } from './GodTower';
 // OmegaHubGate + Earth2HubGate imports retired 2026-10-31 (Merlin):
 // both portals were unmounted from hub space — the Omega portal now
 // lives in the Earth chooser street light, Earth 2 via the chooser.
@@ -910,7 +910,7 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   );
 }
 
-function TextureProvider({ onLaunchExternal }) {
+function TextureProvider({ onLaunchExternal, appState, hubFirstFrame }) {
   const [textures, setTextures] = useState(null);
 
   useEffect(() => {
@@ -1042,6 +1042,30 @@ function TextureProvider({ onLaunchExternal }) {
     },
     [billboardManifest, stoppedBillboards, soloBillboards]
   );
+
+  // Billboard video load gate (Merlin, 2026-11-25 — hub crash
+  // round): billboard video CONTENT must not load until everything
+  // else has loaded AND the hub intro rotation has ended. Release
+  // once when all three hold — tower textures loaded (textures
+  // non-null), first frame rendered (hubFirstFrame, via
+  // FirstFrameReporter → onFirstFrame), and the intro rotation
+  // over (appState !== 'hub_intro' — the rotation ends on time >
+  // 14 s or any user input, and the sun-base exit path lands in
+  // hub_freeroam too). One-way latch in GodTower: calling release
+  // again is a no-op, and a user already in freeroam releases on
+  // the first pass — never re-held. Deliberately NOT gated on the
+  // manifest / paused / solo fetches above: they have no timeout
+  // and no completion flag, so waiting on them could stall the
+  // gate forever. NOTE the timing: the 14 s rotation usually ends
+  // while the entrance/tutorial overlays are still up, so this
+  // gate is typically already satisfied before the user sees the
+  // hub — that is the order as given (loaded + rotation ended),
+  // with no overlays-dismissed condition added.
+  useEffect(() => {
+    if (textures && hubFirstFrame && appState !== 'hub_intro') {
+      releasePanelVideoLoad();
+    }
+  }, [textures, appState, hubFirstFrame]);
 
   // Panel videos preload in the BACKGROUND (Merlin, 2026-10-27 fix):
   // towers render immediately on mount — NEVER gated on video load,
@@ -1243,6 +1267,17 @@ function HubScene({
     setPayloadTex(loadEffectVideo('/gemini_generated_video_65272AD7.mp4'));
   }, []);
 
+  // First frame, tracked for the billboard video load gate: the
+  // wrapper's onFirstFrame (fireHubLoadedOnce) still fires exactly
+  // as before — this just also records it here so TextureProvider
+  // can release the panel-video hold once textures + intro are
+  // done too.
+  const [hubFirstFrame, setHubFirstFrame] = useState(false);
+  const handleFirstFrame = useCallback(() => {
+    setHubFirstFrame(true);
+    onFirstFrame?.();
+  }, [onFirstFrame]);
+
   // Mars realm (Merlin, 2026-10-21): while appState is 'mars_surface'
   // the hub's visuals stand down entirely and the seeded Mars surface
   // (MarsRealmContent, self-lit with its own sky/fog) renders at the
@@ -1280,7 +1315,7 @@ function HubScene({
       }}>
         {/* Hub-loaded signal (Merlin, 2026-11-19): the first frame is
             up — the Concourse portal menu may mount now. */}
-        <FirstFrameReporter onFirstFrame={onFirstFrame} />
+        <FirstFrameReporter onFirstFrame={handleFirstFrame} />
         {!bgVideoOk && !inRealm && (
           <color key={vgogh ? 'vgogh-bg' : 'std-bg'} attach="background" args={[vgogh ? '#0a1030' : '#050505']} />
         )}
@@ -1382,7 +1417,7 @@ function HubScene({
             {/* The planetary system's grand rainbow rings — fixed frame
                 around the planets, outside the satellite hollow. */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <SystemRings />}
-            {!['diving_to_street', 'earth_roam'].includes(appState) && <TextureProvider onLaunchExternal={onLaunchExternal} />}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && <TextureProvider onLaunchExternal={onLaunchExternal} appState={appState} hubFirstFrame={hubFirstFrame} />}
             {/* Hub satellite constellation — 10 physical textured satellites.
                 The floating video button's satellite menu is the single way
                 into programs; the rings no longer launch anything. */}

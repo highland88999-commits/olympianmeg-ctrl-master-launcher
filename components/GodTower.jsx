@@ -355,6 +355,39 @@ function setPanelVideoViewer(viewerId, url, inView) {
 // PANEL_VIDEO_QUEUE_STEP_TIMEOUT_MS: its element keeps loading in
 // the background and flips ready through its permanent listeners
 // when its data arrives.
+
+// Billboard video load hold (Merlin, 2026-11-25 — hub crash round):
+// billboard video CONTENT must not load until everything else has
+// loaded AND the hub intro rotation has ended. The queue below is
+// the single choke point: it waits on this release before its FIRST
+// loadPanelVideoEntry, so no video element gets a src while held.
+// Records are still created unfetched on mount (as before — the
+// <video> element + VideoTexture with no src), the badge order, the
+// 5 s step timeout, the multi-signal ready and the in-view
+// play/pause/resume are all untouched; only WHEN the first src is
+// assigned moves. One-way latch: once released it never re-holds —
+// a user already in freeroam (rotation ended early on input, or
+// ended behind the tutorial) releases immediately. The in-view
+// play() path while held is harmless: play on a src-less element
+// no-ops, caught.
+let panelVideoLoadHeld = true;
+let panelVideoLoadWaiters = [];
+
+export function releasePanelVideoLoad() {
+  if (!panelVideoLoadHeld) return;
+  panelVideoLoadHeld = false;
+  const waiters = panelVideoLoadWaiters;
+  panelVideoLoadWaiters = [];
+  for (const resolve of waiters) {
+    try { resolve(); } catch { /* a waiter never blocks the release */ }
+  }
+}
+
+function awaitPanelVideoLoadRelease() {
+  if (!panelVideoLoadHeld) return Promise.resolve();
+  return new Promise((resolve) => { panelVideoLoadWaiters.push(resolve); });
+}
+
 const panelVideoLoadQueue = [];
 let panelVideoLoadSeq = 0;
 let panelVideoLoadRunning = false;
@@ -380,6 +413,11 @@ function ensurePanelVideoLoadRunner() {
 }
 
 async function runPanelVideoLoadQueue() {
+  // Held until the hub has loaded and the intro rotation has ended
+  // (releasePanelVideoLoad, called from TextureProvider) — the
+  // first src assignment waits here, so no billboard video fetches
+  // or decodes during the landing flow.
+  await awaitPanelVideoLoadRelease();
   while (panelVideoLoadQueue.length > 0) {
     const idx = pickNextPanelVideoLoad(panelVideoLoadQueue);
     if (idx < 0) return;
