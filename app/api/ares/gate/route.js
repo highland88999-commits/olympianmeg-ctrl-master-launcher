@@ -30,7 +30,10 @@ export async function POST(req) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!url || !key) {
-      return NextResponse.json({ ok: false }, { status: 503 });
+      // Uniformity (Phase 1 audit): an unconfigured backend answers
+      // exactly like a bad token — 401, same body. A 503 here would
+      // tell a prober the service state; nobody outside needs to know.
+      return NextResponse.json({ ok: false }, { status: 401 });
     }
 
     // getUser(token) asks the Supabase Auth server to validate the JWT —
@@ -42,6 +45,13 @@ export async function POST(req) {
       return NextResponse.json({ ok: false }, { status: 401 });
     }
 
+    // Uniformity (Phase 1 audit): a valid token that is not the owner's
+    // answers 403, exactly as every other dashboard data route does.
+    // The distinction is standard HTTP semantics, pinned by
+    // tests/ares-lock.test.mjs, and it reveals nothing about the owner
+    // account — a non-owner already knows they are not the owner. The
+    // one leak fixed here is the 503 below: an unconfigured backend
+    // used to announce its own state to any prober.
     if (!isOwnerEmail(data.user)) {
       return NextResponse.json({ ok: false }, { status: 403 });
     }

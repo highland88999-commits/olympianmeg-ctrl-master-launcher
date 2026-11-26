@@ -1,5 +1,13 @@
 // ARES lure integration — robots.txt signpost + release + friendly + sandbox containment.
 //
+// PHASE 1 CHANGE (2026-11-25, standing law — tarpit OFF): the abyss
+// sandbox no longer runs live. The middleware never rewrites into it,
+// the honeypot never branches into it, and both abyss routes answer a
+// plain 404. The maze builders in lib/ares/tarpit.js still exist as
+// pure functions and are still tested below (deterministic pages, no
+// escapes) — but nothing live serves them. Re-enable only on Merlin's
+// explicit word.
+//
 // Proves the Mirror Dimension doctrine end to end at the integration
 // level: the signpost points scanners at fake doors, every door scores
 // into the sandbox, nothing inside escapes to real data, a released
@@ -232,24 +240,28 @@ test('friendly: allowlisted visitors are friendly, everyone else is not', () => 
   assert.equal(isWhitelisted('', entries), false);
 });
 
-test('friendly: whitelist is checked before any logging, fake content, scoring or abyss', () => {
+test('friendly: whitelist is checked before any logging or fake content — and the abyss is never entered', () => {
   const hp = readFileSync('lib/ares/honeypot.js', 'utf8');
   const friendlyAt = hp.indexOf('if (!friendly)');
   assert.ok(friendlyAt > -1, 'handleTrap guards on !friendly');
   assert.ok(hp.indexOf('Whitelist first') > -1 && hp.indexOf('Whitelist first') < friendlyAt);
   const logAt = hp.indexOf('await logEvent(');
   const fakeAt = hp.indexOf('if (options.fakeContent)');
-  const abyssAt = hp.indexOf('return abyssResponse()');
   const notFoundAt = hp.lastIndexOf("return NextResponse.json({ error: 'Not found' }");
   assert.ok(logAt > friendlyAt, 'logging happens only inside the not-friendly branch');
   assert.ok(fakeAt > friendlyAt, 'fake content is served only inside the not-friendly branch');
-  assert.ok(abyssAt > friendlyAt, 'the abyss is entered only inside the not-friendly branch');
   assert.ok(notFoundAt > fakeAt, 'a friendly visitor falls through to the plain 404');
   assert.equal((hp.match(/await logEvent\(/g) || []).length, 1, 'exactly one log call, inside the branch');
+  // TARPIT OFF (Phase 1, standing law): nothing in the trap path may
+  // route a visitor into the abyss sandbox or call the tarpit module.
+  assert.equal(hp.includes("from './tarpit.js'"), false, 'honeypot must not import the tarpit');
+  assert.equal(hp.includes('abyssResponse'), false, 'no abyss response from a trap');
+  assert.equal(hp.includes('isExtraMalicious'), false, 'no extra-malicious tier in a trap');
   const mw = readFileSync('middleware.ts', 'utf8');
   assert.ok(mw.indexOf('isWhitelisted(ip, FRIENDLY)') > -1, 'middleware whitelists first');
   assert.ok(mw.indexOf('isWhitelisted(ip, FRIENDLY)') < mw.indexOf('scoreRequest('),
     'middleware: whitelist before scoring, so a friendly address is never inspected');
+  assert.equal(mw.includes('/api/ares/abyss'), false, 'middleware never rewrites into the abyss');
 });
 
 // ---------------------------------------------------------------------------
@@ -316,16 +328,21 @@ test('sandbox: the abyss index page keeps every exit inside /api/ares/abyss', ()
   assert.doesNotMatch(html, /\+\d{1,3}[- ]\d{3}[- ]\d{3}[- ]\d{4}/, 'no real phone numbers in the sandbox');
 });
 
-test('sandbox: the abyss routes serve the sandbox, never a redirect out', () => {
+test('sandbox: the abyss routes are OFF — plain 404s, no maze, no drip', () => {
+  // TARPIT OFF (Phase 1, standing law): the abyss routes serve nothing
+  // but the same plain 404 as every honeypot trap. The maze builders
+  // still exist as pure functions in lib/ares/tarpit.js (tested below),
+  // but no live route serves them.
   for (const f of ['app/api/ares/abyss/route.js', 'app/api/ares/abyss/[...slug]/route.js']) {
     const src = readFileSync(f, 'utf8');
-    assert.match(src, /abyssResponse\(/, `${f}: serves the sandbox`);
-    assert.match(src, /from '@\/lib\/ares\/tarpit'/, `${f}: sandbox comes from tarpit`);
-    assert.doesNotMatch(src, /NextResponse\.redirect/, `${f}: no redirect out of the sandbox`);
+    assert.doesNotMatch(src, /abyssResponse\(/, `${f}: no maze served`);
+    // (The header comment names the tarpit module in prose; the check
+    // is for an actual import, not the word.)
+    assert.doesNotMatch(src, /\bimport\b[^;]*tarpit/, `${f}: no tarpit import`);
+    assert.doesNotMatch(src, /dollResponse/, `${f}: no doll served`);
+    assert.match(src, /status: 404/, `${f}: plain 404`);
+    assert.match(src, /Not found/, `${f}: same generic body as the honeypots`);
   }
-  const slugRoute = readFileSync('app/api/ares/abyss/[...slug]/route.js', 'utf8');
-  assert.match(slugRoute, /abyssResponse\(subpath\)/,
-    'the catch-all passes its subpath into the maze builder, so each subpath is its own page');
 });
 
 test('sandbox: every maze page keeps every exit inside /api/ares/abyss', () => {

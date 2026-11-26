@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { BackButton } from '@/components/ui';
 import { supabase } from '@/lib/supabase';
 import { summarize } from '@/lib/ares/intel';
+import { findCohorts } from '@/lib/ares/cohorts';
 import ThreatGauge from '@/components/ares/ThreatGauge';
 import HivePanel from '@/components/ares/HivePanel';
+import CohortsPanel from '@/components/ares/CohortsPanel';
+import ReviewQueue from '@/components/ares/ReviewQueue';
+import ScalingPolicyPanel from '@/components/ares/ScalingPolicyPanel';
 import EventsFeed from '@/components/ares/EventsFeed';
 import TopLists from '@/components/ares/TopLists';
 import ListsManager from '@/components/ares/ListsManager';
@@ -195,7 +199,7 @@ export default function AresConsole() {
   const [regUsers, setRegUsers] = useState([]);
   const [trapped, setTrapped] = useState([]);
   const [sources, setSources] = useState([]);
-  const [settings, setSettings] = useState({ sentinelEnabled: true, phalanxEnabled: true });
+  const [settings, setSettings] = useState({ sentinelEnabled: true, phalanxEnabled: true, killSwitch: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cloudOffline, setCloudOffline] = useState(false);
@@ -350,6 +354,9 @@ export default function AresConsole() {
   }
 
   const summary = summarize(events);
+  // Phase 1 cohort correlation v1: cross-IP clusters in the recent
+  // events, computed client-side from the rows already loaded.
+  const cohorts = useMemo(() => findCohorts(events), [events]);
 
   return (
     <main className="min-h-dvh w-full bg-[#050505] px-4 py-6 text-zinc-200 sm:px-8">
@@ -395,6 +402,9 @@ export default function AresConsole() {
             </div>
             <div className="ares-panel"><TopLists events={events} /></div>
             <div className="ares-panel"><HivePanel hive={hive} /></div>
+            <div className="ares-panel"><CohortsPanel cohorts={cohorts} /></div>
+            <div className="ares-panel"><ReviewQueue events={events} authedFetch={authedFetch} onRefresh={load} /></div>
+            <div className="ares-panel"><ScalingPolicyPanel /></div>
             <div className="ares-panel"><EventsFeed events={events} /></div>
             <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
             <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>

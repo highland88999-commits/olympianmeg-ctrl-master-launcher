@@ -1,0 +1,45 @@
+{
+  "policyVersion": "1.0.0",
+  "name": "ARES defensive-swarm scaling policy",
+  "source": "ARCHITECTURE.md §4 (Hub-controlled scaling)",
+  "effectiveFrom": "2026-11-25",
+  "autoScalingEnabled": false,
+  "statusNote": "Auto-scaling stays OFF in Phase 1. This file states the policy only — no scaling code runs, no instances are spawned, and nothing in this file can enable scaling on its own. Enabling it is a Phase 3 decision, by Merlin's explicit word.",
+  "triggers": {
+    "incident": {
+      "description": "An active, corroborated attack campaign justifies temporary dedicated cohort-tracking capacity.",
+      "enabled": false
+    },
+    "load": {
+      "description": "Sustained request rate exceeds what current instances score within latency budget (p99 scoring latency above threshold for N minutes).",
+      "enabled": false
+    },
+    "scheduled": {
+      "description": "Known high-traffic windows (launches, sales).",
+      "enabled": false
+    },
+    "surface": {
+      "description": "A new route, service, or deployment widens the attack surface and the policy maps it to dedicated coverage.",
+      "enabled": false
+    }
+  },
+  "caps": {
+    "capBreach": "Breaching the cost cap pages Merlin and freezes further scaling until he raises it.",
+    "cooldownMinutes": 10,
+    "maxInstances": 8,
+    "maxSpendPerDayUsd": 25,
+    "perInstanceCpu": "1 vCPU",
+    "perInstanceMemory": "512 MB",
+    "scaleDown": "Instances retire automatically when load drops; idle instances never linger to accumulate cost or attack surface."
+  },
+  "killSwitch": {
+    "control": "Dashboard toggle in the ARES console (Defense modules) or ARES_PHASE1_KILL_SWITCH=1 in env.",
+    "description": "One flag, two effects, immediate: all auto-scaling freezes (already off) and all Phase 1 non-determinism — rotating thresholds, watch-band randomization, jitter — switches off, with scoring falling back to the static v0 heuristics.",
+    "state": "Read live from the console; this file states the rule, not the current state."
+  },
+  "audit": {
+    "description": "Each spawn, retire, cap-hit, and kill-switch activation writes an immutable record to ares_audit_log (timestamp, trigger, policy version, instance id, resources granted, cost accrued, Hub's stated reason).",
+    "table": "ares_audit_log (schema addition, unexecuted until Merlin runs supabase-additions.sql)"
+  },
+  "decisionRule": "Replication is never triggered by the field agents themselves — only the Hub decides, against this versioned policy file Merlin can read."
+}

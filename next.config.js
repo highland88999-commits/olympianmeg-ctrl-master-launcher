@@ -2,6 +2,12 @@
 const nextConfig = {
   reactStrictMode: true,
 
+  // Phase 1 uniformity audit: Next.js sends `x-powered-by: Next.js`
+  // on every response by default. It names the framework (and, to a
+  // prober, narrows the version hunt). Off: responses carry no
+  // framework banner at all.
+  poweredByHeader: false,
+
   // /weapons-forge is gone (Merlin, Nov 15, 2026): the page was
   // removed and replaced with the real forge's functions at
   // /world-engine/weapons. The redirect keeps every bookmark and

@@ -38,9 +38,9 @@ for (const code of LOCALES) {
 // only, no portal card, no menu — the realm leaves both registries)
 // − Portal Room seat, Nov 16, 2026 (portal menu merge — the 2D room
 // is gone; the 3D hall is the one menu).
-// Net: 221 entries, 416 en sat keys. (+ Keepsake, Nov 17, 2026; + Red Moon, Nov 17, 2026; + Job Board, Nov 21, 2026 — pins were stale at 215, registry was already 216; + Housing, Nov 21, 2026; + Social Assistance + Business Services, Nov 21, 2026; + Vault, Nov 22, 2026 — Alexandria suite ship)
+// Net: 222 entries, 418 en sat keys. (+ Keepsake, Nov 17, 2026; + Red Moon, Nov 17, 2026; + Job Board, Nov 21, 2026 — pins were stale at 215, registry was already 216; + Housing, Nov 21, 2026; + Social Assistance + Business Services, Nov 21, 2026; + Vault, Nov 22, 2026 — Alexandria suite ship; + Ares console, Nov 25, 2026 — Phase 1 portal-menu entry, both registries + title keys)
 const satKeys = enKeys.filter((k) => k.startsWith('sat.'));
-t('en sat keys = 416 (221 registry entries; Vault title+subtitle added Nov 22, 2026; Housing + Social Assistance + Business Services title+subtitle added Nov 21, 2026; Job Board title+subtitle added Nov 21, 2026)', satKeys.length === 416);
+t('en sat keys = 418 (222 registry entries; Vault title+subtitle added Nov 22, 2026; Housing + Social Assistance + Business Services title+subtitle added Nov 21, 2026; Job Board title+subtitle added Nov 21, 2026; Ares title+subtitle added Nov 25, 2026)', satKeys.length === 418);
 t('section names present', ['games', 'utilities', 'tools', 'ai-programs', 'observatory', 'therapy', 'sanctum', 'shopping'].every((s) => en[`sec.${s}.name`]));
 t('constellation names present', ['zeus', 'ares', 'thoth', 'argus', 'medusa', 'artemis'].every((c) => en[`const.${c}`]));
 t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.language', 'ui.disconnect'].every((k) => en[k]));
@@ -49,10 +49,10 @@ t('ui chrome keys present', ['ui.nexusHub', 'ui.operator', 'ui.collapse', 'ui.la
 const regSrc = readFileSync('lib/i18n/satellites.ts', 'utf8');
 const satBlock = regSrc.slice(regSrc.indexOf('export const SATELLITES'), regSrc.indexOf('\n];', regSrc.indexOf('export const SATELLITES')));
 const routes = [...satBlock.matchAll(/route: "([^"]+)"/g)].map((m) => m[1]);
-t('registry has 221 entries', routes.length === 221); // Vault seat: 220→221, Nov 22, 2026 (Alexandria suite ship)
-t('registry routes unique', new Set(routes).size === 221);
+t('registry has 222 entries', routes.length === 222); // Ares console seat: 221→222, Nov 25, 2026 (Phase 1 portal-menu entry)
+t('registry routes unique', new Set(routes).size === 222);
 const keys = [...satBlock.matchAll(/key: "([^"]+)"/g)].map((m) => m[1]);
-t('registry keys unique', new Set(keys).size === 221);
+t('registry keys unique', new Set(keys).size === 222);
 // every registry key has title+subtitle in en
 const missingKeys = keys.filter((k) => !en[`sat.${k}.title`] || !en[`sat.${k}.subtitle`]);
 t(`every registry key has en title+subtitle (missing: ${missingKeys.length})`, missingKeys.length === 0);

@@ -1,4 +1,10 @@
-// ARES allowlist: registered users, account bans, abyss trap, attack sources.
+// ARES allowlist: registered users, account bans, attack sources.
+//
+// PHASE 1 CHANGE (2026-11-25, standing law — tarpit OFF): the abyss
+// trap no longer runs live — the middleware never rewrites into it and
+// the honeypot never branches into it. The pure tarpit helpers
+// (isExtraMalicious, abyssPageHtml) still exist in lib/ares/tarpit.js
+// and are still tested below, but nothing live calls them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -42,21 +48,25 @@ test('users route lists registered accounts; user-bans route refuses the keeper'
   assert.match(bans, /isOwnerEmail/);
 });
 
-test('middleware traps extra-malicious bots and keeps verdicts per IP', () => {
+test('middleware never traps bots in the abyss — and keeps verdicts per IP', () => {
+  // TARPIT OFF (Phase 1, standing law): no trap-check call, no abyss
+  // rewrite, no score>=75 tier. Extra-malicious bots get the same
+  // plain 403 as any other bot.
   const mw = readFileSync('middleware.ts', 'utf8');
-  assert.match(mw, /trap-check/);
-  assert.match(mw, /api\/ares\/abyss/);
-  assert.match(mw, /score >= 75/);
+  assert.doesNotMatch(mw, /trap-check/);
+  assert.doesNotMatch(mw, /api\/ares\/abyss/);
+  assert.doesNotMatch(mw, /score >= 75/);
   assert.match(mw, /checkCache/);
   assert.doesNotMatch(mw, /let banCache/);
 });
 
-test('honeypot extra-malicious tier falls into the abyss, not a 404', () => {
+test('honeypot has no extra-malicious tier — every trap visitor gets fake content or a plain 404', () => {
   const hp = readFileSync('lib/ares/honeypot.js', 'utf8');
-  assert.match(hp, /isExtraMalicious/);
-  assert.match(hp, /abyssResponse/);
-  assert.match(hp, /trapAttackSource/);
-  assert.match(hp, /recordAttackSource/);
+  assert.doesNotMatch(hp, /isExtraMalicious/);
+  assert.doesNotMatch(hp, /abyssResponse/);
+  assert.doesNotMatch(hp, /trapAttackSource/);
+  assert.doesNotMatch(hp, /recordAttackSource/);
+  assert.match(hp, /Not found/);
 });
 
 test('banned accounts are refused by every API route; console shows users + sources', () => {
