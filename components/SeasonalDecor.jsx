@@ -16,9 +16,10 @@ import { useMemo, useEffect, useState, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSeason, treeVisible, seasonBadge, starwarsDay } from '@/lib/seasonal/seasons';
-import { buildChristmasTree } from '@/lib/seasonal/tree';
+import { buildChristmasTree, buildMistletoe, treeSwapPlacement } from '@/lib/seasonal/tree';
 import { BUILDERS, disposeGroup } from '@/lib/seasonal/decorations';
-import { ORBIT_CENTER } from '@/lib/god-orbits';
+import { EARTH_CENTER, EARTH_RADIUS } from '@/lib/god-orbits';
+import { globeWorldPointToLatLon, GLOBE_CENTER } from '@/lib/earth/globe-click';
 import { useI18n } from '@/lib/i18n';
 import PumpkinHarvest from '@/components/PumpkinHarvest';
 
@@ -191,17 +192,13 @@ export function TrophyOverlay() {
   );
 }
 
-// Tree placement: inside the satellite constellation, front-and-center of
-// the spawn view (camera at ORBIT_CENTER looks -Z), slightly below eye
-// level — "right in front of the user but out a little bit in the middle
-// of our satellites."
-const TREE_POS = [ORBIT_CENTER.x, 10, ORBIT_CENTER.z - 24];
-const TREE_SCALE = 0.55;
-
-export default function SeasonalDecor() {
+export default function SeasonalDecor({ onTreeSelect = null, onTreeGlobeClick = null, earthQuatRef = null } = {}) {
   const now = useMemo(() => new Date(), []);
   const season = useMemo(() => getSeason(now), [now]);
   const showTree = useMemo(() => treeVisible(now), [now]);
+  // Tap-vs-drag for the tree hit-proxy (see the onClick guard below):
+  // the press point of the current pointer-down, in client pixels.
+  const treePressRef = useRef(null);
 
   const built = useMemo(() => {
     const group = new THREE.Group();
@@ -219,19 +216,44 @@ export default function SeasonalDecor() {
       }
     }
     if (showTree) {
-      const tree = buildChristmasTree(THREE);
-      tree.group.position.set(TREE_POS[0], TREE_POS[1], TREE_POS[2]);
-      tree.group.scale.setScalar(TREE_SCALE);
+      // Christmas swap (Merlin, Nov 25, 2026 — "tree where earth is"):
+      // the tree stands at the Earth's centre, base at the Earth's
+      // bottom, scaled so its height equals the Earth's diameter,
+      // crowned with the blue giant sun for the season.
+      const swap = treeSwapPlacement(EARTH_CENTER, EARTH_RADIUS);
+      const tree = buildChristmasTree(THREE, { topper: swap.topper });
+      tree.group.position.set(swap.position[0], swap.position[1], swap.position[2]);
+      tree.group.scale.setScalar(swap.scale);
       group.add(tree.group);
       updates.push((t) => tree.update(t));
+      // mistletoe high above the topper (rides with the tree group)
+      const mistletoe = buildMistletoe(THREE);
+      tree.group.add(mistletoe.group);
       // snowy platform disc echoing his winter mountaintop
       const plat = new THREE.Mesh(
         new THREE.CircleGeometry(9, 40),
         new THREE.MeshStandardMaterial({ color: 0xdfe9f5, roughness: 0.95 })
       );
       plat.rotation.x = -Math.PI / 2;
-      plat.position.set(TREE_POS[0], TREE_POS[1] - 0.05, TREE_POS[2]);
+      plat.position.set(swap.position[0], swap.position[1] - 0.05, swap.position[2]);
       group.add(plat);
+      // Invisible hit-proxy: a sphere bounding the whole swapped tree,
+      // so the tree keeps the Earth's click behaviour. opacity: 0, NOT
+      // visible=false (r3f skips invisible objects in raycasts), and
+      // DoubleSide — the spawn camera sits inside the proxy, and a
+      // FrontSide sphere raycasts nothing from inside.
+      const treeHitProxy = new THREE.Mesh(
+        new THREE.SphereGeometry(swap.hitRadius, 16, 16),
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+        })
+      );
+      treeHitProxy.position.set(EARTH_CENTER.x, EARTH_CENTER.y, EARTH_CENTER.z);
+      group.add(treeHitProxy);
+      extras.treeHitProxy = treeHitProxy;
+      extras.swap = swap;
     }
     return { group, updates, ...extras };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,6 +276,41 @@ export default function SeasonalDecor() {
       <primitive object={built.group} />
       {season === 'halloween' && built.proxies && (
         <PumpkinHarvest built={built} onToast={seasonToast} onTrophy={announceTrophy} />
+      )}
+      {showTree && built.treeHitProxy && (
+        <mesh
+          position={[EARTH_CENTER.x, EARTH_CENTER.y, EARTH_CENTER.z]}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            if (onTreeSelect) document.body.style.cursor = 'pointer';
+          }}
+          onPointerOut={() => {
+            document.body.style.cursor = '';
+          }}
+          onPointerDown={(e) => {
+            treePressRef.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
+          }}
+          onClick={(e) => {
+            // Tap, not drag: the spawn camera sits inside the proxy, so
+            // every ray hits it — a drag-look whose release still lands
+            // on the tree would open the menu. Ignore releases more
+            // than 8px from the press point.
+            const press = treePressRef.current;
+            const ne = e.nativeEvent;
+            if (press && ne && Math.max(Math.abs(ne.clientX - press.x), Math.abs(ne.clientY - press.y)) > 8) return;
+            if (onTreeSelect) {
+              onTreeSelect();
+              return;
+            }
+            if (onTreeGlobeClick && earthQuatRef && earthQuatRef.current) {
+              const ll = globeWorldPointToLatLon(e.point, GLOBE_CENTER, earthQuatRef.current);
+              if (ll) onTreeGlobeClick(ll.lat, ll.lon);
+            }
+          }}
+        >
+          <sphereGeometry args={[built.swap.hitRadius, 16, 16]} />
+          <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
+        </mesh>
       )}
     </>
   );

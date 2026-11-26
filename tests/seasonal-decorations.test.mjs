@@ -178,7 +178,8 @@ describe('static pins: no mist code, hub mounts intact', () => {
   });
 
   it('HomeScene still mounts SeasonalDecor in the hub (not in a realm)', () => {
-    assert.ok(home.includes('<SeasonalDecor />'), 'hub mounts SeasonalDecor');
+    assert.ok(home.includes('<SeasonalDecor'), 'hub mounts SeasonalDecor');
+    assert.ok(home.includes('onTreeSelect='), 'hub passes the tree dive handler');
     assert.ok(home.includes('{!inRealm && ('), 'hub-only gating present');
   });
 

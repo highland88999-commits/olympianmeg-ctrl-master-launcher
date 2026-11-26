@@ -35,6 +35,7 @@ import { registerCollider, unregisterCollider, resolveFlightCollision } from '..
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
 import { dismountPosition } from '../lib/rider-state';
 import { flightAxisMove, bikeAxisInput } from '../lib/flight-axis';
+import { treeVisible } from '../lib/seasonal/seasons';
 import SeasonalDecor, { SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { userPlanetDescriptor } from '../lib/communiverse/spiral';
@@ -164,7 +165,39 @@ const JUPITER_SPOT_HEIGHT = 13;
 const JUPITER_LIGHTNING_MAX = 260; // peak point-light intensity; distance-capped so it never reaches the hub
 const JUPITER_LIGHTNING_SEED = 'jupiter-storms';
 
-function PlanetBody({ planet, map, ringMap, bumpMap = null, bumpScale = 0, roughness = 0.95, onSelect }) {
+// Christmas garland (Merlin, Nov 25, 2026): a glowing ring around a
+// backdrop planet for the season — green torus 1.15x the planet's
+// radius with alternating red/gold baubles. MeshBasicMaterial only:
+// the pieces glow from themselves, no new real lights.
+function PlanetGarland({ planet }) {
+  const baubles = useMemo(() => {
+    const out = [];
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * Math.PI * 2;
+      out.push({
+        position: [Math.cos(a) * planet.radius * 1.15, 0, Math.sin(a) * planet.radius * 1.15],
+        color: i % 2 === 0 ? '#ff2a2a' : '#ffc93c',
+      });
+    }
+    return out;
+  }, [planet]);
+  return (
+    <group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[planet.radius * 1.15, 0.9, 12, 96]} />
+        <meshBasicMaterial color="#1d7a3a" />
+      </mesh>
+      {baubles.map((b, i) => (
+        <mesh key={i} position={b.position}>
+          <sphereGeometry args={[2.2, 16, 16]} />
+          <meshBasicMaterial color={b.color} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function PlanetBody({ planet, map, ringMap, bumpMap = null, bumpScale = 0, roughness = 0.95, onSelect, garland = false }) {
   const spinRef = useRef();
   const spotRef = useRef();
   const stormLightRef = useRef();
@@ -232,12 +265,17 @@ function PlanetBody({ planet, map, ringMap, bumpMap = null, bumpScale = 0, rough
           </mesh>
         )}
       </group>
+      {garland && <PlanetGarland planet={planet} />}
     </group>
   );
 }
 
 function BackdropPlanets({ onPlanetSelect }) {
   const [maps, setMaps] = useState({});
+  // Christmas garland (Merlin, Nov 25, 2026): while the tree stands
+  // in the Earth's place, the backdrop planets wear garland rings —
+  // same season window as the swap. User-forged planets stay bare.
+  const showGarland = useMemo(() => treeVisible(new Date()), []);
   // Jupiter is CGI now (Merlin, Nov 14, 2026): procedural gas-giant
   // maps from the shared planet-cgi module, built synchronously —
   // the /planets/jupiter.jpg on disk is left alone, just no longer
@@ -269,6 +307,7 @@ function BackdropPlanets({ onPlanetSelect }) {
           bumpScale={p.key === 'jupiter' ? jupiterMaps.bumpScale : undefined}
           roughness={p.key === 'jupiter' ? jupiterMaps.roughness : undefined}
           onSelect={onPlanetSelect}
+          garland={showGarland}
         />
       ))}
     </>
@@ -1297,6 +1336,11 @@ function HubScene({
   const inPlanet = appState === 'planet_surface';
   const inRealm = inMars || inPlanet;
 
+  // Christmas swap (Merlin, Nov 25, 2026 — "tree where earth is"):
+  // while the tree stands in the Earth's place the globe hides —
+  // the tree IS the Earth for the season (same click, same menu).
+  const earthSwappedForTree = treeVisible(new Date());
+
   return (
       <Canvas shadows="soft" dpr={[1, 1.75]} gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
         // Pixel-ratio cap (2026-10-26 outage repair): uncapped, a
@@ -1341,7 +1385,11 @@ function HubScene({
 
             {/* Seasonal decoration cycle: date-driven holiday decor + Merlin's
                 Christmas tree (Nov 22 - Twelfth Night). Renders nothing off-season. */}
-            <SeasonalDecor />
+            <SeasonalDecor
+              onTreeSelect={appState === 'hub_freeroam' && !earthPickMode ? beginEarthDive : null}
+              onTreeGlobeClick={onEarthGlobeClick}
+              earthQuatRef={earthQuatRef}
+            />
           </>
         )}
 
@@ -1393,7 +1441,7 @@ function HubScene({
               72-hour countdown cube floats where it was. The globe
               tap is gated in app/page.jsx (beginEarthDive shows the
               timer notice while the cycle is active). */}
-          {!oblivion?.active && (
+          {!oblivion?.active && !earthSwappedForTree && (
             <NexusEarth
               onSelect={appState === 'hub_freeroam' && !earthPickMode ? beginEarthDive : null}
               onGlobeClick={onEarthGlobeClick}
