@@ -25,6 +25,8 @@ import HubMoon from './HubMoon';
 import AsteroidField from './AsteroidField';
 import HubTieFlight from './HubTieFlight';
 import HubStars from './HubStars';
+import Baseball from './hub-baseball/Baseball';
+import BaseballController, { flightVec3 } from './hub-baseball/BaseballController';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
@@ -536,7 +538,27 @@ function SunBackground({ onSelect, freeroam, sunPullRef }) {
   );
 }
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone, sunExit }) {
+// HUB BASEBALL plate viewpoint (Merlin, Nov 26, 2026): where the camera
+// lands when a flight ends, before the handoff back to hub_freeroam.
+// PLATE [0,90,-80], ball rest [0,150,-80] r=55, scoreboard [62,108,-45].
+// Camera [0,110,55] looks at [15,120,-80]: the plate sits ~14° below
+// centre and the ball centre ~14° above it (vertical half-FOV is 26°,
+// so plate + ball read on every screen), and the scoreboard sits ~26°
+// off-axis — in frame on desktop/landscape, at the edge on a portrait
+// phone (plate and scoreboard are ~38° apart from here, wider than a
+// portrait phone's ~26° full horizontal FOV, so no viewpoint frames
+// all three fully in portrait — plate + ball win). The spot is inside
+// the tower ring and clear of Earth (top y=25), the tree, and the
+// planet lanes (195+).
+const PLATE_VIEW_POS = [0, 110, 55];
+const PLATE_VIEW_LOOKAT = [15, 120, -80];
+
+// Scratch vectors for the baseball_flight camera branch (one scene
+// instance; never allocate per frame for a hot path).
+const _bbPos = new THREE.Vector3();
+const _bbLook = new THREE.Vector3();
+
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone, baseballFlightRef, sunExit }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
@@ -663,6 +685,22 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       }
     } 
     else if (launchState === 'hub_freeroam') {
+      // HUB BASEBALL return (Merlin, Nov 26, 2026): coming back from a
+      // flight. A natural end already teleported to the plate viewpoint
+      // inside the baseball_flight branch (handedOff), but a QUIT flips
+      // appState first, so that branch never runs — without this the
+      // camera would stay wherever the ball was when QUIT was tapped
+      // (up to 1800 m out) and the plate would be a long fly back.
+      // The controller consumes the quit edge earlier in the same
+      // frame, so by here the flight is cleared and handedOff is false;
+      // teleport exactly once per flight, then freeroam takes over
+      // from the plate viewpoint (plate + ball + scoreboard in frame).
+      const _bbf = baseballFlightRef && baseballFlightRef.current;
+      if (prevLaunchRef.current === 'baseball_flight' && _bbf && !_bbf.handedOff) {
+        _bbf.handedOff = true;
+        camera.position.set(PLATE_VIEW_POS[0], PLATE_VIEW_POS[1], PLATE_VIEW_POS[2]);
+        camera.lookAt(PLATE_VIEW_LOOKAT[0], PLATE_VIEW_LOOKAT[1], PLATE_VIEW_LOOKAT[2]);
+      }
       // Dismount edge: coming off the bike — place the rider right BESIDE
       // the bike (offset from the bike's CURRENT position/yaw, never a
       // default spawn point), facing the bike. The page persists the spot
@@ -742,6 +780,44 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
 
       camera.fov = THREE.MathUtils.lerp(camera.fov, controls.current.zoom, delta * 5);
       camera.updateProjectionMatrix();
+    }
+    else if (launchState === 'baseball_flight') {
+      // HUB BASEBALL (Merlin, Nov 26, 2026): the camera IS the ball.
+      // Every frame the camera sits at the ball position and looks
+      // along the velocity; when speed is ~0 the last real direction
+      // holds so the view never snaps. Drag-look is ignored here —
+      // the ball steers, the camera follows — and the look deltas are
+      // consumed so they can't leak into freeroam after the handoff.
+      // When the flight ref reports ended, teleport to the plate
+      // viewpoint (plate + ball + scoreboard in frame) and hand off
+      // to hub_freeroam exactly once (handedOff guard). The controller
+      // fires 'end' to the page in the same frame's earlier useFrame
+      // (it mounts before this controller), so the page's submit +
+      // state flip land after this teleport, never before it.
+      if (controls.current) {
+        controls.current.lookDeltaX = 0;
+        controls.current.lookDeltaY = 0;
+      }
+      const bf = baseballFlightRef && baseballFlightRef.current;
+      const fl = bf ? bf.flight : null;
+      if (fl) {
+        if (!bf.lastDir) bf.lastDir = new THREE.Vector3(0, 0, -1);
+        flightVec3(fl.pos, _bbPos);
+        camera.position.copy(_bbPos);
+        flightVec3(fl.vel, _bbLook);
+        if (_bbLook.lengthSq() > 0.25) bf.lastDir.copy(_bbLook).normalize();
+        _bbLook.copy(_bbPos).addScaledVector(bf.lastDir, 100);
+        camera.lookAt(_bbLook);
+        if (fl.ended && !bf.handedOff) {
+          bf.handedOff = true;
+          camera.position.set(PLATE_VIEW_POS[0], PLATE_VIEW_POS[1], PLATE_VIEW_POS[2]);
+          camera.lookAt(PLATE_VIEW_LOOKAT[0], PLATE_VIEW_LOOKAT[1], PLATE_VIEW_LOOKAT[2]);
+          setLaunchState('hub_freeroam');
+        }
+      }
+      // No flight yet (the swing edge lands a frame after the state
+      // flip): hold the camera where it is — the controller starts the
+      // flight on the next frame.
     }
     else if (launchState === 'to_bike') {
       // Fly the camera from wherever it is into the rider's seat on the bike.
@@ -1283,6 +1359,13 @@ function HubScene({
   onContextLost,
   onFirstFrame,
   vgogh,
+  // HUB BASEBALL (Merlin, Nov 26, 2026): page-owned refs + board data +
+  // update callback. The wrapper passes every page prop through via
+  // {...sceneProps}, so these arrive here with no wrapper change.
+  baseballCmdRef,
+  baseballHudRef,
+  baseballBoard,
+  onBaseballUpdate,
 }) {
   // Keep the quaternion ref initialized without the page needing three.js.
   if (!earthQuatRef.current) earthQuatRef.current = new THREE.Quaternion();
@@ -1316,6 +1399,24 @@ function HubScene({
     setHubFirstFrame(true);
     onFirstFrame?.();
   }, [onFirstFrame]);
+
+  // HUB BASEBALL shared flight ref (created here, owned by
+  // BaseballController, read by Baseball + SequenceController):
+  //   { flight, ballMesh, holeSlots, lastDir, handedOff, nearPlate,
+  //     holeVersion }
+  // flight: the createFlight state (null at rest). ballMesh/holeSlots:
+  // registered by Baseball. lastDir: last real flight direction (the
+  // camera lookAt when speed is ~0). handedOff: the plate-viewpoint
+  // handoff ran once for this flight's end.
+  const baseballFlightRef = useRef({
+    flight: null,
+    ballMesh: null,
+    holeSlots: [],
+    lastDir: new THREE.Vector3(0, 0, -1),
+    handedOff: false,
+    nearPlate: false,
+    holeVersion: 0,
+  });
 
   // Mars realm (Merlin, 2026-10-21): while appState is 'mars_surface'
   // the hub's visuals stand down entirely and the seeded Mars surface
@@ -1495,6 +1596,31 @@ function HubScene({
             {!['diving_to_street', 'earth_roam'].includes(appState) && <HubTieFlight />}
             {/* Hide waypoint beacons at street level (they're orbit navigation aids) */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <NavBeacons />}
+            {/* HUB BASEBALL (Merlin, Nov 26, 2026): the ball, home plate,
+                black holes and scoreboard. Same street-level gate as the
+                rest of the vista — hidden in diving_to_street/earth_roam
+                and in the Mars/planet realms (this whole fragment stands
+                down there). The controller mounts before
+                SequenceController so its useFrame runs first each frame:
+                'end' fires before the camera handoff reads it. */}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && (
+              <Baseball
+                baseballBoard={baseballBoard}
+                baseballHudRef={baseballHudRef}
+                flightRef={baseballFlightRef}
+              />
+            )}
+            {!['diving_to_street', 'earth_roam'].includes(appState) && (
+              <BaseballController
+                appState={appState}
+                controlsRef={controlsRef}
+                flightAxis={flightAxis}
+                baseballCmdRef={baseballCmdRef}
+                baseballHudRef={baseballHudRef}
+                onBaseballUpdate={onBaseballUpdate}
+                flightRef={baseballFlightRef}
+              />
+            )}
           <StaticColliders earthGone={oblivion?.active} />
           {/* NOTE (declutter, 2026-09-29): the persistent space-portal gate
               field was removed from the interface — too cluttered. The
@@ -1523,6 +1649,7 @@ function HubScene({
           sunPullRef={sunPullRef}
           onSunPullDone={onSunPullDone}
           sunExit={sunExit}
+          baseballFlightRef={baseballFlightRef}
         />
 
         <EarthFlightController

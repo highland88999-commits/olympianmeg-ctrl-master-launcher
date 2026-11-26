@@ -60,6 +60,13 @@ import { useOblivionState } from '@/lib/oblivion/useOblivionState';
 import { hasWitnessFlag, clearWitnessFlag, setWitnessFlag } from '@/lib/oblivion/client';
 import { witnessDecision } from '@/lib/oblivion/state';
 import { formatCountdown } from '@/lib/earth/oblivion';
+// Hub baseball leaderboard (Merlin, Nov 26): the page submits flight
+// scores; the scene submits nothing. Client shape mirrors
+// lib/mars2/outposts-client.js (Bearer token, 503 → unavailable).
+// Verified against the real file: it exports fetchBoard(token) and
+// submitFlight(token, { distanceM, eaten, player }) exactly as the
+// shared contract specifies.
+import { fetchBoard, submitFlight } from '@/lib/hub-baseball/leaderboard-client';
 
 const HomeScene = dynamic(() => import('@/components/HomeScene'), {
   ssr: false,
@@ -871,6 +878,102 @@ function NexusHub() {
     }
   }, []);
 
+  // HUB BASEBALL (Merlin, Nov 26): the page owns the flight wiring —
+  // refs the scene reads/writes, the SWING/QUIT orbs, the flight HUD,
+  // and the leaderboard. The scene submits NOTHING; only the page
+  // submits, once per flight, on 'end' or QUIT.
+  const baseballCmdRef = useRef({ swing: 0, quit: 0 });
+  const baseballHudRef = useRef({ flying: false, nearPlate: false, distanceM: 0, maxDistanceM: 0, bestM: 0, eaten: false });
+  const [baseballNear, setBaseballNear] = useState(false);
+  const [baseballFlight, setBaseballFlight] = useState(null); // { distanceM, maxDistanceM } | null
+  const [baseballBoard, setBaseballBoard] = useState(null);
+  // Once-only submit guard: the flight id increments on every 'start';
+  // the last submitted id is remembered so a natural 'end' and a QUIT
+  // tap for the same flight can never double-submit.
+  const baseballFlightIdRef = useRef(0);
+  const baseballSubmittedRef = useRef(0);
+
+  // Submit one finished flight. Never throws, never breaks the game:
+  // a missing token or a failed / 503 leaderboard is swallowed — the
+  // board refetch after the flight shows the local-only state.
+  const submitBaseballFlight = useCallback(async (flightId, distanceM, eaten) => {
+    if (!flightId || baseballSubmittedRef.current === flightId) return;
+    baseballSubmittedRef.current = flightId;
+    try {
+      const token = await getAccessToken();
+      if (!token) return;
+      await submitFlight(token, { distanceM: Math.round(distanceM || 0), eaten: !!eaten, player: user || 'Player' });
+    } catch { /* leaderboard failure must never break the game */ }
+  }, [getAccessToken, user]);
+
+  // Board fetch: on mount (user present) and after each flight end.
+  // Unavailable (503 / null / error) → null: the scoreboard in the
+  // scene falls back to a local-only note.
+  const refreshBaseballBoard = useCallback(async () => {
+    try {
+      const token = await getAccessToken();
+      if (!token) { setBaseballBoard(null); return; }
+      const board = await fetchBoard(token);
+      if (!board || board.unavailable || board.ok === false) { setBaseballBoard(null); return; }
+      setBaseballBoard(board);
+    } catch {
+      setBaseballBoard(null);
+    }
+  }, [getAccessToken]);
+
+  useEffect(() => {
+    if (!user || cloudOffline) return;
+    refreshBaseballBoard();
+  }, [user, cloudOffline, refreshBaseballBoard]);
+
+  // Scene → page flight events. 'end' submits (once), refetches the
+  // board once the submit settles, and hands the camera back to
+  // freeroam — the scene teleports to the plate viewpoint first.
+  // 'end' deliberately does NOT touch baseballNear: the scene owns
+  // proximity and re-reports on flip when the camera lands back at
+  // the plate; clearing it here could strand the SWING orb hidden
+  // if no flip ever fires.
+  const handleBaseballUpdate = useCallback((evt) => {
+    if (!evt || typeof evt !== 'object') return;
+    if (evt.type === 'proximity') {
+      setBaseballNear(!!evt.nearPlate);
+    } else if (evt.type === 'start') {
+      baseballFlightIdRef.current += 1;
+      setBaseballFlight({ distanceM: 0, maxDistanceM: 0 });
+    } else if (evt.type === 'tick') {
+      setBaseballFlight({ distanceM: evt.distanceM || 0, maxDistanceM: evt.maxDistanceM || 0 });
+    } else if (evt.type === 'end') {
+      const flightId = baseballFlightIdRef.current;
+      setBaseballFlight(null);
+      submitBaseballFlight(flightId, evt.maxDistanceM || 0, !!evt.eaten).finally(() => { refreshBaseballBoard(); });
+      setAppState('hub_freeroam');
+    }
+  }, [submitBaseballFlight, refreshBaseballBoard]);
+
+  // QUIT orb: read the final stats from the HUD ref (the scene writes
+  // it every frame), submit once for this flight, hand back to
+  // freeroam, and tell the scene to abort the flight. If the scene
+  // then also fires 'end' for the same flight, the submit guard
+  // makes it a no-op. No 'start' seen yet (flight id 0) → nothing
+  // to submit; the scene's own 'end' will carry it if it comes.
+  const quitBaseballFlight = () => {
+    try { fx.tap(); } catch {}
+    const hud = baseballHudRef.current || {};
+    const flightId = baseballFlightIdRef.current;
+    setBaseballFlight(null);
+    if (flightId) {
+      submitBaseballFlight(flightId, hud.maxDistanceM || 0, !!hud.eaten).finally(() => { refreshBaseballBoard(); });
+    }
+    setAppState('hub_freeroam');
+    baseballCmdRef.current.quit++;
+  };
+
+  const swingBaseball = () => {
+    try { fx.tap(); } catch {}
+    setAppState('baseball_flight');
+    baseballCmdRef.current.swing++;
+  };
+
   useEffect(() => {
     if (!user || cloudOffline) return;
     let alive = true;
@@ -1216,6 +1319,78 @@ function NexusHub() {
         </button>
       )}
 
+      {/* HUB BASEBALL SWING orb (Merlin, Nov 26): shown in freeroam
+          while the camera is near the plate (spawn is 55 from the
+          plate, so it shows at spawn — discoverable). Bottom-right,
+          96×96, plain circle orb — no rectangle, no glow, no video
+          wrap — inline baseball SVG. Same spot/size as the QUIT orb
+          and the Earth FIRE cluster; the two never show together.
+          Bottom 80, NOT 18: at bottom 18 the 96 px orb overlaps the
+          bottom-centre FLIGHT AXIS pill by 37 px at 320 wide (17 px
+          at 360, 2 px at 390) — the no-overlap rule wins. The pill
+          tops out ~66 px (48 px tall at bottom 18), so bottom 80
+          clears it by ~14 px at every width; the tap hint stands
+          down while this orb is up (see its gate below). */}
+      {(user || cloudOffline) && appState === 'hub_freeroam' && baseballNear && !showEarthVehicleSelect && (
+        <button
+          type="button"
+          onClick={swingBaseball}
+          className="absolute z-[70] ui-element pointer-events-auto rounded-full border-2 border-red-600/70 bg-white shadow-lg flex items-center justify-center"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', width: 96, height: 96, ...chromeHiddenStyle }}
+          aria-label="Swing at the baseball"
+          title="Swing"
+        >
+          <svg viewBox="0 0 96 96" width="88" height="88" aria-hidden="true">
+            <circle cx="48" cy="48" r="44" fill="#f8fafc" stroke="#b91c1c" strokeWidth="2" />
+            <path d="M22 16 C 40 32, 40 64, 22 80" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round" />
+            <path d="M74 16 C 56 32, 56 64, 74 80" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round" />
+            <g stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="30" y1="26" x2="38" y2="30" />
+              <line x1="32" y1="38" x2="40" y2="42" />
+              <line x1="32" y1="54" x2="40" y2="58" />
+              <line x1="30" y1="66" x2="38" y2="70" />
+              <line x1="66" y1="26" x2="58" y2="30" />
+              <line x1="64" y1="38" x2="56" y2="42" />
+              <line x1="64" y1="54" x2="56" y2="58" />
+              <line x1="66" y1="66" x2="58" y2="70" />
+            </g>
+          </svg>
+        </button>
+      )}
+
+      {/* HUB BASEBALL QUIT orb: same spot/size as SWING, shown only
+          during the flight — the two never show together. Centred ✕
+          glyph (text, not emoji). The FLIGHT AXIS pill and tap hint
+          are both hidden during flight, so nothing contests this
+          corner while it is up. */}
+      {(user || cloudOffline) && appState === 'baseball_flight' && (
+        <button
+          type="button"
+          onClick={quitBaseballFlight}
+          className="absolute z-[70] ui-element pointer-events-auto rounded-full border-2 border-zinc-400/70 bg-zinc-950/90 shadow-lg flex items-center justify-center"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', width: 96, height: 96, ...chromeHiddenStyle }}
+          aria-label="Quit the flight"
+          title="Quit"
+        >
+          <span className="text-white text-4xl leading-none" aria-hidden="true">✕</span>
+        </button>
+      )}
+
+      {/* HUB BASEBALL flight HUD pill: top-centre during the flight,
+          same top-5 slot the tilt pill uses (that pill is hidden in
+          flight). max-w 92vw + nowrap + pointer-events-none, and the
+          text is short (~200 px centred), so it never reaches the
+          top-right fullscreen control. Best is the board's own best,
+          falling back to the HUD ref's best while the board is
+          unavailable. */}
+      {(user || cloudOffline) && appState === 'baseball_flight' && (
+        <div className="absolute top-5 left-1/2 -translate-x-1/2 z-[60] pointer-events-none" style={chromeHiddenStyle}>
+          <div className="text-[11px] text-zinc-200 bg-zinc-950/95 border border-cyan-500/40 rounded-full px-4 py-1.5 shadow-lg whitespace-nowrap max-w-[92vw] overflow-hidden text-ellipsis">
+            {`${Math.round(baseballFlight?.distanceM ?? 0).toLocaleString()} m · BEST ${Math.round(baseballBoard?.mine?.best ?? baseballHudRef.current.bestM ?? 0).toLocaleString()} m`}
+          </div>
+        </div>
+      )}
+
       {/* NIGHT GRID retired 2026-10-20: lives in the Concourse (Night tile). */}
 
 
@@ -1347,8 +1522,11 @@ function NexusHub() {
           20 px, so the pill (y ~790–826) sat square on the hint
           (y ~794–824). The hint now sits 63 px up (pill top +
           12 px gap) and stands down while the vehicle sheet is
-          open, like the pill itself. */}
-      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && (
+          open, like the pill itself. It also stands down while the
+          baseball SWING orb is up (baseballNear): the orb is the
+          call to action there, and the hint's right end would run
+          under the orb at phone widths. */}
+      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && !baseballNear && (
         <div className="absolute left-1/2 -translate-x-1/2 z-40 pointer-events-none" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 63px)', ...chromeHiddenStyle }}>
           <div className="text-[10px] tracking-[0.25em] uppercase text-cyan-300/70 bg-black/40 px-4 py-2 rounded-full border border-cyan-500/20">
             {t('earth.tapHint')}
@@ -1389,6 +1567,10 @@ function NexusHub() {
         pendingJump={pendingJump}
         onJumpConsumed={() => setPendingJump(null)}
         controlsRef={controlsRef}
+        baseballCmdRef={baseballCmdRef}
+        baseballHudRef={baseballHudRef}
+        baseballBoard={baseballBoard}
+        onBaseballUpdate={handleBaseballUpdate}
         flightAxis={flightAxis}
         adWindowRef={adWindowRef}
         activeSatTarget={activeSatTarget}
