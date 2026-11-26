@@ -34,6 +34,9 @@ import {
   paintBillboardFace,
   drawCoverFit,
 } from '../../lib/billboard-face';
+// Stopgap flag (Merlin, Nov 26, 2026): all billboard faces blank —
+// see lib/billboards-blank.js. One edit there brings them back.
+import { BILLBOARDS_BLANK } from '../../lib/billboards-blank';
 
 // Monument dims: tower-panel × 2.25 (tower panel: frame [12.64,7.2,0.2],
 // face [12.64,7.0], magenta [12.84,7.2], CTA [3.8,0.8,0.1], email strip [3.8,0.6]).
@@ -63,6 +66,9 @@ export default function BillboardMonument({ slot, position, faceAngle, reduced }
   const [faceHover, setFaceHover] = useState(false);
 
   useEffect(() => {
+    // Stopgap (Nov 26, 2026 — BILLBOARDS_BLANK): no canvas, no
+    // video; the face keeps its plain blank material below.
+    if (BILLBOARDS_BLANK) return undefined;
     let disposed = false;
     let videoEl = null;
     const canvas = document.createElement('canvas');

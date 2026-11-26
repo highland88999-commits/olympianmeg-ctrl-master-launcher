@@ -56,6 +56,9 @@ import {
   panelVideoBadgeOrder,
   pickNextPanelVideoLoad,
 } from '@/lib/billboards/panel-video';
+// Stopgap flag (Merlin, Nov 26, 2026): all billboard faces blank —
+// see lib/billboards-blank.js. One edit there brings them back.
+import { BILLBOARDS_BLANK } from '@/lib/billboards-blank';
 
 // Tower panel faces: a slot's real image creative paints cover-fit on
 // a 1264×700 canvas — the same 12.64:7.0 aspect as the widened face, at the
@@ -154,6 +157,9 @@ function makeBorderTexture(color) {
 function usePanelFaceTexture(slot, stakeTex) {
   const [tex, setTex] = useState(null);
   useEffect(() => {
+    // Stopgap (Nov 26, 2026 — BILLBOARDS_BLANK): no canvas faces at
+    // all; the face renders the plain blank fallback below.
+    if (BILLBOARDS_BLANK) return;
     if (slot.key === STAKE_SLOT.key) {
       setTex(stakeTex || null);
       return;
@@ -499,6 +505,9 @@ function ensurePanelVideo(url, panelKey) {
 // into view; the same URL on other faces warms through the shared
 // browser cache when the queue reaches their records.
 export function preloadHubPanelVideos(towersPanels) {
+  // Stopgap (Nov 26, 2026 — BILLBOARDS_BLANK): nothing to preload;
+  // the queue never gets a record.
+  if (BILLBOARDS_BLANK) return Promise.resolve([]);
   const items = collectPanelVideoUrls(towersPanels, billboardNumberFor);
   const numberByUrl = new Map(items.map((it) => [it.url, it.number]));
   return preloadInOrder(items, (url) => {
@@ -515,6 +524,10 @@ export function preloadHubPanelVideos(towersPanels) {
 function usePanelVideoState(viewerId, creativeUrl) {
   const [state, setState] = useState({ texture: null, ready: false, failed: false });
   useEffect(() => {
+    // Stopgap (Nov 26, 2026 — BILLBOARDS_BLANK): no video records
+    // at all; the state stays { texture: null, ready: false } and
+    // the face renders the plain blank fallback below.
+    if (BILLBOARDS_BLANK) return undefined;
     if (!creativeUrl) {
       setState({ texture: null, ready: false, failed: false });
       return undefined;
@@ -679,8 +692,10 @@ function TowerAdPanel({ slot, stakeTex, color, onLaunchExternal, badgeNumber }) 
         <meshStandardMaterial color="#222222" metalness={0.8} roughness={0.4} emissive="#121214" emissiveIntensity={0.5} />
       </mesh>
 
-      {/* This panel's own billboard number, on the face's top area */}
-      {typeof badgeNumber === 'number' && (
+      {/* This panel's own billboard number, on the face's top area.
+          Blank stopgap (Nov 26, 2026): no badges while the faces are
+          blank — the accepted cost of the stopgap. */}
+      {typeof badgeNumber === 'number' && !BILLBOARDS_BLANK && (
         <BillboardNumberBadge number={badgeNumber} />
       )}
 
