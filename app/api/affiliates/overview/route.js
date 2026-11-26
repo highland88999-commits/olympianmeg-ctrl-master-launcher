@@ -19,6 +19,7 @@ const SOURCE_LABELS = {
   gallery: 'Gallery credits',
   fortress: 'Fortress storage',
   'world-engine': 'World Engine',
+  'checker-tracks': 'Checker Tracks',
   art: 'Art sales',
 };
 
