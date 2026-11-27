@@ -14,6 +14,7 @@ import {
   stepFlight,
 } from '../lib/hub-baseball/flight.js';
 import { BALL_REST, PLATE_POS } from '../lib/hub-baseball/placement.js';
+import { ORBIT_CENTER } from '../lib/god-orbits.js';
 
 function speedOf(st) {
   return Math.sqrt(st.vel.x ** 2 + st.vel.y ** 2 + st.vel.z ** 2);
@@ -35,10 +36,11 @@ describe('launch', () => {
   it('launches at LAUNCH_SPEED, outward from the hub and slightly up', () => {
     const st = createFlight({ seed: 7 });
     assert.equal(Math.round(speedOf(st)), LAUNCH_SPEED);
-    // Outward from the hub centre: the rest sits past the asteroid
-    // belt at [-320, 25, -620], so "outward" is the radial direction
-    // through the rest — mostly -X and -Z, away from the hub.
-    const outward = { x: -320, z: -540 };
+    // Outward from the hub centre: the radial direction through the
+    // rest — derived from BALL_REST, never hard-coded, so a rest move
+    // never strands this test. (Ring 2, Nov 27, 2026: mostly -X and
+    // -Z, away from the hub.)
+    const outward = { x: BALL_REST[0] - ORBIT_CENTER.x, z: BALL_REST[2] - ORBIT_CENTER.z };
     const oLen = Math.hypot(outward.x, outward.z);
     const along = (st.vel.x * outward.x + st.vel.z * outward.z) / oLen;
     assert.ok(along > 190, `outward speed ${along} should be ~cruise`);
@@ -46,7 +48,7 @@ describe('launch', () => {
     assert.ok(st.vel.z < -160, `vel.z ${st.vel.z} should point -Z (outward)`);
     // Small +up component from the launch pitch.
     assert.ok(st.vel.y > 0 && st.vel.y < 30, `vel.y ${st.vel.y} should be small and positive`);
-    // Starts at the ball rest, past the asteroid belt.
+    // Starts at the ball rest, on orbit ring 2.
     assert.deepEqual([st.pos.x, st.pos.y, st.pos.z], BALL_REST);
     assert.deepEqual(st.origin, BALL_REST);
     assert.deepEqual(st.plate, PLATE_POS);

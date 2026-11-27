@@ -6,7 +6,8 @@
 // for decor, per the house rule for created pieces):
 //   (a) the ball: sphere r=BALL_RADIUS, canvas texture (white, two red
 //       curved seams + stitch ticks, drawn on an offscreen canvas) —
-//       rests past the asteroid belt since Nov 27, 2026 (Merlin);
+//       rests on orbit ring 2 since Nov 27, 2026 (Merlin — "the baseball
+//       goes on the other axis from miles vault");
 //   (b) home plate: white pentagon (home-plate shape) at PLATE_POS;
 //   (c) black holes: a pool of slots (HOLE_POOL) — black sphere + orange
 //       torus accretion ring + additive glow sprite from a canvas
@@ -383,7 +384,7 @@ export default function Baseball({ baseballBoard = null, baseballHudRef = null, 
 
   return (
     <group>
-      {/* The ball — rests past the asteroid belt (BALL_REST, moved
+      {/* The ball — rests on orbit ring 2 (BALL_REST, moved
           Nov 27, 2026), hidden while flying (the camera IS the ball). */}
       <mesh
         ref={registerBall}

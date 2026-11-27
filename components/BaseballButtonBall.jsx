@@ -22,6 +22,7 @@
 // ball. A fallback must never break the button.
 
 import { useEffect, useRef, useState } from 'react';
+import { BALL_SPIN_RATE_RAD_PER_S, BALL_SPIN_TILT_RAD } from '../lib/hub-baseball/spin';
 
 const SIZE = 56;
 
@@ -170,13 +171,16 @@ export default function BaseballButtonBall() {
         envMapIntensity: 1.25,
       });
       const ball = new THREE.Mesh(new THREE.SphereGeometry(1.05, 48, 48), mat);
-      ball.rotation.set(0.25, 0, 0);
+      // Tilted 23.5° at a slow 6°/s (one revolution per minute) — the
+      // shared spec in lib/hub-baseball/spin.js, same as the
+      // planet-sized ball (Merlin, Nov 27, 2026).
+      ball.rotation.set(BALL_SPIN_TILT_RAD, 0, 0);
       scene.add(ball);
 
       const draw = (t) => {
         // Slow turn so the light travels across the seams as it moves.
-        ball.rotation.y = t * 0.4;
-        ball.rotation.x = 0.25 + Math.sin(t * 0.3) * 0.08;
+        ball.rotation.y = t * BALL_SPIN_RATE_RAD_PER_S;
+        ball.rotation.x = BALL_SPIN_TILT_RAD;
         renderer.render(scene, camera);
       };
 

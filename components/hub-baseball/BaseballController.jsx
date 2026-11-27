@@ -18,8 +18,9 @@
 //     (no 'end' event: the page already submits on the QUIT tap — the
 //     scene submits NOTHING, only the page submits, so firing 'end'
 //     here would double-submit);
-//   * at rest the ball bobs gently and spins slowly at its rest past
-//     the asteroid belt (Nov 27, 2026 — the rest moved off the plate);
+//   * at rest the ball bobs gently and spins slowly at its rest on
+//     orbit ring 2 (Nov 27, 2026 — the rest moved off the plate, then
+//     onto ring 2);
 //   * in freeroam, near-plate detection (camera within 150 of PLATE_POS)
 //     writes baseballHudRef.nearPlate and fires 'proximity' on flip.
 //
@@ -29,6 +30,7 @@ import { useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { PLATE_POS, BALL_REST, PLATE_PROXIMITY_RADIUS } from '../../lib/hub-baseball/placement';
+import { BALL_SPIN_TILT_RAD, BALL_SPIN_RATE_RAD_PER_S } from '../../lib/hub-baseball/spin';
 import { createFlight, stepFlight, endFlight } from '../../lib/hub-baseball/flight';
 import { bikeAxisInput } from '../../lib/flight-axis';
 
@@ -300,8 +302,10 @@ export default function BaseballController({
     // stand it down so the ball returns to the plate.
     if (shared.flight) clearFlight();
 
-    // At rest the ball bobs gently and spins slowly at its rest past
-    // the asteroid belt.
+    // At rest the ball bobs gently and spins slowly at its rest on
+    // orbit ring 2 — tilted 23.5° at 6°/s (one revolution per minute),
+    // the shared spec in lib/hub-baseball/spin.js (Merlin, Nov 27,
+    // 2026 — "make it spin slowly decent angle").
     restTimeRef.current += step;
     const rt = restTimeRef.current;
     if (shared.ballMesh) {
@@ -311,7 +315,8 @@ export default function BaseballController({
         BALL_REST[1] + Math.sin(rt * 0.8) * 3,
         BALL_REST[2]
       );
-      shared.ballMesh.rotation.y = rt * 0.15;
+      shared.ballMesh.rotation.x = BALL_SPIN_TILT_RAD;
+      shared.ballMesh.rotation.y = rt * BALL_SPIN_RATE_RAD_PER_S;
     }
     if (shared.holeSlots) {
       for (const slot of shared.holeSlots) {
