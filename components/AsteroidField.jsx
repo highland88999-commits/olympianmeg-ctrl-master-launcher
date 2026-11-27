@@ -15,21 +15,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { orbitTime } from '@/lib/god-orbits';
-import {
-  ASTEROID_CENTER,
-  ASTEROID_COUNT,
-  ASTEROID_FIELD_RADIUS,
-} from '@/lib/hub-layout';
+import { makeBelt, makeRng, asteroidPositionAt } from '@/lib/asteroid-belt';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
-
-// Seeded RNG so the belt is identical for every client.
-function makeRng(seed) {
-  let s = seed;
-  return () => {
-    s = (s * 1103515245 + 12345) & 0x7fffffff;
-    return s / 0x7fffffff;
-  };
-}
 
 // One gnarled rock geometry: icosahedron with per-vertex radial noise.
 function makeRockGeometry() {
@@ -94,51 +81,20 @@ function makeRockTexture() {
   return tex;
 }
 
-// Per-asteroid analytic motion parameters.
-function makeBelt() {
-  const rnd = makeRng(9001);
-  const rocks = [];
-  for (let i = 0; i < ASTEROID_COUNT; i++) {
-    // Random point in a flattened disc around the field center.
-    const a = rnd() * Math.PI * 2;
-    const r = Math.sqrt(rnd()) * ASTEROID_FIELD_RADIUS;
-    const size = 1.6 + rnd() * rnd() * 5.2; // 1.6..~6.8 world radius
-    rocks.push({
-      anchor: {
-        x: ASTEROID_CENTER.x + Math.cos(a) * r,
-        y: ASTEROID_CENTER.y + (rnd() - 0.5) * 70,
-        z: ASTEROID_CENTER.z + Math.sin(a) * r,
-      },
-      driftAmp: 4 + rnd() * 7,
-      driftW: [0.008 + rnd() * 0.02, 0.006 + rnd() * 0.016, 0.008 + rnd() * 0.02],
-      driftP: [rnd() * 6.28, rnd() * 6.28, rnd() * 6.28],
-      scale: [
-        size * (0.75 + rnd() * 0.6),
-        size * (0.7 + rnd() * 0.55),
-        size * (0.75 + rnd() * 0.6),
-      ],
-      spinAxis: new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize(),
-      spinSpeed: 0.05 + rnd() * 0.22, // slow tumble
-      spinPhase: rnd() * 6.28,
-      tint: 0.82 + rnd() * 0.36,
-      radius: Math.max(size * 1.35, 2.2),
-    });
-  }
-  return rocks;
-}
-
-/** Analytic rock center at time t — shared by renderer and colliders. */
-export function asteroidPositionAt(rock, t) {
-  return {
-    x: rock.anchor.x + Math.sin(rock.driftW[0] * t + rock.driftP[0]) * rock.driftAmp,
-    y: rock.anchor.y + Math.sin(rock.driftW[1] * t + rock.driftP[1]) * rock.driftAmp * 0.6,
-    z: rock.anchor.z + Math.sin(rock.driftW[2] * t + rock.driftP[2]) * rock.driftAmp,
-  };
+// Belt generation lives in lib/asteroid-belt.js (pure, seeded) so the
+// renderer, the hub colliders and the baseball bounce set all read the
+// same rocks. The lib's spinAxis is a plain {x,y,z}; the tumble math
+// below needs a THREE.Vector3, so it is wrapped once here.
+function makeBeltWithVectors() {
+  return makeBelt().map((rock) => ({
+    ...rock,
+    spinAxis: new THREE.Vector3(rock.spinAxis.x, rock.spinAxis.y, rock.spinAxis.z),
+  }));
 }
 
 export default function AsteroidField() {
   const meshRef = useRef();
-  const rocks = useMemo(makeBelt, []);
+  const rocks = useMemo(makeBeltWithVectors, []);
   const rockGeo = useMemo(makeRockGeometry, []);
   const rockTex = useMemo(makeRockTexture, []);
   const dummy = useMemo(() => new THREE.Object3D(), []);

@@ -27,6 +27,7 @@ import HubTieFlight from './HubTieFlight';
 import HubStars from './HubStars';
 import Baseball from './hub-baseball/Baseball';
 import BaseballController, { flightVec3 } from './hub-baseball/BaseballController';
+import { PLATE_VIEW_POS, PLATE_VIEW_LOOKAT } from '../lib/hub-baseball/placement';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
@@ -598,20 +599,16 @@ function SunBackground({ onSelect, freeroam, sunPullRef }) {
   );
 }
 
-// HUB BASEBALL plate viewpoint (Merlin, Nov 26, 2026): where the camera
-// lands when a flight ends, before the handoff back to hub_freeroam.
-// PLATE [0,90,-80], ball rest [0,150,-80] r=55, scoreboard [62,108,-45].
-// Camera [0,110,55] looks at [15,120,-80]: the plate sits ~14° below
-// centre and the ball centre ~14° above it (vertical half-FOV is 26°,
-// so plate + ball read on every screen), and the scoreboard sits ~26°
-// off-axis — in frame on desktop/landscape, at the edge on a portrait
-// phone (plate and scoreboard are ~38° apart from here, wider than a
-// portrait phone's ~26° full horizontal FOV, so no viewpoint frames
-// all three fully in portrait — plate + ball win). The spot is inside
-// the tower ring and clear of Earth (top y=25), the tree, and the
-// planet lanes (195+).
-const PLATE_VIEW_POS = [0, 110, 55];
-const PLATE_VIEW_LOOKAT = [15, 120, -80];
+// HUB BASEBALL plate viewpoint: where the camera lands when a flight
+// ends, before the handoff back to hub_freeroam. Single-sourced from
+// lib/hub-baseball/placement.js (PLATE_VIEW_POS / PLATE_VIEW_LOOKAT,
+// derived from the plate above the ring-2 ball): the camera sits 135
+// toward the hub from the plate + 20 up and looks 30 down at the
+// plate, so the plate reads ~13° above centre and the ball ~12°
+// below it (vertical half-FOV is 26°, so plate + ball read on every
+// screen), and the scoreboard sits ~26° off-axis — in frame on
+// desktop/landscape, at the edge on a portrait phone, plate + ball
+// winning, as before.
 
 // Scratch vectors for the baseball_flight camera branch (one scene
 // instance; never allocate per frame for a hot path).

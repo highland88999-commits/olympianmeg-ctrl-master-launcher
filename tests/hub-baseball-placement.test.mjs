@@ -13,6 +13,8 @@ import {
   BLUE_STAR_RADIUS,
   OLD_BALL_REST,
   PLATE_POS,
+  PLATE_VIEW_LOOKAT,
+  PLATE_VIEW_POS,
   SCOREBOARD_POS,
   asteroidBeltClearance,
   clearancesFor,
@@ -33,7 +35,10 @@ const approx = (actual, expected, tol, label) => {
 
 describe('constants', () => {
   it('pins the contract positions', () => {
-    assert.deepEqual(PLATE_POS, [0, 90, -80]);
+    // Nov 27, 2026 (Merlin — "the place users bat from is from ABOVE
+    // the new spot for the baseball world"): the plate sits directly
+    // above the ball on ring 2 — not at the old spot, not beside it.
+    assert.deepEqual(PLATE_POS, [-501, 95, -926]);
     // Nov 27, 2026 (Merlin — "the baseball goes on the other axis
     // from miles vault"): the ball sits on orbit ring 2, the ring out
     // from Miles Vault's ring 1; the scoreboard sits beside it.
@@ -47,9 +52,23 @@ describe('constants', () => {
     assert.equal(BLUE_STAR_RADIUS, 55);
   });
 
-  it('blue star floats just above the plate, where the ball used to', () => {
-    // Star bottom (150 - 55 = 95) sits 5 above the plate (90).
-    assert.equal(BLUE_STAR_POS[1] - BLUE_STAR_RADIUS - PLATE_POS[1], 5);
+  it('plate sits directly above the ball, the mirror of the original arrangement', () => {
+    // Same x/z as the ball rest; 60 above the ball centre — the
+    // mirror of the original (plate 60 BELOW the ball centre: plate
+    // y=90, ball rest y=150).
+    assert.equal(PLATE_POS[0], BALL_REST[0], 'plate x matches ball x');
+    assert.equal(PLATE_POS[2], BALL_REST[2], 'plate z matches ball z');
+    assert.equal(PLATE_POS[1] - BALL_REST[1], 60, 'plate 60 above ball centre');
+    // The ball's top is y=90; the plate sits 5 above it.
+    assert.equal(PLATE_POS[1] - (BALL_REST[1] + BALL_RADIUS), 5, 'plate 5 above ball top');
+    // The plate is a marker resting against the ball: its bottom edge
+    // (17 tall, so 8.5 below its centre) dips 3.5 into the ball's top.
+    assert.equal(PLATE_POS[1] - 8.5 - (BALL_REST[1] + BALL_RADIUS), -3.5);
+  });
+
+  it('blue star floats 5 above where the plate used to be', () => {
+    // Star bottom (150 - 55 = 95) sits 5 above the old plate height (90).
+    assert.equal(BLUE_STAR_POS[1] - BLUE_STAR_RADIUS, 95);
   });
 
   it('ball rest sits on ring 2, on the ring plane, same direction as the X spot', () => {
@@ -85,9 +104,60 @@ describe('constants', () => {
   });
 });
 
+describe('plate viewpoint (camera after a flight ends)', () => {
+  it('pins the viewpoint and lookAt', () => {
+    assert.deepEqual(PLATE_VIEW_POS, [-432, 115, -810]);
+    assert.deepEqual(PLATE_VIEW_LOOKAT, [-488, 65, -934]);
+  });
+
+  it('viewpoint sits 135 hub-ward of the plate + 20 up', () => {
+    // Inward radial (plate -> hub axis) is (0.5096, 0.8604); the
+    // camera is 135 along it from the plate, 20 above the plate.
+    const dx = PLATE_VIEW_POS[0] - PLATE_POS[0];
+    const dz = PLATE_VIEW_POS[2] - PLATE_POS[2];
+    approx(Math.hypot(dx, dz), 135, 1, 'view horizontal offset');
+    assert.equal(PLATE_VIEW_POS[1] - PLATE_POS[1], 20, 'view 20 above plate');
+    // The offset points hub-ward: toward the axis, not away.
+    assert.ok(dx > 0 && dz > 0, 'view offset is hub-ward (+x, +z from the plate)');
+    // LookAt is 30 below the plate, 15 to the viewer's right.
+    assert.equal(PLATE_VIEW_LOOKAT[1] - PLATE_POS[1], -30, 'lookAt 30 below plate');
+    const lx = PLATE_VIEW_LOOKAT[0] - PLATE_POS[0];
+    const lz = PLATE_VIEW_LOOKAT[2] - PLATE_POS[2];
+    approx(Math.hypot(lx, lz), 15, 1, 'lookAt 15 sideways of plate');
+  });
+
+  it('frames plate above centre, ball below centre, board ~26° off-axis', () => {
+    // The ball hangs BELOW the plate now, so the framing flips from
+    // the original (plate 14° below / ball 14° above): plate ~13°
+    // above centre, ball ~12° below, board ~26° off-axis — all inside
+    // the 26° vertical half-FOV.
+    const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const norm = (a) => {
+      const l = Math.hypot(...a);
+      return a.map((v) => v / l);
+    };
+    const ang = (a, b) => {
+      const d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      return (Math.acos(Math.max(-1, Math.min(1, d))) * 180) / Math.PI;
+    };
+    const lookDir = norm(sub(PLATE_VIEW_LOOKAT, PLATE_VIEW_POS));
+    const plateDir = norm(sub(PLATE_POS, PLATE_VIEW_POS));
+    const ballDir = norm(sub(BALL_REST, PLATE_VIEW_POS));
+    const boardDir = norm(sub(SCOREBOARD_POS, PLATE_VIEW_POS));
+    approx(ang(lookDir, plateDir), 13.3, 0.5, 'plate off-axis');
+    assert.ok(plateDir[1] > lookDir[1], 'plate reads above centre');
+    approx(ang(lookDir, ballDir), 12.0, 0.5, 'ball off-axis');
+    assert.ok(ballDir[1] < lookDir[1], 'ball reads below centre');
+    approx(ang(lookDir, boardDir), 25.6, 0.5, 'board off-axis');
+    // The viewpoint itself clears the ball and the board.
+    assert.ok(dist3(PLATE_VIEW_POS, BALL_REST) > BALL_RADIUS + 50, 'view clears ball');
+    assert.ok(dist3(PLATE_VIEW_POS, SCOREBOARD_POS) > 100, 'view clears board');
+  });
+});
+
 describe('Earth clearance', () => {
-  it('plate clears Earth by 65 (120 centre distance - 55 radius)', () => {
-    approx(earthSurfaceClearance(PLATE_POS), 65, 1e-9, 'plate-earth');
+  it('plate surface clears Earth by ~936.13', () => {
+    approx(earthSurfaceClearance(PLATE_POS), 936.13, 0.01, 'plate-earth');
   });
 
   it('ball surface clears Earth by ~875.36', () => {
@@ -104,9 +174,9 @@ describe('Earth clearance', () => {
 });
 
 describe('satellite lanes (planet lanes 195-231)', () => {
-  it('plate and star sit 195 clear of the innermost lane', () => {
-    approx(satelliteLaneClearance(PLATE_POS), 195, 1e-9, 'plate-lane');
+  it('star sits 195 clear of the innermost lane; plate sits ~752.22 clear', () => {
     approx(satelliteLaneClearance(BLUE_STAR_POS), 195, 1e-9, 'star-lane');
+    approx(satelliteLaneClearance(PLATE_POS), 752.22, 0.01, 'plate-lane');
   });
 
   it('ball sits ~752.22 clear of the innermost lane', () => {
@@ -119,9 +189,9 @@ describe('satellite lanes (planet lanes 195-231)', () => {
 });
 
 describe('tower ring (159.11, box half-side 16.768)', () => {
-  it('plate and star sit ~142.3 clear of the nearest tower box face', () => {
-    approx(towerRingClearance(PLATE_POS), 159.11 - 16.768, 1e-9, 'plate-tower');
+  it('star sits ~142.3 clear of the nearest tower box face; plate ~807.34', () => {
     approx(towerRingClearance(BLUE_STAR_POS), 159.11 - 16.768, 1e-9, 'star-tower');
+    approx(towerRingClearance(PLATE_POS), 807.34, 0.01, 'plate-tower');
   });
 
   it('ball sits ~807.34 clear of the nearest tower box face', () => {
@@ -146,7 +216,7 @@ describe('asteroid belt (centre -80, 25, -420, radius 110)', () => {
   });
 
   it('plate, scoreboard and star clear the belt', () => {
-    approx(asteroidBeltClearance(PLATE_POS), 245.28, 0.01, 'plate-belt');
+    approx(asteroidBeltClearance(PLATE_POS), 551.95, 0.01, 'plate-belt');
     approx(asteroidBeltClearance(SCOREBOARD_POS), 539.64, 0.01, 'scoreboard-belt');
     approx(asteroidBeltClearance(BLUE_STAR_POS, BLUE_STAR_RADIUS), 205.98, 0.01, 'star-belt');
   });
@@ -177,7 +247,7 @@ describe('placementClearances / isPlacementClear', () => {
   });
 
   it('hubRadial measures from the hub axis', () => {
-    approx(hubRadial(PLATE_POS), 0, 1e-9, 'plate radial');
+    approx(hubRadial(PLATE_POS), Math.sqrt(501 * 501 + 846 * 846), 1e-9, 'plate radial');
     approx(hubRadial(SCOREBOARD_POS), Math.sqrt(424 * 424 + 891 * 891), 1e-9, 'scoreboard radial');
     approx(hubRadial(BALL_REST), Math.sqrt(501 * 501 + 846 * 846), 1e-9, 'ball radial');
   });

@@ -220,8 +220,8 @@ function homePlateShape(w, h) {
 
 // Blue giant star (Merlin, Nov 27, 2026 — "put that [a blue giant
 // star] where the baseball is/was"): stands at the baseball's OLD rest
-// above home plate, same planet-sized presence (r=55). Wears the house
-// sun's graphic (/IMG_0035.jpeg, the Nov 17 sun sweep's sun texture)
+// above the hub, where home plate used to be (the plate moved to
+// ring 2 with the ball). Wears the house sun's graphic (/IMG_0035.jpeg, the Nov 17 sun sweep's sun texture)
 // under a pale-blue tint, with blue additive halo shells and a blue
 // glow sprite — the house sun's construction (HomeScene SunBackground),
 // blue instead of gold. Decorative only: no click handler, no
@@ -398,7 +398,7 @@ export default function Baseball({ baseballBoard = null, baseballHudRef = null, 
       <BlueGiantStar />
 
       {/* Home plate — white pentagon, upright facing +Z (toward the
-          plate viewpoint south of the plate), dark rim behind it. */}
+          plate viewpoint hub-ward of the plate), dark rim behind it. */}
       <group position={[PLATE_POS[0], PLATE_POS[1], PLATE_POS[2]]}>
         <mesh position={[0, 0, -0.4]}>
           <shapeGeometry args={[plateBackShape]} />

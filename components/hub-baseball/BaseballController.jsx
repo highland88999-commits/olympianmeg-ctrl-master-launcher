@@ -32,6 +32,7 @@ import * as THREE from 'three';
 import { PLATE_POS, BALL_REST, PLATE_PROXIMITY_RADIUS } from '../../lib/hub-baseball/placement';
 import { BALL_SPIN_TILT_RAD, BALL_SPIN_RATE_RAD_PER_S } from '../../lib/hub-baseball/spin';
 import { createFlight, stepFlight, endFlight } from '../../lib/hub-baseball/flight';
+import { orbitTime } from '../../lib/god-orbits';
 import { bikeAxisInput } from '../../lib/flight-axis';
 
 // Near-plate radius (STATE.md): spawn is 55 from the plate, so the
@@ -126,7 +127,10 @@ export default function BaseballController({
   const startFlight = () => {
     if (!flightRef) return;
     const seed = (Math.random() * 0xffffffff) >>> 0;
-    const flight = createFlight({ seed, plate: PLATE_POS, ballRest: BALL_REST });
+    // orbitTime0 pins the bounce set to the swing: the moving bodies
+    // (god planets, moon, belt rocks) are analytic in the orbit
+    // clock, so the flight's colliders stay honest with the scene.
+    const flight = createFlight({ seed, plate: PLATE_POS, ballRest: BALL_REST, orbitTime0: orbitTime() });
     flightRef.current.flight = flight;
     flightRef.current.handedOff = false;
     flightRef.current.holeVersion = (flightRef.current.holeVersion || 0) + 1;
@@ -299,7 +303,7 @@ export default function BaseballController({
 
     // --- Not flying ------------------------------------------------------
     // A flight left over from a state flip without a quit (defensive):
-    // stand it down so the ball returns to the plate.
+    // stand it down so the ball returns to its rest on ring 2.
     if (shared.flight) clearFlight();
 
     // At rest the ball bobs gently and spins slowly at its rest on
