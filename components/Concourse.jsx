@@ -96,6 +96,11 @@ export function fireConcourseTile(tile) {
 // is the Halloween listener — it answers with a golden beacon on
 // the first unharvested pumpkin.
 export const SEASON_GUIDE_EVENT = 'olympus:season-guide';
+// Baseball-orb yield event (Nov 27, 2026): app/page.jsx dispatches
+// this on the house bus whenever a baseball orb (SWING in freeroam,
+// QUIT in flight) is up, { visible }. The Concourse icon listens
+// and lifts clear while it lasts — see yieldLift below.
+export const BASEBALL_ORB_EVENT = 'olympus:hub-baseball-orb';
 
 // Tile order is composed in four visual movements (Merlin,
 // 2026-10-20 — "reorder the icons for best aesthetic pleasure"):
@@ -274,6 +279,7 @@ export default function Concourse() {
   const [pinsFrac, setPinsFrac] = useState({}); // tileId -> {x, y}
   const [drag, setDrag] = useState(null); // {kind, id, x, y, active} px
   const [bikeOut, setBikeOut] = useState(false);
+  const [baseballOut, setBaseballOut] = useState(false); // a baseball orb (SWING/QUIT) owns the bottom-right
   const [phoneOpen, setPhoneOpen] = useState(false);
   const [bgPref, setBgPref] = useState({ kind: 'default' });
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -441,6 +447,16 @@ export default function Concourse() {
   useEffect(() => {
     const id = setInterval(() => setBikeOut(!!bikeState.summoned), 500);
     return () => clearInterval(id);
+  }, []);
+
+  // Yield rule: a baseball orb owns the bottom-right while it is up
+  // (SWING in freeroam, QUIT in flight — app/page.jsx announces it
+  // on BASEBALL_ORB_EVENT). Same pattern as the bike rule: the icon
+  // lifts clear, unless the user placed it themselves (orbCustom).
+  useEffect(() => {
+    const onBaseballOrb = (e) => setBaseballOut(!!e?.detail?.visible);
+    window.addEventListener(BASEBALL_ORB_EVENT, onBaseballOrb);
+    return () => window.removeEventListener(BASEBALL_ORB_EVENT, onBaseballOrb);
   }, []);
 
   const fireTile = useCallback(
@@ -691,7 +707,20 @@ export default function Concourse() {
 
   const visibleTiles = TILES.filter((t) => !t.hubOnly || onHub);
   const orbPx = toPx(orbFrac);
-  const yieldLift = bikeOut && !orbCustom ? 270 : 0;
+  // Yield lift, px the icon rises above its remembered spot.
+  // Bike: 270, clears the bike controls while riding.
+  // Baseball: 176. The icon's default anchor is bottom 96; the
+  // baseball orbs sit at right 18, bottom 80 (SWING 56 tall, QUIT
+  // 96 tall), and the glider stack above them runs SUMMON at bottom
+  // 148 with the variant picker at bottom 216 (40 tall — its top
+  // edge is bottom 256). Bottom 96 + 176 = bottom 272, which clears
+  // the picker's top edge by 16 px, SUMMON by 68 px, QUIT by 96 px
+  // and SWING by 136 px — one lift covers the whole right column,
+  // at any viewport height (all of these are bottom-anchored). The
+  // lift applies only while a baseball orb is up AND the user never
+  // placed the icon themselves (!orbCustom) — a dragged icon stays
+  // exactly where the user left it, same as the bike rule.
+  const yieldLift = (bikeOut && !orbCustom ? 270 : 0) + (baseballOut && !orbCustom ? 176 : 0);
   // While the Orb is being dragged, drag x/y are its clamped
   // top-left px (see beginOrbDrag); otherwise it renders at its
   // remembered fractions, lifted clear of the bike controls when

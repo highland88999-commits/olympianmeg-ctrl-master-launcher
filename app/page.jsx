@@ -890,6 +890,41 @@ function NexusHub() {
   const [baseballNear, setBaseballNear] = useState(false);
   const [baseballFlight, setBaseballFlight] = useState(null); // { distanceM, maxDistanceM } | null
   const [baseballBoard, setBaseballBoard] = useState(null);
+  // Settings-open flag, fed by the ConcourseSettings sheet's house
+  // event (olympus:concourse-settings, { open }). The sheet's open
+  // state lives in components/Concourse.jsx, which this page cannot
+  // read directly, so the event is the bridge (same convention as
+  // the tilt events the sheet dispatches). While it is open, both
+  // baseball orbs stand down — at phone widths the 56 px SWING orb
+  // paints over the sheet's right edge and stays tappable through
+  // its backdrop (Nov 27, 2026 — Merlin's phone video, f003). This
+  // round (Nov 27 ~15:40) makes the SWING orb always-visible in
+  // freeroam, so this hide is what keeps the sheet clear.
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  useEffect(() => {
+    const onSettingsDialog = (e) => setSettingsDialogOpen(!!e?.detail?.open);
+    window.addEventListener('olympus:concourse-settings', onSettingsDialog);
+    return () => window.removeEventListener('olympus:concourse-settings', onSettingsDialog);
+  }, []);
+  // Baseball-orb visibility, shared by the two orbs below and by the
+  // Concourse yield (components/Concourse.jsx). The SWING orb (56 px)
+  // and the QUIT orb (96 px) both sit at right 18, bottom 80 — the
+  // same column as the Concourse icon, whose default anchor is
+  // bottom 96 (components/Concourse.jsx: the default fraction is
+  // innerHeight - 96 - SIZE). Without a yield they paint over the
+  // icon by 40 px (SWING) / 56 px (QUIT) — measured live by the
+  // probe Nov 27, 2026. So this page announces when either orb is
+  // up on the house bus (olympus:hub-baseball-orb, { visible }), and
+  // the Concourse icon lifts clear while it lasts. The two orbs
+  // never show together (freeroam vs flight), so one flag covers
+  // both. The dispatch is the bridge: the icon's position state
+  // lives in Concourse.jsx, which this page cannot write directly.
+  const baseballSwingVisible = (user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && !settingsDialogOpen;
+  const baseballQuitVisible = (user || cloudOffline) && appState === 'baseball_flight' && !settingsDialogOpen;
+  const baseballOrbVisible = baseballSwingVisible || baseballQuitVisible;
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('olympus:hub-baseball-orb', { detail: { visible: baseballOrbVisible } }));
+  }, [baseballOrbVisible]);
   // Once-only submit guard: the flight id increments on every 'start';
   // the last submitted id is remembered so a natural 'end' and a QUIT
   // tap for the same flight can never double-submit.
@@ -1330,19 +1365,28 @@ function NexusHub() {
       {/* HUB BASEBALL SWING orb (Merlin, Nov 26; resized + rebuilt
           Nov 27, 2026 — same size as the Concourse icon, 56 px, and
           a real 3D ball that reflects light sources, still a baseball):
-          shown in freeroam while the camera is near the plate (spawn
-          is 55 from the plate, so it shows at spawn — discoverable).
-          Bottom-right, 56×56, plain circle orb — no rectangle, no
-          glow, no video wrap — a live three.js ball
+          LIVES bottom-right in hub freeroam, ALWAYS — Nov 27 ~14:17
+          (Merlin's video: bottom-right was empty in freeroam because
+          the gate required baseballNear, camera within 150 of the
+          plate, and the landing spot is ~1000 away). No size/position
+          change: bottom-right, 56×56, plain circle orb — no rectangle,
+          no glow, no video wrap — a live three.js ball
           (components/BaseballButtonBall). Same spot as the QUIT orb
           and the Earth FIRE cluster; the two never show together.
           Bottom 80, NOT 18: at bottom 18 the orb overlaps the
           bottom-centre FLIGHT AXIS pill at 320 wide — the no-overlap
           rule wins. The pill tops out ~66 px (48 px tall at bottom
           18), so bottom 80 clears it by ~14 px at every width; the
-          tap hint stands down while this orb is up (see its gate
-          below). Taps unchanged: the same button, same onClick. */}
-      {(user || cloudOffline) && appState === 'hub_freeroam' && baseballNear && !showEarthVehicleSelect && (
+          tap hint rides alongside it (see its gate below — the probe
+          measures the clearance live at 390/320). Stands down while
+          Settings is open (olympus:concourse-settings), so the orb
+          never paints over the sheet. The Concourse icon yields
+          while either baseball orb is up (olympus:hub-baseball-orb
+          → Concourse.jsx yieldLift 176) — without it the orb paints
+          over the icon's default bottom-96 anchor by 40 px (SWING)
+          / 56 px (QUIT), measured live Nov 27, 2026. Taps unchanged: the same button,
+          same onClick. */}
+      {(baseballSwingVisible) && (
         <button
           type="button"
           onClick={swingBaseball}
@@ -1361,7 +1405,7 @@ function NexusHub() {
           baseball button only). Centred ✕ glyph (text, not emoji).
           The FLIGHT AXIS pill and tap hint are both hidden during
           flight, so nothing contests this corner while it is up. */}
-      {(user || cloudOffline) && appState === 'baseball_flight' && (
+      {(baseballQuitVisible) && (
         <button
           type="button"
           onClick={quitBaseballFlight}
@@ -1520,11 +1564,13 @@ function NexusHub() {
           20 px, so the pill (y ~790–826) sat square on the hint
           (y ~794–824). The hint now sits 63 px up (pill top +
           12 px gap) and stands down while the vehicle sheet is
-          open, like the pill itself. It also stands down while the
-          baseball SWING orb is up (baseballNear): the orb is the
-          call to action there, and the hint's right end would run
-          under the orb at phone widths. */}
-      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && !baseballNear && (
+          open, like the pill itself. It rides alongside the
+          baseball SWING orb (Nov 27 ~14:17 — the orb now lives
+          bottom-right always in freeroam): the probe measures the
+          hint's right end against the orb's left edge live at 390/320
+          in the live locale; if a locale ever closes the gap, the
+          hint stands down while the orb is up. */}
+      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && (
         <div className="absolute left-1/2 -translate-x-1/2 z-40 pointer-events-none" style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 63px)', ...chromeHiddenStyle }}>
           <div className="text-[10px] tracking-[0.25em] uppercase text-cyan-300/70 bg-black/40 px-4 py-2 rounded-full border border-cyan-500/20">
             {t('earth.tapHint')}

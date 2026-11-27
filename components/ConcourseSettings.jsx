@@ -5,7 +5,7 @@
 // glass card, ✕ to close). The sheet is a LIST of sections so new
 // settings slot in without restructuring; v1 ships Background only.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '@/lib/i18n';
 import {
   TILT_PREF_KEY,
@@ -367,7 +367,25 @@ const SECTIONS = [
   { id: 'sound', title: 'Sound', render: ({ settings, onApplySettings }) => <SoundSection settings={settings} onApply={onApplySettings} /> },
 ];
 
+// The sheet announces itself on the house window bus so hub-level
+// chrome can stand down while it is up (Nov 27, 2026 — Merlin's
+// phone video, f003: the z-70 baseball SWING orb paints over the
+// sheet's z-62 right edge). Same convention as the tilt events
+// below: 'olympus:…' + { open } in the detail. The hub page
+// (app/page.jsx) hears it and hides the baseball orbs until the
+// sheet closes.
+const SETTINGS_DIALOG_EVENT = 'olympus:concourse-settings';
+
 export default function ConcourseSettings({ open, onClose, bg, onApplyBg, settings, onApplySettings }) {
+  // Announce open/close on the house bus; if the sheet unmounts
+  // while open (route change, parent unmount), report closed so no
+  // listener strands the hub chrome hidden.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(SETTINGS_DIALOG_EVENT, { detail: { open: !!open } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent(SETTINGS_DIALOG_EVENT, { detail: { open: false } }));
+    };
+  }, [open ]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[62] flex items-center justify-center p-4" role="dialog" aria-label="Concourse settings">
