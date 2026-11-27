@@ -18,7 +18,8 @@
 //     (no 'end' event: the page already submits on the QUIT tap — the
 //     scene submits NOTHING, only the page submits, so firing 'end'
 //     here would double-submit);
-//   * at rest the ball bobs gently and spins slowly above the plate;
+//   * at rest the ball bobs gently and spins slowly at its rest past
+//     the asteroid belt (Nov 27, 2026 — the rest moved off the plate);
 //   * in freeroam, near-plate detection (camera within 150 of PLATE_POS)
 //     writes baseballHudRef.nearPlate and fires 'proximity' on flip.
 //
@@ -123,7 +124,7 @@ export default function BaseballController({
   const startFlight = () => {
     if (!flightRef) return;
     const seed = (Math.random() * 0xffffffff) >>> 0;
-    const flight = createFlight({ seed, plate: PLATE_POS });
+    const flight = createFlight({ seed, plate: PLATE_POS, ballRest: BALL_REST });
     flightRef.current.flight = flight;
     flightRef.current.handedOff = false;
     flightRef.current.holeVersion = (flightRef.current.holeVersion || 0) + 1;
@@ -299,7 +300,8 @@ export default function BaseballController({
     // stand it down so the ball returns to the plate.
     if (shared.flight) clearFlight();
 
-    // At rest the ball bobs gently and spins slowly above the plate.
+    // At rest the ball bobs gently and spins slowly at its rest past
+    // the asteroid belt.
     restTimeRef.current += step;
     const rt = restTimeRef.current;
     if (shared.ballMesh) {

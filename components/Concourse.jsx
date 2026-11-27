@@ -69,6 +69,7 @@ import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import { resolveUiSettings, readUiSettingsCache, writeUiSettingsCache, UI_SETTINGS_EVENT } from '@/lib/ui-settings';
 import { isIconDrag, clampIconPx, iconFracToPx, iconPxToFrac, dragIconTopLeft, resolveIconPosition } from '@/lib/concourse-icon';
 import { useVortexTravel } from './VortexTravel';
+import HubPulseGlow from './HubPulseGlow';
 import { HUB_LOADED_EVENT, shouldMountConcoursePortals } from '@/lib/hub-loaded';
 
 // Layer 3 · Portals — loaded only when its tile is first tapped,
@@ -828,6 +829,12 @@ export default function Concourse() {
           height: SIZE,
         }}
       >
+        {/* Hub pulse glow (Merlin, Nov 27, 2026): the hub icon does
+            the same 30 s glow as the FLIGHT AXIS pill, on the same
+            clock — only while in the hub (pathname '/'). A separate
+            ring element, so the orb's own transition-shadow states
+            (drag / hover) are untouched. */}
+        {pathname === '/' && <HubPulseGlow />}
         <OrbFace />
       </button>
       {vortexOverlay}

@@ -17,7 +17,9 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSeason, treeVisible, seasonBadge, starwarsDay } from '@/lib/seasonal/seasons';
 import { buildChristmasTree, buildMistletoe, treeSwapPlacement } from '@/lib/seasonal/tree';
-import { BUILDERS, disposeGroup } from '@/lib/seasonal/decorations';
+import { BUILDERS, buildMeteorShower, disposeGroup } from '@/lib/seasonal/decorations';
+import { meteorShowerActive } from '@/lib/seasonal/hub-christmas-fx';
+import ChristmasPresents from '@/components/ChristmasPresents';
 import { EARTH_CENTER, EARTH_RADIUS } from '@/lib/god-orbits';
 import { globeWorldPointToLatLon, GLOBE_CENTER } from '@/lib/earth/globe-click';
 import { useI18n } from '@/lib/i18n';
@@ -215,6 +217,14 @@ export default function SeasonalDecor({ onTreeSelect = null, onTreeGlobeClick = 
         if (k !== 'group' && k !== 'update') extras[k] = made[k];
       }
     }
+    if (season === 'christmas') {
+      // Meteor shower (Merlin, Nov 27, 2026): built alongside the
+      // snow, starts hidden — useFrame flips it on at the top of the
+      // hour while the snow stands down.
+      const shower = buildMeteorShower(THREE);
+      group.add(shower.group);
+      extras.meteorShower = shower;
+    }
     if (showTree) {
       // Christmas swap (Merlin, Nov 25, 2026 — "tree where earth is"):
       // the tree stands at the Earth's centre, base at the Earth's
@@ -268,12 +278,23 @@ export default function SeasonalDecor({ onTreeSelect = null, onTreeGlobeClick = 
     const t = state.clock.elapsedTime;
     const step = Math.min(dt, 0.05);
     for (const u of built.updates) u(t, step);
+    // Meteor shower (Merlin, Nov 27, 2026): at the top of every hour
+    // (local minutes 00-05) the shower runs INSTEAD of the snowfall —
+    // snow stands down, shower runs; the rest of the hour snow runs
+    // as normal. Only in the christmas season.
+    if (built.meteorShower && built.setSnowVisible) {
+      const showerOn = season === 'christmas' && meteorShowerActive(new Date());
+      built.meteorShower.group.visible = showerOn;
+      built.setSnowVisible(!showerOn);
+      if (showerOn) built.meteorShower.update(t, step);
+    }
   });
 
   if (!season && !showTree) return null;
   return (
     <>
       <primitive object={built.group} />
+      {showTree && <ChristmasPresents built={built} />}
       {season === 'halloween' && built.proxies && (
         <PumpkinHarvest built={built} onToast={seasonToast} onTrophy={announceTrophy} />
       )}

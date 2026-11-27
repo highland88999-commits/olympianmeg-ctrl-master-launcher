@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import MiniViewport from '@/components/world-engine/MiniViewport';
+import AddToHubButton from '@/components/world-engine/AddToHubButton';
 import PortalRoom from '@/components/PortalRoom';
 import { FORGED_PORTAL_GUN_OPENING } from '@/lib/portal/gun';
 import { supabase } from '@/lib/supabase';
@@ -470,6 +471,14 @@ function CreationCard({ asset, listingId, busy, onRename, onList, onUnlist, onTo
             >
               {downloading ? 'Preparing…' : '⬇ Download'}
             </button>
+            {/* ADD TO HUB (Merlin, Nov 27, 2026 — Part 14 refinement):
+                sends this creation straight to the hub's orbit rings
+                — same button and behaviour as in the World Engine.
+                Part 12 unified style (.btn: see-through, silver). */}
+            <AddToHubButton
+              item={{ id: String(asset.id), kind: asset.category, name: asset.display_name || 'Untitled ' + asset.category, source: 'profile' }}
+              className="min-h-[44px] px-3 rounded-lg text-xs font-bold"
+            />
             <button
               type="button"
               onClick={() => { setEditing(true); setConfirmUnlist(false); }}
@@ -755,7 +764,8 @@ export default function MyCreations() {
       <h2 className="text-sm font-bold tracking-[0.3em] uppercase text-neutral-100 mb-1">My Creations</h2>
       <p className="text-xs text-neutral-500 mb-5">
         Everything you have forged in the World Engine, saved to your account.
-        Rename anything, or list it for sale on the Auction House. Worlds can
+        Rename anything, list it for sale on the Auction House, or send it to
+        the hub&apos;s orbit rings with Add to Hub. Worlds can
         also be published into the{' '}
         <Link href="/communiverse" className="text-cyan-300 hover:underline">Communiverse</Link>,
         entered with one click, and directed with Muse — and if a world sells,

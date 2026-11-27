@@ -10,6 +10,9 @@ import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import CreditsPanel from '@/components/world-engine/CreditsPanel';
 import NeuralBackpack from '@/components/world-engine/NeuralBackpack';
+import AddToHubButton from '@/components/world-engine/AddToHubButton';
+import { useEngineStore } from '@/lib/world-engine/useEngineStore';
+import { readSeed } from '@/lib/world-engine/world-seed';
 import { ENGINE_CONTROLS_HINT, ENGINE_WALK_HINT } from '@/lib/world-engine/datasheets/engine';
 
 const WorldCanvas = dynamic(() => import('@/components/world-engine/WorldCanvas'), {
@@ -23,6 +26,24 @@ const WorldCanvas = dynamic(() => import('@/components/world-engine/WorldCanvas'
 
 export default function EnginePage() {
   const [mode, setMode] = useState('orbit');
+
+  // ADD TO HUB (Merlin, Nov 27, 2026 — Part 14): the world open in
+  // this engine goes to the hub's orbit rings. Its identity is its
+  // seed (lib/world-engine/world-seed.js) when it has one, else the
+  // unsaved draft. NOTE — circle-orb tension, flagged not hidden:
+  // this is a game screen, where the orb law governs controls, but
+  // this page's existing controls are already rectangular pills
+  // (Dashboard, Walk/Orbit), not orbs — so the Part 12 unified
+  // rectangular .btn follows the page as it is, rather than breaking
+  // either rule silently. Merlin's call whether this page goes orbs.
+  const world = useEngineStore((s) => s.world);
+  const worldSeed = readSeed(world || {});
+  const engineHubItem = {
+    id: worldSeed ? 'world-seed:' + worldSeed : 'world-draft',
+    kind: 'world',
+    name: worldSeed ? 'World ' + worldSeed : 'My world',
+    source: 'world-engine:engine',
+  };
 
   useEffect(() => {
     const onWalkMode = (e) => {
@@ -54,6 +75,10 @@ export default function EnginePage() {
             &larr; Dashboard
           </Link>
           <div className="pointer-events-auto flex items-start gap-2">
+            <AddToHubButton
+              item={engineHubItem}
+              className="px-4 py-2 text-xs font-mono font-bold tracking-widest"
+            />
             <button
               type="button"
               onClick={toggleWalk}

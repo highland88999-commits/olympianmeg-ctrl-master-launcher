@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { SERVER_DISTANCE_CAP, formatDistance, scoreFlight } from '../lib/hub-baseball/scoring.js';
 
 describe('scoreFlight', () => {
-  it('scores the max distance from the plate in whole metres', () => {
+  it('scores the max distance from the flight origin in whole metres', () => {
     assert.equal(scoreFlight({ maxDistanceM: 1234.4 }), 1234);
     assert.equal(scoreFlight({ maxDistanceM: 1234.5 }), 1235);
     assert.equal(scoreFlight({ maxDistanceM: 0 }), 0);

@@ -163,3 +163,56 @@ body.vgogh-sky-active [role="dialog"] [class*="tracking-"] {
     -1px 2px 0 rgba(90, 45, 12, 0.45),
     0 6px 14px rgba(20, 10, 4, 0.55);
 }
+
+/* Hub pulse glow (Merlin, Nov 27, 2026): once every 30 seconds a glow
+   swells up and fades down around the outline of the FLIGHT AXIS pill
+   and the hub icon (Concourse Orb) — a visual indicator for motion,
+   subtle but eye-catching. The ring is a separate element (never the
+   button's own box-shadow, so the pill's shadow-lg and the orb's
+   transition-shadow are untouched). Both elements run the same 30 s
+   keyframes with a wall-clock negative animation-delay (see
+   pulseDelaySeconds in lib/seasonal/hub-christmas-fx.js), so they
+   swell and fade together. Interceptor green (#00ff88, the Dart —
+   "Interceptor — fastest thing in the sky"). The pulse is a motion
+   indicator only: it never changes the axis mode or steals taps
+   (pointer-events: none). Respects prefers-reduced-motion. */
+.hub-pulse-glow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  pointer-events: none;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hub-pulse-glow {
+    animation: hub-pulse-glow 30s linear infinite;
+  }
+}
+@keyframes hub-pulse-glow {
+  0% {
+    opacity: 0;
+    border-color: rgba(0, 255, 136, 0);
+    box-shadow: 0 0 0 0 rgba(0, 255, 136, 0);
+  }
+  5% {
+    opacity: 1;
+    border-color: rgba(0, 255, 136, 0.75);
+    box-shadow: 0 0 18px 3px rgba(0, 255, 136, 0.5);
+  }
+  10% {
+    opacity: 1;
+    border-color: rgba(0, 255, 136, 0.9);
+    box-shadow: 0 0 26px 5px rgba(0, 255, 136, 0.6);
+  }
+  18% {
+    opacity: 0;
+    border-color: rgba(0, 255, 136, 0);
+    box-shadow: 0 0 6px 1px rgba(0, 255, 136, 0.12);
+  }
+  100% {
+    opacity: 0;
+    border-color: rgba(0, 255, 136, 0);
+    box-shadow: 0 0 0 0 rgba(0, 255, 136, 0);
+  }
+}

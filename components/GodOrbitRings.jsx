@@ -22,9 +22,17 @@
 //   collision registry (bounce/deflect, never kill).
 // - VISUAL/PHYSICAL ONLY. Program navigation lives in the floating
 //   satellite menu; the rings no longer launch anything.
+// - PERFECT-CIRCLE BILLBOARD + EXPONENTIAL PLANET RINGS (Merlin,
+//   Nov 27, 2026 — Part 13): the assembly tilts to face the camera
+//   once scrolled out (blend 250–700 units from the hub centre), so
+//   the rings read as perfect circles at any camera angle instead of
+//   the squashed ellipse a flat horizontal ring projects (2.34x wider
+//   than tall at 25° elevation). At the hub the layout is exactly as
+//   before. The exponential planet rings (lib/hub-orbit-rings.js:
+//   hub + 3 rings, radii 2x outward) ride the same assembly.
 
 'use client';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Text, Billboard } from '@react-three/drei';
 import * as THREE from 'three';
@@ -37,6 +45,13 @@ import {
   orbitTime,
   menuSatellitePosition,
 } from '@/lib/god-orbits';
+import {
+  HUB_ORBIT_RING_RADII,
+  orbitRingBillboardBlend,
+  loadHubOrbitItems,
+  drawnHubOrbitRingRadii,
+  HUB_ORBIT_ITEMS_CHANGED_EVENT,
+} from '@/lib/hub-orbit-rings';
 import { godPlanetWrap } from '@/lib/hub-planet-wraps';
 import { registerCollider, unregisterCollider } from '@/lib/hub-collision';
 
@@ -74,8 +89,23 @@ const EARTH_C = new THREE.Vector3(EARTH_CENTER.x, EARTH_CENTER.y, EARTH_CENTER.z
 const _wp = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _ec = new THREE.Vector3();
+// PERFECT-CIRCLE BILLBOARD (Merlin, Nov 27, 2026 — Part 13): the ring
+// assembly tilts to face the camera once scrolled out, so the orbit
+// rings read as perfect circles instead of the squashed ellipse a flat
+// horizontal ring projects at an angle (at 25° elevation the mean lane
+// reads 2.34x wider than tall). Scratch state for the per-frame
+// orientation — see GodOrbitRings' useFrame. The analytic model in
+// lib/god-orbits.js is untouched: it stays the horizontal home model
+// (drop targets, flight lanes, tests all read it).
+const _center = new THREE.Vector3(ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z);
+const _viewDir = new THREE.Vector3();
+const _Y = new THREE.Vector3(0, 1, 0);
+const _qHome = new THREE.Quaternion();
+const _qAlign = new THREE.Quaternion();
+const _qSpin = new THREE.Quaternion();
+const _satPos = new THREE.Vector3();
 
-function HubSatellite({ band, index }) {
+function HubSatellite({ band, index, blendRef }) {
   // Invented wrap for this god (Merlin, Nov 18, 2026): generated in
   // its god colour, cached per god, deterministic — no network fetch,
   // no flat-colour fallback possible.
@@ -86,12 +116,21 @@ function HubSatellite({ band, index }) {
   const angle = band.phase;
   const R = band.radius;
   const satRef = useRef();
+  const tiltRef = useRef();
   const labelRef = useRef();
   const textRef = useRef();
   const labelState = useRef({ scale: -1, opacity: -1 });
 
   // Distance-driven label scale cap + fade (see constants above).
   useFrame(({ camera }) => {
+    // Billboard tilt fade (Part 13): at the hub the band keeps its
+    // analytic tilt; scrolled out the tilt eases to 0 so the ring and
+    // its satellite sit exactly on the camera-facing circle.
+    const tilt = tiltRef.current;
+    if (tilt) {
+      const blend = blendRef ? blendRef.current : 0;
+      tilt.rotation.z = band.tiltRad * (1 - blend);
+    }
     const sat = satRef.current;
     const label = labelRef.current;
     if (!sat || !label) return;
@@ -132,12 +171,21 @@ function HubSatellite({ band, index }) {
     if (label.visible !== vis) label.visible = vis;
   });
 
-  // Solid satellite: register a live sphere collider at the analytic
-  // position (matches the rendered transform exactly).
+  // Solid satellite: register a live sphere collider at the RENDERED
+  // position (matches the billboarded transform exactly). The analytic
+  // home position is the fallback for the first frame / unmounted ref.
+  // The analytic model itself is untouched (lib/god-orbits.js).
   useEffect(() => {
     registerCollider(
       `hubsat-${band.god}`,
-      () => menuSatellitePosition(index, orbitTime()),
+      () => {
+        const sat = satRef.current;
+        if (sat) {
+          sat.getWorldPosition(_satPos);
+          return { x: _satPos.x, y: _satPos.y, z: _satPos.z };
+        }
+        return menuSatellitePosition(index, orbitTime());
+      },
       SAT_RADIUS + 1.8
     );
     return () => unregisterCollider(`hubsat-${band.god}`);
@@ -161,7 +209,7 @@ function HubSatellite({ band, index }) {
   useEffect(() => () => hullMat.dispose(), [hullMat]);
 
   return (
-    <group rotation={[0, 0, band.tiltRad]}>
+    <group ref={tiltRef} rotation={[0, 0, band.tiltRad]}>
       {/* Orbit ring — the satellite's own lane around the landing spot. */}
       <mesh rotation-x={Math.PI / 2}>
         <torusGeometry args={[R, 0.28, 8, 160]} />
@@ -203,13 +251,105 @@ function HubSatellite({ band, index }) {
   );
 }
 
+// A creation sent to the hub (Part 14). It rides the billboarded
+// assembly on its ring, so it stays on the ring at every camera
+// angle — and its label is a Billboard, so the name stays upright
+// and readable even while the assembly tilts (Part 13 second
+// refinement: horizontal axis + readable labels). The thin green
+// accent ring is the Treasure Planet glowing-ring look, at item
+// scale. Position is local to the assembly (centred on ORBIT_CENTER),
+// so the stored hub centre is offset back; y is 0 — the item sits
+// on the flat horizontal ring plane.
+function HubOrbitItem({ item }) {
+  if (!item || !item.center) return null;
+  const size = item.kind === 'world' || item.kind === 'planet' ? 14 : 8;
+  return (
+    <group
+      position={[
+        item.center.x - ORBIT_CENTER.x,
+        item.center.y - ORBIT_CENTER.y,
+        item.center.z - ORBIT_CENTER.z,
+      ]}
+    >
+      <mesh>
+        <sphereGeometry args={[size, 24, 18]} />
+        <meshStandardMaterial color="#9fd8ff" emissive="#1d5f8a" emissiveIntensity={0.35} roughness={0.6} metalness={0.1} />
+      </mesh>
+      <mesh rotation-x={Math.PI / 2}>
+        <torusGeometry args={[size + 2.5, 0.5, 8, 64]} />
+        <meshBasicMaterial color="#39ff88" transparent opacity={0.85} fog={false} />
+      </mesh>
+      <Billboard position={[0, size + 8, 0]}>
+        <Text
+          fontSize={6}
+          color="#d9d9d9"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.2}
+          outlineColor="#000000"
+        >
+          {item.name || item.kind}
+        </Text>
+      </Billboard>
+    </group>
+  );
+}
+
 export default function GodOrbitRings() {
   const spinRef = useRef();
+  // Billboard blend shared with the satellites (drives their tilt fade).
+  const blendRef = useRef(0);
 
-  useFrame(() => {
+  // HUB ORBIT ITEMS (Merlin, Nov 27, 2026 — Part 14): creations sent
+  // to the hub with Add to Hub live in localStorage; this assembly
+  // reads them so they render on their rings. Refreshes live via the
+  // hub-orbit-items-changed event (same tab) and the storage event
+  // (another tab) — no hub reload needed after adding.
+  const [hubItems, setHubItems] = useState([]);
+  useEffect(() => {
+    const refresh = () => setHubItems(loadHubOrbitItems());
+    refresh();
+    window.addEventListener(HUB_ORBIT_ITEMS_CHANGED_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(HUB_ORBIT_ITEMS_CHANGED_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+  // Rings are drawn as they are made (Part 13 second refinement):
+  // the three Part 13 rings always, plus any further ring an item
+  // has actually landed on by fill-up.
+  const drawnRingRadii = useMemo(() => drawnHubOrbitRingRadii(hubItems), [hubItems]);
+
+  useFrame(({ camera }) => {
     // One unit, counter-rotating against Earth's +Y spin. Driven from the
     // shared orbitTime() clock so orbitPositionFor() always agrees.
-    if (spinRef.current) spinRef.current.rotation.y = -RING_SPIN * orbitTime();
+    // PERFECT CIRCLE (Part 13): the assembly's plane faces the camera
+    // once scrolled out. At the hub (blend 0) the orientation is
+    // exactly rotation.y = -RING_SPIN * orbitTime() — today's horizontal
+    // layout, pixel-identical. Scrolled out (blend 1) the plane's
+    // normal is the view direction, so every ring — god lanes and the
+    // exponential planet rings below — projects as a perfect circle,
+    // with the counter-rotation carried as an in-plane spin.
+    const group = spinRef.current;
+    if (!group) return;
+    const camDist = camera.position.distanceTo(_center);
+    const blend = orbitRingBillboardBlend(camDist);
+    blendRef.current = blend;
+    const spinAngle = -RING_SPIN * orbitTime();
+    _qHome.setFromAxisAngle(_Y, spinAngle);
+    if (blend <= 0) {
+      group.quaternion.copy(_qHome);
+      return;
+    }
+    _viewDir.copy(camera.position).sub(_center);
+    if (_viewDir.lengthSq() < 1e-6) _viewDir.copy(_Y);
+    else _viewDir.normalize();
+    _qAlign.setFromUnitVectors(_Y, _viewDir);
+    _qSpin.setFromAxisAngle(_Y, spinAngle);
+    _qAlign.multiply(_qSpin);
+    if (blend >= 1) group.quaternion.copy(_qAlign);
+    else group.quaternion.copy(_qHome).slerp(_qAlign, blend);
   });
 
   return (
@@ -217,8 +357,33 @@ export default function GodOrbitRings() {
       ref={spinRef}
       position={[ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z]}
     >
+      {/* Exponential planet rings (Merlin, Nov 27, 2026 — Part 13):
+          concentric perfect circles centred on the hub, radii growing
+          2x outward from the hub's edge (lib/hub-orbit-rings.js). They
+          ride the billboarded assembly, so they read as circles at
+          every camera angle. First circle is the hub itself; each ring
+          holds user-created planets and house-made planets alike.
+          GLOW LOOK (Part 13 second refinement — Treasure Planet
+          reference: bright glowing green ring): each ring wears a
+          green glow torus beside its gold core. Rings beyond the
+          three drawn here appear only once fill-up creates them. */}
+      {drawnRingRadii.map((R) => (
+        <group key={R}>
+          <mesh rotation-x={Math.PI / 2}>
+            <torusGeometry args={[R, 0.35, 8, 256]} />
+            <meshBasicMaterial color="#ffd166" transparent opacity={0.45} fog={false} />
+          </mesh>
+          <mesh rotation-x={Math.PI / 2}>
+            <torusGeometry args={[R, 1.1, 8, 256]} />
+            <meshBasicMaterial color="#39ff88" transparent opacity={0.18} fog={false} />
+          </mesh>
+        </group>
+      ))}
+      {hubItems.map((item) => (
+        <HubOrbitItem key={item.id} item={item} />
+      ))}
       {GOD_BANDS.map((band, i) => (
-        <HubSatellite key={band.god} band={band} index={i} />
+        <HubSatellite key={band.god} band={band} index={i} blendRef={blendRef} />
       ))}
     </group>
   );

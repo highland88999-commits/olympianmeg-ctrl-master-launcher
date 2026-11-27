@@ -5,7 +5,8 @@
 // All procedural (no new assets, no new real lights — MeshBasicMaterial
 // for decor, per the house rule for created pieces):
 //   (a) the ball: sphere r=BALL_RADIUS, canvas texture (white, two red
-//       curved seams + stitch ticks, drawn on an offscreen canvas);
+//       curved seams + stitch ticks, drawn on an offscreen canvas) —
+//       rests past the asteroid belt since Nov 27, 2026 (Merlin);
 //   (b) home plate: white pentagon (home-plate shape) at PLATE_POS;
 //   (c) black holes: a pool of slots (HOLE_POOL) — black sphere + orange
 //       torus accretion ring + additive glow sprite from a canvas
@@ -14,6 +15,11 @@
 //   (d) scoreboard: drei Billboard plane 44x26 at SCOREBOARD_POS, canvas
 //       texture redrawn from baseballBoard (top 5 global + your stats),
 //       or a local-only note when the board is null.
+//   (e) the blue giant star: sphere r=BLUE_STAR_RADIUS at the ball's
+//       OLD rest above the plate (Merlin, Nov 27, 2026), wearing the
+//       house sun's graphic (/IMG_0035.jpeg) under a blue tint, with
+//       blue halo shells + glow sprite — the house sun's construction,
+//       blue instead of gold. Decorative only: no click, no entry.
 //
 // The ball mesh + hole slots register themselves into flightRef (shared
 // with BaseballController + SequenceController, created in HubScene):
@@ -22,11 +28,11 @@
 // BaseballController owns positioning them every frame; this file only
 // renders them and redraws the scoreboard texture.
 
-import { useMemo, useEffect, useRef } from 'react';
+import { useMemo, useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import * as THREE from 'three';
-import { PLATE_POS, BALL_REST, BALL_RADIUS, SCOREBOARD_POS, SCOREBOARD_SIZE } from '../../lib/hub-baseball/placement';
+import { PLATE_POS, BALL_REST, BALL_RADIUS, SCOREBOARD_POS, SCOREBOARD_SIZE, BLUE_STAR_POS, BLUE_STAR_RADIUS } from '../../lib/hub-baseball/placement';
 
 // Hole render pool: the contract spawns 6 holes per flight; 12 slots
 // leaves headroom if the count ever grows, at negligible cost.
@@ -211,6 +217,85 @@ function homePlateShape(w, h) {
   return s;
 }
 
+// Blue giant star (Merlin, Nov 27, 2026 — "put that [a blue giant
+// star] where the baseball is/was"): stands at the baseball's OLD rest
+// above home plate, same planet-sized presence (r=55). Wears the house
+// sun's graphic (/IMG_0035.jpeg, the Nov 17 sun sweep's sun texture)
+// under a pale-blue tint, with blue additive halo shells and a blue
+// glow sprite — the house sun's construction (HomeScene SunBackground),
+// blue instead of gold. Decorative only: no click handler, no
+// sun-base entry, no baseball interaction (SWING stays with the moved
+// baseball). It occupies exactly the spot and size the ball used to,
+// so it blocks nothing the ball didn't — tree, plate, scoreboard and
+// controls all clear it.
+function BlueGiantStar() {
+  const starRef = useRef();
+  const [sunMap, setSunMap] = useState(null);
+  const glowTex = useMemo(() => {
+    const size = 256;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0.0, 'rgba(190, 220, 255, 1)');
+    grad.addColorStop(0.22, 'rgba(120, 170, 255, 0.6)');
+    grad.addColorStop(0.5, 'rgba(70, 120, 255, 0.2)');
+    grad.addColorStop(1.0, 'rgba(40, 80, 255, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }, []);
+  useEffect(() => {
+    let isMounted = true;
+    new THREE.TextureLoader().load('/IMG_0035.jpeg', (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      if (isMounted) setSunMap(tex);
+    }, undefined, () => {
+      const blank = new THREE.DataTexture(new Uint8Array([120, 170, 255, 255]), 1, 1, THREE.RGBAFormat);
+      blank.needsUpdate = true;
+      if (isMounted) setSunMap(blank);
+    });
+    return () => {
+      isMounted = false;
+      glowTex.dispose();
+    };
+  }, [glowTex]);
+  useFrame((state, delta) => {
+    if (starRef.current) starRef.current.rotation.y += delta * 0.01;
+  });
+  if (!sunMap) return null;
+  return (
+    <group position={[BLUE_STAR_POS[0], BLUE_STAR_POS[1], BLUE_STAR_POS[2]]}>
+      <mesh ref={starRef}>
+        <sphereGeometry args={[BLUE_STAR_RADIUS, 64, 64]} />
+        <meshBasicMaterial map={sunMap} color="#9dbfff" toneMapped={false} />
+      </mesh>
+      <mesh scale={[1.1, 1.1, 1.1]}>
+        <sphereGeometry args={[BLUE_STAR_RADIUS, 64, 64]} />
+        <meshBasicMaterial color="#5aa2ff" transparent opacity={0.4} blending={THREE.AdditiveBlending} toneMapped={false} />
+      </mesh>
+      <mesh scale={[1.3, 1.3, 1.3]}>
+        <sphereGeometry args={[BLUE_STAR_RADIUS, 64, 64]} />
+        <meshBasicMaterial color="#2d6cdf" transparent opacity={0.15} blending={THREE.AdditiveBlending} toneMapped={false} />
+      </mesh>
+      {/* Light bleed: camera-facing halo, luminous from every angle */}
+      <sprite scale={[520, 520, 1]}>
+        <spriteMaterial
+          map={glowTex}
+          color="#bcd8ff"
+          transparent
+          opacity={0.9}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          toneMapped={false}
+        />
+      </sprite>
+    </group>
+  );
+}
+
 export default function Baseball({ baseballBoard = null, baseballHudRef = null, flightRef = null }) {
   const ballTex = useMemo(() => {
     const c = document.createElement('canvas');
@@ -298,8 +383,8 @@ export default function Baseball({ baseballBoard = null, baseballHudRef = null, 
 
   return (
     <group>
-      {/* The ball — floats just above the plate at rest (BALL_REST),
-          hidden while flying (the camera IS the ball). */}
+      {/* The ball — rests past the asteroid belt (BALL_REST, moved
+          Nov 27, 2026), hidden while flying (the camera IS the ball). */}
       <mesh
         ref={registerBall}
         position={[BALL_REST[0], BALL_REST[1], BALL_REST[2]]}
@@ -307,6 +392,9 @@ export default function Baseball({ baseballBoard = null, baseballHudRef = null, 
         <sphereGeometry args={[BALL_RADIUS, 64, 64]} />
         <meshBasicMaterial map={ballTex} toneMapped={false} />
       </mesh>
+
+      {/* The blue giant star, where the baseball used to rest. */}
+      <BlueGiantStar />
 
       {/* Home plate — white pentagon, upright facing +Z (toward the
           plate viewpoint south of the plate), dark rim behind it. */}

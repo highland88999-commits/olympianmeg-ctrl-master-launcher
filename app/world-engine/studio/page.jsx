@@ -18,6 +18,7 @@ import {
   buildHologramSchema,
 } from '@/lib/world-engine/datasheets/studio';
 import HologramPreview from '@/components/world-engine/HologramPreview';
+import AddToHubButton from '@/components/world-engine/AddToHubButton';
 import { scratchedTextureUrl } from '@/lib/portal/scratched-textures';
 
 // MAGENTA scratched-metal wrap (Merlin, 2026-11-15): the studio's
@@ -154,6 +155,15 @@ export default function StudioPage() {
               <div className="flex justify-between items-center mb-3 border-b border-gray-800 pb-2">
                 <span className="text-xs text-[#a78bfa] tracking-widest">HOLOGRAM SCHEMA</span>
                 <div className="flex gap-2">
+                  {/* ADD TO HUB (Merlin, Nov 27, 2026 — Part 14):
+                      holograms save as category 'object'
+                      (STUDIO_SAVE_RULES), so that is the kind that
+                      orbits. Sends this hologram straight to the
+                      hub's rings — Part 12 unified style. */}
+                  <AddToHubButton
+                    item={{ id: 'hologram:' + (text.slice(0, 40) || 'untitled'), kind: 'object', name: 'Hologram: ' + (text.slice(0, 40) || 'untitled'), source: 'world-engine:studio' }}
+                    className="px-4 py-1 text-xs font-bold"
+                  />
                   <button onClick={saveToLibrary} style={{ backgroundImage: `url(${MAGENTA_WRAP_URL})`, backgroundSize: 'cover', backgroundPosition: 'center' }} className="text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.9)] border border-[#a78bfa] px-4 py-1 text-xs font-bold hover:brightness-125 transition-all">
                     Save to library
                   </button>

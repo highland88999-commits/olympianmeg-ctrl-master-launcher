@@ -1,0 +1,47 @@
+/* components/DialogUnified.module.css
+ *
+ * Part 12 (Merlin, 2026-11-27) — ONE shared button/title style for the
+ * onboarding dialogs and the Choose your Earth menu, in the hub's own
+ * aesthetic (dark nebula, gold headings):
+ *   - buttons carry TEXT ONLY, no icon/image graphics
+ *   - buttons are SEE-THROUGH (the looping nebula video behind shows
+ *     through) — no solid fills
+ *   - button text + borders are SILVER
+ *   - dialog/menu headings are GOLD (#fde68a — the existing amber-200
+ *     heading gold, now one token so it matches everywhere)
+ *
+ * Used by: components/FintracExplanation.jsx (all five onboarding
+ * steps) and the Choose your Earth menu in app/page.jsx (same import).
+ * Do NOT use on the hub game controls: the baseball SWING button
+ * (keeps the 3D reflective baseball), the FLIGHT AXIS pill (keeps its
+ * glow), the joystick — those are out of scope and stay as they are.
+ *
+ * The module owns the button's fill/border/text colour: when applying
+ * .btn, STRIP the conflicting Tailwind background, border and text
+ * colour utilities off that button (layout utilities — flex, size,
+ * rounding, padding — stay in the JSX). Otherwise Tailwind and this
+ * module fight over the same properties and the winner depends on
+ * stylesheet order.
+ */
+
+.goldTitle {
+  color: #fde68a;
+}
+
+.btn {
+  background: transparent;
+  border: 1px solid rgba(192, 192, 192, 0.75);
+  color: #d9d9d9;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: rgba(192, 192, 192, 0.95);
+  color: #ffffff;
+  background: rgba(192, 192, 192, 0.08);
+}
+
+.btn:focus-visible {
+  outline: 2px solid #fde68a;
+  outline-offset: 2px;
+}

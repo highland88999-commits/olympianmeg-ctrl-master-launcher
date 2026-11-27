@@ -66,6 +66,12 @@ import {
   resolveDevicePrefs,
 } from '@/lib/device-prefs';
 import { CONCOURSE_BG_ART } from '@/lib/concourse-bg';
+import styles from './DialogUnified.module.css';
+
+// Parts 10–12: the looping nebula video shared by the onboarding
+// dialogs and the Choose your Earth menu — ONE file, never a second
+// video. The static backdrop stays as the poster/fallback underneath.
+const LANDING_SETUP_BG_VIDEO = '/videos/onboarding/landing-setup-bg.mp4';
 
 // Re-exported for the hub: components/Concourse.jsx imports
 // fireFintracExplanation from this module (it was imported here but
@@ -162,25 +168,27 @@ function DeviceControlsFrame() {
         : 'border-red-950 bg-red-950/40 shadow-none'
     }`;
 
-  const row = (on, onToggle, emoji, title, text, color, label) => (
+  // Part 12: the row is a unified see-through button (silver text and
+  // border, no fill). The light disc stays ONLY as the on/off state
+  // indicator — no emoji inside it — and the ON/OFF word carries the
+  // state in text; the row title already says which control it is.
+  const row = (on, onToggle, title, text, color, label) => (
     <button
       type="button"
       onClick={onToggle}
       aria-pressed={on}
       aria-label={`${title}: ${on ? 'on' : 'off'}. Tap to turn ${on ? 'off' : 'on'}.`}
-      className="flex w-full items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-left"
+      className={`flex w-full items-center gap-4 rounded-2xl px-4 py-3 text-left ${styles.btn}`}
     >
-      <span aria-hidden="true" className={light(on, color)}>
-        <span className="text-xl leading-none">{emoji}</span>
-      </span>
+      <span aria-hidden="true" className={light(on, color)} />
       <span className="min-w-0">
-        <span className="block text-sm font-black uppercase tracking-widest text-zinc-100">
+        <span className="block text-sm font-black uppercase tracking-widest">
           {title}
         </span>
-        <span className="mt-0.5 block text-xs leading-relaxed text-zinc-400">
+        <span className="mt-0.5 block text-xs leading-relaxed opacity-70">
           {text}
         </span>
-        <span className={`mt-1 block text-[10px] font-black uppercase tracking-widest ${on ? 'text-green-400' : 'text-red-400'}`}>
+        <span className="mt-1 block text-[10px] font-black uppercase tracking-widest">
           {on ? label.on : label.off}
         </span>
       </span>
@@ -211,12 +219,12 @@ function DeviceControlsFrame() {
       {/* Street-light toggles: both auto-on, tap to turn off. */}
       <div className="mt-4 flex flex-col gap-3 rounded-[2rem] border border-zinc-700 bg-zinc-950/70 px-4 py-4">
         {row(
-          tiltOn, toggleTilt, '📳', 'Tilt control',
+          tiltOn, toggleTilt, 'Tilt control',
           'Tilt your phone to steer and look. On by default — tap the light to turn it off.',
           'green', { on: 'On', off: 'Off' }
         )}
         {row(
-          locationOn, toggleLocation, '📍', 'Location',
+          locationOn, toggleLocation, 'Location',
           'Background tracking for mapping — the wifi finder needs it to place networks on the map. On by default.',
           'green', { on: 'On', off: 'Off' }
         )}
@@ -225,36 +233,10 @@ function DeviceControlsFrame() {
   );
 }
 
-// Step-1 light backdrops (Merlin, 2026-11-18): a house TRON emblem
-// behind each symbol inside its circle — cooler than the flat disc,
-// colour-matched per light. The emblems are neon-on-black, so they
-// ride mix-blend-screen over the flat disc colour: the black drops
-// out and the neon ring + motif shows. Red reticle and gold dawn are
-// native; the green ascend is a hue-shifted copy of tron-ascend.
-// All three are the *-light variants: the neon lines are lightened
-// toward white so the line work actually reads over the saturated
-// disc (the raw emblems in their own colour wash out on the disc).
-const LIGHT_BACKDROPS = {
-  red: '/images/shadow-realm/ui/tron-reticle-light.webp',
-  gold: '/images/shadow-realm/ui/tron-time-dawn-light.webp',
-  green: '/images/shadow-realm/ui/tron-ascend-green-light.webp',
-};
-
-// The emblem layer: absolute, edge to edge, screen-blended so only
-// the neon line work paints over the disc colour. aria-hidden:
-// decoration only — the button's aria-label carries the meaning.
-function LightBackdrop({ src }) {
-  return (
-    <img
-      src={src}
-      alt=""
-      aria-hidden="true"
-      draggable={false}
-      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      className="pointer-events-none absolute inset-0 h-full w-full object-cover mix-blend-screen"
-    />
-  );
-}
+// Part 12 (Merlin, 2026-11-27): the step-1 circles are TEXT ONLY now —
+// the TRON emblem backdrops (LIGHT_BACKDROPS / LightBackdrop) and the
+// emoji/portrait graphics inside the circles are gone. The circles
+// carry a short silver word each; the captions below them are unchanged.
 
 // Step 1 — the traffic light (Merlin, 2026-10-29). Three circular
 // buttons stacked like a street light: red picks the camera
@@ -338,9 +320,13 @@ function LandingSetupFrame({ onContinue }) {
 
   const character = CHARACTERS.find((c) => c.id === characterId) || null;
   const preview = CHARACTERS.find((c) => c.id === previewId) || character || null;
+  // Part 12: the yellow circle shows the character's first name as text
+  // (or PICK when none is chosen) — no portrait inside the button.
+  const characterShort = character ? character.name.split(' ')[0].toUpperCase() : 'PICK';
 
+  // Part 12: the shared .btn owns the border (silver) — no border-4 here.
   const lightBase =
-    'ui-element pointer-events-auto relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-4 transition-all active:scale-95 sm:h-20 sm:w-20';
+    'ui-element pointer-events-auto relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-full transition-all active:scale-95 sm:h-20 sm:w-20';
 
   // The picker sits IN FLOW under its heading while open (Merlin,
   // 2026-11-18): it replaces the orb stack instead of floating over
@@ -358,14 +344,14 @@ function LandingSetupFrame({ onContinue }) {
           className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-3xl bg-zinc-950"
         >
           <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
-            <span className="text-xs font-black uppercase tracking-widest text-amber-200">
+            <span className={`text-xs font-black uppercase tracking-widest ${styles.goldTitle}`}>
               Pick your character
             </span>
             <button
               type="button"
               aria-label="Close character picker"
               onClick={() => setPickerOpen(false)}
-              className="ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:border-amber-300/60 hover:text-white"
+              className={`ui-element pointer-events-auto flex h-7 w-7 items-center justify-center rounded-full ${styles.btn}`}
             >
               <span aria-hidden="true" className="text-xs leading-none">×</span>
             </button>
@@ -452,10 +438,11 @@ function LandingSetupFrame({ onContinue }) {
             onClick={togglePerspective}
             aria-label={`Camera perspective: ${LANDING_PERSPECTIVE_LABELS[perspective]}. Tap to switch.`}
             title="Camera perspective — tap to switch"
-            className={`${lightBase} border-red-900 bg-red-600 shadow-[0_0_24px_rgba(220,38,38,0.55)] hover:bg-red-500`}
+            className={`${lightBase} ${styles.btn}`}
           >
-            <LightBackdrop src={LIGHT_BACKDROPS.red} />
-            <span aria-hidden="true" className="relative z-10 text-2xl leading-none">🎥</span>
+            <span aria-hidden="true" className="relative z-10 px-1 text-center text-xs font-black tracking-widest">
+              {perspective === '1st' ? '1ST' : '3RD'}
+            </span>
           </button>
           <span className="text-[10px] font-black uppercase tracking-widest text-red-300">
             {LANDING_PERSPECTIVE_LABELS[perspective]}
@@ -468,26 +455,11 @@ function LandingSetupFrame({ onContinue }) {
             onClick={() => { setPreviewId(characterId); setPickerOpen(true); }}
             aria-label={character ? `Character: ${character.name}. Tap to change.` : 'Pick your character'}
             title="Pick your character"
-            className={`${lightBase} border-yellow-900 ${character ? 'bg-yellow-500 shadow-[0_0_24px_rgba(234,179,8,0.55)]' : 'bg-zinc-800 shadow-[0_0_12px_rgba(234,179,8,0.25)]'} hover:bg-yellow-400`}
+            className={`${lightBase} ${styles.btn}`}
           >
-            <LightBackdrop src={LIGHT_BACKDROPS.gold} />
-            {character ? (
-              <img
-                key={character.id}
-                src={character.preview}
-                alt=""
-                aria-hidden="true"
-                draggable={false}
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                // Inset so the gold dawn ring frames the portrait instead
-                // of the portrait hiding the backdrop outright. The key
-                // remounts the img on change: no stale portrait can paint
-                // under the new name (the name ghost in Merlin's video).
-                className="relative z-10 h-[78%] w-[78%] rounded-full object-cover"
-              />
-            ) : (
-              <span aria-hidden="true" className="relative z-10 text-2xl leading-none">❔</span>
-            )}
+            <span aria-hidden="true" className="relative z-10 break-words px-1 text-center text-[10px] font-black leading-tight tracking-widest">
+              {characterShort}
+            </span>
           </button>
           <span className="max-w-[7rem] text-center text-[10px] font-black uppercase leading-tight tracking-widest text-yellow-300">
             {character ? character.name : 'Character'}
@@ -500,10 +472,9 @@ function LandingSetupFrame({ onContinue }) {
             onClick={onContinue}
             aria-label="Continue to device controls"
             title="Continue"
-            className={`${lightBase} border-green-900 bg-green-600 shadow-[0_0_24px_rgba(22,163,74,0.55)] hover:bg-green-500`}
+            className={`${lightBase} ${styles.btn}`}
           >
-            <LightBackdrop src={LIGHT_BACKDROPS.green} />
-            <span aria-hidden="true" className="relative z-10 text-2xl leading-none">➡️</span>
+            <span aria-hidden="true" className="relative z-10 text-xs font-black tracking-widest">GO</span>
           </button>
           <span className="text-[10px] font-black uppercase tracking-widest text-green-300">
             Continue
@@ -560,14 +531,25 @@ export function FintracExplanationModal({ open, step = 4, onNext, onClose, onTak
             the same size card (Merlin, 2026-10-29) — the content
             area scrolls, the header and button stay put. */}
         <div className="relative flex h-[min(82dvh,680px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-amber-400/40 shadow-[0_18px_50px_rgba(0,0,0,0.55)]">
-          {/* Concourse backdrop behind every frame (Merlin 2026-10-29) */}
+          {/* Parts 10–11: the looping nebula video behind every frame —
+              one shared file, the same as the Choose your Earth menu.
+              The static backdrop stays underneath as the poster and
+              the fallback: it shows until the video can play, and
+              again if the video fails (the video hides itself on
+              error). autoPlay is required — a muted looping video
+              does not start without it. */}
           <img src={bg} alt="" aria-hidden="true" draggable={false}
             className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+          <video muted loop playsInline autoPlay preload="metadata" poster={bg} aria-hidden="true"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover">
+            <source src={LANDING_SETUP_BG_VIDEO} type="video/mp4" />
+          </video>
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-zinc-950/55" />
           <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="flex shrink-0 items-start justify-between gap-3 border-b border-zinc-800 px-5 pb-3 pt-5">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h2 className="text-base font-black uppercase tracking-widest text-amber-200">
+              <h2 className={`text-base font-black uppercase tracking-widest ${styles.goldTitle}`}>
                 {title}
               </h2>
               {isFintracStep && (
@@ -583,7 +565,7 @@ export function FintracExplanationModal({ open, step = 4, onNext, onClose, onTak
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="ui-element pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/15 text-zinc-300 hover:border-amber-300/60 hover:text-white"
+              className={`ui-element pointer-events-auto flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${styles.btn}`}
             >
               <span aria-hidden="true" className="text-xs leading-none">×</span>
             </button>
@@ -615,29 +597,22 @@ export function FintracExplanationModal({ open, step = 4, onNext, onClose, onTak
                     {p}
                   </p>
                 ))}
-                {/* Circular tour button, matching the Concourse tour
-                    tile's artwork (Merlin, 2026-10-29) */}
+                {/* Part 12: text-only circular tour button — the tour
+                    tile artwork stays on the Concourse tile itself,
+                    not inside this button. */}
                 <div className="mt-5 flex justify-center">
                   <button
                     type="button"
                     onClick={takeTour}
                     aria-label="Take the tour"
                     title="Take the tour"
-                    className="ui-element pointer-events-auto relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/[0.06] shadow-[0_4px_18px_rgba(0,0,0,0.35)] backdrop-blur-md transition-all hover:border-cyan-300/60 hover:scale-105 active:scale-95"
+                    className={`ui-element pointer-events-auto relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-full shadow-[0_4px_18px_rgba(0,0,0,0.35)] transition-all hover:scale-105 active:scale-95 ${styles.btn}`}
                   >
-                    <img
-                      src="/concourse-icons/tour.webp"
-                      alt=""
-                      aria-hidden="true"
-                      draggable={false}
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      className="absolute inset-0 h-full w-full object-cover"
-                    />
-                    <span aria-hidden="true" className="relative z-10 text-3xl leading-none">🗺️</span>
+                    <span aria-hidden="true" className="relative z-10 text-sm font-black tracking-widest">TOUR</span>
                   </button>
                 </div>
                 <p className="mt-2 text-center text-[11px] font-bold uppercase tracking-widest text-zinc-400">
-                  Tap the map to start
+                  Tap TOUR to start
                 </p>
               </>
             )}
@@ -646,7 +621,7 @@ export function FintracExplanationModal({ open, step = 4, onNext, onClose, onTak
             <button
               type="button"
               onClick={isLastStep ? onClose : onNext}
-              className="ui-element pointer-events-auto w-full rounded-xl bg-amber-400 py-3 text-sm font-black uppercase tracking-widest text-zinc-950 hover:bg-amber-300"
+              className={`ui-element pointer-events-auto w-full rounded-xl py-3 text-sm font-black uppercase tracking-widest ${styles.btn}`}
             >
               {onboardingNextButtonLabel(currentStep)}
             </button>

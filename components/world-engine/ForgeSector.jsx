@@ -13,7 +13,7 @@
 // - Cost is shown up front from the shared cost map.
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useEngineStore } from '@/lib/world-engine/useEngineStore';
@@ -21,6 +21,7 @@ import { updateBackpack } from '@/lib/backpack/store';
 import { costFor } from '@/lib/world-engine/economy';
 import { executeForgeSynthesis, mintForgeWeapon } from '@/lib/world-engine/forge-agent';
 import { mintWorldSeed, readSeed, stampSeed } from '@/lib/world-engine/world-seed';
+import AddToHubButton from '@/components/world-engine/AddToHubButton';
 import MiniViewport from '@/components/world-engine/MiniViewport';
 import ResourceToolkit from '@/components/world-engine/ResourceToolkit';
 import MuseEngineChat from '@/components/muse/MuseEngineChat';
@@ -29,6 +30,14 @@ export default function ForgeSector({ config }) {
   const { sectorName, tagline, category, accent, sliders, showAssetUrl, promptLabel, promptPlaceholder, presets, creaturePresets } = config;
 
   const [prompt, setPrompt] = useState('');
+  // ADD TO HUB (Merlin, Nov 27, 2026 — Part 14): the button below
+  // sends the current creation to the hub's orbit rings. A saved
+  // creation goes by its world_engine_assets row id (captured on
+  // insert, or on Load); before anything is saved, the live draft
+  // goes by a stable per-sector draft id (one per mount), so a
+  // second tap never duplicates it on the hub.
+  const draftIdRef = useRef('draft-' + category + '-' + Math.random().toString(36).slice(2, 10));
+  const [savedAsset, setSavedAsset] = useState(null);
   // The pasted URL also lives in the store (assetLink.url — the slice
   // is persisted) so the live preview can load it without a synthesis
   // round-trip; the field rehydrates from the store on reload.
@@ -37,6 +46,13 @@ export default function ForgeSector({ config }) {
   const [isSynthesizing, setIsSynthesizing] = useState(false);
   const [notice, setNotice] = useState(null);
   const [savedName, setSavedName] = useState(null);
+
+  // ADD TO HUB item (see draftIdRef above): the saved row when there
+  // is one, else the live draft. Computed here — after creationName
+  // is declared — so the button always carries the current name.
+  const hubItem = savedAsset
+    ? { id: String(savedAsset.id), kind: category, name: savedAsset.display_name || creationName.trim() || sectorName + ' creation', source: 'world-engine:' + category }
+    : { id: draftIdRef.current, kind: category, name: creationName.trim() || sectorName + ' creation', source: 'world-engine:' + category };
 
   const applyParams = useEngineStore((s) => s.applySynthesizedParams);
   const params = useEngineStore((s) => s[config.storeKey]);
@@ -110,6 +126,7 @@ export default function ForgeSector({ config }) {
     if (row.prompt) setPrompt(row.prompt);
     if (row.asset_url && row.asset_url !== 'procedural_generation') setAssetUrl(row.asset_url);
     if (row.display_name) setCreationName(row.display_name);
+    if (row.id) setSavedAsset({ id: row.id, display_name: row.display_name || null });
     setNotice(`Loaded “${row.display_name || 'saved creation'}” — tweak it and generate to save a new copy.`);
   };
 
@@ -154,7 +171,7 @@ export default function ForgeSector({ config }) {
 
       const chosenName = creationName.trim().slice(0, 60);
       const displayName = chosenName || `${sectorName} creation`;
-      const { error } = await supabase.from('world_engine_assets').insert([
+      const { data: savedRow, error } = await supabase.from('world_engine_assets').insert([
         {
           user_id: session.user.id,
           name: chosenName || `${sectorName} generation`,
@@ -164,8 +181,9 @@ export default function ForgeSector({ config }) {
           generation_params: finalParams,
           prompt: prompt.trim().slice(0, 2000) || null,
         },
-      ]);
+      ]).select('id, display_name').single();
       if (error) throw error;
+      if (savedRow) setSavedAsset(savedRow);
 
       setSavedName(displayName);
       loadSaved();
@@ -407,6 +425,22 @@ export default function ForgeSector({ config }) {
             >
               {isSynthesizing ? 'Generating...' : 'Generate with AI'}
             </button>
+
+            {/* ADD TO HUB (Merlin, Nov 27, 2026 — Part 14): sends the
+                current creation straight to the hub's orbit rings —
+                no dialog. Part 12 unified style (.btn: see-through,
+                silver text/border). Before the first save it sends
+                the live draft; after Generate/Load it sends the
+                saved creation by its row id. */}
+            <AddToHubButton
+              item={hubItem}
+              className="mt-2 w-full py-3 text-sm font-bold tracking-widest uppercase"
+            />
+            <p className="text-[11px] text-gray-500">
+              {savedAsset
+                ? 'Add to Hub sends this saved creation to the hub\u2019s orbit rings.'
+                : 'Add to Hub sends your current draft to the hub\u2019s orbit rings — generate first to save it under its own name.'}
+            </p>
           </div>
 
           <div className="flex flex-col border border-gray-800 bg-gray-950 flex-1 min-h-[400px] relative items-center justify-center overflow-hidden">

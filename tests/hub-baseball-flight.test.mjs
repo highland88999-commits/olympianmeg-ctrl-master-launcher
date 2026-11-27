@@ -32,17 +32,23 @@ function yawDelta(from, to) {
 }
 
 describe('launch', () => {
-  it('launches at LAUNCH_SPEED, outward (-Z) and slightly up', () => {
+  it('launches at LAUNCH_SPEED, outward from the hub and slightly up', () => {
     const st = createFlight({ seed: 7 });
     assert.equal(Math.round(speedOf(st)), LAUNCH_SPEED);
-    // Outward from the hub centre: the plate sits on the axis, so the
-    // fallback launch dir is -Z (dead ahead of spawn).
-    assert.ok(st.vel.z < -190, `vel.z ${st.vel.z} should point -Z`);
-    assert.ok(Math.abs(st.vel.x) < 1, `vel.x ${st.vel.x} should be ~0`);
+    // Outward from the hub centre: the rest sits past the asteroid
+    // belt at [-320, 25, -620], so "outward" is the radial direction
+    // through the rest — mostly -X and -Z, away from the hub.
+    const outward = { x: -320, z: -540 };
+    const oLen = Math.hypot(outward.x, outward.z);
+    const along = (st.vel.x * outward.x + st.vel.z * outward.z) / oLen;
+    assert.ok(along > 190, `outward speed ${along} should be ~cruise`);
+    assert.ok(st.vel.x < -90, `vel.x ${st.vel.x} should point -X (outward)`);
+    assert.ok(st.vel.z < -160, `vel.z ${st.vel.z} should point -Z (outward)`);
     // Small +up component from the launch pitch.
     assert.ok(st.vel.y > 0 && st.vel.y < 30, `vel.y ${st.vel.y} should be small and positive`);
-    // Starts at the ball rest, above the plate.
+    // Starts at the ball rest, past the asteroid belt.
     assert.deepEqual([st.pos.x, st.pos.y, st.pos.z], BALL_REST);
+    assert.deepEqual(st.origin, BALL_REST);
     assert.deepEqual(st.plate, PLATE_POS);
     assert.equal(st.ended, false);
     assert.equal(st.eaten, false);
@@ -58,7 +64,7 @@ describe('launch', () => {
     }
     for (const h of holes) {
       assert.ok(h.radius >= 60 && h.radius <= 140, `radius ${h.radius}`);
-      const d = Math.hypot(h.center.x - PLATE_POS[0], h.center.y - PLATE_POS[1], h.center.z - PLATE_POS[2]);
+      const d = Math.hypot(h.center.x - BALL_REST[0], h.center.y - BALL_REST[1], h.center.z - BALL_REST[2]);
       assert.ok(Math.abs(d - h.distance) < 1e-6, 'hole distance matches its centre');
       const [lo, hi] = h.band === 'close' ? [250, 500] : h.band === 'mid' ? [500, 1000] : [1000, 1600];
       assert.ok(h.distance >= lo && h.distance <= hi, `${h.band} hole at ${h.distance}`);
@@ -116,8 +122,22 @@ describe('steering', () => {
 
 describe('black holes', () => {
   it('gravity pulls the ball toward a hole off its path', () => {
-    // Hole 100 m to the side of the launch path (+X).
-    const hole = { band: 'close', distance: 100, radius: 60, center: { x: 100, y: 150, z: -280 } };
+    // Hole 100 m to the side of the launch path: 200 m along the
+    // launch direction from the rest, then 100 m sideways (perp of the
+    // launch dir). The pull bends the ball toward the hole vs control.
+    const probe = createFlight({ seed: 7 });
+    const sp = Math.hypot(probe.vel.x, probe.vel.z);
+    const dx = probe.vel.x / sp, dz = probe.vel.z / sp;
+    const hole = {
+      band: 'close',
+      distance: 100,
+      radius: 60,
+      center: {
+        x: BALL_REST[0] + dx * 200 - dz * 100,
+        y: BALL_REST[1] + 16,
+        z: BALL_REST[2] + dz * 200 + dx * 100,
+      },
+    };
     const withHole = createFlight({ seed: 7 });
     withHole.holes = [hole];
     const control = createFlight({ seed: 7 });
@@ -127,7 +147,6 @@ describe('black holes', () => {
     // Same launch, same input — the only difference is the hole's pull.
     assert.ok(withHole.pos.x > control.pos.x + 10,
       `ball x ${withHole.pos.x} should bend toward the hole vs control ${control.pos.x}`);
-    assert.ok(withHole.pos.x > 10, 'ball should have moved sideways toward the hole');
   });
 
   it('eat triggers when the ball centre enters a hole', () => {
@@ -154,10 +173,17 @@ describe('black holes', () => {
 });
 
 describe('range and ending', () => {
-  it('flight ends with reason range past MAX_RANGE_M from the plate', () => {
+  it('flight ends with reason range past MAX_RANGE_M from the flight origin', () => {
     const st = createFlight({ seed: 7 });
     st.holes = [];
-    st.pos = { x: 0, y: 90, z: -80 - 1700 }; // 1700 m out, heading -Z
+    // 1700 m out along the launch direction from the rest, then one
+    // second of cruise (~200 m) carries it past 1800 m.
+    const sp = Math.hypot(st.vel.x, st.vel.y, st.vel.z);
+    st.pos = {
+      x: BALL_REST[0] + (st.vel.x / sp) * 1700,
+      y: BALL_REST[1] + (st.vel.y / sp) * 1700,
+      z: BALL_REST[2] + (st.vel.z / sp) * 1700,
+    };
     st.distanceM = 1700;
     st.maxDistanceM = 1700;
     stepMany(st, { throttle: 0, steer: 0, vertical: false }, 1);
@@ -173,7 +199,7 @@ describe('range and ending', () => {
     assert.equal(st.reason, 'quit');
   });
 
-  it('maxDistanceM tracks the furthest point from the plate', () => {
+  it('maxDistanceM tracks the furthest point from the flight origin', () => {
     const st = createFlight({ seed: 7 });
     st.holes = [];
     stepMany(st, { throttle: 0, steer: 0, vertical: false }, 2);

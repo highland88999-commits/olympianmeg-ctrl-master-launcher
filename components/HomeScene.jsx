@@ -38,6 +38,7 @@ import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward }
 import { dismountPosition } from '../lib/rider-state';
 import { flightAxisMove, bikeAxisInput } from '../lib/flight-axis';
 import { treeVisible } from '../lib/seasonal/seasons';
+import { angledGarlandTransform, garlandRingPosition, alternateBlinkFactor, GARLAND_BAUBLE_COUNT, GARLAND_LIGHT_COUNT } from '../lib/seasonal/hub-christmas-fx';
 import SeasonalDecor, { SeasonToast, TrophyOverlay } from './SeasonalDecor';
 import { applyCoverFit } from '../lib/texture-fit';
 import { userPlanetDescriptor } from '../lib/communiverse/spiral';
@@ -167,26 +168,77 @@ const JUPITER_SPOT_HEIGHT = 13;
 const JUPITER_LIGHTNING_MAX = 260; // peak point-light intensity; distance-capped so it never reaches the hub
 const JUPITER_LIGHTNING_SEED = 'jupiter-storms';
 
-// Christmas garland (Merlin, Nov 25, 2026): a glowing ring around a
-// backdrop planet for the season — green torus 1.15x the planet's
-// radius with alternating red/gold baubles. MeshBasicMaterial only:
-// the pieces glow from themselves, no new real lights.
+// Christmas garland (Merlin, Nov 25, 2026; angled + lit Nov 27, 2026):
+// a glowing garland wrapped at an ANGLE around a backdrop planet for
+// the season — green torus 1.15x the planet's radius, tilted ~38 deg
+// like the interceptor reference frame (f_03: a diagonal band of
+// red/gold baubles, bells and warm lights across the planet), with
+// alternating red/gold baubles and 28 Christmas lights that blink in
+// two alternating groups (warm gold / Interceptor green #00ff88).
+// MeshBasicMaterial only: the pieces glow from themselves, no new
+// real lights. The lights are one InstancedMesh per planet (one draw
+// call); the blink is a per-instance colour update in useFrame.
 function PlanetGarland({ planet }) {
+  const transform = useMemo(() => angledGarlandTransform(planet.radius), [planet]);
   const baubles = useMemo(() => {
     const out = [];
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2;
+    for (let i = 0; i < GARLAND_BAUBLE_COUNT; i++) {
+      const [x, y, z] = garlandRingPosition(planet.radius, i, GARLAND_BAUBLE_COUNT);
       out.push({
-        position: [Math.cos(a) * planet.radius * 1.15, 0, Math.sin(a) * planet.radius * 1.15],
+        position: [x, y, z],
         color: i % 2 === 0 ? '#ff2a2a' : '#ffc93c',
       });
     }
     return out;
   }, [planet]);
+  const lights = useMemo(() => {
+    const out = [];
+    for (let i = 0; i < GARLAND_LIGHT_COUNT; i++) {
+      // Half-step offset: each light sits between two baubles.
+      const [x, y, z] = garlandRingPosition(planet.radius, i + 0.5, GARLAND_LIGHT_COUNT);
+      out.push({
+        position: [x, y, z],
+        group: i % 2,
+        hex: i % 2 === 0 ? 0xffd27a : 0x00ff88,
+      });
+    }
+    return out;
+  }, [planet]);
+  const lightsRef = useRef();
+  const blinkColorRef = useRef(null);
+  useEffect(() => {
+    const mesh = lightsRef.current;
+    if (!mesh) return;
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+    lights.forEach((l, i) => {
+      dummy.position.set(l.position[0], l.position[1], l.position[2]);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      color.setHex(l.hex);
+      mesh.setColorAt(i, color);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [lights]);
+  useFrame((state) => {
+    const mesh = lightsRef.current;
+    if (!mesh || !mesh.instanceColor) return;
+    if (!blinkColorRef.current) blinkColorRef.current = new THREE.Color();
+    const color = blinkColorRef.current;
+    const t = state.clock.elapsedTime;
+    for (let i = 0; i < lights.length; i++) {
+      const l = lights[i];
+      const b = 0.25 + 0.75 * alternateBlinkFactor(t, l.group);
+      color.setHex(l.hex).multiplyScalar(b);
+      mesh.setColorAt(i, color);
+    }
+    mesh.instanceColor.needsUpdate = true;
+  });
   return (
-    <group>
+    <group rotation={[transform.tiltX, 0, transform.tiltZ]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[planet.radius * 1.15, 0.9, 12, 96]} />
+        <torusGeometry args={[transform.ringRadius, 0.9, 12, 96]} />
         <meshBasicMaterial color="#1d7a3a" />
       </mesh>
       {baubles.map((b, i) => (
@@ -195,6 +247,14 @@ function PlanetGarland({ planet }) {
           <meshBasicMaterial color={b.color} />
         </mesh>
       ))}
+      <instancedMesh
+        ref={lightsRef}
+        args={[undefined, undefined, GARLAND_LIGHT_COUNT]}
+        frustumCulled={false}
+      >
+        <sphereGeometry args={[1.1, 12, 12]} />
+        <meshBasicMaterial color="#ffffff" />
+      </instancedMesh>
     </group>
   );
 }
@@ -1443,7 +1503,7 @@ function HubScene({
   const earthSwappedForTree = treeVisible(new Date());
 
   return (
-      <Canvas shadows="soft" dpr={[1, 1.75]} gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 2000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
+      <Canvas shadows="soft" dpr={[1, 1.75]} gl={{ alpha: true, antialias: false, powerPreference: 'default' }} camera={{ position: [ORBIT_CENTER.x, ORBIT_CENTER.y, ORBIT_CENTER.z], fov: 52, far: 5000 }} style={{ pointerEvents: 'auto' }} onCreated={({ gl }) => {
         // Pixel-ratio cap (2026-10-26 outage repair): uncapped, a
         // phone renders at its full device pixel ratio (up to 3x),
         // tripling the shaded pixels every frame on top of a heavy

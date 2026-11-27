@@ -209,9 +209,13 @@ describe('onboarding wizard: five steps, traffic light first', () => {
     assert.match(f, /rounded-3xl bg-zinc-950"/);
     assert.equal(f.includes('bg-zinc-950/95'), false);
   });
-  it('step 1: the yellow light shows the character (portrait + name) in both perspectives', () => {
+  it('step 1: the yellow light shows the character (short-name word + name caption) in both perspectives', () => {
+    // Part 12 (Merlin, Nov 27, 2026): the orb no longer carries the
+    // character portrait — it shows the character's short name as a
+    // silver word, and the caption below still carries the full name.
     const f = src('components/FintracExplanation.jsx');
-    assert.match(f, /src=\{character\.preview\}/);
+    assert.equal(f.includes('src={character.preview}'), false, 'orb portrait is gone');
+    assert.match(f, /characterShort/);
     assert.match(f, /character \? character\.name : 'Character'/);
   });
   it('all five frames render the same size card', () => {
@@ -265,10 +269,13 @@ describe('onboarding wizard: five steps, traffic light first', () => {
     assert.match(f, /event\?\.detail\?\.step/);
     assert.match(f, /onClick=\{\(\) => fireFintracExplanation\(4\)\}/);
   });
-  it('step 5: Take The Tour frame with a circular Concourse-matching tour button', () => {
+  it('step 5: Take The Tour frame with a circular text-only tour button (Part 12)', () => {
     const f = src('components/FintracExplanation.jsx');
     assert.match(f, /ONBOARDING_STEP5_PARAGRAPHS/);
-    assert.match(f, /\/concourse-icons\/tour\.webp/);
+    // Part 12: the tour artwork is out of the button — it carries the
+    // word TOUR in silver, nothing else.
+    assert.equal(f.includes('/concourse-icons/tour.webp'), false, 'tour artwork is gone from the button');
+    assert.match(f, />TOUR</);
     assert.match(f, /aria-label="Take the tour"/);
     assert.match(f, /onTakeTour/);
     assert.match(f, /Take The Tour/);

@@ -16,6 +16,9 @@ import SettingsGear from '@/components/SettingsGear';
 import { fetchRiderState, saveRiderState, DISMOUNT_EYE, nextFlightAxis } from '@/lib/rider-state';
 import { flightAxisLabel } from '@/lib/flight-axis';
 import FlightAxisStreaks from '@/components/FlightAxisStreaks';
+import HubPulseGlow from '@/components/HubPulseGlow';
+import BaseballButtonBall from '@/components/BaseballButtonBall';
+import dialogStyles from '@/components/DialogUnified.module.css';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
 import EntranceSequence from '@/components/EntranceSequence';
@@ -1311,6 +1314,11 @@ function NexusHub() {
           aria-label={`Flight axis: ${flightAxisLabel(flightAxis)}. Tap to switch to ${flightAxis === 'vertical' ? 'horizontal' : 'vertical'} movement.`}
           title="Switch flight axis"
         >
+          {/* Hub pulse glow (Merlin, Nov 27, 2026): once every 30 s a
+              glow swells up and fades down around the pill's outline —
+              a visual indicator for motion. A separate ring element,
+              never the button's own shadow; same clock as the hub icon. */}
+          <HubPulseGlow />
           <FlightAxisStreaks axis={flightAxis} />
           <span className="flex flex-col items-start leading-none">
             <span className="text-[8px] font-bold tracking-[0.2em] text-cyan-400/80 uppercase">Flight axis</span>
@@ -1319,50 +1327,40 @@ function NexusHub() {
         </button>
       )}
 
-      {/* HUB BASEBALL SWING orb (Merlin, Nov 26): shown in freeroam
-          while the camera is near the plate (spawn is 55 from the
-          plate, so it shows at spawn — discoverable). Bottom-right,
-          96×96, plain circle orb — no rectangle, no glow, no video
-          wrap — inline baseball SVG. Same spot/size as the QUIT orb
+      {/* HUB BASEBALL SWING orb (Merlin, Nov 26; resized + rebuilt
+          Nov 27, 2026 — same size as the Concourse icon, 56 px, and
+          a real 3D ball that reflects light sources, still a baseball):
+          shown in freeroam while the camera is near the plate (spawn
+          is 55 from the plate, so it shows at spawn — discoverable).
+          Bottom-right, 56×56, plain circle orb — no rectangle, no
+          glow, no video wrap — a live three.js ball
+          (components/BaseballButtonBall). Same spot as the QUIT orb
           and the Earth FIRE cluster; the two never show together.
-          Bottom 80, NOT 18: at bottom 18 the 96 px orb overlaps the
-          bottom-centre FLIGHT AXIS pill by 37 px at 320 wide (17 px
-          at 360, 2 px at 390) — the no-overlap rule wins. The pill
-          tops out ~66 px (48 px tall at bottom 18), so bottom 80
-          clears it by ~14 px at every width; the tap hint stands
-          down while this orb is up (see its gate below). */}
+          Bottom 80, NOT 18: at bottom 18 the orb overlaps the
+          bottom-centre FLIGHT AXIS pill at 320 wide — the no-overlap
+          rule wins. The pill tops out ~66 px (48 px tall at bottom
+          18), so bottom 80 clears it by ~14 px at every width; the
+          tap hint stands down while this orb is up (see its gate
+          below). Taps unchanged: the same button, same onClick. */}
       {(user || cloudOffline) && appState === 'hub_freeroam' && baseballNear && !showEarthVehicleSelect && (
         <button
           type="button"
           onClick={swingBaseball}
-          className="absolute z-[70] ui-element pointer-events-auto rounded-full border-2 border-red-600/70 bg-white shadow-lg flex items-center justify-center"
-          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', width: 96, height: 96, ...chromeHiddenStyle }}
+          className="absolute z-[70] ui-element pointer-events-auto rounded-full shadow-lg flex items-center justify-center overflow-hidden bg-transparent"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)', width: 56, height: 56, ...chromeHiddenStyle }}
           aria-label="Swing at the baseball"
           title="Swing"
         >
-          <svg viewBox="0 0 96 96" width="88" height="88" aria-hidden="true">
-            <circle cx="48" cy="48" r="44" fill="#f8fafc" stroke="#b91c1c" strokeWidth="2" />
-            <path d="M22 16 C 40 32, 40 64, 22 80" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round" />
-            <path d="M74 16 C 56 32, 56 64, 74 80" fill="none" stroke="#dc2626" strokeWidth="3" strokeLinecap="round" />
-            <g stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round">
-              <line x1="30" y1="26" x2="38" y2="30" />
-              <line x1="32" y1="38" x2="40" y2="42" />
-              <line x1="32" y1="54" x2="40" y2="58" />
-              <line x1="30" y1="66" x2="38" y2="70" />
-              <line x1="66" y1="26" x2="58" y2="30" />
-              <line x1="64" y1="38" x2="56" y2="42" />
-              <line x1="64" y1="54" x2="56" y2="58" />
-              <line x1="66" y1="66" x2="58" y2="70" />
-            </g>
-          </svg>
+          <BaseballButtonBall />
         </button>
       )}
 
-      {/* HUB BASEBALL QUIT orb: same spot/size as SWING, shown only
-          during the flight — the two never show together. Centred ✕
-          glyph (text, not emoji). The FLIGHT AXIS pill and tap hint
-          are both hidden during flight, so nothing contests this
-          corner while it is up. */}
+      {/* HUB BASEBALL QUIT orb: same spot as SWING, shown only
+          during the flight — the two never show together. Still
+          96 px (SWING is now 56 px — the resize order was the
+          baseball button only). Centred ✕ glyph (text, not emoji).
+          The FLIGHT AXIS pill and tap hint are both hidden during
+          flight, so nothing contests this corner while it is up. */}
       {(user || cloudOffline) && appState === 'baseball_flight' && (
         <button
           type="button"
@@ -1673,15 +1671,22 @@ function NexusHub() {
       {showEarthChooser && (
         <div
           className="fixed inset-0 flex items-center justify-center p-6"
-          style={{
-            zIndex: 2147483001,
-            backgroundImage: 'url(/images/earth-chooser-bg.webp)',
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-          }}
+          style={{ zIndex: 2147483001 }}
           role="dialog"
           aria-label="Choose your Earth"
         >
+          {/* Part 11: the same looping nebula video as the Landing
+              Setup flow, behind the menu — the static backdrop stays
+              underneath as the poster and the fallback: it shows until
+              the video can play, and again if the video fails (the
+              video hides itself on error). */}
+          <img src="/images/earth-chooser-bg.webp" alt="" aria-hidden="true" draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
+          <video muted loop playsInline autoPlay preload="metadata" poster="/images/earth-chooser-bg.webp" aria-hidden="true"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover">
+            <source src="/videos/onboarding/landing-setup-bg.mp4" type="video/mp4" />
+          </video>
           {/* The card scrolls instead of running off the screen
               (overlap audit, Merlin Nov 16): the four button
               descs wrap to two lines at phone width, so the card
@@ -1690,53 +1695,39 @@ function NexusHub() {
               the top and bottom edges. At 390×844 it still fits
               untouched; the cap only bites on the small phone. */}
           <div className="w-full max-w-sm rounded-2xl bg-slate-900/80 p-6 text-center shadow-2xl backdrop-blur-sm max-h-[calc(100dvh-3rem)] overflow-y-auto">
-            <div className="mb-1 text-2xl font-extrabold text-white">Choose your Earth</div>
+            <div className={`mb-1 text-2xl font-extrabold ${dialogStyles.goldTitle}`}>Choose your Earth</div>
             <div className="mb-5 text-sm text-slate-300">Four worlds. One tap.</div>
+            {/* Part 12: unified see-through buttons — text only, no
+                image/gradient fills (the Earth 1/2 button photos and
+                the Earth 3/4 gradients are gone); silver text and
+                border from the shared style; the globe/moon glyphs in
+                the titles stay — they are text, like the × in Close. */}
             <button
               type="button"
               onClick={chooseEarth1}
               disabled={oblivion.active}
-              className="mb-3 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110 disabled:opacity-60 disabled:hover:brightness-100"
-              style={{
-                backgroundImage: 'url(/images/earth1-button-bg.webp)',
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }}
+              className={`mb-3 block w-full rounded-xl px-4 py-4 text-left ${dialogStyles.btn} disabled:opacity-60`}
             >
-              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,20,40,0.55) 0%, rgba(0,20,40,0.15) 60%, transparent 100%)' }}>
-                <div className="text-lg font-bold">🌍 Earth 1</div>
-                <div className="text-sm opacity-90">{oblivion.active ? `Gone — returns in ${formatCountdown(oblivion.remainingMs)}` : 'The world you know. Streets, driving, the grind.'}</div>
-              </div>
+              <div className="text-lg font-bold">🌍 Earth 1</div>
+              <div className="text-sm opacity-90">{oblivion.active ? `Gone — returns in ${formatCountdown(oblivion.remainingMs)}` : 'The world you know. Streets, driving, the grind.'}</div>
             </button>
             <button
               type="button"
               onClick={chooseEarth2}
-              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
-              style={{
-                backgroundImage: 'url(/images/earth2-button-bg.webp)',
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-              }}
+              className={`mb-4 block w-full rounded-xl px-4 py-4 text-left ${dialogStyles.btn}`}
             >
-              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(20,0,30,0.6) 0%, rgba(20,0,30,0.2) 60%, transparent 100%)' }}>
-                <div className="text-lg font-bold">🌑 Earth 2</div>
-                <div className="text-sm opacity-90">Monsters, gunplay, land, building — unlock what you want.</div>
-              </div>
+              <div className="text-lg font-bold">🌑 Earth 2</div>
+              <div className="text-sm opacity-90">Monsters, gunplay, land, building — unlock what you want.</div>
             </button>
             {/* Earth 3 (Merlin, 2026-11-14): unlocked — tapping it
                 takes the user to /new-earth. */}
             <button
               type="button"
               onClick={chooseEarth3}
-              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
-              style={{
-                background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-              }}
+              className={`mb-4 block w-full rounded-xl px-4 py-4 text-left ${dialogStyles.btn}`}
             >
-              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
-                <div className="text-lg font-bold">🌍 Earth 3</div>
-                <div className="text-sm opacity-90">The boundless world. 10 billion tiles.</div>
-              </div>
+              <div className="text-lg font-bold">🌍 Earth 3</div>
+              <div className="text-sm opacity-90">The boundless world. 10 billion tiles.</div>
             </button>
             {/* Earth 4 (Merlin, 2026-11-14): unlocked — tapping it
                 takes the user to /earth-4.
@@ -1744,45 +1735,32 @@ function NexusHub() {
             <button
               type="button"
               onClick={chooseEarth4}
-              className="mb-4 block w-full overflow-hidden rounded-xl text-left text-white transition hover:brightness-110"
-              style={{
-                background: 'linear-gradient(135deg, #0f2a1a 0%, #14532d 50%, #166534 100%)',
-              }}
+              className={`mb-4 block w-full rounded-xl px-4 py-4 text-left ${dialogStyles.btn}`}
             >
-              <div className="px-4 py-4" style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.15) 60%, transparent 100%)' }}>
-                <div className="text-lg font-bold">🌍 Earth 4</div>
-                <div className="text-sm opacity-90">True Earth size. Fully explorable. True textures.</div>
-              </div>
+              <div className="text-lg font-bold">🌍 Earth 4</div>
+              <div className="text-sm opacity-90">True Earth size. Fully explorable. True textures.</div>
             </button>
             <button
               type="button"
               onClick={() => setShowEarthChooser(false)}
-              className="mb-4 text-sm text-slate-300 underline"
+              className={`mb-4 rounded-xl px-4 py-2 text-sm font-bold uppercase tracking-widest ${dialogStyles.btn}`}
             >
               Not now
             </button>
             {/* Omega portal street light (Merlin, 2026-10-31): the one
                 portal that used to stand behind the Sun, now a glowing
-                lamp in a street-light housing at the bottom of the menu. */}
+                lamp in a street-light housing at the bottom of the menu.
+                Part 12: text-only like the other buttons — the lamp
+                image is out, the Ω glyph carries it, and the gold label
+                below stays. */}
             <div className="flex flex-col items-center">
               <button
                 type="button"
                 onClick={chooseOmegaPortal}
                 aria-label="Omega Portal"
-                className="rounded-full p-2 transition hover:brightness-125"
-                style={{ background: '#0b0b14', boxShadow: '0 0 0 2px #3f3f4d, 0 0 24px rgba(251,191,36,0.35)' }}
+                className={`flex h-[72px] w-[72px] items-center justify-center rounded-full text-3xl font-black ${dialogStyles.btn}`}
               >
-                <span
-                  className="block rounded-full"
-                  style={{
-                    width: 72,
-                    height: 72,
-                    backgroundImage: 'url(/images/omega-portal-lamp.webp)',
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                    boxShadow: '0 0 18px rgba(251,191,36,0.55), inset 0 0 12px rgba(0,0,0,0.45)',
-                  }}
-                />
+                <span aria-hidden="true">Ω</span>
               </button>
               <div className="mt-2 text-xs font-bold tracking-widest text-amber-200/90">Ω OMEGA PORTAL</div>
             </div>

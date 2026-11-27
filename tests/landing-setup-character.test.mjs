@@ -1,15 +1,21 @@
 // tests/landing-setup-character.test.mjs
 // Landing Setup step 1 — character selection fix (Merlin, 2026-11-18,
 // from his phone video + screenshot):
-//   1. Graphic backdrops behind each symbol inside its circle — a
-//      house TRON emblem per orb, colour-matched (red reticle, gold
-//      dawn, green ascend); the portrait/icon stays on top.
+//   1. SUPERSEDED Nov 27, 2026 (Merlin, Part 12 — unified button
+//      style): the circles are TEXT ONLY now. The house TRON emblem
+//      backdrops (one per orb, colour-matched) and the portrait/emoji
+//      graphics inside the circles are GONE from the buttons — each
+//      circle carries a short silver word (1ST/3RD, the character's
+//      short name, GO) and the captions below them are unchanged.
+//      The tests below pin the new design, not the old one.
 //   2. The character picker sits IN FLOW directly under the
 //      "PICK YOUR CHARACTER" heading — no absolute overlay floating
 //      mid-panel.
-//   3. The name ghost: the old name/portrait lingering over the new
-//      one on change — the preview and the orb portrait remount on
-//      character change, so exactly one name is visible at a time.
+//   3. The name ghost: the old name lingering over the new one on
+//      change — the preview (img + name) remounts on character
+//      change, so exactly one name is visible at a time. (The orb
+//      itself no longer carries a portrait — its word remounts with
+//      the character instead.)
 //   4. The collapsed grid that caused the video's empty grid + the
 //      moving gold bar: the ratio now lives on the BUTTON, so every
 //      tile is a real square the portrait fills.
@@ -18,50 +24,55 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 function src(rel) {
   return readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 }
 
-describe('landing setup step 1: graphic backdrops behind the orb symbols', () => {
-  it('one house TRON emblem per orb, colour-matched', () => {
+// Part 12 (Merlin, Nov 27, 2026 — unified button style): the step-1
+// circles are TEXT ONLY. No TRON emblem backdrops, no portrait or
+// emoji graphics inside the circles — each circle carries a short
+// silver word, and the captions below them are unchanged.
+function landingSetupFrameBody(f) {
+  const start = f.indexOf('function LandingSetupFrame');
+  const end = f.indexOf('\nexport function FintracExplanationModal', start);
+  return f.slice(start, end === -1 ? undefined : end);
+}
+
+describe('landing setup step 1: circles are text-only (Part 12)', () => {
+  it('no TRON emblem backdrops or portrait graphics in the circles', () => {
     const f = src('components/FintracExplanation.jsx');
-    assert.match(f, /red: '\/images\/shadow-realm\/ui\/tron-reticle-light\.webp'/);
-    assert.match(f, /gold: '\/images\/shadow-realm\/ui\/tron-time-dawn-light\.webp'/);
-    assert.match(f, /green: '\/images\/shadow-realm\/ui\/tron-ascend-green-light\.webp'/);
-    // All three emblem files exist on disk.
+    const frame = landingSetupFrameBody(f);
+    // Scoped to the frame body: the file's own Part 12 comment names
+    // the removed pieces, so a whole-file includes() would trip on it.
+    assert.equal(frame.includes('LIGHT_BACKDROPS'), false, 'emblem map is gone');
+    assert.equal(frame.includes('LightBackdrop'), false, 'backdrop component is gone');
     for (const name of ['tron-reticle-light.webp', 'tron-time-dawn-light.webp', 'tron-ascend-green-light.webp']) {
-      assert.equal(
-        existsSync(new URL(`../public/images/shadow-realm/ui/${name}`, import.meta.url)),
-        true,
-        `${name} must exist in public/images/shadow-realm/ui/`
-      );
+      assert.equal(f.includes(name), false, `${name} must not be referenced in the circles`);
     }
+    // No portrait image in the yellow orb, no camera/arrow emoji symbols.
+    assert.equal(frame.includes('src={character.preview}'), false, 'orb portrait is gone');
+    assert.equal(frame.includes('🎥'), false, 'camera emoji is gone from the circles');
+    assert.equal(frame.includes('➡️'), false, 'arrow emoji is gone from the circles');
   });
-  it('the emblem rides mix-blend-screen over the flat disc (black drops out, neon shows)', () => {
+  it('each circle carries a short silver word', () => {
     const f = src('components/FintracExplanation.jsx');
-    assert.match(f, /function LightBackdrop/);
-    assert.match(f, /absolute inset-0 h-full w-full object-cover mix-blend-screen/);
-    // Decoration only: the button's aria-label carries the meaning.
-    assert.match(f, /aria-hidden="true"/);
-  });
-  it('each light renders its backdrop, and its symbol sits above it', () => {
-    const f = src('components/FintracExplanation.jsx');
-    assert.match(f, /<LightBackdrop src=\{LIGHT_BACKDROPS\.red\} \/>/);
-    assert.match(f, /<LightBackdrop src=\{LIGHT_BACKDROPS\.gold\} \/>/);
-    assert.match(f, /<LightBackdrop src=\{LIGHT_BACKDROPS\.green\} \/>/);
-    // Symbols are relative z-10 so they paint over the emblem.
-    assert.match(f, /className="relative z-10 text-2xl leading-none">🎥/);
-    assert.match(f, /className="relative z-10 text-2xl leading-none">➡️/);
-    assert.match(f, /className="relative z-10 h-\[78%\] w-\[78%\] rounded-full object-cover"/);
+    // Red: 1ST/3RD perspective word; yellow: character short name;
+    // green: GO. The words render inside the unified see-through buttons.
+    assert.match(f, /characterShort/);
+    assert.match(f, /perspective === '1st' \? '1ST' : '3RD'/);
+    assert.match(f, />GO</);
+    assert.match(f, /styles\.btn/);
   });
   it('the lights stay plain circles — no video wraps, no glowing orb visuals', () => {
     const f = src('components/FintracExplanation.jsx');
-    assert.equal(f.includes('<video'), false, 'no video inside the landing setup frame');
-    // The portrait is inset so the gold ring frames it instead of
-    // the portrait hiding the backdrop outright.
-    assert.match(f, /h-\[78%\] w-\[78%\] rounded-full object-cover/);
+    // The looping nebula video (Part 10) lives in the modal shell
+    // behind the card — never inside the step-1 circles.
+    const frame = landingSetupFrameBody(f);
+    assert.equal(frame.includes('<video'), false, 'no video inside the landing setup frame');
+    assert.equal(frame.includes('LightBackdrop'), false, 'no emblem backdrop in the frame');
+    assert.match(f, /LANDING_SETUP_BG_VIDEO/);
   });
 });
 
@@ -117,9 +128,13 @@ describe('landing setup step 1: the name ghost cannot persist', () => {
     assert.match(f, /<img\s+key=\{`preview-img-\$\{preview\.id\}`\}/);
     assert.match(f, /<span key=\{`preview-name-\$\{preview\.id\}`\} className="mt-2 text-sm font-black text-zinc-100">\{preview\.name\}<\/span>/);
   });
-  it('the yellow-orb portrait remounts on character change', () => {
+  it('the yellow-orb word remounts on character change (Part 12: no portrait in the orb)', () => {
     const f = src('components/FintracExplanation.jsx');
-    assert.match(f, /<img\s+key=\{character\.id\}/);
+    // The orb carries the character's short name as text — it changes
+    // with the character, and no portrait img can linger.
+    assert.match(f, /characterShort/);
+    assert.match(f, /character \? character\.name\.split\(' '\)\[0\]\.toUpperCase\(\) : 'PICK'/);
+    assert.equal(f.includes('src={character.preview}'), false, 'no orb portrait to go stale');
   });
   it('exactly one name renders in the preview at a time', () => {
     const f = src('components/FintracExplanation.jsx');
