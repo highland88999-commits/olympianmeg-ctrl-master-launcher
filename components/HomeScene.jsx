@@ -28,6 +28,7 @@ import HubStars from './HubStars';
 import Baseball from './hub-baseball/Baseball';
 import BaseballController, { flightVec3 } from './hub-baseball/BaseballController';
 import { PLATE_VIEW_POS, PLATE_VIEW_LOOKAT } from '../lib/hub-baseball/placement';
+import { HUB_LANDING_POS, HUB_LANDING_LOOKAT, HUB_LANDING_FOV } from '../lib/hub-landing-spot';
 import NavBeacons from './NavBeacons';
 import EarthFlightController from './EarthFlightController';
 import { ORBIT_CENTER, EARTH_CENTER, EARTH_RADIUS, GOD_BANDS, MARS_CENTER, MARS_RADIUS, PLANETS, SYSTEM_RING_RADII, SYSTEM_RING_TILTS, BIKE_PARK_POS, RIDER_OFFSET, BIKE_LOOK_AHEAD } from '../lib/god-orbits';
@@ -742,6 +743,37 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       }
     } 
     else if (launchState === 'hub_freeroam') {
+      // HUB LANDING SPOT (Merlin, Nov 27, 2026 — standing order: where
+      // he sits at the bottom of his Nov 27 recording looking up at
+      // the tree = the hub landing/spawn spot): on the hub_intro ->
+      // hub_freeroam edge, place the camera at the fitted spot
+      // (lib/hub-landing-spot.js — fitted from the 4 s Nov 27 clip,
+      // see ~/workspace/hub-landing-spot/NOTES.md): behind and below
+      // the tree, looking up and toward the hub, fov 52 (the repo
+      // default — controls.current.zoom is set to 52 too, so the
+      // freeroam fov lerp below holds it instead of drifting back to
+      // a pinch-zoomed value). Fires exactly once per intro: the
+      // sun-exit / sun-pull branches return before the launch-state
+      // branches, and prevLaunchRef is assigned at the END of useFrame,
+      // so the edge is gone by the next frame. Mutually exclusive
+      // with the baseball-return and bike-dismount edges below (each
+      // keys off a different prevLaunchRef value). The diagnostic
+      // window.__olympusHubLanding lets the headless probe read the
+      // landing camera — plain data, no behaviour change.
+      if (prevLaunchRef.current === 'hub_intro') {
+        camera.position.set(HUB_LANDING_POS[0], HUB_LANDING_POS[1], HUB_LANDING_POS[2]);
+        camera.lookAt(HUB_LANDING_LOOKAT[0], HUB_LANDING_LOOKAT[1], HUB_LANDING_LOOKAT[2]);
+        if (controls.current) controls.current.zoom = HUB_LANDING_FOV;
+        camera.fov = HUB_LANDING_FOV;
+        camera.updateProjectionMatrix();
+        if (typeof window !== 'undefined') {
+          window.__olympusHubLanding = {
+            position: [...HUB_LANDING_POS],
+            lookAt: [...HUB_LANDING_LOOKAT],
+            fov: HUB_LANDING_FOV,
+          };
+        }
+      }
       // HUB BASEBALL return (Merlin, Nov 26, 2026): coming back from a
       // flight. A natural end already teleported to the plate viewpoint
       // inside the baseball_flight branch (handedOff), but a QUIT flips
