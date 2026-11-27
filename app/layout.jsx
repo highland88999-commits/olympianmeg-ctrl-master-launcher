@@ -109,10 +109,12 @@ export default function RootLayout({ children }) {
         <JsonLd />
         {/* Holiday greeting overlays (Merlin, 2026-11-15): each year's
             video plays ONCE, fullscreen with sound, on its day only —
-            Thanksgiving Nov 26, Christmas Dec 25 — then the app
-            continues. Each overlay renders null outside its window
-            and re-checks the window every 30s while mounted (lesson
-            of the Nov 1 black screen). */}
+            Thanksgiving Nov 26 (local date), Christmas season video
+            Nov 27-Dec 24, Christmas Day video Dec 25-Jan 6 — then the
+            app continues. Each overlay renders null outside its window
+            and re-checks the date every 30s while mounted (lesson
+            of the Nov 1 black screen; local dates, not UTC windows,
+            since the Nov 27 Thanksgiving bug). */}
         <ThanksgivingOverlay />
         <ChristmasOverlay />
         {/* iOS long-press callout + selection kill for realm/game views

@@ -1,43 +1,51 @@
 'use client';
 
-// Christmas 2026 greeting overlay (Merlin, 2026-11-15):
-// the year-01 Christmas video plays ONCE through, with sound, as a
-// fullscreen overlay before anything else loads — then the app continues
-// its usual process. Active only for Christmas Day across all timezones.
-// Window: Dec 25 00:00 UTC+14 → Dec 26 00:00 UTC-12
-//       = 2026-12-24T10:00:00Z → 2026-12-26T12:00:00Z.
+// Christmas season greeting overlay (Merlin, 2026-11-15; re-routed Nov 27, 2026):
+// a seasonal video plays ONCE through, with sound, as a fullscreen overlay
+// before anything else loads — then the app continues its usual process.
+// The video is routed by the viewer's LOCAL calendar date (see
+// lib/seasonal/overlay-video.js):
+//   Nov 27 - Dec 24, 2026 : 2026-early.mp4 (60 s, vertical)
+//   Dec 25, 2026 - Jan 6, 2027 : 2026-day.mp4 (1:04, landscape)
+// The season ends with Twelfth Night (Jan 6); the tree is gone Jan 8.
+//
+// LOCAL dates, not absolute-UTC windows, on purpose — the lesson of the
+// Nov 27 Thanksgiving bug: a UTC window ("Christmas Day across all
+// timezones") stays open into the next local day, so the wrong video can
+// play on the morning of the changeover. A date is a date.
 //
 // HARDENED (lesson of the Nov 1 black screen of death): the active state
-// re-checks the window every 30s while mounted, so a stale edge-cache
-// render or a long-open tab can never leave this stuck past its window.
-// The holiday-overlay-guard cron is the backstop.
+// re-checks the date every 30s while mounted, so a stale edge-cache
+// render or a long-open tab can never leave this stuck past its window,
+// and a midnight rollover swaps the video. The holiday-overlay-guard cron
+// is the backstop.
 
 import { useEffect, useRef, useState } from 'react';
-
-const WINDOW_START = Date.parse('2026-12-24T10:00:00Z');
-const WINDOW_END = Date.parse('2026-12-26T12:00:00Z');
-const VIDEO_SRC = '/videos/holidays/christmas/year-01.mp4';
-
-function inWindow() {
-  const now = Date.now();
-  return now >= WINDOW_START && now <= WINDOW_END;
-}
+import { seasonalOverlayVideo } from '@/lib/seasonal/overlay-video';
 
 export default function ChristmasOverlay() {
-  const [active, setActive] = useState(() => inWindow());
+  const [src, setSrc] = useState(() => seasonalOverlayVideo(new Date()));
   const [needsTap, setNeedsTap] = useState(false);
   const [showSkip, setShowSkip] = useState(false);
   const videoRef = useRef(null);
 
-  // Re-check the window periodically: never stay up past WINDOW_END,
-  // even if the HTML was cached from inside the window.
+  const active = src !== null;
+
+  // Re-check the date periodically: never stay up past the season's end,
+  // even if the HTML was cached from inside the window — and swap the
+  // video when the date rolls over (Dec 24 -> Dec 25).
   useEffect(() => {
     if (!active) return;
     const id = setInterval(() => {
-      if (!inWindow()) setActive(false);
+      const next = seasonalOverlayVideo(new Date());
+      if (next !== src) {
+        setNeedsTap(false);
+        setShowSkip(false);
+        setSrc(next);
+      }
     }, 30000);
     return () => clearInterval(id);
-  }, [active ]);
+  }, [active, src ]);
 
   useEffect(() => {
     if (!active) return;
@@ -48,7 +56,7 @@ export default function ChristmasOverlay() {
       document.body.style.overflow = prev;
       clearTimeout(skipTimer);
     };
-  }, [active ]);
+  }, [active, src ]); // src too: a midnight video swap restarts the SKIP timer
 
   useEffect(() => {
     if (!active) return;
@@ -58,11 +66,11 @@ export default function ChristmasOverlay() {
     if (p && typeof p.catch === 'function') {
       p.catch(() => setNeedsTap(true));
     }
-  }, [active ]);
+  }, [active, src ]);
 
   if (!active) return null;
 
-  const dismiss = () => setActive(false);
+  const dismiss = () => setSrc(null);
 
   const tapToPlay = () => {
     const v = videoRef.current;
@@ -84,7 +92,7 @@ export default function ChristmasOverlay() {
     >
       <video
         ref={videoRef}
-        src={VIDEO_SRC}
+        src={src}
         playsInline
         preload="auto"
         onEnded={dismiss}

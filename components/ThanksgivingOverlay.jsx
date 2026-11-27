@@ -3,10 +3,14 @@
 // American Thanksgiving 2026 greeting overlay (Merlin, 2026-11-15):
 // the year-01 Thanksgiving video plays ONCE through, with sound, as a
 // fullscreen overlay before anything else loads — then the app continues
-// its usual process. Active only for Thanksgiving Day across all
-// timezones.
-// Window: Nov 26 00:00 UTC+14 → Nov 27 00:00 UTC-12
-//       = 2026-11-25T10:00:00Z → 2026-11-27T12:00:00Z.
+// its usual process. Active only on Thanksgiving Day, Nov 26, 2026.
+//
+// FIXED Nov 27, 2026 (the Thanksgiving bug): the window used to be fixed
+// absolute-UTC ("Thanksgiving Day across all timezones" = Nov 25 10:00Z
+// -> Nov 27 12:00Z), which is still open at 07:31 UTC on Nov 27 — so the
+// video kept playing on the morning of Nov 27, after the Christmas season
+// had already begun. The window is now the viewer's LOCAL date (see
+// lib/seasonal/overlay-video.js): Nov 26 only, never Nov 27.
 //
 // HARDENED (lesson of the Nov 1 black screen of death): the active state
 // re-checks the window every 30s while mounted, so a stale edge-cache
@@ -14,14 +18,12 @@
 // The holiday-overlay-guard cron is the backstop.
 
 import { useEffect, useRef, useState } from 'react';
+import { thanksgivingOverlayActive } from '@/lib/seasonal/overlay-video';
 
-const WINDOW_START = Date.parse('2026-11-25T10:00:00Z');
-const WINDOW_END = Date.parse('2026-11-27T12:00:00Z');
 const VIDEO_SRC = '/videos/holidays/thanksgiving/year-01.mp4';
 
 function inWindow() {
-  const now = Date.now();
-  return now >= WINDOW_START && now <= WINDOW_END;
+  return thanksgivingOverlayActive(new Date());
 }
 
 export default function ThanksgivingOverlay() {
@@ -30,7 +32,7 @@ export default function ThanksgivingOverlay() {
   const [showSkip, setShowSkip] = useState(false);
   const videoRef = useRef(null);
 
-  // Re-check the window periodically: never stay up past WINDOW_END,
+  // Re-check the date periodically: never stay up past Nov 26,
   // even if the HTML was cached from inside the window.
   useEffect(() => {
     if (!active) return;
