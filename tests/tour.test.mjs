@@ -17,7 +17,7 @@ const entries = [...registryText.matchAll(/\{ key: "([^"]+)", route: "([^"]+)", 
   .map((m) => ({ key: m[1], route: m[2], pos: m[3], section: m[4], constellation: m[5] }));
 
 test('registry parses: 220 programs, 9 sections', () => {
-  assert.equal(entries.length, 223); // ARES seat: 222→223, Nov 26, 2026; Checker Tracks seat: 221→222, Nov 25, 2026; Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215 — registry was already 216 before this seat; Housing seat: 217→218; Social Assistance seat: 218→219; Business Services seat: 219→220 (four-program merge), Nov 21, 2026); Vault seat: 220→221 (Alexandria suite ship), Nov 22, 2026
+  assert.equal(entries.length, 222); // ARES seat removed: 223→222, Nov 26, 2026 (restoring Concourse-tile-only access, Nov 16 order; Phase 1 re-add reverted); Checker Tracks seat: 221→222, Nov 25, 2026; Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215 — registry was already 216 before this seat; Housing seat: 217→218; Social Assistance seat: 218→219; Business Services seat: 219→220 (four-program merge), Nov 21, 2026); Vault seat: 220→221 (Alexandria suite ship), Nov 22, 2026
   assert.equal(sectionOrder(entries).length, 9);
 });
 
@@ -33,10 +33,10 @@ test('grand tour: one gate per section, first program of each', () => {
 
 test('full tour: every program, registry order, nothing invented', () => {
   const gates = buildFullTour(entries);
-  assert.equal(gates.length, 223);
+  assert.equal(gates.length, 222);
   assert.equal(gates[0].key, 'chess');
   assert.deepEqual(gates.map((g) => g.key), entries.map((e) => e.key));
-  assert.equal(buildTour(entries, 'full').length, 223);
+  assert.equal(buildTour(entries, 'full').length, 222);
   assert.equal(buildTour(entries, 'grand').length, 9);
 });
 

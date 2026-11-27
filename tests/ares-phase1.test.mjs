@@ -300,18 +300,20 @@ test('phase1 uniformity: gate keeps its pinned 401/403 split, loses the 503 leak
 });
 
 // ---------------------------------------------------------------------------
-// Portal menu: /ares is registered in both registries with title keys.
+// Portal menu: /ares is NOT a portal-menu seat — Concourse-tile-only
+// access (Merlin, Nov 16, 2026 order; the Phase 1 portal-menu re-add
+// was reverted Nov 26, 2026). The /ares route and all ARES function
+// stay intact; the Concourse tile is the only menu entry.
 // ---------------------------------------------------------------------------
-test('phase1 menu: ares is in the ATHENA god menu and the satellite registry', () => {
+test('phase1 menu: ares stays out of the ATHENA god menu and the satellite registry (Concourse tile only)', () => {
   const menus = src('../lib/god-menus.js');
-  assert.ok(menus.includes("'ares',"), 'god-menus ATHENA list carries ares');
+  assert.ok(!menus.includes("'ares',"), 'god-menus ATHENA list does not carry ares');
   const sats = src('../lib/i18n/satellites.ts');
-  assert.ok(sats.includes('{ key: "ares", route: "/ares", pos: "ATHENA", section: "TOOLS", constellation: "ARES" }'),
-    'satellites.ts carries the ares entry');
+  assert.ok(!sats.includes('{ key: "ares", route: "/ares", pos: "ATHENA", section: "TOOLS", constellation: "ARES" }'),
+    'satellites.ts does not carry the ares entry');
   const en = JSON.parse(src('../lib/i18n/locales/en.json'));
-  assert.equal(en['sat.ares.title'], 'Ares');
-  assert.equal(typeof en['sat.ares.subtitle'], 'string');
-  assert.ok(en['sat.ares.subtitle'].length > 0);
+  assert.equal(en['sat.ares.title'], undefined);
+  assert.equal(en['sat.ares.subtitle'], undefined);
 });
 
 // ---------------------------------------------------------------------------

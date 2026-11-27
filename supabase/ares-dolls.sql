@@ -40,7 +40,12 @@ alter table public.ares_events
     'blocked_ip_hit',
     'doll_breakout',
     'abyss_trapped',
-    'agent_self_terminate'
+    'agent_self_terminate',
+    -- Phase 1 watch-band flag (lib/ares/config.js EVENT_TYPES): suspicious
+    -- but undecided traffic, never a strike on its own. Added Nov 26,
+    -- 2026 — the original widen omitted it, so watch_flagged rows
+    -- failed the CHECK the same way doll_breakout did.
+    'watch_flagged'
   ));
 
 -- 2. Store the prisoner's current doll depth (0 = the maze, 1–6 = the

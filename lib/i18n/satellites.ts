@@ -59,7 +59,6 @@ export const SATELLITES: SatelliteEntry[] = [
   { key: "affiliates", route: "/affiliates", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
   { key: "merlin-mandates", route: "/merlin-mandates", pos: "PLUTUS", section: "TOOLS", constellation: "ARES" },
   { key: "cerberus", route: "/cerberus", pos: "ATHENA", section: "TOOLS", constellation: "ARES" },
-  { key: "ares", route: "/ares", pos: "ATHENA", section: "TOOLS", constellation: "ARES" },
   { key: "phone-home", route: "/phone-home", pos: "HERMES", section: "TOOLS", constellation: "ARES" },
   { key: "order-67", route: "/order-67", pos: "HERMES", section: "TOOLS", constellation: "ARES" },
   { key: "fortress-of-solitude", route: "/fortress-of-solitude", pos: "ATHENA", section: "TOOLS", constellation: "ARES" },

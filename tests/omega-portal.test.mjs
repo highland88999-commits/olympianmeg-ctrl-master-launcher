@@ -140,7 +140,7 @@ describe('registration — the room is gone from every registry', () => {
       seen.add(e.route);
       count += 1;
     }
-    assert.equal(count, 223); // ARES seat: 222→223, Nov 26, 2026; Checker Tracks seat: 221→222, Nov 25, 2026; Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215); Red Moon seat: 214→215, Nov 17, 2026; Keepsake seat: 213→214, Nov 17, 2026; Housing seat: 217→218; Social Assistance seat: 218→219; Business Services seat: 219→220 (four-program merge), Nov 21, 2026; Vault seat: 220→221 (Alexandria suite ship), Nov 22, 2026
+    assert.equal(count, 222); // ARES seat removed: 223→222, Nov 26, 2026 (restoring Concourse-tile-only access, Nov 16 order; Phase 1 re-add reverted); Checker Tracks seat: 221→222, Nov 25, 2026; Job Board seat: 216→217, Nov 21, 2026 (pins were stale at 215); Red Moon seat: 214→215, Nov 17, 2026; Keepsake seat: 213→214, Nov 17, 2026; Housing seat: 217→218; Social Assistance seat: 218→219; Business Services seat: 219→220 (four-program merge), Nov 21, 2026; Vault seat: 220→221 (Alexandria suite ship), Nov 22, 2026
   });
 
   it('the old /portal-room route redirects to the menu deep link', () => {

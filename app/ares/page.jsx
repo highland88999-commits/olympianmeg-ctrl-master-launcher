@@ -272,7 +272,7 @@ export default function AresConsole() {
       if (Array.isArray(hv.agents)) setHive(hv);
       setBlocks(bl.blocks || []);
       setWhitelist(wl.whitelist || []);
-      setRegUsers(us.users || []);
+      if (Array.isArray(us.users)) setRegUsers(us.users);
       setTrapped(tr.trapped || []);
       setSources(tr.sources || []);
       if (st.settings) setSettings(st.settings);
@@ -297,6 +297,15 @@ export default function AresConsole() {
     const id = setInterval(tick, 15000);
     return () => clearInterval(id);
   }, [token, load]);
+
+  // Phase 1 cohort correlation v1: cross-IP clusters in the recent
+  // events, computed client-side from the rows already loaded.
+  // NOTE: this useMemo MUST stay above the early returns below — hooks
+  // run in the same order on every render, so a hook after a
+  // gate/pin early return changes the hook count once the gate opens
+  // (React error #310: "Rendered more hooks than during the previous
+  // render"). findCohorts([]) on the pre-gate renders is harmless.
+  const cohorts = useMemo(() => findCohorts(events), [events]);
 
   const saveSettings = async (next) => {
     setSettings(next);
@@ -354,9 +363,6 @@ export default function AresConsole() {
   }
 
   const summary = summarize(events);
-  // Phase 1 cohort correlation v1: cross-IP clusters in the recent
-  // events, computed client-side from the rows already loaded.
-  const cohorts = useMemo(() => findCohorts(events), [events]);
 
   return (
     <main className="min-h-dvh w-full bg-[#050505] px-4 py-6 text-zinc-200 sm:px-8">
