@@ -11,8 +11,6 @@ import RealmCalloutGuard from '@/components/RealmCalloutGuard';
 import MusePortal from '@/components/MusePortal';
 import Concourse from '@/components/Concourse';
 import JsonLd from '@/components/JsonLd';
-import BootSplash from '@/components/BootSplash';
-import ThanksgivingOverlay from '@/components/ThanksgivingOverlay';
 import ChristmasOverlay from '@/components/ChristmasOverlay';
 import { LanguageProvider } from '@/lib/i18n';
 
@@ -98,24 +96,8 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.className} bg-[#050505] antialiased text-white`} style={{ backgroundColor: '#050505' }}>
-        {/* Boot splash (Merlin, 2026-11-19): the initial HTML carries
-            zero content until the JS bundle hydrates, so a slow reload
-            showed a blank white page, then a blank black one. The
-            splash is server-rendered into the first HTML bytes and
-            removes itself on hydration. The inline body background
-            kills the white flash before the stylesheet arrives. */}
-        <BootSplash />
+      <body className={`${inter.className} bg-[#050505] antialiased text-white`}>
         <JsonLd />
-        {/* Holiday greeting overlays (Merlin, 2026-11-15): each year's
-            video plays ONCE, fullscreen with sound, on its day only —
-            Thanksgiving Nov 26 (local date), Christmas season video
-            Nov 27-Dec 24, Christmas Day video Dec 25-Jan 6 — then the
-            app continues. Each overlay renders null outside its window
-            and re-checks the date every 30s while mounted (lesson
-            of the Nov 1 black screen; local dates, not UTC windows,
-            since the Nov 27 Thanksgiving bug). */}
-        <ThanksgivingOverlay />
         <ChristmasOverlay />
         {/* iOS long-press callout + selection kill for realm/game views
             (auto-detects full-viewport game canvases; chat/forms/inputs
