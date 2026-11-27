@@ -74,7 +74,13 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 // makeBots({ count, track, seed, aggression }) -> bot roster. Each bot:
 //   { name, color, skill: { topSpeedFrac 0.85-1.0, cornerFrac 0.55-0.85,
 //     wobbleAmp, wobblePhase }, s, speed, lap, time, finished, finishTime,
-//     progress, offset, aggression, lives, shoveX, shoveZ, invulnT, eliminated }
+//     progress, offset, aggression, lives, shoveX, shoveZ, invulnT, eliminated,
+//     fly, preHitS, preHitOffset }
+//
+// FLY-OFF (race + bump modes): a bump victim launches (fly: startFly state,
+// deadT = FLY_SECS pauses the advance), tumbles, then respawns AT THE
+// PRE-HIT POSE (preHitS/preHitOffset captured at impact) — not the nearest
+// safe point (that respawn belongs to trail deaths).
 //
 // BUMP MODE (Merlin 2026-10-03): aggression 0..1 makes the bot steer to
 // shove the player toward the flame when alongside. Bots also carry 3
@@ -123,6 +129,13 @@ export function makeBots({ count, track, seed, aggression = 0 }) {
       trailImmuneT: 0, // post-trail-death immunity
       deadT: 0, // trail-death dissolve timer (bot is paused)
       deaths: 0,
+      // FLY-OFF: null unless launched by a bump — then { t, dur, x0, z0,
+      // heading0, vx, vz } (see lib/shadow-realm/bump.js startFly) with
+      // deadT = FLY_SECS pausing the advance; preHitS/preHitOffset are the
+      // arclength + lateral offset at impact (the respawn point).
+      fly: null,
+      preHitS: null,
+      preHitOffset: null,
     });
   }
   return bots;
@@ -280,7 +293,24 @@ export function trailAvoidance(bot, trackData, rivalTrails, now) {
 // respawnBot(bot, trackData, rivalTrails, now): after the dissolve pause,
 // drop the bot at the nearest arclength clear of rival trails, with brief
 // immunity and a cleared trail.
+// FLY-OFF: a launched bot (preHitS set) respawns AT THE PRE-HIT POSE
+// instead — the arclength + offset captured at impact — with the same
+// brief immunity. No safe-search: the impact point is the respawn point.
 export function respawnBot(bot, trackData, rivalTrails, now) {
+  if (bot.preHitS != null && Number.isFinite(bot.preHitS)) {
+    bot.s = bot.preHitS;
+    bot.offset = Number.isFinite(bot.preHitOffset) ? bot.preHitOffset : 0;
+    bot.preHitS = null;
+    bot.preHitOffset = null;
+    bot.fly = null;
+    bot.speed = 0;
+    bot.shoveX = 0;
+    bot.shoveZ = 0;
+    bot.invulnT = 2.0;
+    bot.trailImmuneT = BOT_TRAIL_IMMUNITY_S;
+    if (bot.trail) bot.trail.clear();
+    return bot;
+  }
   const pts = trackData.pts;
   // Search arclengths near the death spot for a safe one.
   const step = trackData.lapLen / 64;
@@ -331,8 +361,11 @@ export function advanceBot(bot, dt, trackData, playerProgress, bump = null, riva
   if (bot.trailImmuneT > 0) bot.trailImmuneT = Math.max(0, bot.trailImmuneT - dt);
 
   // Trail-death dissolve: the bot is paused, then respawns safe.
+  // FLY-OFF: the same pause carries the flight — the fly timer advances
+  // here, and the respawn lands at the pre-hit pose (respawnBot).
   if (bot.deadT > 0) {
     bot.deadT = Math.max(0, bot.deadT - dt);
+    if (bot.fly) bot.fly.t += dt;
     bot.speed = 0;
     if (bot.deadT <= 0) {
       respawnBot(bot, trackData, rivalTrails, now);

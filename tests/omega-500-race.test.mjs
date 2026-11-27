@@ -3,9 +3,10 @@
 // Pure-logic checks: the 9 real cars, arcade physics, lap counting,
 // AI opponents finishing, positions, results, and the 500-mile rule.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   RACE_CAR_IDS, raceCars, createRace, stepRace, stepRacer, createRacer,
-  aiInput, racerPose, buildResults, fmtTime, curvatureAhead,
+  aiInput, racerPose, buildResults, fmtTime, curvatureAhead, WALL_RESTITUTION,
 } from '../lib/omega-500/race.js';
 import { getTrack, lapsForTrack } from '../lib/omega-500/tracks.js';
 import { getVehicle } from '../lib/earth/vehicles.js';
@@ -65,9 +66,96 @@ ok('steering moves the car across the track and self-centres', () => {
   const ctx = { line: race.line, halfWidth: race.halfWidth, grip: race.grip };
   const car = race.racers.find((r) => r.isPlayer);
   car.speed = 40;
-  for (let i = 0; i < 120; i++) stepRacer(car, { ...FULL, steer: 1 }, 1 / 60, ctx);
-  assert.ok(car.lateral > 2, `moved across to ${car.lateral}`);
-  assert.ok(Math.abs(car.lateral) <= race.halfWidth + 5, 'wall holds');
+  let maxLat = 0;
+  for (let i = 0; i < 120; i++) {
+    stepRacer(car, { ...FULL, steer: 1 }, 1 / 60, ctx);
+    maxLat = Math.max(maxLat, Math.abs(car.lateral));
+    assert.ok(Math.abs(car.lateral) <= race.halfWidth + 1e-9, `past the wall at step ${i}: ${car.lateral}`);
+  }
+  assert.ok(maxLat > 2, `moved across to ${maxLat}`);
+});
+
+ok('wall bounce: the barricade stops the car at the ribbon edge and reflects the outward speed', () => {
+  assert.equal(WALL_RESTITUTION, 0.55, 'restitution 0.55, the shadow-realm barrier value');
+  const race = createRace(getTrack('olympus-superspeedway'), 500, 'wedge-supercar');
+  const ctx = { line: race.line, halfWidth: race.halfWidth, grip: race.grip };
+  const car = race.racers.find((r) => r.isPlayer);
+  // One controlled step into the right wall: lateral just inside the edge,
+  // slip pointing outward, 30 m/s. No throttle/steer, so only the coast
+  // drag and slip self-centring run before the wall check.
+  car.lateral = race.halfWidth - 0.05;
+  car.slip = 0.5;
+  car.speed = 30;
+  stepRacer(car, COAST, 1 / 60, ctx);
+  assert.equal(car.lateral, race.halfWidth, 'clamped to the wall face, no pass-through');
+  // Outward lateral speed before the bounce was sin(0.5)*30 ≈ 14.4 m/s
+  // (less a hair of coast drag / slip decay); after, it reflects inward
+  // at 55%: ≈ -7.7 m/s. The forward component is kept.
+  const vLat = Math.sin(car.slip) * car.speed;
+  assert.ok(vLat < -6 && vLat > -9.5, `lateral velocity reflected inward: ${vLat.toFixed(2)} m/s`);
+  assert.ok(car.speed > 20, `forward speed kept through the bounce: ${car.speed.toFixed(1)} m/s`);
+});
+
+ok('wall bounce: hard steering for 10 s never passes the wall on either side', () => {
+  const race = createRace(getTrack('olympus-superspeedway'), 500, 'wedge-supercar');
+  const ctx = { line: race.line, halfWidth: race.halfWidth, grip: race.grip };
+  const car = race.racers.find((r) => r.isPlayer);
+  car.speed = 40;
+  let touchedWall = 0;
+  for (let i = 0; i < 600; i++) {
+    stepRacer(car, { ...FULL, steer: i < 300 ? 1 : -1 }, 1 / 60, ctx);
+    assert.ok(Math.abs(car.lateral) <= race.halfWidth + 1e-9, `past the wall at step ${i}: ${car.lateral}`);
+    if (Math.abs(car.lateral) === race.halfWidth) touchedWall++;
+  }
+  assert.ok(touchedWall > 0, 'the car actually reached the wall during the run');
+  console.log(`    wall contacts in 10 s of hard steering: ${touchedWall}`);
+});
+
+ok('no turning around: p never decreases and speed never goes negative under hostile inputs', () => {
+  const race = createRace(getTrack('olympus-superspeedway'), 500, 'wedge-supercar');
+  const ctx = { line: race.line, halfWidth: race.halfWidth, grip: race.grip };
+  const car = race.racers.find((r) => r.isPlayer);
+  car.speed = 60;
+  let prevP = car.p;
+  // 60 s of hostile input: full steer both ways, brake, gas release, boost.
+  const hostile = [
+    { throttle: 1, brake: 0, steer: 1, boost: true },
+    { throttle: 1, brake: 0, steer: -1, boost: true },
+    { throttle: 0, brake: 1, steer: 1, boost: false },
+    { throttle: 0, brake: 0, steer: -1, boost: false },
+    { throttle: 1, brake: 1, steer: 1, boost: true },
+  ];
+  for (let i = 0; i < 3600; i++) {
+    stepRacer(car, hostile[i % hostile.length], 1 / 60, ctx);
+    assert.ok(car.p >= prevP - 1e-9, `p decreased at step ${i}: ${prevP} -> ${car.p}`);
+    assert.ok(car.speed >= 0, `negative speed at step ${i}: ${car.speed}`);
+    prevP = car.p;
+  }
+});
+
+ok('boost meter: drains 40/s while boosting, refills 12/s, starts at 100', () => {
+  const race = createRace(getTrack('olympus-superspeedway'), 500, 'wedge-supercar');
+  const ctx = { line: race.line, halfWidth: race.halfWidth, grip: race.grip };
+  const car = race.racers.find((r) => r.isPlayer);
+  assert.equal(car.boost, 100, 'meter starts full');
+  car.speed = 85;
+  for (let i = 0; i < 60; i++) stepRacer(car, { ...FULL, boost: true }, 1 / 60, ctx);
+  assert.ok(Math.abs(car.boost - 60) < 1, `1 s of boost drains 40: ${car.boost}`);
+  for (let i = 0; i < 90; i++) stepRacer(car, { ...FULL, boost: true }, 1 / 60, ctx);
+  assert.ok(car.boost <= 0.5, `2.5 s of boost empties the meter: ${car.boost}`);
+  for (let i = 0; i < 60; i++) stepRacer(car, FULL, 1 / 60, ctx);
+  assert.ok(Math.abs(car.boost - 12) < 1, `1 s of refill adds 12: ${car.boost}`);
+  for (let i = 0; i < 480; i++) stepRacer(car, FULL, 1 / 60, ctx);
+  assert.ok(car.boost >= 99.5, `~8.3 s refills the meter: ${car.boost}`);
+});
+
+ok('race HUD: boost is a circular ring meter, not a rectangular bar', () => {
+  const page = readFileSync(new URL('../app/omega-500/page.jsx', import.meta.url), 'utf8');
+  assert.ok(page.includes('data-testid="boost-ring"') || page.includes("testId = 'boost-ring'"), 'ring gauge present in the HUD');
+  assert.ok(page.includes('boost-ring-orb'), 'ring wraps the BOOST orb on touch controls');
+  assert.ok(page.includes('strokeDashoffset'), 'ring arc is driven by the meter value');
+  assert.ok(!page.includes('mt-2 h-3 overflow-hidden rounded bg-white/10'), 'no rectangular boost bar in the HUD');
+  assert.ok(page.includes('hud.boost'), 'ring reads the HUD boost feed');
 });
 
 ok('ice grip slows launch and turning (Luge Ice Run)', () => {

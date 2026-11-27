@@ -30,10 +30,33 @@ ok('every track has name, type, length, turns, surface and shape', () => {
     assert.ok(['speedway', 'road', 'street', 'themed'].includes(t.type), t.id);
     assert.ok(t.lengthMiles >= 1 && t.lengthMiles <= 5, `${t.id} length`);
     assert.ok(Number.isInteger(t.turns) && t.turns >= 4, `${t.id} turns`);
-    assert.ok(t.widthM >= 10 && t.widthM <= 15, `${t.id} width`);
+    assert.ok(t.widthM >= 15 && t.widthM <= 23, `${t.id} width`);
     assert.ok(t.grip > 0.5 && t.grip <= 1, `${t.id} grip`);
     assert.ok(t.shape && (t.shape.kind === 'oval' || t.shape.kind === 'circuit'), t.id);
     assert.ok(t.theme && t.theme.sky && t.theme.ground, t.id);
+  }
+});
+
+ok('tracks are ~1.5x wider than before (whole metres, round-half-up)', () => {
+  // Old widths before the widening round (Nov 2026): every track is
+  // 1.5x its old width — speedways 15/14 -> 23/21, road 12 -> 18,
+  // Atlas 11 -> 17, streets 10 -> 15, themed 14/12 -> 21/18.
+  const OLD_WIDTHS = {
+    'olympus-superspeedway': 15, 'nexus-tri-oval': 15, 'golden-mile-oval': 14,
+    'aether-ring': 15, 'titan-bowl': 14,
+    'redwater-ridge-road': 12, 'hawkins-hills': 12, 'olympus-grand-circuit': 12,
+    'vinewood-valley-run': 12, 'storm-coast-road': 12, 'ember-canyon-course': 12,
+    'atlas-mountain-pass': 11,
+    'nexus-city-streets': 10, 'olympus-harbour-front': 10,
+    'redwater-downtown': 10, 'agora-plaza-circuit': 10,
+    'luge-ice-run': 14, 'earth-2-dino-valley': 12,
+    'vortex-spiral': 12, 'erebus-night-circuit': 12,
+  };
+  for (const t of TRACKS) {
+    const old = OLD_WIDTHS[t.id];
+    assert.ok(old !== undefined, `${t.id}: no old width on record`);
+    assert.equal(t.widthM, Math.round(old * 1.5), `${t.id}: ${old} -> ${t.widthM}`);
+    assert.ok(t.widthM >= old, `${t.id}: not wider than before`);
   }
 });
 
@@ -91,6 +114,14 @@ ok('track type mix: 5 speedways, 7 road, 4 street, 4 themed', () => {
   const counts = {};
   for (const t of TRACKS) counts[t.type] = (counts[t.type] || 0) + 1;
   assert.deepEqual(counts, { speedway: 5, road: 7, street: 4, themed: 4 });
+});
+
+ok('RaceScene builds a visible barricade wall on both ribbon edges', () => {
+  const scene = readFileSync(new URL('../components/omega-500/RaceScene.jsx', import.meta.url), 'utf8');
+  assert.ok(scene.includes('buildWallGeometry'), 'wall geometry builder present');
+  assert.ok(scene.includes('track.theme.wall'), 'wall uses the track theme.wall colour');
+  assert.ok(scene.includes('WALL_HEIGHT_M'), 'wall has a real height, not a ground line');
+  assert.ok(scene.includes('wallL') && scene.includes('wallR'), 'walls on both edges');
 });
 
 console.log(`\n${pass} track checks passed.`);

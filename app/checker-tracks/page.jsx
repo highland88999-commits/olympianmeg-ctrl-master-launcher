@@ -111,6 +111,47 @@ function StatBox({ label, value }) {
   );
 }
 
+/** Circular boost ring gauge (SVG) — the boost meter as a ring, never a
+ *  rectangular bar (orb law). value 0..100, fed by the ~5 Hz HUD; the
+ *  number in the middle is the meter reading. Set showValue false when
+ *  the ring wraps a labelled orb, so the number does not fight the label. */
+function BoostRing({ value, size = 48, color = '#39ff14', showValue = true, strokeWidth = 5, testId = 'boost-ring' }) {
+  const r = (size - strokeWidth) / 2 - 1;
+  const c = 2 * Math.PI * r;
+  const frac = Math.max(0, Math.min(100, value)) / 100;
+  const centre = size / 2;
+  return (
+    <svg
+      data-testid={testId}
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      role="img"
+      aria-label={`Boost ${Math.round(value)} percent`}
+      style={{ display: 'block' }}
+    >
+      <circle cx={centre} cy={centre} r={r} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={strokeWidth} />
+      <circle
+        cx={centre}
+        cy={centre}
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - frac)}
+        transform={`rotate(-90 ${centre} ${centre})`}
+      />
+      {showValue ? (
+        <text x={centre} y={centre} textAnchor="middle" dominantBaseline="middle" fill="#ffffff" fontSize={Math.round(size * 0.3)} fontWeight="bold">
+          {Math.round(value)}
+        </text>
+      ) : null}
+    </svg>
+  );
+}
+
 /** Plain circle orb hold-button (GAS / BOOST) — never a rectangle. */
 function OrbButton({ label, onHold, active, className }) {
   return (
@@ -529,13 +570,10 @@ export default function CheckerTracksPage() {
             <StatBox label="LAST LAP" value={hud ? fmtTime(hud.lastLapMs) : '--:--.---'} />
             <StatBox label="BEST LAP" value={hud ? fmtTime(hud.bestLapMs) : '--:--.---'} />
             <StatBox label="SPEED" value={hud ? `${hud.speedMph} mph` : '0 mph'} />
-            <div className="min-w-[120px] flex-1 rounded-lg bg-white/5 px-3 py-2">
-              <div className="text-center text-[10px] tracking-widest text-white/50">BOOST</div>
-              <div className="mt-2 h-3 overflow-hidden rounded bg-white/10">
-                <div
-                  className="h-full bg-[#39ff14]"
-                  style={{ width: `${hud ? hud.boost : 100}%` }}
-                />
+            <div className="min-w-[86px] flex-1 rounded-lg bg-white/5 px-3 py-2 text-center">
+              <div className="text-[10px] tracking-widest text-white/50">BOOST</div>
+              <div className="mt-1 flex justify-center">
+                <BoostRing value={hud ? hud.boost : 100} size={48} color="#39ff14" />
               </div>
             </div>
           </div>
@@ -603,12 +641,25 @@ export default function CheckerTracksPage() {
                     <span className="text-xs font-bold tracking-widest text-white/60">STEER</span>
                   </div>
                   <div className="flex items-end gap-2">
-                    <OrbButton
-                      label="BOOST"
-                      active={touchState.boost}
-                      onHold={(v) => setTouch('boost', v)}
-                      className="h-20 w-20 text-base"
-                    />
+                    {/* The boost ring wraps the BOOST orb — the meter lives
+                        on the orb itself, not in a bar. The orb is unchanged. */}
+                    <div className="relative flex h-[88px] w-[88px] items-center justify-center">
+                      <span className="pointer-events-none absolute inset-0">
+                        <BoostRing
+                          value={hud ? hud.boost : 100}
+                          size={88}
+                          color="#39ff14"
+                          showValue={false}
+                          testId="boost-ring-orb"
+                        />
+                      </span>
+                      <OrbButton
+                        label="BOOST"
+                        active={touchState.boost}
+                        onHold={(v) => setTouch('boost', v)}
+                        className="h-20 w-20 text-base"
+                      />
+                    </div>
                     <OrbButton
                       label="▲ GAS"
                       active={touchState.gas}

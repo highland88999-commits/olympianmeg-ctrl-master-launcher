@@ -16,7 +16,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { LightCycle, TrailMesh } from './scene';
 import { buildTrackData, advanceBot, botPose } from './ai';
-import { lateralOffset, arclengthAt } from '../../lib/shadow-realm/bump';
+import { lateralOffset, arclengthAt, flyPose } from '../../lib/shadow-realm/bump';
 
 // One canvas-texture name plate per bot — drawn once, never per frame.
 function NameSprite({ name, color }) {
@@ -56,6 +56,9 @@ function BotRig({ bot, trackData }) {
   // advances the state; posing here keeps the per-bot work in one place.
   // Bump mode: the rendered pose adds the decaying shove impulse, and an
   // eliminated bot hides (it burned in the flame).
+  // FLY-OFF: a launched bot (bot.fly) tumbles through the air on its
+  // ballistic arc — nose on the pre-hit heading, rolling — then respawns
+  // at the pre-hit pose (advanceBot + respawnBot own the state).
   // LETHAL TRAILS: a dissolving bot (deadT > 0) flickers like the player.
   useFrame(() => {
     const g = group.current;
@@ -65,9 +68,19 @@ function BotRig({ bot, trackData }) {
       return;
     }
     g.visible = true;
+    if (bot.fly) {
+      const fp = flyPose(bot.fly, bot.fly.t);
+      g.position.set(fp.x, 0.06 + fp.y, fp.z);
+      g.rotation.y = bot.fly.heading0;
+      g.rotation.x = fp.roll;
+      g.rotation.z = 0;
+      return;
+    }
     const pose = botPose(bot, trackData);
     g.position.set(pose.x + (bot.shoveX || 0), 0.06, pose.z + (bot.shoveZ || 0));
     g.rotation.y = pose.heading;
+    g.rotation.x = 0; // never carry a flight tumble over
+    g.rotation.z = 0;
     // respawn grace blink; trail-death dissolve: rapid strobe.
     if (bot.deadT > 0) {
       g.visible = Math.floor(performance.now() / 33) % 2 === 0;

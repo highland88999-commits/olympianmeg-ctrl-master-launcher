@@ -19,7 +19,9 @@ import {
   advanceBot,
   botPose,
   placements,
+  respawnBot,
 } from '../app/shadow-realm/ai.js';
+import { FLY_SECS, startFly } from '../lib/shadow-realm/bump.js';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -247,5 +249,86 @@ describe('placements(playerResult, bots)', () => {
     );
     assert.equal(st[0].color, '#ff2fb3');
     assert.equal(st[1].color, '#19d3ff');
+  });
+});
+
+describe('fly-off: launched bots tumble, then respawn at the pre-hit pose', () => {
+  it('makeBots starts every bot grounded (no fly state)', () => {
+    for (const bot of makeBots({ count: 3, track: TRACKS[0], seed: 7 })) {
+      assert.equal(bot.fly, null);
+      assert.equal(bot.preHitS, null);
+      assert.equal(bot.preHitOffset, null);
+    }
+  });
+
+  it('respawnBot with a pre-hit pose restores exactly that pose', () => {
+    const td = buildTrackData(TRACKS[0], { maxSpeed: 45, raceLaps: 3 });
+    const bot = makeBots({ count: 1, track: TRACKS[0], seed: 7 })[0];
+    bot.s = 500;
+    bot.offset = 2;
+    bot.preHitS = 500;
+    bot.preHitOffset = 2;
+    bot.fly = startFly({ x: 0, z: 0, heading: 0, vx: 10, vz: 0 });
+    bot.speed = 30;
+    bot.shoveX = 5;
+    bot.trail.record(1, 1, 0);
+    respawnBot(bot, td, [], 0);
+    assert.equal(bot.s, 500, 'respawn arclength is the pre-hit arclength');
+    assert.equal(bot.offset, 2, 'respawn offset is the pre-hit offset');
+    assert.equal(bot.fly, null, 'flight state clears on respawn');
+    assert.equal(bot.preHitS, null);
+    assert.equal(bot.preHitOffset, null);
+    assert.equal(bot.speed, 0, 'respawn parks the bike');
+    assert.equal(bot.shoveX, 0, 'shove clears on respawn');
+    assert.ok(bot.invulnT > 0, 'respawn grants brief grace');
+    assert.equal(bot.trail.length, 0, 'trail clears on respawn');
+  });
+
+  it('respawnBot without a pre-hit pose still uses the safe search', () => {
+    const td = buildTrackData(TRACKS[0], { maxSpeed: 45, raceLaps: 3 });
+    const bot = makeBots({ count: 1, track: TRACKS[0], seed: 7 })[0];
+    bot.s = 100;
+    respawnBot(bot, td, [], 0);
+    assert.ok(Number.isFinite(bot.s), 'safe respawn lands somewhere finite');
+    assert.equal(bot.offset, 0, 'safe respawn centers the bot');
+  });
+
+  it('advanceBot pauses a flying bot, then lands it back at the pre-hit pose', () => {
+    const td = buildTrackData(TRACKS[0], { maxSpeed: 45, raceLaps: 3 });
+    const bot = makeBots({ count: 1, track: TRACKS[0], seed: 7 })[0];
+    bot.s = 500;
+    bot.offset = 2;
+    bot.speed = 30;
+    bot.preHitS = 500;
+    bot.preHitOffset = 2;
+    bot.fly = startFly({ x: 0, z: 0, heading: 0, vx: 10, vz: 0 });
+    bot.deadT = FLY_SECS;
+    // Mid-flight: the bot does not advance along the track.
+    advanceBot(bot, 0.3, td, 0, null, [], 0);
+    assert.equal(bot.s, 500, 'flying bot holds its arclength');
+    assert.ok(bot.fly.t > 0, 'flight timer advances');
+    assert.ok(bot.deadT > 0 && bot.deadT < FLY_SECS, 'pause timer counts down');
+    assert.equal(bot.speed, 0, 'flying bot has no drive');
+    // Step to the landing — no further: once deadT hits 0 the bot drives
+    // on, so assert the landing pose the moment the pause ends.
+    let guard = 0;
+    while (bot.deadT > 0 && guard++ < 20) advanceBot(bot, 0.1, td, 0, null, [], 0);
+    assert.equal(bot.deadT, 0, 'pause ends');
+    assert.equal(bot.fly, null, 'flight clears on landing');
+    assert.equal(bot.s, 500, 'lands at the pre-hit arclength');
+    assert.equal(bot.offset, 2, 'lands at the pre-hit offset');
+    // And it drives again on the next step.
+    advanceBot(bot, 0.1, td, 0, null, [], 0.3);
+    assert.ok(bot.s > 500, 'bot races on after landing');
+  });
+
+  it('a flying bot lays no trail and takes no flame hit while airborne', () => {
+    const td = buildTrackData(TRACKS[0], { maxSpeed: 45, raceLaps: 3 });
+    const bot = makeBots({ count: 1, track: TRACKS[0], seed: 7 })[0];
+    bot.fly = startFly({ x: 0, z: 0, heading: 0, vx: 0, vz: 0 });
+    bot.deadT = FLY_SECS;
+    bot.lives = 3;
+    advanceBot(bot, 0.1, td, 0, { playerS: 0, playerOffset: 0, flame: { x: 0, z: 0, radius: 62 } }, [], 0);
+    assert.equal(bot.lives, 3, 'no life lost mid-flight');
   });
 });

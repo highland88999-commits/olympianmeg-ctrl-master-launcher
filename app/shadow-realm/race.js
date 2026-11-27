@@ -72,6 +72,33 @@ export function resolveBarrier(pos, vel, center, halfW, restitution = 0.55) {
   return { pos: p, vel: v, bounced: true };
 }
 
+// clampHeadingForward(heading, pos, center) -> heading clamped so the bike
+// can never point (and ride) backwards along the track. The angle between
+// the bike's heading and the nearest centerline tangent is clamped to the
+// FORWARD HEMISPHERE (±90°): steering stays completely free inside it —
+// the rider can carve, weave and lean — but the nose can never swing past
+// sideways into the backwards half, so the track can never be ridden in
+// reverse. Same direction test the LapTracker uses for crossings (dot of
+// velocity with the forward tangent), applied to the heading itself.
+// Pure math, headless-testable. Roam mode never calls this (no centerline).
+export function clampHeadingForward(heading, pos, center) {
+  const near = closestOnPolyline(pos, center);
+  const n = center.length;
+  const a = center[near.segIndex % n];
+  const b = center[(near.segIndex + 1) % n];
+  const tx = b.x - a.x;
+  const tz = b.z - a.z;
+  const l = Math.hypot(tx, tz) || 1;
+  const trackAngle = Math.atan2(tx / l, tz / l); // nose-+Z yaw convention
+  let err = heading - trackAngle;
+  while (err > Math.PI) err -= Math.PI * 2;
+  while (err < -Math.PI) err += Math.PI * 2;
+  const half = Math.PI / 2;
+  if (err > half) return trackAngle + half;
+  if (err < -half) return trackAngle - half;
+  return heading;
+}
+
 // LapTracker — start/finish line at centerline[0], crossed in the loop's
 // forward direction. Anti-farm: a lap only counts after the rider has
 // passed the midway checkpoint (segment index ~n/2) since the last line

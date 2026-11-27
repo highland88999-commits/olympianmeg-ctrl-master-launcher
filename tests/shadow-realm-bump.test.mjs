@@ -17,6 +17,10 @@ import {
   BOT_AGGRESSION,
   SHOVE_DEPTH,
   BUMP_ENGAGE_S,
+  FLY_SECS,
+  FLY_UP_SPEED,
+  FLY_GRAVITY,
+  FLY_SPIN_TURNS,
   resolveBump,
   inFlameZone,
   lateralOffset,
@@ -27,6 +31,9 @@ import {
   applyLifeLoss,
   isEliminated,
   sortBumpStandings,
+  bumpVictim,
+  startFly,
+  flyPose,
 } from '../lib/shadow-realm/bump.js';
 import { beaconRow } from '../lib/shadow-realm/net.js';
 
@@ -50,6 +57,69 @@ t('bots heavier than the player', BOT_MASS > PLAYER_MASS);
 t('bot aggression tuned (0..1)', BOT_AGGRESSION > 0 && BOT_AGGRESSION < 1);
 t('shove depth 4', SHOVE_DEPTH === 4.0);
 t('engage window 42', BUMP_ENGAGE_S === 42);
+t('fly-off airtime 0.9s (2*up/g)', approx(FLY_SECS, (2 * FLY_UP_SPEED) / FLY_GRAVITY) && FLY_SECS === 0.9);
+t('fly-off pop 9 m/s against 20 m/s^2', FLY_UP_SPEED === 9 && FLY_GRAVITY === 20);
+t('fly-off tumbles 1.5 rolls', FLY_SPIN_TURNS === 1.5);
+
+// --- bumpVictim: who got rammed ---
+{
+  // a drives into a stationary b -> b is the victim.
+  t('rammer vs parked: the parked bike is the victim',
+    bumpVictim({ x: 0, z: 0, vx: 20, vz: 0 }, { x: 3, z: 0, vx: 0, vz: 0 }) === 'b');
+  // b drives into a stationary a -> a is the victim.
+  t('parked vs rammer: the parked bike is the victim',
+    bumpVictim({ x: 0, z: 0, vx: 0, vz: 0 }, { x: 3, z: 0, vx: -20, vz: 0 }) === 'a');
+  // Faster approach wins the bumper role: a closes at 20, b closes at 5.
+  t('faster approach is the bumper',
+    bumpVictim({ x: 0, z: 0, vx: 20, vz: 0 }, { x: 3, z: 0, vx: -5, vz: 0 }) === 'b');
+  t('slower approach is the victim',
+    bumpVictim({ x: 0, z: 0, vx: 5, vz: 0 }, { x: 3, z: 0, vx: -20, vz: 0 }) === 'a');
+  // Head-on, equal speeds -> both fly.
+  t('head-on equal speeds: both fly',
+    bumpVictim({ x: 0, z: 0, vx: 20, vz: 0 }, { x: 3, z: 0, vx: -20, vz: 0 }) === 'both');
+  // Sideswipe: the lateral approach still names the victim.
+  t('sideswipe names the rammed bike',
+    bumpVictim({ x: 0, z: 0, vx: 5, vz: 20 }, { x: 2.5, z: 0, vx: 0, vz: 20 }) === 'b');
+  // Symmetric: swapping a/b swaps the answer.
+  t('victim rule is symmetric',
+    bumpVictim({ x: 3, z: 0, vx: 0, vz: 0 }, { x: 0, z: 0, vx: 20, vz: 0 }) === 'a');
+}
+
+// --- fly-off: startFly + flyPose ---
+{
+  const fly = startFly({ x: 10, z: 20, heading: 1.2, vx: 12, vz: -4 });
+  t('startFly captures the pre-hit pose', fly.x0 === 10 && fly.z0 === 20 && fly.heading0 === 1.2);
+  t('startFly carries the launch drift', fly.vx === 12 && fly.vz === -4);
+  t('startFly starts at t=0 with FLY_SECS duration', fly.t === 0 && fly.dur === FLY_SECS);
+
+  const p0 = flyPose(fly, 0);
+  t('launch: on the ground, no roll yet', p0.y === 0 && p0.roll === 0);
+  t('launch: at the pre-hit spot', p0.x === 10 && p0.z === 20);
+  t('launch: heading is the pre-hit heading', p0.heading === 1.2);
+  t('launch: not done', p0.done === false);
+
+  const mid = flyPose(fly, FLY_SECS / 2);
+  t('mid-flight: airborne (~2m apex)', mid.y > 1.5 && mid.y < 2.5);
+  t('mid-flight: half a tumble in', approx(mid.roll, FLY_SPIN_TURNS * Math.PI * 2 * 0.5));
+  t('mid-flight: drifting on the launch velocity',
+    approx(mid.x, 10 + 12 * (FLY_SECS / 2)) && approx(mid.z, 20 - 4 * (FLY_SECS / 2)));
+  t('mid-flight: not done', mid.done === false);
+
+  const end = flyPose(fly, FLY_SECS);
+  t('landing: back on the ground', end.y === 0);
+  t('landing: full tumble complete', approx(end.roll, FLY_SPIN_TURNS * Math.PI * 2));
+  t('landing: done', end.done === true);
+
+  // The bike never sinks below the ground, even past the landing.
+  let neverBelow = true;
+  for (let tt = 0; tt <= FLY_SECS * 2; tt += 0.05) {
+    if (flyPose(fly, tt).y < 0) neverBelow = false;
+  }
+  t('flight arc never goes below ground', neverBelow);
+  // A stationary victim still pops straight up and lands on the spot.
+  const still = flyPose(startFly({ x: 0, z: 0, heading: 0, vx: 0, vz: 0 }), FLY_SECS / 2);
+  t('parked victim pops in place', still.x === 0 && still.z === 0 && still.y > 0);
+}
 
 // --- resolveBump: head-on (equal masses) ---
 {

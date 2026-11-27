@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { TRACKS, trackByKey, centerline, barrierLoops, startPose } from '../app/shadow-realm/tracks.js';
 import { TRAIL_SCHEMES, SCHEME_FILMS, schemeByKey, VEHICLES, vehicleByKey } from '../app/shadow-realm/schemes.js';
-import { closestOnPolyline, resolveBarrier, LapTracker } from '../app/shadow-realm/race.js';
+import { closestOnPolyline, resolveBarrier, LapTracker, clampHeadingForward } from '../app/shadow-realm/race.js';
 import { shadowKey, loadPrefs, savePrefs, DEFAULT_PREFS, SHADOW_SCOPING } from '../app/shadow-realm/prefs.js';
 import { SHADOW_REALM_ROUTE, parseShadowMode, shadowRealmUrl } from '../app/shadow-realm/launch.js';
 
@@ -29,13 +29,16 @@ function memStore() {
 
 // ---------------------------------------------------------------- tracks
 describe('track table', () => {
-  it('has exactly 20 tracks', () => {
-    assert.equal(TRACKS.length, 20);
+  it('has exactly 21 tracks: 20 race + the eternal-flame bump arena', () => {
+    assert.equal(TRACKS.length, 21);
+    assert.equal(TRACKS.filter((t) => t.bump).length, 1);
+    assert.equal(trackByKey('eternal-flame').key, 'eternal-flame');
   });
 
-  it('keys, names and layouts are unique', () => {
-    assert.equal(new Set(TRACKS.map((t) => t.key)).size, 20);
-    assert.equal(new Set(TRACKS.map((t) => t.name)).size, 20);
+  it('keys and names are unique; layouts unique except the shared ring', () => {
+    assert.equal(new Set(TRACKS.map((t) => t.key)).size, 21);
+    assert.equal(new Set(TRACKS.map((t) => t.name)).size, 21);
+    // neon-ring + eternal-flame both ride the 'ring' layout.
     assert.equal(new Set(TRACKS.map((t) => t.layout)).size, 20);
   });
 
@@ -46,9 +49,39 @@ describe('track table', () => {
   it('every track has sane params', () => {
     for (const t of TRACKS) {
       assert.ok(t.R > 50 && t.R < 300, `${t.key}: R`);
-      assert.ok(t.width >= 10 && t.width <= 24, `${t.key}: width`);
+      assert.ok(t.width >= 10 && t.width <= 36, `${t.key}: width`);
       assert.ok(typeof t.desc === 'string' && t.desc.length > 10, `${t.key}: desc`);
     }
+  });
+
+  // WIDER TRACK (1.5x, rounded to whole metres): every width scaled from
+  // the pre-widening table — 13-16 -> 20-24, eternal-flame 24 -> 36.
+  it('widths are the 1.5x widening of the original table', () => {
+    const expected = {
+      'gridiron-oval': 24, 'neon-ring': 21, 'tri-oval-prime': 23,
+      'kidney-run': 21, 'figure-eight': 20, 'canyon-carve': 23,
+      'switchback': 20, 'comet-tail': 21, 'volcano': 21, 'starburst': 20,
+      'chicane-alley': 21, 'diamond-cut': 21, 'hairpin-heights': 23,
+      'thunder-loop': 20, 'coil': 21, 'crossover': 20, 'wave-rider': 23,
+      'neon-mile': 24, 'keyhole': 21, 'grand-circuit': 23,
+      'eternal-flame': 36,
+    };
+    for (const t of TRACKS) {
+      assert.equal(t.width, expected[t.key], `${t.key}: width ${t.width} !== ${expected[t.key]}`);
+    }
+    // No race track narrower than 20 m after widening.
+    for (const t of TRACKS.filter((x) => !x.bump)) {
+      assert.ok(t.width >= 20, `${t.key}: race track still narrow (${t.width})`);
+    }
+  });
+
+  it('barrier loops follow the widened widths', () => {
+    for (const t of TRACKS) {
+      const { halfW } = barrierLoops(t, 128);
+      assert.equal(halfW, t.width / 2, `${t.key}: halfW must track width`);
+    }
+    // The width-less fallback matches the widened default (14 -> 21).
+    assert.equal(barrierLoops({ R: 100 }, 64).halfW, 21 / 2);
   });
 
   it('centerlines are closed loops with no NaN', () => {
@@ -214,6 +247,100 @@ describe('barrier collision', () => {
     const tangAfter = Math.abs(r.vel.x * (tx / tl) + r.vel.z * (tz / tl));
     assert.ok(tangAfter > 35, 'graze should keep tangential speed');
   });
+
+  it('widened walls still bounce with restitution 0.55 on every track', () => {
+    // Widening must not change the wall contract: outside -> pushed back
+    // inside, outward velocity reflected, never killed, never through.
+    for (const t of TRACKS) {
+      const { center: c, halfW: hw } = barrierLoops(t, 128);
+      const p0 = c[10];
+      const near = closestOnPolyline({ x: p0.x + hw + 6, z: p0.z }, c);
+      const p = { x: p0.x + near.nx * (hw + 6), z: p0.z + near.nz * (hw + 6) };
+      // The normal resolveBarrier uses is the one at p itself.
+      const nAtP = closestOnPolyline(p, c);
+      const v = { x: nAtP.nx * 50, z: nAtP.nz * 50 };
+      const r = resolveBarrier(p, v, c, hw);
+      assert.equal(r.bounced, true, `${t.key}: must bounce`);
+      const after = closestOnPolyline(r.pos, c);
+      assert.ok(after.dist <= hw + 1e-6, `${t.key}: must end up inside`);
+      const outAfter = r.vel.x * nAtP.nx + r.vel.z * nAtP.nz;
+      assert.ok(outAfter < 0, `${t.key}: outward velocity must reflect`);
+      // Restitution 0.55: outward speed after = -0.55 * outward before.
+      assert.ok(Math.abs(outAfter - -0.55 * 50) < 1e-6, `${t.key}: restitution must stay 0.55`);
+      assert.ok(Math.hypot(r.vel.x, r.vel.z) > 0, `${t.key}: bounce must never kill`);
+    }
+  });
+});
+
+describe('no turning around (forward-only heading clamp)', () => {
+  const track = trackByKey('neon-ring');
+  const { center } = barrierLoops(track, 128);
+
+  // Tangent angle at the NEAREST segment to centerline index i — the same
+  // segment clampHeadingForward reads (a vertex sits on two segments).
+  // (nose-+Z yaw convention.)
+  function tangentAt(i) {
+    const near = closestOnPolyline(center[i], center);
+    const a = center[near.segIndex];
+    const b = center[(near.segIndex + 1) % center.length];
+    return Math.atan2(b.x - a.x, b.z - a.z);
+  }
+
+  it('forward and inside-hemisphere headings pass through untouched', () => {
+    for (const i of [0, 10, 64, 100]) {
+      const pos = center[i];
+      const ta = tangentAt(i);
+      assert.ok(Math.abs(clampHeadingForward(ta, pos, center) - ta) < 1e-9, `i=${i}: forward untouched`);
+      assert.ok(Math.abs(clampHeadingForward(ta + 0.5, pos, center) - (ta + 0.5)) < 1e-9, `i=${i}: +0.5 untouched`);
+      assert.ok(Math.abs(clampHeadingForward(ta - 1.2, pos, center) - (ta - 1.2)) < 1e-9, `i=${i}: -1.2 untouched`);
+    }
+  });
+
+  it('backwards headings clamp to the forward hemisphere edge', () => {
+    for (const i of [0, 10, 64, 100]) {
+      const pos = center[i];
+      const ta = tangentAt(i);
+      const fwd = clampHeadingForward(ta + 2.0, pos, center);
+      assert.ok(Math.abs(fwd - (ta + Math.PI / 2)) < 1e-9, `i=${i}: +2.0 clamps to +90deg`);
+      const back = clampHeadingForward(ta - 2.5, pos, center);
+      assert.ok(Math.abs(back - (ta - Math.PI / 2)) < 1e-9, `i=${i}: -2.5 clamps to -90deg`);
+      const rev = clampHeadingForward(ta + Math.PI, pos, center);
+      assert.ok(Math.abs(rev - (ta + Math.PI / 2)) < 1e-9, `i=${i}: full reverse clamps to +90deg`);
+    }
+  });
+
+  it('a rider steering into a U-turn is held at sideways, never reversed', () => {
+    // Simulate holding full steer from straight ahead: the heading walks
+    // away from the tangent and must pin at +90deg, never past it.
+    const pos = center[20];
+    const ta = tangentAt(20);
+    let heading = ta;
+    for (let step = 0; step < 600; step++) {
+      heading = clampHeadingForward(heading + 0.01, pos, center);
+    }
+    let err = heading - ta;
+    while (err > Math.PI) err -= Math.PI * 2;
+    while (err < -Math.PI) err += Math.PI * 2;
+    assert.ok(Math.abs(err - Math.PI / 2) < 1e-9, `pinned at +90deg, got ${err}`);
+  });
+
+  it('holds on every track in the widened roster', () => {
+    for (const t of TRACKS) {
+      const { center: c } = barrierLoops(t, 128);
+      for (let i = 0; i < c.length; i += 16) {
+        const a = c[i];
+        const near = closestOnPolyline(a, c);
+        const s0 = c[near.segIndex];
+        const s1 = c[(near.segIndex + 1) % c.length];
+        const ta = Math.atan2(s1.x - s0.x, s1.z - s0.z);
+        const clamped = clampHeadingForward(ta + Math.PI, a, c);
+        let err = clamped - ta;
+        while (err > Math.PI) err -= Math.PI * 2;
+        while (err < -Math.PI) err += Math.PI * 2;
+        assert.ok(Math.abs(err) <= Math.PI / 2 + 1e-9, `${t.key}@${i}: must stay in forward hemisphere`);
+      }
+    }
+  });
 });
 
 describe('lap counting', () => {
@@ -248,6 +375,14 @@ describe('lap counting', () => {
   it('counts one lap per clean loop', () => {
     const tracker = new LapTracker(center);
     let time = 0;
+    // Gun lap: the first forward crossing STARTS the race (starts the
+    // clock) but does NOT count a lap — the old armed=true counted the
+    // start crossing as a full lap, so a 1-lap race "finished" 0.8s after
+    // spawn (see race.js). The first rideLoop is the gun lap.
+    const gun = rideLoop(tracker, time);
+    time = gun.time;
+    assert.equal(gun.ev, null, 'gun lap must not count');
+    assert.equal(tracker.laps, 0);
     for (let lap = 1; lap <= 3; lap++) {
       const { ev, time: t2 } = rideLoop(tracker, time);
       time = t2;

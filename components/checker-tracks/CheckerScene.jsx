@@ -107,6 +107,42 @@ function buildCheckerStripGeometry(line, offsetCenter, halfW, y) {
   return geo;
 }
 
+/** Solid barricade wall along the ribbon edge: a vertical band at the
+ *  given lateral offset, following the centerline. The sim wall face is
+ *  the ribbon edge (halfWidth), so the mesh sits exactly there — the car
+ *  bounces off the face it can see. */
+function buildWallGeometry(line, offsetCenter, height) {
+  const count = line.count;
+  const positions = new Float32Array((count + 1) * 2 * 3);
+  const indices = [];
+  for (let i = 0; i <= count; i++) {
+    const s = ((i % count) / count) * line.totalM;
+    const p = sampleAt(line, s);
+    const nx = -p.tz;
+    const nz = p.tx;
+    const x = p.x + nx * offsetCenter;
+    const z = p.z + nz * offsetCenter;
+    positions[i * 6] = x;
+    positions[i * 6 + 1] = 0;
+    positions[i * 6 + 2] = z;
+    positions[i * 6 + 3] = x;
+    positions[i * 6 + 4] = height;
+    positions[i * 6 + 5] = z;
+    if (i < count) {
+      const a = i * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/** Wall height in metres — a solid barricade, not a line on the ground. */
+const WALL_HEIGHT_M = 1.2;
+
 /** One neon trail tube following the track, offset sideways and up, weaving gently. */
 function buildTrailGeometry(line, lateralOffset, baseY, weaveAmp, weaveFreq) {
   const step = 10;
@@ -185,6 +221,25 @@ function CheckerTrackMesh({ track, line, race }) {
     () => buildStripGeometry(line, track.widthM / 2 - 0.4, 0.18, 0.02),
     [track, line],
   );
+  // Barricade walls on both ribbon edges, in the track's neon wall colour,
+  // with a lit top rail so the wall reads solid from the chase camera.
+  const wallColor = track.theme.wall;
+  const wallL = useMemo(
+    () => buildWallGeometry(line, -track.widthM / 2, WALL_HEIGHT_M),
+    [track, line],
+  );
+  const wallR = useMemo(
+    () => buildWallGeometry(line, track.widthM / 2, WALL_HEIGHT_M),
+    [track, line],
+  );
+  const railL = useMemo(
+    () => buildStripGeometry(line, -track.widthM / 2, 0.25, WALL_HEIGHT_M),
+    [track, line],
+  );
+  const railR = useMemo(
+    () => buildStripGeometry(line, track.widthM / 2, 0.25, WALL_HEIGHT_M),
+    [track, line],
+  );
   const start = useMemo(() => sampleAt(line, 0), [line]);
   const groundR = useMemo(() => {
     let m = 0;
@@ -204,6 +259,18 @@ function CheckerTrackMesh({ track, line, race }) {
       </mesh>
       <mesh geometry={edgeR}>
         <meshStandardMaterial color="#f5f5f5" roughness={0.8} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={wallL}>
+        <meshStandardMaterial color={wallColor} emissive={wallColor} emissiveIntensity={0.7} roughness={0.5} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={wallR}>
+        <meshStandardMaterial color={wallColor} emissive={wallColor} emissiveIntensity={0.7} roughness={0.5} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={railL}>
+        <meshStandardMaterial color={wallColor} emissive={wallColor} emissiveIntensity={1.2} roughness={0.4} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh geometry={railR}>
+        <meshStandardMaterial color={wallColor} emissive={wallColor} emissiveIntensity={1.2} roughness={0.4} side={THREE.DoubleSide} />
       </mesh>
       <mesh position={[start.x, 0.03, start.z]} rotation={[0, startRotY, 0]}>
         <boxGeometry args={[track.widthM, 0.05, 3]} />

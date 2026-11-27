@@ -518,6 +518,12 @@ function ShadowRealmInner() {
       if (heatFlashTimer.current) clearTimeout(heatFlashTimer.current);
       heatFlashTimer.current = setTimeout(() => setHeatFlash(false), 750);
       try { fx.hit(); } catch { /* best-effort */ }
+    } else if (evt.type === 'bump-fly') {
+      // Launched by a bump: the rider tumbles, then respawns at the
+      // pre-hit spot and keeps racing (no life lost for a fly-off).
+      setDeathToast('💥 SENT FLYING — BACK AT THE IMPACT SPOT');
+      if (deathToastTimer.current) clearTimeout(deathToastTimer.current);
+      deathToastTimer.current = setTimeout(() => setDeathToast(null), 2500);
     } else if (evt.type === 'trail-death') {
       const owner = String(evt.owner || 'RIVAL').slice(0, 24);
       setDeathToast(`SHREDDED BY ${owner}'s TRAIL`);
@@ -1698,8 +1704,9 @@ function ShadowRealmInner() {
             >
               {/* Boost charge ring (Merlin 2026-10-03): the meter was
                   unreadable, so the charge now wraps the button as an amber
-                  ring — glanceable at speed. Fills with regen/bump charge,
-                  drains on boost, glows while surging. */}
+                  ring — glanceable at speed. Fills with regen/bump charge
+                  plus a slow passive refill, drains while BOOST is held,
+                  glows while surging. Charge 0 = no boost. */}
               {(() => {
                 const m = boostMeter(hud.boostCharge);
                 return (

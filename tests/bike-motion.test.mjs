@@ -29,10 +29,14 @@ import {
   REGEN_DEG,
   STEER_DEADZONE_DEG,
   STEER_FULL_DEG,
+  STEER_GAIN,
   SURGE_SECS,
+  BOOST_DRAIN_RATE,
+  BOOST_REFILL_RATE,
   THROTTLE_DEADZONE_DEG,
   THROTTLE_FULL_DEG,
   brakeFromTilt,
+  canBoost,
   clamp01,
   landscapeSteerSign,
   loadMotionPref,
@@ -44,6 +48,8 @@ import {
   steerFromTilt2D,
   steerGainFromSpeed,
   steerInputFromTilt,
+  stepBoostCharge,
+  surgeIfFull,
   throttleFromTilt,
   wrapAngleDeg,
 } from '../lib/bike-motion.js';
@@ -330,13 +336,15 @@ describe('source wiring', () => {
   });
 
   it('page offers recenter via double-tap and a button', () => {
-    assert.match(pageSrc, /onDoubleClick=\{\(\) => \{ if \(motion\.motionOn\) motion\.recenter\(\); \}\}/);
-    assert.match(pageSrc, /onClick=\{motion\.recenter\}/);
+    // Hardened double-tap: tap-state flow on pointer-up, not a bare
+    // onDoubleClick (grip adjustments kept recentering the neutral hold).
+    assert.match(pageSrc, /if \(motion\.motionOn\) motion\.recenter\('double-tap'\)/);
+    assert.match(pageSrc, /motion\.recenter\('button'\)/);
   });
 
   it('page has the circle motion + fullscreen toggles', () => {
-    assert.match(pageSrc, /onClick=\{motion\.toggleMotion\}/);
-    assert.match(pageSrc, /onClick=\{fsx\.toggleFullscreen\}/);
+    assert.match(pageSrc, /motion\.toggleMotion\(\)/);
+    assert.match(pageSrc, /fsx\.toggleFullscreen\(\)/);
     assert.match(pageSrc, /css\.circleBtn\(/);
   });
 
@@ -409,8 +417,10 @@ describe('steerFromTilt2D', () => {
     }
   });
   it('pure lateral gives full authority (sharp)', () => {
-    assert.equal(steerFromTilt2D(STEER_FULL_DEG, 0), 1);
-    assert.equal(steerFromTilt2D(-STEER_FULL_DEG, 0), -1);
+    // Full lock is capped by STEER_GAIN (reduced 2026-10-03: sensor noise
+    // times gain is jerkiness) — the authority is full *at that gain*.
+    assert.equal(steerFromTilt2D(STEER_FULL_DEG, 0), STEER_GAIN);
+    assert.equal(steerFromTilt2D(-STEER_FULL_DEG, 0), -STEER_GAIN);
   });
   it('sharpness scales with the lateral-vs-forward ratio', () => {
     const gentle = Math.abs(steerFromTilt2D(12, 25)); // mostly forward
@@ -487,9 +497,14 @@ describe('motion-controls source wiring', () => {
   });
   it('scene drives analog pedals when motionDrive, auto-throttle otherwise', () => {
     assert.match(sceneSrc, /input\.motionDrive/);
-    assert.match(sceneSrc, /vehicle\.maxSpeed \* throttle/);
+    // Pedals blend through blendThrottle into eff (not raw throttle).
+    assert.match(sceneSrc, /blendThrottle\(throttle, brakePedal\)/);
+    assert.match(sceneSrc, /vehicle\.maxSpeed \* eff/);
     assert.match(sceneSrc, /boostCharge/);
-    assert.match(sceneSrc, /SURGE_SECS/);
+    // Rechargeable boost: the Rig drains/refills the meter every frame
+    // and fires the free surge when it fills.
+    assert.match(sceneSrc, /stepBoostCharge\(s\.boostCharge/);
+    assert.match(sceneSrc, /surgeIfFull\(s\.boostCharge/);
   });
   it('scene reports charge + surge to the HUD', () => {
     assert.match(sceneSrc, /boostCharge: s\.boostCharge/);
@@ -498,5 +513,83 @@ describe('motion-controls source wiring', () => {
   it('page initializes the new channels and shows the regen chip', () => {
     assert.match(pageSrc, /throttle: 0, brake: 0, regen: 0, motionDrive: false/);
     assert.match(pageSrc, /boostCharge/);
+  });
+});
+
+describe('rechargeable boost (drain / refill / surge)', () => {
+  const approx = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
+
+  it('drain and refill rates match the unified shape (0.40/s, 0.12/s)', () => {
+    assert.equal(BOOST_DRAIN_RATE, 0.40);
+    assert.equal(BOOST_REFILL_RATE, 0.12);
+  });
+
+  it('manual boost drains the meter at 0.40/s', () => {
+    assert.ok(approx(stepBoostCharge(1, true, 1), 0.60));
+    assert.ok(approx(stepBoostCharge(1, true, 2.5), 0));
+    assert.ok(approx(stepBoostCharge(0.5, true, 0.5), 0.30));
+  });
+
+  it('a full meter buys 2.5s of boost', () => {
+    assert.ok(approx(stepBoostCharge(1, true, 2.5), 0));
+    assert.ok(stepBoostCharge(1, true, 2.4) > 0);
+  });
+
+  it('not boosting refills the meter at 0.12/s', () => {
+    assert.ok(approx(stepBoostCharge(0, false, 1), 0.12));
+    assert.ok(approx(stepBoostCharge(0.5, false, 1), 0.62));
+    assert.ok(approx(stepBoostCharge(0.95, false, 1), 1));
+  });
+
+  it('charge clamps to [0, 1] on both ends', () => {
+    assert.equal(stepBoostCharge(0, true, 10), 0);
+    assert.equal(stepBoostCharge(1, false, 10), 1);
+    assert.equal(stepBoostCharge(-5, false, 1), 0.12);
+    assert.equal(stepBoostCharge(5, true, 1), 0.60);
+  });
+
+  it('non-finite dt steps nothing; non-finite charge reads as empty', () => {
+    assert.equal(stepBoostCharge(0.5, true, NaN), 0.5);
+    assert.equal(stepBoostCharge(0.5, false, -1), 0.5);
+    assert.equal(stepBoostCharge(NaN, true, 1), 0);
+    assert.equal(stepBoostCharge(NaN, false, 1), 0.12);
+  });
+
+  it('no boost when charge is 0', () => {
+    assert.equal(canBoost(0), false);
+    assert.equal(canBoost(-1), false);
+    assert.equal(canBoost(NaN), false);
+    assert.equal(canBoost(0.01), true);
+    assert.equal(canBoost(1), true);
+  });
+
+  it('a full meter fires the free surge and resets to 0', () => {
+    const s = surgeIfFull(1, 0);
+    assert.equal(s.surged, true);
+    assert.equal(s.charge, 0);
+    assert.equal(s.surgeT, SURGE_SECS);
+  });
+
+  it('surge still fires from a refill-filled meter (full is full)', () => {
+    // 0.95 + one second of passive refill = 1.07 -> clamped to 1 -> surge.
+    const filled = stepBoostCharge(0.95, false, 1);
+    assert.equal(filled, 1);
+    assert.equal(surgeIfFull(filled, 0).surged, true);
+  });
+
+  it('surge does not double-fire while one is already running', () => {
+    const s = surgeIfFull(1, 2);
+    assert.equal(s.surged, false);
+    assert.equal(s.charge, 1);
+    assert.equal(s.surgeT, 2);
+  });
+
+  it('a partial meter never surges', () => {
+    assert.equal(surgeIfFull(0.99, 0).surged, false);
+    assert.equal(surgeIfFull(0, 0).surged, false);
+  });
+
+  it('regen still fills faster than passive refill', () => {
+    assert.ok(REGEN_CHARGE_RATE > BOOST_REFILL_RATE);
   });
 });

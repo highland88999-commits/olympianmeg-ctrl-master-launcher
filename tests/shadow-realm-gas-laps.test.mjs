@@ -219,12 +219,13 @@ describe('steering sign: verified end-to-end (right tilt -> screen-right)', () =
     const rightIdx = page.indexOf('pressSteerPad(STEER_RIGHT)');
     assert.ok(leftIdx > 0 && rightIdx > 0, 'both pads wired');
     assert.ok(leftIdx < rightIdx, 'left pad renders before right pad');
-    // The ‹ glyph belongs to the left button: it appears after the LEFT
-    // wiring and before the RIGHT wiring. › belongs to the right button.
+    // The ‹ glyph belongs to the left button: it renders via
+    // glyphFace('tron-steer-left', '‹') after the LEFT wiring and before
+    // the RIGHT wiring. › belongs to the right button the same way.
     const between = page.slice(leftIdx, rightIdx);
-    assert.ok(between.includes('>‹<'), '‹ glyph on the left pad');
+    assert.ok(between.includes("glyphFace('tron-steer-left', '‹')"), '‹ glyph on the left pad');
     const afterRight = page.slice(rightIdx, rightIdx + 2000);
-    assert.ok(afterRight.includes('>›<'), '› glyph on the right pad');
+    assert.ok(afterRight.includes("glyphFace('tron-steer-right', '›')"), '› glyph on the right pad');
   });
 
   it('multi-touch: most-recently-pressed pad wins, release falls back', () => {

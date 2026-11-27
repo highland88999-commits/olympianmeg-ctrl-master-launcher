@@ -14,7 +14,7 @@ import {
   sampleAt, MILES_TO_M, RACE_DISTANCES as OMEGA_DISTANCES,
   DEFAULT_DISTANCE_MILES as OMEGA_DEFAULT,
 } from '../lib/omega-500/tracks.js';
-import { curvatureAhead } from '../lib/omega-500/race.js';
+import { curvatureAhead, createRace, stepRacer } from '../lib/omega-500/race.js';
 
 let pass = 0;
 function ok(name, fn) {
@@ -39,7 +39,7 @@ ok('every track has the full Omega 500 record shape', () => {
     assert.ok(Number.isInteger(t.turns) && t.turns > 0, `${t.id} turns`);
     assert.equal(typeof t.banking, 'string');
     assert.equal(typeof t.surface, 'string');
-    assert.ok(t.widthM >= 10, `${t.id} widthM`);
+    assert.ok(t.widthM >= 15 && t.widthM <= 23, `${t.id} widthM`);
     assert.ok(t.grip > 0 && t.grip <= 1, `${t.id} grip`);
     assert.ok(t.shape.kind === 'oval' || t.shape.kind === 'circuit', `${t.id} shape kind`);
     assert.equal(typeof t.theme.sky, 'string');
@@ -47,6 +47,40 @@ ok('every track has the full Omega 500 record shape', () => {
     assert.equal(typeof t.theme.wall, 'string');
     assert.equal(typeof t.blurb, 'string');
   }
+});
+
+ok('tracks are ~1.5x wider than before (whole metres, round-half-up)', () => {
+  // Old widths before the widening round (Nov 2026): every track is
+  // 1.5x its old width — 14 -> 21, 12 -> 18, 15 -> 23, 10 -> 15, 11 -> 17.
+  const OLD_WIDTHS = {
+    'uon-checker-tunnel': 14, 'checker-tunnel-demo': 14, 'neon-pink-loop': 14,
+    'volt-blue-circuit': 12, 'violet-vortex': 12, 'green-glow-speedway': 15,
+    'checker-chicane': 10, 'midnight-mirror-mile': 14, 'prism-switchbacks': 11,
+    'strobe-straights': 12, 'tunnel-twist': 12,
+  };
+  for (const t of CHECKER_TRACKS) {
+    const old = OLD_WIDTHS[t.id];
+    assert.ok(old !== undefined, `${t.id}: no old width on record`);
+    assert.equal(t.widthM, Math.round(old * 1.5), `${t.id}: ${old} -> ${t.widthM}`);
+    assert.ok(t.widthM >= old, `${t.id}: not wider than before`);
+  }
+});
+
+ok('CheckerScene builds a visible neon barricade wall on both ribbon edges', () => {
+  const scene = readFileSync(new URL('../components/checker-tracks/CheckerScene.jsx', import.meta.url), 'utf8');
+  assert.ok(scene.includes('buildWallGeometry'), 'wall geometry builder present');
+  assert.ok(scene.includes('track.theme.wall'), 'wall uses the track neon theme.wall colour');
+  assert.ok(scene.includes('WALL_HEIGHT_M'), 'wall has a real height, not a ground line');
+  assert.ok(scene.includes('wallL') && scene.includes('wallR'), 'walls on both edges');
+});
+
+ok('race HUD: boost is a circular ring meter, not a rectangular bar', () => {
+  const page = readFileSync(new URL('../app/checker-tracks/page.jsx', import.meta.url), 'utf8');
+  assert.ok(page.includes('data-testid="boost-ring"') || page.includes("testId = 'boost-ring'"), 'ring gauge present in the HUD');
+  assert.ok(page.includes('boost-ring-orb'), 'ring wraps the BOOST orb on touch controls');
+  assert.ok(page.includes('strokeDashoffset'), 'ring arc is driven by the meter value');
+  assert.ok(!page.includes('mt-2 h-3 overflow-hidden rounded bg-white/10'), 'no rectangular boost bar in the HUD');
+  assert.ok(page.includes('hud.boost'), 'ring reads the HUD boost feed');
 });
 
 ok('every track builds a valid closed centerline at the stated length', () => {
@@ -107,6 +141,21 @@ ok('every circuit track varies in speed; ovals are fast throughout', () => {
     }
     const ratio = Math.max(...speeds) / Math.min(...speeds);
     assert.ok(ratio > 1.3, `${t.id}: corner-speed ratio ${ratio.toFixed(2)}`);
+  }
+});
+
+ok('the shared sim wall holds on a checker track too (bounce is inherited)', () => {
+  // Checker tracks reuse Omega 500's sim wholesale — the barricade
+  // bounce in lib/omega-500/race.js covers them with no checker-side change.
+  const hero = getCheckerTrack(HERO_TRACK_ID);
+  const race = createRace(hero, 5, 'wedge-supercar');
+  assert.equal(race.halfWidth, hero.widthM / 2, 'halfWidth follows the widened track');
+  const ctx = { line: race.line, halfWidth: race.halfWidth, grip: race.grip };
+  const car = race.racers.find((r) => r.isPlayer);
+  car.speed = 40;
+  for (let i = 0; i < 600; i++) {
+    stepRacer(car, { throttle: 1, brake: 0, steer: 1, boost: false }, 1 / 60, ctx);
+    assert.ok(Math.abs(car.lateral) <= race.halfWidth + 1e-9, `past the wall at step ${i}: ${car.lateral}`);
   }
 });
 
