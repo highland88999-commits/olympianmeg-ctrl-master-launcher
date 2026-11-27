@@ -46,6 +46,10 @@ import {
   createBillboardFaceCanvas,
   drawCoverFit,
 } from '@/lib/billboard-face';
+import {
+  billboardFaceCacheKey,
+  createFaceTextureCache,
+} from '@/lib/billboard-face-cache';
 import { STAKE_SLOT } from '@/lib/partners';
 import { useScratchedMaterial } from '@/lib/portal/scratched-textures';
 import { panelsForTower, billboardNumberFor, PANEL_SCALE, houseLevelSlot, topLevelBillboardNumberFor, middleLevelBillboardNumberFor, bottomLevelBillboardNumberFor, MIDDLE_LEVEL_BADGE_BASE } from '@/lib/tower-panels';
@@ -148,14 +152,35 @@ function makeBorderTexture(color) {
   return tex;
 }
 
+// Shared canvas-face textures (Merlin, 2026-11-26 — hub crash return
+// path): one texture per distinct painted face, cached at module
+// level like the border textures above — 6 textures for the whole
+// ring instead of 249 per-panel canvases (881 MB CPU + ~1,175 MB
+// GPU). Refcounted (lib/billboard-face-cache.js): a texture is
+// disposed only when its last panel releases it, never while
+// another panel still shows it.
+const faceTextureCache = createFaceTextureCache();
+
 // Static face texture for one panel's slot: the shared honest branded face,
 // or the slot's real image creative cover-fit when one has shipped. The
 // stake slot reuses the shared gold stake creative (never removed).
 // Video slots ALSO get this honest face — as the pre-load and failure
 // fallback only. The video itself plays through the shared records
 // below (usePanelVideoState), never through this canvas path.
+//
+// CACHE: faces with the same paint share ONE canvas and ONE texture
+// (billboardFaceCacheKey — kind, name, tagline, accent, tracking-URL
+// presence, key length, or the image URL). A panel acquires its
+// paint's texture in this effect and releases it on cleanup / slot
+// change; the cache disposes it only at refcount zero. An image
+// creative loads async as before, but its canvas is wrapped through
+// the same cache — a second panel with the same image reuses the
+// first panel's texture and its own canvas is dropped.
 function usePanelFaceTexture(slot, stakeTex) {
   const [tex, setTex] = useState(null);
+  // The paint key is a render-time dep: any paint change (rotation
+  // to a new entry, new manifest) re-runs the effect and re-acquires.
+  const cacheKey = billboardFaceCacheKey(slot);
   useEffect(() => {
     // Stopgap (Nov 26, 2026 — BILLBOARDS_BLANK): no canvas faces at
     // all; the face renders the plain blank fallback below.
@@ -165,21 +190,33 @@ function usePanelFaceTexture(slot, stakeTex) {
       return;
     }
     let cancelled = false;
-    let owned = null;
-    const toTexture = (canvas) => {
-      if (cancelled) return;
-      if (!canvas) {
-        setTex(null); // honest fallback: flat face color, never a crash
-        return;
-      }
+    // The key this effect actually holds a ref on (null until a
+    // non-null texture is acquired — a null acquire holds nothing
+    // and needs no release).
+    let heldKey = null;
+    const wrapCanvas = (canvas) => {
+      if (!canvas) return null;
       const t = new THREE.CanvasTexture(canvas);
       t.colorSpace = THREE.SRGBColorSpace;
       t.anisotropy = 4;
-      owned = t;
-      setTex(t);
+      return t;
+    };
+    const acquireWith = (makeTexture) => {
+      if (cancelled || !cacheKey) return null;
+      const t = faceTextureCache.acquire(cacheKey, makeTexture);
+      if (!t) {
+        // iOS canvas exhaustion (or a failed paint): honest fallback,
+        // flat face color, never a crash — and nothing cached, so the
+        // next panel retries a fresh canvas.
+        setTex(null);
+        return null;
+      }
+      heldKey = cacheKey;
+      if (!cancelled) setTex(t);
+      return t;
     };
     const paintPlaceholder = () =>
-      toTexture(createBillboardFaceCanvas(slot, FACE_PX_W, FACE_PX_H));
+      acquireWith(() => wrapCanvas(createBillboardFaceCanvas(slot, FACE_PX_W, FACE_PX_H)));
     const creative = slot.creatives && slot.creatives[0];
     if (creative && creative.imageUrl) {
       const img = new Image();
@@ -189,8 +226,15 @@ function usePanelFaceTexture(slot, stakeTex) {
         const canvas = document.createElement('canvas');
         canvas.width = FACE_PX_W;
         canvas.height = FACE_PX_H;
-        drawCoverFit(canvas.getContext('2d'), img, FACE_PX_W, FACE_PX_H);
-        toTexture(canvas);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          // iOS canvas exhaustion on the cover-fit canvas: fall back
+          // to the painted face (which itself may fall back to flat).
+          paintPlaceholder();
+          return;
+        }
+        drawCoverFit(ctx, img, FACE_PX_W, FACE_PX_H);
+        acquireWith(() => wrapCanvas(canvas));
       };
       img.onerror = paintPlaceholder;
       img.src = creative.imageUrl;
@@ -199,10 +243,10 @@ function usePanelFaceTexture(slot, stakeTex) {
     }
     return () => {
       cancelled = true;
-      if (owned) owned.dispose();
+      if (heldKey) faceTextureCache.release(heldKey);
       setTex(null);
     };
-  }, [slot.key, slot.creativeUrl, slot.creatives?.[0]?.imageUrl, stakeTex]);
+  }, [slot.key, cacheKey, stakeTex]);
   return tex;
 }
 

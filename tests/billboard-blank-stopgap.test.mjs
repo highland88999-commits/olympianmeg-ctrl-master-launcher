@@ -1,22 +1,24 @@
 // tests/billboard-blank-stopgap.test.mjs
 // Blank-billboard stopgap (Merlin, Nov 26, 2026): ALL billboard
-// faces render as plain blank screens — no canvas art, no video —
-// until the hub crash is fixed for real and the boards come back.
-// One flag in one place (lib/billboards-blank.js); one edit there
-// brings them back. The round-1 deferral latch stays in the tree,
-// superseded by the flag while it is true.
+// faces rendered as plain blank screens — no canvas art, no video —
+// until the hub crash was fixed for real. LIFTED Nov 26, 2026 by
+// the shared canvas-face cache (tests/billboard-face-cache.test.mjs):
+// the flag is now false and the boards are back. The flag stays as
+// the emergency kill-switch — one edit re-blanks the boards — and
+// the gates below stay in the source so it still works. The round-1
+// deferral latch stays in the tree and still gates video content.
 // Run: node tests/billboard-blank-stopgap.test.mjs (from the repo root).
 // No browser, no network — asserts on the flag module and on the
 // wired source (same grep style as the hub suites).
 //
 // Rules under test:
-// - The flag exists in exactly one place and is true.
-// - GodTower: the canvas-face effect returns before any canvas is
-//   created; the video-state effect returns before any record is
-//   created; the hub preload returns before any URL is collected;
-//   the number badge does not render while blank.
-// - BillboardMonument: the effect returns before any canvas or
-//   video is created.
+// - The flag exists in exactly one place and is false (boards back).
+// - GodTower: the canvas-face effect still checks the flag first;
+//   the video-state effect still checks it before any record; the
+//   hub preload still checks it before collecting URLs; the number
+//   badge still renders only when not blank.
+// - BillboardMonument: the effect still checks the flag before any
+//   canvas or video is created.
 // - The round-1 deferral latch is intact (releasePanelVideoLoad
 //   still exported, still the only src assignment in GodTower).
 // - The blank fallback is already the render path: with no face
@@ -35,10 +37,10 @@ const godTower = readFileSync(new URL('../components/GodTower.jsx', import.meta.
 const monument = readFileSync(new URL('../components/argo/BillboardMonument.jsx', import.meta.url), 'utf8');
 const flagSrc = readFileSync(new URL('../lib/billboards-blank.js', import.meta.url), 'utf8');
 
-// --- the flag itself ---
-t('flag module exports BILLBOARDS_BLANK true', BILLBOARDS_BLANK === true);
-t('flag is the only definition', (flagSrc.match(/BILLBOARDS_BLANK\s*=\s*true/g) || []).length === 1);
-t('flag module says how to revert', /set BILLBOARDS_BLANK to false/i.test(flagSrc));
+// --- the flag itself: LIFTED — the boards are back ---
+t('flag module exports BILLBOARDS_BLANK false', BILLBOARDS_BLANK === false);
+t('flag is the only definition', (flagSrc.match(/BILLBOARDS_BLANK\s*=\s*false/g) || []).length === 1);
+t('flag module says how to re-blank', /set BILLBOARDS_BLANK[^a-zA-Z0-9]{0,10}to true/i.test(flagSrc));
 
 // --- GodTower imports the flag ---
 t('GodTower imports BILLBOARDS_BLANK from lib/billboards-blank',
@@ -79,7 +81,7 @@ t('badge render is gated on !BILLBOARDS_BLANK',
 t('face falls back to plain dark material with no texture',
   /color=\{faceTex \? \(hovered \? '#dddddd' : '#ffffff'\) : '#0a0f1e'\}/.test(godTower));
 
-// --- round-1 deferral latch intact (superseded, not removed) ---
+// --- round-1 deferral latch intact (flag lifted, latch still gates) ---
 t('releasePanelVideoLoad still exported', /export function releasePanelVideoLoad\(\)/.test(godTower));
 t('still exactly one video.src assignment in GodTower',
   (godTower.match(/\.video\.src = /g) || []).length === 1);
