@@ -142,15 +142,20 @@ describe('the Concourse icon yields while a baseball orb is up', () => {
     assert.ok(page.includes('{(baseballQuitVisible) && ('), 'QUIT gate must use baseballQuitVisible');
   });
 
-  it('Concourse listens for the event and lifts 176 px (bike rule untouched)', () => {
+  it('Concourse listens for the event and lifts 272 px (bike rule untouched)', () => {
+    // 272, not 176: the glider picker is a VERTICAL stack (3 x 40 px
+    // orbs at bottoms 216/264/312, top edge 352) — 176 left the icon
+    // overlapping its top two orbs live at 390 + 320 (glider push 3,
+    // Nov 27, 2026). Bottom 96 + 272 = bottom 368, clearing the
+    // picker top edge by 16 px.
     assert.ok(concourse.includes("export const BASEBALL_ORB_EVENT = 'olympus:hub-baseball-orb'"), 'Concourse must export BASEBALL_ORB_EVENT');
     assert.ok(concourse.includes('const [baseballOut, setBaseballOut] = useState(false)'), 'Concourse must track baseballOut');
     assert.ok(concourse.includes('window.addEventListener(BASEBALL_ORB_EVENT, onBaseballOrb)'), 'Concourse must listen for the baseball-orb event');
     assert.ok(concourse.includes('window.removeEventListener(BASEBALL_ORB_EVENT, onBaseballOrb)'), 'Concourse must remove the baseball-orb listener');
     assert.ok(concourse.includes('setBaseballOut(!!e?.detail?.visible)'), 'Concourse must take visible from the event detail');
     assert.ok(
-      concourse.includes('const yieldLift = (bikeOut && !orbCustom ? 270 : 0) + (baseballOut && !orbCustom ? 176 : 0)'),
-      'yieldLift must add 176 while a baseball orb is up (bike 270 unchanged, both gated on !orbCustom)'
+      concourse.includes('const yieldLift = (bikeOut && !orbCustom ? 270 : 0) + (baseballOut && !orbCustom ? 272 : 0)'),
+      'yieldLift must add 272 while a baseball orb is up (bike 270 unchanged, both gated on !orbCustom)'
     );
     assert.ok(concourse.includes('(window.innerHeight - 96 - SIZE)'), 'default anchor must stay bottom 96 (the lift is measured from it)');
   });

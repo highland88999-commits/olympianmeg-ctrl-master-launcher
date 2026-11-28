@@ -219,8 +219,8 @@ describe('toggle wiring (app/page.jsx)', () => {
 
   it('the toggle shows only in the hub movement states', () => {
     assert.ok(
-      page.includes("(appState === 'hub_freeroam' || appState === 'on_bike')"),
-      'toggle is gated to hub_freeroam and on_bike'
+      page.includes("(appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider')"),
+      'toggle is gated to hub_freeroam, on_bike and on_glider (glider added Nov 27, 2026)'
     );
   });
 

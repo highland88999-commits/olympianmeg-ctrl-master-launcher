@@ -310,7 +310,7 @@ describe('hub circle buttons (static wiring)', () => {
     assert.ok(page.includes('FlightAxisStreaks'), 'streak icon renders in the toggle');
     assert.ok(page.includes('Flight axis:'), 'toggle names the current mode');
     assert.ok(page.includes('toggleFlightAxis'), 'toggle handler exists');
-    assert.ok(page.includes("(appState === 'hub_freeroam' || appState === 'on_bike')"), 'toggle shows in the hub movement states');
+    assert.ok(page.includes("(appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider')"), 'toggle shows in the hub movement states (glider added Nov 27, 2026)');
   });
 
   it('SPAWN TO BIKE lives in the Concourse as the Bike tile (2026-10-20)', () => {

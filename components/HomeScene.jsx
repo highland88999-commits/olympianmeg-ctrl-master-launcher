@@ -37,7 +37,13 @@ import { SUN_BASE_TRIGGER_RADIUS, pullEasedProgress, sunBaseExitSpawn, exitEased
 import { FREE_FLY_SPEED, BIKE_TUNING } from '../lib/hub-layout';
 import { registerCollider, unregisterCollider, resolveFlightCollision } from '../lib/hub-collision';
 import { createBikeFlightState, stepBikeFlight, rotateOffsetByYaw, bikeForward } from '../lib/bike-flight';
-import { dismountPosition } from '../lib/rider-state';
+import { GLIDER_TUNING, createGliderFlightState, stepGliderFlight } from '../lib/hub-glider-flight';
+import { summonGlider, dismountGlider, GLIDER_SPAWN_AHEAD } from '../lib/hub-glider';
+import { GLIDER_CAM_FOLLOW_DIST, gliderCameraPose, gliderBobY, bankAngleAt, followDistanceAt, speedFraction } from '../lib/hub-glider-camera';
+import { buildHubGlider, disposeHubGlider } from '../lib/hub-glider/meshes';
+import { resolveSurfaceCharacterId, getEmbodiment } from '../lib/characters/embodiment';
+import { recenterLookOffset } from '../lib/planet-walker';
+import { dismountPosition, DISMOUNT_EYE } from '../lib/rider-state';
 import { flightAxisMove, bikeAxisInput } from '../lib/flight-axis';
 import { treeVisible } from '../lib/seasonal/seasons';
 import { angledGarlandTransform, garlandRingPosition, alternateBlinkFactor, GARLAND_BAUBLE_COUNT, GARLAND_LIGHT_COUNT } from '../lib/seasonal/hub-christmas-fx';
@@ -616,7 +622,98 @@ function SunBackground({ onSelect, freeroam, sunPullRef }) {
 const _bbPos = new THREE.Vector3();
 const _bbLook = new THREE.Vector3();
 
-function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone, baseballFlightRef, sunExit }) {
+// Scratch vectors for the glider camera branches (same rule).
+const _gliderCamPos = new THREE.Vector3();
+const _gliderFwd = new THREE.Vector3();
+
+// HUB SOLAR-SAIL GLIDER mesh (Merlin, Nov 27, 2026): the visible
+// glider group — board, mast, billowed reflective sail, rigging,
+// and the rider standing on it. The group itself is posed by
+// SequenceController (position/rotation/bank); this component only
+// builds it per variant, drives the rider, and hides it off the
+// summoned flag (the J2 speeder pattern: visible = summoned).
+// The rider is the user's SELECTED character (pick chain in
+// lib/characters/embodiment.js, surface 'hub-glider') attached via
+// attachCharacterGlb — loaded lazily so the hub bundle never pays
+// for the Kombat fighter loader until a glider is built — over a
+// procedural rider figure that stays visible until the GLB is ready
+// (fallback is the native body, never a hole). No character picked:
+// the procedural rider IS the rider — summoning never blocks and
+// never crashes.
+function HubGliderMesh({ gliderRef, gliderStateRef, gliderVariant }) {
+  const { gl } = useThree();
+  const group = useMemo(
+    () => buildHubGlider(gliderVariant, gl),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gliderVariant],
+  );
+  const handleRef = useRef(null);
+
+  useEffect(() => {
+    if (gliderRef) gliderRef.current = group;
+    return () => {
+      if (gliderRef && gliderRef.current === group) gliderRef.current = null;
+      disposeHubGlider(group);
+    };
+  }, [group, gliderRef]);
+
+  // Selected-character rider (lazy: the fighter loader loads once).
+  // Length-class creatures (raptors, the T-Rex) scale by body
+  // LENGTH, not height — a 12 m T-Rex would swamp the board and
+  // break the chase framing. They keep the procedural rider;
+  // upright characters (and only those with a hosted GLB) ride as
+  // themselves. No GLB either way: the procedural rider stands.
+  useEffect(() => {
+    let cancelled = false;
+    const characterId = resolveSurfaceCharacterId('hub-glider');
+    const embodiment = characterId ? getEmbodiment(characterId) : null;
+    if (!characterId || !embodiment || !embodiment.glbUrl || embodiment.lengthM) return undefined;
+    import('@/lib/characters/character-glb')
+      .then(({ attachCharacterGlb }) => {
+        if (cancelled) return;
+        const handle = attachCharacterGlb({
+          characterId,
+          procSize: { x: 1.9, y: 1.9, z: 1.9 },
+          slotKey: 'hub-glider-rider',
+        });
+        if (!handle) return;
+        handleRef.current = handle;
+        const anchor = group.userData.riderAnchor;
+        if (anchor) anchor.add(handle.group);
+        // The GLB's lifecycle belongs to its handle's dispose() —
+        // disposeHubGlider must skip this subtree (see meshes.js).
+        handle.group.userData.hubGliderExternal = true;
+        handle.ready
+          .then((ok) => {
+            if (ok && !cancelled && group.userData.procRider) {
+              group.userData.procRider.visible = false;
+            }
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (handleRef.current) {
+        try { handleRef.current.dispose(); } catch {}
+        handleRef.current = null;
+      }
+    };
+  }, [group]);
+
+  useFrame((state, delta) => {
+    const st = gliderStateRef && gliderStateRef.current;
+    group.visible = !!(st && st.summoned);
+    const handle = handleRef.current;
+    if (handle && group.visible && typeof handle.isLiveGlb === 'function' && handle.isLiveGlb()) {
+      handle.update('idle', delta, state.clock.elapsedTime, {});
+    }
+  });
+
+  return <primitive object={group} />;
+}
+
+function SequenceController({ launchState, setLaunchState, portalTex, payloadTex, targetRoute, controls, flightAxis, dropTarget, bikeRef, gliderRef, gliderStateRef, gliderVariant, onBikeDismount, onSatellitePortal, sunPullRef, onSunPullDone, baseballFlightRef, sunExit }) {
   const { camera } = useThree();
   const router = useRouter(); 
   const bulletRef = useRef();
@@ -636,6 +733,12 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
   // Mounted bike-flight state (lib/bike-flight.js) — created on mount,
   // cleared on dismount. This is what makes the bike actually FLY.
   const bikeFlight = useRef(null);
+  // Mounted glider-flight state (lib/hub-glider-flight.js) — created
+  // on summon, cleared on dismount. Same shape as the bike's.
+  const gliderFlight = useRef(null);
+  // Smoothed follow distance for the glider chase camera — eases
+  // toward its speed target so a speed change never pops the camera.
+  const gliderDist = useRef(GLIDER_CAM_FOLLOW_DIST);
   
   const ATMOSPHERE_Y = 5;
   const PORTAL_POS = [dropTarget[0], ATMOSPHERE_Y, dropTarget[2]];
@@ -814,6 +917,23 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
             // Persistence must never break the frame.
           }
         }
+      }
+      // Glider dismount edge: coming off the glider — the glider
+      // DESPAWNS (the speeder's rule, not the bike's park), and the
+      // rider returns to first-person exactly where the craft was,
+      // facing the way it faced. No persistence write: the glider
+      // leaves nothing behind to save.
+      const wasGliding =
+        prevLaunchRef.current === 'on_glider' || prevLaunchRef.current === 'to_glider';
+      if (wasGliding && gliderStateRef && gliderStateRef.current) {
+        const pose = dismountGlider(gliderStateRef.current);
+        camera.position.set(pose.x, pose.y + DISMOUNT_EYE, pose.z);
+        camera.lookAt(
+          pose.x + Math.sin(pose.yaw) * 10,
+          pose.y + DISMOUNT_EYE + 0.4,
+          pose.z + Math.cos(pose.yaw) * 10,
+        );
+        gliderFlight.current = null;
       }
       // Leaving the bike: hand flight control back to the rig's parked hover
       // around wherever the bike was left.
@@ -1015,6 +1135,166 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
       camera.rotation.order = 'YXZ';
       camera.rotation.set(lookPitch.current, Math.PI + st.yaw + lookYaw.current, 0);
     }
+    else if (launchState === 'to_glider') {
+      // Fly the camera from wherever it is into the chase seat
+      // behind the glider. The glider materialises ahead of the
+      // camera and auto-mounts (the speeder's rule); the flight
+      // model is seeded from its real pose. The camera's own
+      // forward (pitch-free) sets the spawn heading, so the glider
+      // always appears where the rider is already looking.
+      lookYaw.current = 0;
+      lookPitch.current = 0;
+      gliderDist.current = GLIDER_CAM_FOLLOW_DIST;
+      const gst = gliderStateRef.current;
+      if (!gst.summoned) {
+        camera.getWorldDirection(_gliderFwd);
+        const fwdLen = Math.hypot(_gliderFwd.x, _gliderFwd.z) || 1;
+        const fwdX = _gliderFwd.x / fwdLen;
+        const fwdZ = _gliderFwd.z / fwdLen;
+        summonGlider(
+          gst,
+          {
+            x: camera.position.x + fwdX * GLIDER_SPAWN_AHEAD,
+            y: camera.position.y,
+            z: camera.position.z + fwdZ * GLIDER_SPAWN_AHEAD,
+            yaw: Math.atan2(fwdX, fwdZ),
+          },
+          gliderVariant,
+        );
+        gliderFlight.current = createGliderFlightState(
+          [gst.pos.x, gst.pos.y, gst.pos.z],
+          gst.yaw,
+        );
+      }
+      if (!gliderFlight.current) {
+        gliderFlight.current = createGliderFlightState(
+          [gst.pos.x, gst.pos.y, gst.pos.z],
+          gst.yaw,
+        );
+      }
+      const st = gliderFlight.current;
+      const bobY = gliderBobY(state.clock.elapsedTime);
+      if (gliderRef.current) {
+        gliderRef.current.position.set(st.pos.x, st.pos.y + bobY, st.pos.z);
+        gliderRef.current.rotation.set(0, st.yaw, 0);
+      }
+      const gpose = gliderCameraPose({
+        pos: { x: st.pos.x, y: st.pos.y + bobY, z: st.pos.z },
+        yaw: st.yaw,
+        speedFrac: 0,
+        lookYaw: 0,
+        lookPitch: 0,
+        dist: GLIDER_CAM_FOLLOW_DIST,
+      });
+      _gliderCamPos.set(gpose.cx, gpose.cy, gpose.cz);
+      camera.position.lerp(_gliderCamPos, Math.min(1, delta * 2.5));
+
+      const currentQuat = camera.quaternion.clone();
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(gpose.rotX, gpose.rotY, 0);
+      const targetQuat = camera.quaternion.clone();
+      camera.quaternion.copy(currentQuat);
+      camera.quaternion.slerp(targetQuat, Math.min(1, delta * 3));
+
+      if (camera.position.distanceTo(_gliderCamPos) < 0.8) {
+        setLaunchState('on_glider');
+      }
+    }
+    else if (launchState === 'on_glider') {
+      // Mounted glider flight: W/S (or joystick) throttles, A/D
+      // steers, FLIGHT AXIS switches W/S between forward/reverse
+      // and climb/descend — the same input mapping as the bike
+      // (lib/flight-axis.js bikeAxisInput). The camera rides the
+      // chase pose from lib/hub-glider-camera.js (the one
+      // adjustable place); drag looks around and eases back to
+      // centred on release (shared recenterLookOffset — the
+      // auto-centre the hub bike never had).
+      const c = controls.current;
+      if (!gliderFlight.current) {
+        const gp = gliderStateRef.current;
+        gliderFlight.current = createGliderFlightState(
+          [gp.pos.x, gp.pos.y, gp.pos.z],
+          gp.yaw,
+        );
+      }
+      const st = gliderFlight.current;
+      const input = bikeAxisInput({
+        keyW: c.keyW,
+        keyS: c.keyS,
+        keyA: c.keyA,
+        keyD: c.keyD,
+        moveX: c.moveX,
+        moveY: c.moveY,
+        axis: flightAxis,
+      });
+
+      const step = Math.min(delta, 0.05);
+      const prevPos = { x: st.pos.x, y: st.pos.y, z: st.pos.z };
+      stepGliderFlight(st, input, step, GLIDER_TUNING);
+
+      // Solid hub: a bump deflects and scrubs speed — never kills the ride.
+      if (resolveFlightCollision(prevPos, st.pos, 3)) {
+        st.speed *= 0.3;
+        st.vertSpeed *= 0.3;
+      }
+
+      const t = state.clock.elapsedTime;
+      const speedFrac = speedFraction(st.speed, GLIDER_TUNING.maxSpeed);
+      // The follow distance eases toward its speed target — a
+      // speed change never pops the camera.
+      gliderDist.current += (followDistanceAt(speedFrac) - gliderDist.current) * Math.min(1, step * 3);
+      const bobY = gliderBobY(t);
+      if (gliderRef.current) {
+        gliderRef.current.position.set(st.pos.x, st.pos.y + bobY, st.pos.z);
+        gliderRef.current.rotation.y = st.yaw;
+        gliderRef.current.rotation.z = THREE.MathUtils.lerp(
+          gliderRef.current.rotation.z,
+          // Bank INTO the turn: positive steer (right) leans the
+          // board right — the bike's 0.38, carried in the camera
+          // module as GLIDER_CAM_BANK_MAX.
+          bankAngleAt(input.steer),
+          Math.min(1, step * 6),
+        );
+      }
+      // Keep the summon state in step with the flight model so a
+      // dismount plants the rider where the craft actually is.
+      const sum = gliderStateRef.current;
+      sum.pos.x = st.pos.x;
+      sum.pos.y = st.pos.y;
+      sum.pos.z = st.pos.z;
+      sum.yaw = st.yaw;
+      sum.speed = st.speed;
+
+      // Drag-look: follows the finger while dragging; on release
+      // the offset eases back to centred (never a snap).
+      if (c.lookDeltaX !== 0 || c.lookDeltaY !== 0) {
+        lookYaw.current -= c.lookDeltaX * 0.003;
+        lookPitch.current -= c.lookDeltaY * 0.003;
+        lookPitch.current = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, lookPitch.current));
+      } else if (Math.abs(lookYaw.current) > 0.001 || Math.abs(lookPitch.current) > 0.001) {
+        const eased = recenterLookOffset({ yaw: lookYaw.current, pitch: lookPitch.current }, step);
+        lookYaw.current = eased.yaw;
+        lookPitch.current = eased.pitch;
+      }
+      c.lookDeltaX = 0;
+      c.lookDeltaY = 0;
+
+      const gpose2 = gliderCameraPose({
+        pos: { x: st.pos.x, y: st.pos.y + bobY, z: st.pos.z },
+        yaw: st.yaw,
+        speedFrac,
+        lookYaw: lookYaw.current,
+        lookPitch: lookPitch.current,
+        dist: gliderDist.current,
+      });
+      camera.position.set(gpose2.cx, gpose2.cy, gpose2.cz);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.set(gpose2.rotX, gpose2.rotY, 0);
+      if (Math.abs(camera.fov - gpose2.fov) > 0.01) {
+        camera.fov = THREE.MathUtils.lerp(camera.fov, gpose2.fov, Math.min(1, step * 3));
+        camera.updateProjectionMatrix();
+      }
+    }
     else if (launchState === 'returning_to_satellite') {
       // Launching (possibly from the bike): stand the flight model down so
       // the rig resumes its parked hover wherever it was left.
@@ -1023,6 +1303,12 @@ function SequenceController({ launchState, setLaunchState, portalTex, payloadTex
         bikeRef.current.userData.baseY = bikeRef.current.position.y;
       }
       bikeFlight.current = null;
+      // Launching from the glider: the glider despawns (its rule —
+      // nothing is ever left parked) and its flight model stands down.
+      if (gliderStateRef.current && gliderStateRef.current.summoned) {
+        dismountGlider(gliderStateRef.current);
+      }
+      gliderFlight.current = null;
 
       const viewPos = new THREE.Vector3(dropTarget[0], 65, dropTarget[2] + 35);
       camera.position.lerp(viewPos, delta * 4);
@@ -1408,6 +1694,13 @@ function HubScene({
   adWindowRef,
   activeSatTarget,
   bikeRef,
+  // HUB SOLAR-SAIL GLIDER (Merlin, Nov 27, 2026): the page-owned
+  // mesh ref + summon-state ref + picked variant. The wrapper passes
+  // every page prop through via {...sceneProps}, so these arrive here
+  // with no wrapper change.
+  gliderRef,
+  gliderStateRef,
+  gliderVariant,
   earthQuatRef,
   earthFocus,
   pendingDest,
@@ -1613,8 +1906,8 @@ function HubScene({
           <>
             {!['diving_to_street', 'earth_roam'].includes(appState) && (
               <SunBackground
-                freeroam={appState === 'hub_freeroam' || appState === 'on_bike'}
-                onSelect={appState === 'hub_freeroam' || appState === 'on_bike' ? onSunClick : null}
+                freeroam={appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider'}
+                onSelect={appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider' ? onSunClick : null}
                 sunPullRef={sunPullRef}
               />
             )}
@@ -1674,8 +1967,8 @@ function HubScene({
                 as NavBeacons below, orbit views keep it. */}
             {!['diving_to_street', 'earth_roam'].includes(appState) && (
               <HubMoon
-                freeroam={appState === 'hub_freeroam' || appState === 'on_bike'}
-                onSelect={appState === 'hub_freeroam' || appState === 'on_bike' ? onMoonClick : null}
+                freeroam={appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider'}
+                onSelect={appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider' ? onMoonClick : null}
               />
             )}
             {!['diving_to_street', 'earth_roam'].includes(appState) && <AsteroidField />}
@@ -1718,6 +2011,10 @@ function HubScene({
               program remains reachable through the floating button's
               satellite menu. */}
             {/* Parked hub bike display removed 2026-10-27 (Merlin: clutter). */}
+            {/* HUB SOLAR-SAIL GLIDER (Merlin, Nov 27, 2026): lives
+                OUTSIDE the Suspense below (finisher, Nov 27: inside
+                the Suspense the mesh rendered but never committed —
+                no effect, no frame loop, nothing in the scene). */}
           </>
           )}
         </Suspense>
@@ -1733,12 +2030,23 @@ function HubScene({
           adWindowRef={adWindowRef}
           dropTarget={activeSatTarget}
           bikeRef={bikeRef}
+          gliderRef={gliderRef}
+          gliderStateRef={gliderStateRef}
+          gliderVariant={gliderVariant}
           onBikeDismount={onBikeDismount}
           onSatellitePortal={onSatellitePortal}
           sunPullRef={sunPullRef}
           onSunPullDone={onSunPullDone}
           sunExit={sunExit}
           baseballFlightRef={baseballFlightRef}
+        />
+
+        {/* HUB SOLAR-SAIL GLIDER (Merlin, Nov 27, 2026): direct Canvas
+            child, outside the Suspense — see the note above. */}
+        <HubGliderMesh
+          gliderRef={gliderRef}
+          gliderStateRef={gliderStateRef}
+          gliderVariant={gliderVariant}
         />
 
         <EarthFlightController

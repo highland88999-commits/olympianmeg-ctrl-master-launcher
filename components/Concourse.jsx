@@ -709,18 +709,26 @@ export default function Concourse() {
   const orbPx = toPx(orbFrac);
   // Yield lift, px the icon rises above its remembered spot.
   // Bike: 270, clears the bike controls while riding.
-  // Baseball: 176. The icon's default anchor is bottom 96; the
-  // baseball orbs sit at right 18, bottom 80 (SWING 56 tall, QUIT
-  // 96 tall), and the glider stack above them runs SUMMON at bottom
-  // 148 with the variant picker at bottom 216 (40 tall — its top
-  // edge is bottom 256). Bottom 96 + 176 = bottom 272, which clears
-  // the picker's top edge by 16 px, SUMMON by 68 px, QUIT by 96 px
-  // and SWING by 136 px — one lift covers the whole right column,
-  // at any viewport height (all of these are bottom-anchored). The
-  // lift applies only while a baseball orb is up AND the user never
-  // placed the icon themselves (!orbCustom) — a dragged icon stays
-  // exactly where the user left it, same as the bike rule.
-  const yieldLift = (bikeOut && !orbCustom ? 270 : 0) + (baseballOut && !orbCustom ? 176 : 0);
+  // Baseball: 272 (Nov 27, 2026 — glider push 3 correction: the
+  // first 176 assumed the glider picker was ONE 40 px row at
+  // bottom 216, top edge 256. It is a VERTICAL stack — flex-col
+  // gap-2, 3 x 40 px orbs at bottoms 216/264/312, so its real top
+  // edge is bottom 352, and 176 left the icon overlapping the top
+  // two picker orbs by 16/32 px live at 390 + 320). The icon's
+  // default anchor is bottom 96; the baseball orbs sit at right 18,
+  // bottom 80 (SWING 56 tall, QUIT 96 tall), and the glider stack
+  // above them runs SUMMON at bottom 148 with the vertical picker
+  // at bottom 216 (top edge bottom 352). Bottom 96 + 272 =
+  // bottom 368, which clears the picker's top edge by 16 px,
+  // SUMMON by 164 px, QUIT by 192 px and SWING by 232 px — one
+  // lift covers the whole right column, at any viewport height
+  // (all of these are bottom-anchored). The lift applies only
+  // while a baseball orb is up AND the user never placed the icon
+  // themselves (!orbCustom) — a dragged icon stays exactly where
+  // the user left it, same as the bike rule. (The bike and baseball
+  // lifts never sum: SWING shows only in hub_freeroam, the bike
+  // lift only in on_bike.)
+  const yieldLift = (bikeOut && !orbCustom ? 270 : 0) + (baseballOut && !orbCustom ? 272 : 0);
   // While the Orb is being dragged, drag x/y are its clamped
   // top-left px (see beginOrbDrag); otherwise it renders at its
   // remembered fractions, lifted clear of the bike controls when

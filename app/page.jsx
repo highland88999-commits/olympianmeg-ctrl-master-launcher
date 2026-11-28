@@ -18,6 +18,9 @@ import { flightAxisLabel } from '@/lib/flight-axis';
 import FlightAxisStreaks from '@/components/FlightAxisStreaks';
 import HubPulseGlow from '@/components/HubPulseGlow';
 import BaseballButtonBall from '@/components/BaseballButtonBall';
+import GliderSummonBall from '@/components/GliderSummonBall';
+import { createGliderState } from '@/lib/hub-glider';
+import { GLIDER_VARIANTS, getGliderVariant, readGliderVariant, writeGliderVariant } from '@/lib/hub-glider-variants';
 import dialogStyles from '@/components/DialogUnified.module.css';
 import ProfileIcon from '@/components/ProfileIcon';
 import NotificationsWindow from '@/components/NotificationsWindow';
@@ -669,6 +672,14 @@ function NexusHub() {
   });
 
   const bikeRef = useRef(null);
+  // HUB SOLAR-SAIL GLIDER (Merlin, Nov 27, 2026): the mesh ref the
+  // scene poses, the pure summon-state ref the scene owns (J2
+  // speeder pattern — the page flips appState, the scene runs the
+  // summon/dismount transitions), and the picked variant, persisted
+  // client-side in localStorage (no SQL).
+  const gliderRef = useRef(null);
+  const gliderStateRef = useRef(createGliderState());
+  const [gliderVariant, setGliderVariant] = useState(() => readGliderVariant());
   // Menu index: the 179 registry entries, plus Agent Forge for the owner
   // only (2026-10-28: its home is the ATHENA menu row, not the old footer
   // card). Non-owners never get the entry, so the menu's `if (!sat)` guard
@@ -1124,6 +1135,31 @@ function NexusHub() {
     }
   };
 
+  // HUB SOLAR-SAIL GLIDER (Merlin, Nov 27, 2026): mirrors
+  // toggleBike's shape, but the glider DESPAWNS on dismount (the
+  // J2 speeder's rule, not the bike's park) — so this only flips
+  // appState and plays the sounds; the scene runs the summon /
+  // dismount transitions and plants the camera. No /api/rider/state
+  // write: the glider leaves nothing behind to save.
+  const toggleGlider = () => {
+    if (appState === 'on_glider' || appState === 'to_glider') {
+      try { fx.bikeDismount(); } catch {}
+      setAppState('hub_freeroam');
+    } else if (appState === 'hub_intro' || appState === 'hub_freeroam') {
+      try { fx.bikeMount(); } catch {}
+      setAppState('to_glider');
+    }
+  };
+
+  // Glider variant pick: persisted client-side, applied to the next
+  // summon (the picker stands down while riding, so no rebuild
+  // mid-ride). An unknown id is refused by writeGliderVariant.
+  const pickGliderVariant = (id) => {
+    if (!writeGliderVariant(id)) return;
+    setGliderVariant(id);
+    try { fx.tap(); } catch {}
+  };
+
   const handlePointerDown = (e) => {
     if (e.target.closest('.ui-element')) return;
     // Inside the Mars realm the hub's flight stick/look stand down —
@@ -1339,7 +1375,7 @@ function NexusHub() {
           of the sheet; the Omega layout rule allows no overlap,
           ever — the sheet is a full-screen overlay, so the pill
           simply stands down until it closes). */}
-      {(user || cloudOffline) && (appState === 'hub_freeroam' || appState === 'on_bike') && !showEarthVehicleSelect && (
+      {(user || cloudOffline) && (appState === 'hub_freeroam' || appState === 'on_bike' || appState === 'on_glider') && !showEarthVehicleSelect && (
         <button
           type="button"
           onClick={toggleFlightAxis}
@@ -1397,6 +1433,83 @@ function NexusHub() {
         >
           <BaseballButtonBall />
         </button>
+      )}
+
+      {/* HUB SOLAR-SAIL GLIDER SUMMON orb (Merlin, Nov 27, 2026):
+          shown in freeroam, just ABOVE the baseball SWING orb, same
+          right column, centred above it. Same construction as SWING
+          and the Concourse icon — raw <button>, 56×56, rounded-full,
+          ui-element, z-[70], overflow-hidden, transparent bg, one
+          centred per-function graphic filling the circle (a live
+          three.js mini sail, components/GliderSummonBall) — no
+          OrbButton, no video element, no glow. Slot: right 18, bottom
+          148 — 12 px clearance above SWING's top at 136, matching the
+          hub's ~14 px clearance habit. While riding, DISMOUNT takes
+          this SAME slot (the J2 pattern; the hub precedent is QUIT
+          reusing SWING's exact slot) — the two never stack.
+          TRAP (flagged, not fixed): the Concourse orb is
+          user-draggable and can be parked anywhere, including over
+          this column — the build cannot guarantee clearance against
+          it, and moving the Concourse orb is not this build's call. */}
+      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && (
+        <button
+          type="button"
+          onClick={toggleGlider}
+          className="absolute z-[70] ui-element pointer-events-auto rounded-full shadow-lg flex items-center justify-center overflow-hidden bg-transparent"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 148px)', width: 56, height: 56, ...chromeHiddenStyle }}
+          aria-label={`Summon the solar-sail glider (${getGliderVariant(gliderVariant).name})`}
+          title="Summon glider"
+        >
+          <GliderSummonBall sailColor={getGliderVariant(gliderVariant).sail} />
+        </button>
+      )}
+      {(user || cloudOffline) && (appState === 'on_glider' || appState === 'to_glider') && !showEarthVehicleSelect && (
+        <button
+          type="button"
+          onClick={toggleGlider}
+          className="absolute z-[70] ui-element pointer-events-auto rounded-full border-2 border-zinc-400/70 bg-zinc-950/90 shadow-lg flex items-center justify-center"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 18px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 148px)', width: 56, height: 56, ...chromeHiddenStyle }}
+          aria-label="Dismount the solar-sail glider"
+          title="Dismount"
+        >
+          <span className="text-white text-2xl leading-none" aria-hidden="true">⏏</span>
+        </button>
+      )}
+
+      {/* HUB SOLAR-SAIL GLIDER variant picker (Merlin, Nov 27, 2026):
+          a row of 3 small circle orbs (40 px) directly above the
+          SUMMON orb, same right column — bottom 216, 12 px clearance
+          above SUMMON's top at 204. Visible only when NOT riding;
+          tapping one selects that variant (selected one wears a
+          white ring) and SUMMON then summons it. Choice persists in
+          localStorage, client-side only. Each orb shows its variant's
+          sail colour with a small sail glyph; labels via aria-label,
+          not visible text. */}
+      {(user || cloudOffline) && appState === 'hub_freeroam' && !showEarthVehicleSelect && (
+        <div
+          className="absolute z-[70] ui-element pointer-events-auto flex flex-col items-center gap-2"
+          style={{ right: 'calc(env(safe-area-inset-right, 0px) + 26px)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 216px)', ...chromeHiddenStyle }}
+          role="group"
+          aria-label="Choose a glider"
+        >
+          {GLIDER_VARIANTS.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              onClick={() => pickGliderVariant(v.id)}
+              className={`rounded-full shadow-lg flex items-center justify-center overflow-hidden ${gliderVariant === v.id ? 'ring-2 ring-white' : 'ring-1 ring-white/40'}`}
+              style={{ width: 40, height: 40, backgroundColor: v.sail }}
+              aria-label={`${v.name} glider${gliderVariant === v.id ? ' (selected)' : ''}`}
+              aria-pressed={gliderVariant === v.id}
+              title={`${v.name} glider`}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" style={{ display: 'block' }}>
+                <path d="M11 2 L17 16 L11 13 Z" fill="#0b0f14" opacity="0.85" />
+                <path d="M9 2 L3 16 L9 13 Z" fill="#0b0f14" opacity="0.5" />
+              </svg>
+            </button>
+          ))}
+        </div>
       )}
 
       {/* HUB BASEBALL QUIT orb: same spot as SWING, shown only
@@ -1619,6 +1732,9 @@ function NexusHub() {
         adWindowRef={adWindowRef}
         activeSatTarget={activeSatTarget}
         bikeRef={bikeRef}
+        gliderRef={gliderRef}
+        gliderStateRef={gliderStateRef}
+        gliderVariant={gliderVariant}
         earthQuatRef={earthQuatRef}
         earthFocus={earthFocus}
         pendingDest={pendingDest}
