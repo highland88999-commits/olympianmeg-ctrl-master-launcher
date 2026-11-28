@@ -40,6 +40,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
@@ -260,11 +261,8 @@ function RootsOfTheWorldTree({pillars, wisps}) {
           <meshStandardMaterial {...stone} color="#2a2016" roughness={1} />
         </mesh>
       ))}
-      {wisps.filter((s) => s.id.startsWith('w')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#9fd8b8" transparent opacity={0.5} roughness={0.6} />
-        </mesh>
+      {wisps.filter((s) => s.id.startsWith('w')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#9fd8b8" opacity={0.5} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[-160, 17, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Roots of the World Tree
@@ -300,14 +298,14 @@ function DampMeadows({stones, wisps, reduced}) {
         </mesh>
       ))}
       {meadowWisps.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { wispRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#bfe8cc" transparent opacity={0.5} roughness={0.6} />
-        </mesh>
+          color="#bfe8cc"
+          opacity={0.5}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Damp Meadows
@@ -336,11 +334,8 @@ function VelesGrounds({pools, wisps}) {
           </mesh>
         </group>
       ))}
-      {wisps.filter((s) => s.id.startsWith('v')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#9fd8b8" transparent opacity={0.5} roughness={0.6} />
-        </mesh>
+      {wisps.filter((s) => s.id.startsWith('v')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#9fd8b8" opacity={0.5} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Veles' Hall

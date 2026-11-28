@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { mulberry32, hashString } from '@/lib/earth4/creature-textures';
+import { mulberry32, hashString, surfaceMaps } from '@/lib/earth4/creature-textures';
 import { getParticleTexture } from '@/lib/particles/sprites';
 import DayNightRig from '@/components/DayNightRig';
 import { TouchControls } from '@/components/mars/MarsScene';
@@ -548,8 +548,33 @@ function StreetLamps({ dayF }) {
 // shoppers looping the square, gulls circling overhead. Positions
 // are pure functions of the device clock; the frame loop only
 // renders what lifeFor says. Tunic colours are seeded per person.
+// CGI CHARACTER SWAP (Merlin, Nov 28, 2026): the crowd is rebuilt
+// as textured CGI people and gulls — cloth-mapped tunics (the house
+// skin maps read as woven cloth at market distance), heads with
+// hair caps and eye dots, suggested arms, vendors keeping the pale
+// apron box; gulls with feather-mapped streamlined bodies, heads +
+// beaks, tail fans and shaped tapered wings on real flap pivots.
+// Counts (8 vendors, 10 shoppers, 5 gulls), positions (lifeFor
+// clock-driven) and market-hours behaviour are unchanged — the
+// operators in lib/agora/operators.js are untouched.
 const TUNIC_COLORS = ['#c8a06a', '#7a4a8a', '#2f6db3', '#a85a3a', '#5a7d2a', '#d45a8a', '#e8c832', '#3a86a8'];
 const SKIN_COLORS = ['#e8b88a', '#d9a06a', '#c88a5a', '#f0c8a0'];
+const HAIR_COLORS = ['#2a1e14', '#4a2e1a', '#6e6e6e', '#1a1a1a', '#8a6a3a'];
+
+// Shaped gull wing in the XZ plane: spans +X from the body, chord
+// along Z, tip swept back. Mirror with scale.x = -1.
+function gullWingGeometry() {
+  const g = new THREE.BufferGeometry();
+  const v = new Float32Array([
+    0, 0, 0.18, 0, 0, -0.18, 1.1, 0, 0.07,
+    0, 0, 0.18, 1.1, 0, 0.07, 1.1, 0, -0.07,
+  ]);
+  const uv = new Float32Array([0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0]);
+  g.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
 
 function Crowd() {
   const members = useMemo(() => {
@@ -560,27 +585,56 @@ function Crowd() {
     return list;
   }, []);
   const groupRefs = useRef([]);
-  const wingRefs = useRef([]);
+  const wingLRefs = useRef([]);
+  const wingRRefs = useRef([]);
+  // Shared surface maps: cloth weave (skin family) for tunics and
+  // skin, feather for the gulls — one cached pair each.
+  const clothMaps = useMemo(() => surfaceMaps('skin', 'agora-cloth'), []);
+  const featherMaps = useMemo(() => surfaceMaps('feather', 'agora-gull'), []);
   const tunicMats = useMemo(() => members.map((m, i) => {
     if (m.kind === 'gull') return null;
     const rnd = mulberry32(hashString(`agora:tunic:${m.kind}:${m.index}`));
     return new THREE.MeshStandardMaterial({
+      map: clothMaps.map, bumpMap: clothMaps.bumpMap, bumpScale: clothMaps.bumpScale,
       color: TUNIC_COLORS[Math.floor(rnd() * TUNIC_COLORS.length)], roughness: 0.9,
     });
-  }), [members]);
+  }), [members, clothMaps]);
   const skinMats = useMemo(() => members.map((m) => {
     if (m.kind === 'gull') return null;
     const rnd = mulberry32(hashString(`agora:skin:${m.kind}:${m.index}`));
     return new THREE.MeshStandardMaterial({
+      map: clothMaps.map, bumpMap: clothMaps.bumpMap, bumpScale: clothMaps.bumpScale,
       color: SKIN_COLORS[Math.floor(rnd() * SKIN_COLORS.length)], roughness: 0.8,
     });
+  }), [members, clothMaps]);
+  const hairMats = useMemo(() => members.map((m) => {
+    if (m.kind === 'gull') return null;
+    const rnd = mulberry32(hashString(`agora:hair:${m.kind}:${m.index}`));
+    return new THREE.MeshStandardMaterial({
+      color: HAIR_COLORS[Math.floor(rnd() * HAIR_COLORS.length)], roughness: 0.95,
+    });
   }), [members]);
-  const gullMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#f2f2ee', roughness: 0.9 }), []);
+  const apronMat = useMemo(() => new THREE.MeshStandardMaterial({
+    map: clothMaps.map, bumpMap: clothMaps.bumpMap, bumpScale: clothMaps.bumpScale,
+    color: '#f2ead8', roughness: 0.95,
+  }), [clothMaps]);
+  const gullMat = useMemo(() => new THREE.MeshStandardMaterial({
+    map: featherMaps.map, bumpMap: featherMaps.bumpMap, bumpScale: featherMaps.bumpScale,
+    color: '#f2f2ee', roughness: 0.9, side: THREE.DoubleSide,
+  }), [featherMaps]);
+  const gullWingGeo = useMemo(gullWingGeometry, []);
+  const eyeMat = useMemo(() => new THREE.MeshBasicMaterial({ color: '#1a1a1a' }), []);
+  const beakMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#e09a3a', roughness: 0.6 }), []);
   useEffect(() => () => {
     tunicMats.forEach((m) => m && m.dispose());
     skinMats.forEach((m) => m && m.dispose());
+    hairMats.forEach((m) => m && m.dispose());
+    apronMat.dispose();
     gullMat.dispose();
-  }, [tunicMats, skinMats, gullMat]);
+    gullWingGeo.dispose();
+    eyeMat.dispose();
+    beakMat.dispose();
+  }, [tunicMats, skinMats, hairMats, apronMat, gullMat, gullWingGeo, eyeMat, beakMat]);
   useFrame(() => {
     const now = Date.now();
     const t = now / 1000;
@@ -591,8 +645,11 @@ function Crowd() {
       g.position.set(life.x, life.y + (life.bob || 0), life.z);
       g.rotation.y = life.heading;
       if (members[i].kind === 'gull') {
-        const wings = wingRefs.current[i];
-        if (wings) wings.rotation.z = Math.sin(t * 6 + i) * 0.45;
+        const flap = Math.sin(t * 6 + i) * 0.45;
+        const wl = wingLRefs.current[i];
+        const wr = wingRRefs.current[i];
+        if (wl) wl.rotation.z = 0.15 + flap;
+        if (wr) wr.rotation.z = -0.15 - flap;
       }
     }
   });
@@ -602,16 +659,27 @@ function Crowd() {
         <group key={`${m.kind}-${m.index}`} ref={(el) => { groupRefs.current[i] = el; }}>
           {m.kind === 'gull' ? (
             <group>
-              <mesh material={gullMat}>
+              {/* streamlined feathered body */}
+              <mesh material={gullMat} scale={[0.8, 0.7, 2.0]}>
                 <sphereGeometry args={[0.22, 10, 8]} />
               </mesh>
-              <group ref={(el) => { wingRefs.current[i] = el; }}>
-                <mesh position={[-0.55, 0, 0]} rotation={[0, 0, 0.15]} material={gullMat}>
-                  <boxGeometry args={[1.1, 0.05, 0.35]} />
-                </mesh>
-                <mesh position={[0.55, 0, 0]} rotation={[0, 0, -0.15]} material={gullMat}>
-                  <boxGeometry args={[1.1, 0.05, 0.35]} />
-                </mesh>
+              {/* head + beak */}
+              <mesh position={[0, 0.03, 0.42]} material={gullMat}>
+                <sphereGeometry args={[0.13, 8, 6]} />
+              </mesh>
+              <mesh position={[0, 0.02, 0.62]} rotation={[Math.PI / 2, 0, 0]} material={beakMat}>
+                <coneGeometry args={[0.05, 0.2, 6]} />
+              </mesh>
+              {/* tail fan */}
+              <mesh position={[0, 0.02, -0.45]} material={gullMat}>
+                <boxGeometry args={[0.3, 0.04, 0.35]} />
+              </mesh>
+              {/* shaped wings on flap pivots */}
+              <group ref={(el) => { wingLRefs.current[i] = el; }}>
+                <mesh geometry={gullWingGeo} material={gullMat} />
+              </group>
+              <group ref={(el) => { wingRRefs.current[i] = el; }}>
+                <mesh geometry={gullWingGeo} material={gullMat} scale={[-1, 1, 1]} />
               </group>
             </group>
           ) : (
@@ -620,13 +688,31 @@ function Crowd() {
               <mesh position={[0, 0.85, 0]} material={tunicMats[i]}>
                 <capsuleGeometry args={[0.32, 0.85, 6, 10]} />
               </mesh>
+              {/* arms suggested at the sides */}
+              <mesh position={[-0.38, 1.15, 0.02]} rotation={[0, 0, 0.25]} material={tunicMats[i]}>
+                <capsuleGeometry args={[0.07, 0.5, 4, 8]} />
+              </mesh>
+              <mesh position={[0.38, 1.15, 0.02]} rotation={[0, 0, -0.25]} material={tunicMats[i]}>
+                <capsuleGeometry args={[0.07, 0.5, 4, 8]} />
+              </mesh>
               {/* head */}
               <mesh position={[0, 1.72, 0]} material={skinMats[i]}>
                 <sphereGeometry args={[0.24, 12, 10]} />
               </mesh>
+              {/* hair cap */}
+              <mesh position={[0, 1.8, -0.05]} scale={[1, 0.75, 1]} material={hairMats[i]}>
+                <sphereGeometry args={[0.25, 12, 10]} />
+              </mesh>
+              {/* eyes */}
+              <mesh position={[-0.08, 1.75, 0.21]} material={eyeMat}>
+                <sphereGeometry args={[0.025, 6, 5]} />
+              </mesh>
+              <mesh position={[0.08, 1.75, 0.21]} material={eyeMat}>
+                <sphereGeometry args={[0.025, 6, 5]} />
+              </mesh>
               {/* vendor's apron: a pale band across the tunic */}
               {m.kind === 'vendor' && (
-                <mesh position={[0, 0.95, 0.3]} material={skinMats[i]}>
+                <mesh position={[0, 0.95, 0.3]} material={apronMat}>
                   <boxGeometry args={[0.5, 0.7, 0.06]} />
                 </mesh>
               )}

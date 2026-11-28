@@ -165,6 +165,18 @@ test('the travel arches and descent portals are static too — no turning part a
       // or portal turning. (The regex match starts at ".rotation", so
       // the check is on the matched text, not the "tel." prefix.)
       if (r.trim().startsWith('.rotation.y = Math.atan2')) continue;
+      // Allowed: character idle sway (CGI character swap, Nov 28) — small
+      // sine-driven rotations on creature parts, never a gate, arch or
+      // portal. Each is pinned to its exact expression, same precedent as
+      // the Medusa gaze above. (The regex match starts at ".rotation", so
+      // the check is on the matched text, not the ref prefix.)
+      // Cerberus (app/nether-realm/world3d.js): head tilt/sway + tail wag.
+      if (r.trim().startsWith('.rotation.z = HEAD_TILT[')) continue;
+      if (r.trim().startsWith('.rotation.x = Math.sin(t * 0.7 + i * 1.3)')) continue;
+      if (r.trim().startsWith('.rotation.y = Math.sin(t * 2) * 0.18')) continue;
+      // Apep (app/duat/world3d.js): coil sway + head sway.
+      if (r.trim().startsWith('.rotation.y = Math.sin(t * 0.25) * 0.02')) continue;
+      if (r.trim().startsWith('.rotation.y = Math.sin(t * 0.18) * 0.08')) continue;
       assert.ok(
         r.trim().startsWith('camera.rotation.set(0, player.yaw, 0)'),
         `${realm.label}: the only rotation is the camera rig, not a gate — found "${r.trim()}"`

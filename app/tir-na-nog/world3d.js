@@ -37,6 +37,7 @@ import {
 } from '@/lib/tir-na-nog/world';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 
 const STONE = '#e8e8d8';
 const PALE_STONE = '#ffffff';
@@ -295,14 +296,14 @@ function WestRegion({stones, drift, reduced}) {
         </mesh>
       ))}
       {westDrift.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { driftRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#fffbe8" transparent opacity={0.55} roughness={0.6} />
-        </mesh>
+          color="#fffbe8"
+          opacity={0.55}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Green Meadows
@@ -329,11 +330,8 @@ function EastRegion({pillars, drift}) {
           <meshStandardMaterial color="#ffffff" roughness={0.9} />
         </mesh>
       ))}
-      {drift.filter((s) => s.id.startsWith('e')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#fffbe8" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {drift.filter((s) => s.id.startsWith('e')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#fffbe8" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The White Horse Fields
@@ -375,11 +373,8 @@ function NorthRegion({pits, drift, reduced}) {
           </mesh>
         </group>
       ))}
-      {drift.filter((s) => s.id.startsWith('n')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#fffbe8" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {drift.filter((s) => s.id.startsWith('n')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#fffbe8" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Emain Ablach

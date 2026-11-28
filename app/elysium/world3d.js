@@ -41,6 +41,7 @@ import {
 } from '@/lib/elysium/world';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 
 const STONE = '#f5f2ea';
 const PALE_STONE = '#8a8a92';
@@ -315,14 +316,14 @@ function WestRegion({stones, shades, reduced}) {
         </mesh>
       ))}
       {westShades.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { shadeRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#ffffff" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+          color="#ffffff"
+          opacity={0.45}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The White Gardens
@@ -349,11 +350,8 @@ function EastRegion({pillars, shades}) {
           <meshStandardMaterial color="#f5f2ea" roughness={0.9} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#ffffff" transparent opacity={0.5} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('e')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#ffffff" opacity={0.5} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Golden Fields
@@ -395,11 +393,8 @@ function NorthRegion({pits, shades, reduced}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('n')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#ffffff" transparent opacity={0.5} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('n')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#ffffff" opacity={0.5} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Far Shore

@@ -40,6 +40,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
@@ -273,14 +274,14 @@ function AncestorsVillage({huts, spirits, reduced}) {
         </group>
       ))}
       {villageSpirits.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { spiritRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#fff3d0" transparent opacity={0.55} roughness={0.6} />
-        </mesh>
+          color="#fff3d0"
+          opacity={0.55}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Ancestors' Village
@@ -315,11 +316,8 @@ function SpiritMarket({stalls, spirits}) {
           </mesh>
         </group>
       ))}
-      {spirits.filter((s) => s.id.startsWith('e')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#fff3d0" transparent opacity={0.55} roughness={0.6} />
-        </mesh>
+      {spirits.filter((s) => s.id.startsWith('e')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#fff3d0" opacity={0.55} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Spirit Market
@@ -349,11 +347,8 @@ function WhiteClothGrounds({cloths, spirits}) {
           </mesh>
         </group>
       ))}
-      {spirits.filter((s) => s.id.startsWith('o')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#fff3d0" transparent opacity={0.55} roughness={0.6} />
-        </mesh>
+      {spirits.filter((s) => s.id.startsWith('o')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#fff3d0" opacity={0.55} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The White-Cloth Hall

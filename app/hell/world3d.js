@@ -40,6 +40,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import RealmSkyDome from '@/components/RealmSkyDome';
@@ -290,14 +291,14 @@ function WestRegion({dressing, shades, reduced, hiddenIds}) {
         </mesh>
       ))}
       {westShades.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { shadeRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+          color="#e8e8ee"
+          opacity={0.45}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Burning Plain
@@ -394,11 +395,8 @@ function EastRegion({dressing, reduced, shades, hiddenIds, forgeFlash = 0}) {
           <meshStandardMaterial {...stone} color="#d8d2c0" roughness={0.9} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('e') && !(hiddenIds || []).includes(s.id)).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('e') && !(hiddenIds || []).includes(s.id)).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Lake of Fire
@@ -442,11 +440,8 @@ function NorthRegion({dressing, shades, reduced, hiddenIds}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('t') && !(hiddenIds || []).includes(s.id)).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('t') && !(hiddenIds || []).includes(s.id)).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Frozen Deep
@@ -699,15 +694,20 @@ function GuidedShade({ guiding, guidedPosRef, playerRef, reduced }) {
     }
   });
   if (!guiding || !guidedPosRef.current) return null;
-  // The guided soul is NOT a drift figure: its cone carries its
-  // own geometry ([0.75, 2.4, 6]) so the drift census stays exact —
-  // the humanoid suite counts exactly three [0.7, 2.4, 8] drift
-  // cones per realm, one per disc, and this soul is none of them.
+  // The guided soul is NOT a drift figure: it renders as its own
+  // ShadeFigure (size 1.07, brighter than the drift figures) so the
+  // drift census stays exact — the humanoid suite counts exactly
+  // three drift ShadeFigures per realm, one per disc, and this soul
+  // is none of them.
   return (
-    <mesh ref={ref} position={[guidedPosRef.current.x, 1.2, guidedPosRef.current.z]}>
-      <coneGeometry args={[0.75, 2.4, 6]} />
-      <meshStandardMaterial color="#f2f2fa" transparent opacity={0.65} roughness={0.6} />
-    </mesh>
+    <ShadeFigure
+      ref={ref}
+      position={[guidedPosRef.current.x, 1.2, guidedPosRef.current.z]}
+      size={1.07}
+      color="#f2f2fa"
+      opacity={0.65}
+      seed={99}
+    />
   );
 }
 

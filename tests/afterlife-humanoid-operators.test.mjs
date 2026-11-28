@@ -5,8 +5,8 @@
 // operators — seven agents in the Earth 4 pure-function shape,
 // plus a garment agent and a weapons agent, for the drift kinds of
 // all 25 afterlife realms. Garments are data-only (the renderer
-// draws one translucent cone per figure — no separate garment mesh
-// exists); weapons are a verified-absent state (no drift figure
+// draws one shared CGI ShadeFigure per figure — no separate garment
+// mesh exists); weapons are a verified-absent state (no drift figure
 // and no guardian carries anything in any world3d.js).
 //
 // Run: node --test tests/afterlife-humanoid-operators.test.mjs   (from the repo root)
@@ -156,41 +156,68 @@ describe('humanoid roster (enumerated from code)', () => {
 });
 
 // --- the figure, as rendered ----------------------------------------------
+// CGI character swap (Nov 28, 2026): every drift figure is the shared
+// CGI ShadeFigure (components/afterlife/ShadeFigure) — the old single
+// translucent cone (coneGeometry [0.7, 2.4, 8]) is gone from all 25
+// realms. The figure's colour/opacity still come from
+// FIGURE_MATERIALS, disc by disc, in areas order — this block
+// re-reads every world3d.js and fails if the renderer drifts from
+// the table. Hell also carries one GuidedShade (a fourth ShadeFigure,
+// size 1.07, brighter) — asserted separately; it is NOT a drift figure.
 
 describe('figure rendering (verified against world3d.js)', () => {
-  it('every drift figure is one translucent cone — no humanoid mesh, no garment mesh', () => {
+  it('every drift figure is the shared CGI ShadeFigure — no drift cone, no humanoid mesh', () => {
     for (const [key] of ALL) {
       const src = readFileSync(`app/${key}/world3d.js`, 'utf8');
-      const cones = [...src.matchAll(/coneGeometry args=\{\[0\.7, 2\.4, 8\]\}/g)];
-      assert.equal(cones.length, 3, `${key}: exactly 3 drift-cone blocks (one per disc), got ${cones.length}`);
+      assert.match(src, /import ShadeFigure from '@\/components\/afterlife\/ShadeFigure';/, `${key}: imports the shared ShadeFigure`);
+      assert.ok(!src.includes('coneGeometry args={[0.7, 2.4, 8]}'), `${key}: no drift cone left`);
+      // One ShadeFigure per disc (3); Hell adds the GuidedShade (4th).
+      const figures = [...src.matchAll(/<ShadeFigure/g)];
+      assert.equal(figures.length, key === 'hell' ? 4 : 3, `${key}: ${key === 'hell' ? '4' : '3'} ShadeFigure usages, got ${figures.length}`);
       // No limbs on any figure anywhere (capsules), and no weapon mesh.
-      // (Duat's 0.35 sphere is Apep's gold eye, not a figure's head —
-      // the drift figures are cones only, asserted by the count above.)
       assert.ok(!src.includes('capsuleGeometry'), `${key}: no limbs`);
+      // The weapon scan covers code, not prose comments: a comment can
+      // name a boat's bow (Duat's barque: "hull + bow + stern boxes")
+      // without any weapon existing in the scene.
+      const code = src.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
       for (const word of ['sword', 'spear', 'bow', 'arrow', 'dagger', 'staff', 'blade', 'weapon']) {
-        assert.ok(!new RegExp(`\\b${word}\\b`, 'i').test(src), `${key}: no ${word} in the scene`);
+        assert.ok(!new RegExp(`\\b${word}\\b`, 'i').test(code), `${key}: no ${word} in the scene`);
       }
     }
   });
 
-  it('FIGURE_MATERIALS matches the renderer’s cone materials, disc by disc', () => {
+  it('FIGURE_MATERIALS matches the renderer’s ShadeFigure props, disc by disc', () => {
     for (const [key] of ALL) {
       const src = readFileSync(`app/${key}/world3d.js`, 'utf8');
       const found = [];
-      for (const m of src.matchAll(/coneGeometry args=\{\[0\.7, 2\.4, 8\]\}/g)) {
-        const seg = src.slice(m.index, m.index + 400);
-        const mat = seg.match(/meshStandardMaterial color="([^"]+)"[^>]*opacity=\{([\d.]+)\}/);
-        assert.ok(mat, `${key}: cone material follows the cone geometry`);
-        found.push({ color: mat[1], opacity: Number(mat[2]) });
+      for (const m of src.matchAll(/<ShadeFigure[\s\S]*?\/>/g)) {
+        const tag = m[0];
+        const color = tag.match(/color="([^"]+)"/);
+        const opacity = tag.match(/opacity=\{([\d.]+)\}/);
+        assert.ok(color && opacity, `${key}: ShadeFigure carries a literal color + opacity`);
+        found.push({ color: color[1], opacity: Number(opacity[1]) });
       }
-      assert.deepEqual(FIGURE_MATERIALS[key], found, `${key}: garment table matches the renderer`);
+      // The first three ShadeFigures in file order are the three
+      // discs, in areas order (West / first, East / second, North /
+      // third) — exactly as the old drift cones were.
+      assert.deepEqual(found.slice(0, 3), FIGURE_MATERIALS[key], `${key}: garment table matches the renderer`);
       assert.equal(figureMaterialFor(key, 0).color, found[0].color);
       assert.equal(figureMaterialFor(key, 2).opacity, found[2].opacity);
       assert.equal(figureMaterialFor('no-such-realm', 0), null);
     }
   });
-});
 
+  it('Hell’s GuidedShade stays distinct from the drift census', () => {
+    const src = readFileSync('app/hell/world3d.js', 'utf8');
+    const figures = [...src.matchAll(/<ShadeFigure[\s\S]*?\/>/g)].map((m) => m[0]);
+    assert.equal(figures.length, 4, 'hell: 3 drift + 1 guided');
+    const guided = figures[3];
+    assert.match(guided, /size=\{1\.07\}/, 'guided: larger than a drift figure');
+    assert.match(guided, /color="#f2f2fa"/, 'guided: brighter colour');
+    assert.match(guided, /opacity=\{0\.65\}/, 'guided: more solid');
+    assert.ok(!figures.slice(0, 3).some((f) => /size=/.test(f)), 'drift figures carry no size override');
+  });
+});
 // --- garment agent ----------------------------------------------------------
 
 describe('garment agent (data-only — the cone is the garment)', () => {

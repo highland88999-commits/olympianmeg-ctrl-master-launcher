@@ -53,6 +53,7 @@ import {
 } from '@/lib/land-of-the-dead/world';
 import { LandOfTheDeadReturn } from '@/components/world/FloorDrop';
 import RealmSkyDome from '@/components/RealmSkyDome';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { makeMoonTexture } from '@/components/HubMoon';
 import { FLOOR_EMISSIVE_INTENSITY } from '@/lib/portal/realm-surfaces';
 import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
@@ -213,7 +214,7 @@ function Ground({ radius }) {
   );
 }
 
-// DRIFT SHADES (the afterlife drift figures): one translucent cone
+// DRIFT SHADES (the afterlife drift figures): one shared ShadeFigure
 // per region, in this realm's FIGURE_MATERIALS colours, standing on
 // the sphere at the region's direction — Bone Orchard (0.866, 0,
 // 0.5), Grey Mere (-0.866, 0, 0.5), Pale Gate (0, -1, 0). The colour
@@ -237,24 +238,15 @@ function DriftShades({ radius }) {
     <group>
       {/* Bone Orchard shade — pale. */}
       <group position={[shades[0].pos.x, shades[0].pos.y, shades[0].pos.z]} quaternion={shades[0].q}>
-        <mesh position={[0, 1.1, 0]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" opacity={0.45} transparent />
-        </mesh>
+        <ShadeFigure position={[0, 1.1, 0]} color="#e8e8ee" opacity={0.45} seed={0} />
       </group>
       {/* Grey Mere shade — pale green. */}
       <group position={[shades[1].pos.x, shades[1].pos.y, shades[1].pos.z]} quaternion={shades[1].q}>
-        <mesh position={[0, 1.1, 0]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#bfe8d8" opacity={0.5} transparent />
-        </mesh>
+        <ShadeFigure position={[0, 1.1, 0]} color="#bfe8d8" opacity={0.5} seed={1} />
       </group>
       {/* Pale Gate shade — dark. */}
       <group position={[shades[2].pos.x, shades[2].pos.y, shades[2].pos.z]} quaternion={shades[2].q}>
-        <mesh position={[0, 1.1, 0]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" opacity={0.7} transparent />
-        </mesh>
+        <ShadeFigure position={[0, 1.1, 0]} color="#2a2a33" opacity={0.7} seed={2} />
       </group>
     </group>
   );

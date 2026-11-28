@@ -41,6 +41,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { LavaGlowDome } from '@/components/LavaGlow';
@@ -241,11 +242,8 @@ function TrialHouses({stones, shades}) {
           <meshStandardMaterial {...stone} color={PALE_STONE} roughness={1} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('a')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('a')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.4, s.z]} color="#e8e8ee" opacity={0.45} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Houses of Trial
@@ -288,11 +286,8 @@ function BatHouse({perches, shades}) {
           <meshStandardMaterial {...stone} color="#1a1a20" roughness={0.9} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('e')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.4, s.z]} color="#e8e8ee" opacity={0.45} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 20, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Bat House
@@ -371,11 +366,8 @@ function PlaceOfFear({pits, shades}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('t')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('t')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 12, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Place of Fear

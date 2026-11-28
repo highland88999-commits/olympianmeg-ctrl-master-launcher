@@ -43,6 +43,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
@@ -281,14 +282,14 @@ function HouseOfDust({stones, shades, reduced}) {
         </mesh>
       ))}
       {houseShades.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { shadeRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#c8b090" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+          color="#c8b090"
+          opacity={0.45}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The House of Dust
@@ -338,11 +339,8 @@ function ThroneGrounds({pillars, pits, shades, reduced}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('t')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('t')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Throne Hall
@@ -711,11 +709,8 @@ export function KurScene({playerRef, inputRef, onPortal, onRegion, reduced, onAn
       <River reduced={reduced} />
       <Bridge />
       <SevenGates />
-      {world.shades.filter((s) => s.id.startsWith('w')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {world.shades.filter((s) => s.id.startsWith('w')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <ThroneHall />
       <HouseOfDust stones={world.houseStones} shades={world.shades} reduced={reduced} />

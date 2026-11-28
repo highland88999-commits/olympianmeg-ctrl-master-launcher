@@ -39,6 +39,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { NETHER_REALM_SHADE } from '@/lib/day-night';
@@ -76,6 +77,48 @@ function riverTexture() {
   return tex;
 }
 
+// --- CGI serpent texture (procedural canvas) ------------------------------
+// Apep's scales: dark green overlapping scale rows with gold flecks,
+// painted on canvas at load — no external assets.
+
+function scaleTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0d2b1a';
+  g.fillRect(0, 0, 256, 256);
+  // Overlapping scale rows.
+  for (let row = 0; row < 8; row += 1) {
+    const y = row * 32;
+    const offset = row % 2 === 0 ? 0 : 16;
+    for (let col = -1; col < 9; col += 1) {
+      const x = col * 32 + offset;
+      g.fillStyle = row % 2 === 0 ? '#1d5c34' : '#175028';
+      g.beginPath();
+      g.arc(x + 16, y + 16, 15, 0, Math.PI);
+      g.fill();
+      g.strokeStyle = 'rgba(0, 0, 0, 0.45)';
+      g.lineWidth = 2;
+      g.stroke();
+      g.fillStyle = 'rgba(255, 255, 220, 0.10)';
+      g.beginPath();
+      g.arc(x + 11, y + 10, 6, 0, Math.PI);
+      g.fill();
+    }
+  }
+  // Gold flecks in the scales.
+  for (let i = 0; i < 60; i += 1) {
+    g.fillStyle = `rgba(212, 175, 55, ${0.25 + Math.random() * 0.4})`;
+    g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(3, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 // --- labels ----------------------------------------------------------------
 
 const portalLabelStyle = {
@@ -308,11 +351,8 @@ function TwelveGates({pillars, shades}) {
           <meshStandardMaterial {...stone} color="#8a6d2f" roughness={1} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('a')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('a')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.4, s.z]} color="#e8e8ee" opacity={0.45} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Twelve Gates
@@ -321,15 +361,36 @@ function TwelveGates({pillars, shades}) {
   );
 }
 
-function DarkWaters({coils, shades}) {
+function DarkWaters({coils, shades, reduced}) {
   const floor = useMemo(() => floorSurface('duat', 2), []);
+  const scales = useMemo(() => scaleTexture(), []);
+  const swayRef = useRef(null);
+  const headRef = useRef(null);
   // Apep, the great serpent, coiled in the dark waters — gold eyes
-  // watching the barque go by.
+  // watching the barque go by. Nine scale-textured segments ride the
+  // old r=22 ring path around (160, -70); the head stays raised at
+  // (160, 5.5, -48) with jaw, fangs and the kept gold eyes.
   const segments = [];
   for (let i = 0; i < 9; i += 1) {
     const a = (i / 9) * Math.PI * 2;
-    segments.push({ x: 160 + Math.cos(a) * 22, z: -70 + Math.sin(a) * 22, y: 1.6 + Math.sin(i * 1.3) * 0.8, key: i });
+    segments.push({
+      x: Math.cos(a) * 22,
+      z: Math.sin(a) * 22,
+      y: 1.6 + Math.sin(i * 1.3) * 0.8,
+      rotY: -(a + Math.PI / 2),
+      key: i,
+    });
   }
+  // Gentle coil sway — visual only; the serpent still only lurks.
+  useFrame((state) => {
+    if (reduced) return;
+    const t = state.clock.elapsedTime;
+    if (swayRef.current) swayRef.current.rotation.y = Math.sin(t * 0.25) * 0.02;
+    if (headRef.current) {
+      headRef.current.position.y = 5.5 + Math.sin(t * 0.4) * 0.15;
+      headRef.current.rotation.y = Math.sin(t * 0.18) * 0.08;
+    }
+  });
   return (
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[160, 0.05, -70]}>
@@ -337,33 +398,79 @@ function DarkWaters({coils, shades}) {
         <meshStandardMaterial {...floor} color="#0a1a2e" roughness={0.4} metalness={0.2} />
       </mesh>
       <pointLight position={[160, 8, -70]} color="#3a86ff" intensity={40} distance={95} />
-      {segments.map((s) => (
-        <mesh key={s.key} position={[s.x, s.y, s.z]}>
-          <sphereGeometry args={[2.2, 12, 10]} />
-          <meshStandardMaterial color="#0d2b1a" roughness={0.8} />
-        </mesh>
-      ))}
-      <mesh position={[160, 5.5, -48]}>
-        <sphereGeometry args={[2.8, 12, 10]} />
-        <meshStandardMaterial color="#0d2b1a" roughness={0.8} />
-      </mesh>
-      {[-0.9, 0.9].map((x) => (
-        <mesh key={x} position={[160 + x, 6.2, -45.4]}>
-          <sphereGeometry args={[0.35, 8, 8]} />
-          <meshBasicMaterial color="#ffd34d" />
-        </mesh>
-      ))}
+      {/* The coil: scale-textured segments, elongated along the ring. */}
+      <group ref={swayRef} position={[160, 0, -70]}>
+        {segments.map((s) => (
+          <group key={s.key} position={[s.x, s.y, s.z]} rotation={[0, s.rotY, 0]}>
+            <mesh scale={[1.6, 1, 1]}>
+              <sphereGeometry args={[2.2, 14, 10]} />
+              <meshStandardMaterial map={scales} color="#ffffff" roughness={0.75} emissive="#0d5c2e" emissiveIntensity={0.25} />
+            </mesh>
+            {/* Dorsal ridge spikes. */}
+            {[-1.2, 0, 1.2].map((x) => (
+              <mesh key={x} position={[x, 1.9, 0]}>
+                <coneGeometry args={[0.35, 0.9, 6]} />
+                <meshStandardMaterial color="#123524" roughness={0.8} />
+              </mesh>
+            ))}
+          </group>
+        ))}
+        {/* The head, raised above the coil. */}
+        <group ref={headRef} position={[0, 5.5, 22]}>
+          <mesh>
+            <sphereGeometry args={[2.8, 14, 10]} />
+            <meshStandardMaterial map={scales} color="#ffffff" roughness={0.75} emissive="#0d5c2e" emissiveIntensity={0.25} />
+          </mesh>
+          {/* Snout. */}
+          <mesh position={[0, -0.3, 2.6]} scale={[0.9, 0.6, 1.2]}>
+            <sphereGeometry args={[1.4, 12, 10]} />
+            <meshStandardMaterial map={scales} color="#ffffff" roughness={0.75} emissive="#0d5c2e" emissiveIntensity={0.25} />
+          </mesh>
+          {/* Lower jaw, hanging slightly open. */}
+          <mesh position={[0, -1.9, 2.2]} rotation={[0.25, 0, 0]}>
+            <boxGeometry args={[2.6, 0.5, 3.4]} />
+            <meshStandardMaterial map={scales} color="#ffffff" roughness={0.75} emissive="#0d5c2e" emissiveIntensity={0.25} />
+          </mesh>
+          {/* Fangs. */}
+          {[-0.8, 0.8].map((x) => (
+            <mesh key={x} position={[x, -1.0, 3.6]} rotation={[Math.PI, 0, 0]}>
+              <coneGeometry args={[0.18, 0.7, 6]} />
+              <meshStandardMaterial color="#f5ead0" roughness={0.4} />
+            </mesh>
+          ))}
+          {/* Gold eyes — kept. */}
+          {[-0.9, 0.9].map((x) => (
+            <mesh key={x} position={[x, 0.7, 2.6]}>
+              <sphereGeometry args={[0.35, 8, 8]} />
+              <meshBasicMaterial color="#ffd34d" />
+            </mesh>
+          ))}
+          {/* Brow ridges over the eyes. */}
+          {[-0.9, 0.9].map((x) => (
+            <mesh key={x} position={[x, 1.15, 2.4]} rotation={[0, 0, x > 0 ? -0.3 : 0.3]}>
+              <boxGeometry args={[0.9, 0.22, 0.5]} />
+              <meshStandardMaterial map={scales} color="#ffffff" roughness={0.75} />
+            </mesh>
+          ))}
+          {/* Forked tongue. */}
+          <mesh position={[0, -1.2, 4.4]} rotation={[Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.12, 1.2, 6]} />
+            <meshBasicMaterial color="#c0392b" />
+          </mesh>
+          <mesh position={[0.18, -1.2, 4.6]} rotation={[Math.PI / 2, 0, 0.25]}>
+            <coneGeometry args={[0.08, 0.8, 6]} />
+            <meshBasicMaterial color="#c0392b" />
+          </mesh>
+        </group>
+      </group>
       {coils.map((c) => (
         <mesh key={c.id} position={[c.x, 0.6, c.z]}>
           <torusGeometry args={[c.r, 0.5, 8, 20]} />
           <meshStandardMaterial color="#123524" roughness={0.8} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('t')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('t')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Dark Waters
@@ -734,13 +841,10 @@ export function DuatScene({playerRef, inputRef, onPortal, onRegion, reduced, onA
       <Barque />
       <Hall columns={world.hallColumns} />
       <TwelveGates pillars={world.gatePillars} shades={world.shades} />
-      <DarkWaters coils={world.apepCoils} shades={world.shades} />
+      <DarkWaters coils={world.apepCoils} shades={world.shades} reduced={reduced} />
       <TwelfthGate />
-      {world.shades.filter((s) => s.id.startsWith('n')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+      {world.shades.filter((s) => s.id.startsWith('n')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.4, s.z]} color="#e8e8ee" opacity={0.45} seed={i} />
       ))}
       <PortalArches />
       <AntiLifePortalDisc />

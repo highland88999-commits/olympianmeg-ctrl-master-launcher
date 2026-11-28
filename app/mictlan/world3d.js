@@ -38,6 +38,7 @@ import { FLOOR_DROP_DISC_NETHER, createFloorDropGuard, floorDropGuardShouldFire 
 import AntiLifePortalDisc from '@/components/afterlife/AntiLifePortalDisc';
 import DayNightRig from '@/components/DayNightRig';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { floorSurface, stoneSurface } from '@/lib/portal/realm-surfaces';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import { LavaGlowDome } from '@/components/LavaGlow';
@@ -83,6 +84,41 @@ function riverTexture() {
   return tex;
 }
 
+// --- CGI dog fur texture (procedural canvas) ------------------------------
+// Short brindle strokes over the old grey coat — painted on canvas at
+// load, no external assets.
+
+function furTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3a3a44';
+  g.fillRect(0, 0, 256, 256);
+  // Brindle fur: short strokes, lighter and darker than the coat.
+  for (let i = 0; i < 1400; i += 1) {
+    const light = Math.random() > 0.5;
+    const v = light ? 80 + Math.floor(Math.random() * 40) : 20 + Math.floor(Math.random() * 25);
+    g.strokeStyle = `rgba(${v},${v},${v + 6},${0.3 + Math.random() * 0.4})`;
+    g.lineWidth = 1 + Math.random() * 1.5;
+    const x = Math.random() * 256;
+    const y = Math.random() * 256;
+    const len = 4 + Math.random() * 10;
+    const a = (Math.random() - 0.5) * 0.6;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + len, y + a * len);
+    g.stroke();
+  }
+  // Darker back stripe down the middle.
+  g.fillStyle = 'rgba(20, 20, 26, 0.25)';
+  g.fillRect(0, 112, 256, 32);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
 // --- labels ----------------------------------------------------------------
 
 const portalLabelStyle = {
@@ -204,23 +240,70 @@ function Gates() {
 }
 
 function Dog() {
+  const fur = useMemo(() => furTexture(), []);
   // The faithful dog who helps the dead cross the river Apanohuacalhuia.
+  // Textured CGI dog: fur coat, four legs, raised tail, ears, eyes and
+  // snout — same river-bank position (14, 26), same data-only helper
+  // behaviour (it waits; nothing about it moves or fights).
   return (
     <group position={[14, 0, 26]}>
-      <mesh position={[0, 1.4, 0]}>
-        <boxGeometry args={[3.4, 1.8, 1.4]} />
-        <meshStandardMaterial color="#3a3a44" roughness={0.9} />
+      {/* Body: fur-textured, same footprint as the old box. */}
+      <mesh position={[0, 1.4, 0]} scale={[1.7, 0.9, 0.7]}>
+        <sphereGeometry args={[1, 16, 12]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
       </mesh>
+      {/* Chest ruff. */}
+      <mesh position={[1.5, 1.5, 0]} scale={[0.7, 0.8, 0.65]}>
+        <sphereGeometry args={[1, 12, 10]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+      </mesh>
+      {/* Head. */}
       <mesh position={[1.9, 2.6, 0]}>
-        <boxGeometry args={[1.4, 1.4, 1.2]} />
-        <meshStandardMaterial color="#3a3a44" roughness={0.9} />
+        <sphereGeometry args={[0.72, 14, 10]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
       </mesh>
-      {[-0.4, 0.4].map((x) => (
-        <mesh key={x} position={[1.9 + x, 3.6, 0]}>
-          <coneGeometry args={[0.25, 1, 6]} />
-          <meshStandardMaterial color="#3a3a44" roughness={0.9} />
+      {/* Snout and nose. */}
+      <mesh position={[2.55, 2.45, 0]} scale={[1.1, 0.7, 0.7]}>
+        <sphereGeometry args={[0.4, 10, 8]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+      </mesh>
+      <mesh position={[2.95, 2.55, 0]}>
+        <sphereGeometry args={[0.14, 8, 8]} />
+        <meshStandardMaterial color="#0d0d12" roughness={0.4} />
+      </mesh>
+      {/* Eyes. */}
+      {[-0.28, 0.28].map((z) => (
+        <mesh key={z} position={[2.35, 2.8, z]}>
+          <sphereGeometry args={[0.09, 8, 8]} />
+          <meshBasicMaterial color="#1a0d08" />
         </mesh>
       ))}
+      {/* Ears, tipped slightly outward. */}
+      {[-0.35, 0.35].map((z) => (
+        <mesh key={z} position={[1.9, 3.5, z]} rotation={[z > 0 ? -0.12 : 0.12, 0, 0]}>
+          <coneGeometry args={[0.25, 1, 6]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+        </mesh>
+      ))}
+      {/* Four legs. */}
+      {[-1.15, 1.15].map((x) => [-0.42, 0.42].map((z) => (
+        <mesh key={`${x}:${z}`} position={[x, 0.7, z]}>
+          <cylinderGeometry args={[0.16, 0.14, 1.4, 8]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+        </mesh>
+      )))}
+      {/* Paws. */}
+      {[-1.15, 1.15].map((x) => [-0.42, 0.42].map((z) => (
+        <mesh key={`${x}:${z}`} position={[x, 0.09, z]} scale={[1.3, 0.6, 1.3]}>
+          <sphereGeometry args={[0.16, 8, 8]} />
+          <meshStandardMaterial color="#232328" roughness={0.9} />
+        </mesh>
+      )))}
+      {/* Tail, raised. */}
+      <mesh position={[-1.95, 2.0, 0]} rotation={[0, 0, 0.9]}>
+        <cylinderGeometry args={[0.09, 0.16, 1.1, 8]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+      </mesh>
       <Html center distanceFactor={80} position={[0, 5.5, 0]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Faithful Dog
       </Html>
@@ -290,11 +373,8 @@ function CrashingMountains({stones, shades}) {
           <meshStandardMaterial {...stone} color={PALE_STONE} roughness={1} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('a')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('a')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.4, s.z]} color="#e8e8ee" opacity={0.45} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[-160, 34, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Crashing Mountains
@@ -320,11 +400,8 @@ function WindDesert({spires, shades}) {
           <meshStandardMaterial {...stone} color="#0d1a1a" roughness={0.7} metalness={0.3} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.4, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('e')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.4, s.z]} color="#e8e8ee" opacity={0.45} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Obsidian Wind
@@ -355,11 +432,8 @@ function NinthLevel({pits, shades}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('t')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('t')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         The Ninth Level

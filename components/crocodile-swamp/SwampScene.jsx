@@ -6,9 +6,11 @@
 // muddy banks, cypress trees with hanging moss silhouettes, lily pads, a
 // wooden canoe, and a long green shape that wants you dead.
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, Component, Suspense } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
+import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import {
   WORLD,
   isLand,
@@ -17,6 +19,7 @@ import {
   tileParams,
   tileVegetation,
 } from '@/lib/crocodile-swamp/levels';
+import { MODEL_SLOTS, JAW_PARAMS, markSlotLoaded } from '@/lib/swamp-run/models';
 
 const V3 = new THREE.Vector3();
 
@@ -193,7 +196,192 @@ function CanoeAndPlayer({ stateRef }) {
   );
 }
 
-function Crocodile({ stateRef }) {
+// ── GLB machinery (same idiom as Swamp Run, components/swamp-run/
+// SwampRunScene.jsx) ─────────────────────────────────────────────
+// The Batch 8 rigged crocodile steps in for the procedural stand-in.
+// Every load degrades gracefully: a missing or broken GLB renders the
+// procedural stand-in — never a blank.
+
+// Catches GLB parse/load failures inside the canvas.
+class SwampGlbErrorBoundary extends Component {
+  constructor(p) {
+    super(p);
+    this.state = { failed: false };
+  }
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
+// HEAD-checks a model slot; returns the URL when present, null when
+// the file is missing — the caller renders the procedural stand-in.
+function useSwampGlb(slotKey) {
+  const slot = MODEL_SLOTS[slotKey];
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setOk(false);
+    fetch(slot.path, { method: 'HEAD' })
+      .then((r) => {
+        if (live) setOk(r.ok);
+      })
+      .catch(() => {
+        if (live) setOk(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [slot.path]);
+  return ok ? slot.path : null;
+}
+
+// Fit a Tripo creature to the scene: head toward +z (the scene's
+// facing), longest horizontal extent scaled to targetLen, grounded
+// and centered. Returns { wrap, inner } — pitch inner for lunges.
+function fitCreature(model, headNames, tailNames, targetLen) {
+  const wrap = new THREE.Group();
+  const inner = new THREE.Group();
+  inner.add(model);
+  wrap.add(inner);
+  wrap.updateMatrixWorld(true);
+  const head = headNames.map((n) => model.getObjectByName(n)).find(Boolean);
+  const tail = tailNames.map((n) => model.getObjectByName(n)).find(Boolean);
+  if (head && tail) {
+    const hp = new THREE.Vector3();
+    const tp = new THREE.Vector3();
+    head.getWorldPosition(hp);
+    tail.getWorldPosition(tp);
+    // Rotation.y = α maps +z to (sin α, 0, cos α): to bring the
+    // head→tail vector onto +z, rotate by −its current yaw.
+    inner.rotation.y = -Math.atan2(hp.x - tp.x, hp.z - tp.z);
+  }
+  wrap.updateMatrixWorld(true);
+  // Exact fit: longest horizontal extent becomes targetLen.
+  const box = new THREE.Box3().setFromObject(wrap);
+  const size = box.getSize(new THREE.Vector3());
+  const k = targetLen / Math.max(size.x, size.z, 0.001);
+  inner.scale.multiplyScalar(k);
+  wrap.updateMatrixWorld(true);
+  const box2 = new THREE.Box3().setFromObject(wrap);
+  inner.position.x -= (box2.min.x + box2.max.x) / 2;
+  inner.position.z -= (box2.min.z + box2.max.z) / 2;
+  inner.position.y -= box2.min.y;
+  return { wrap, inner };
+}
+
+// All emissive-capable materials under a loaded model, for the
+// burst-time glow.
+function emissiveMats(root) {
+  const arr = [];
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const ms = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of ms) {
+      if (m && m.emissive && !arr.includes(m)) arr.push(m);
+    }
+  });
+  return arr;
+}
+
+// ── Jaw hinges (Merlin, 2026-11-01: "I want the jaws") ──────────
+// The Batch 8 Tripo rigs have no jaw bones and no animation clips,
+// so the bite is a vertex-shader hinge: jaw-region vertices rotate
+// about the jaw joint in BIND space (the `position` attribute), ahead
+// of the skinning chunk — the static skeleton then carries the opened
+// jaw rigidly into the posed mesh. Tuning lives in JAW_PARAMS
+// (lib/swamp-run/models.js), measured from the real bind geometry.
+// A dark mouth cavity rides inside the skull so the open mouth never
+// shows hollow backfaces.
+
+// Clones a creature's materials (never mutates the GLTF cache's),
+// injects the jaw hinge into each, and tucks a mouth cavity inside
+// the skull. Returns { jawUniform, cavityMat } for the frame loop.
+function addJawHinge(root, p) {
+  const jawUniform = { value: 0 };
+  const seen = new Map();
+  const hinge = new THREE.Vector3(p.hinge[0], p.hinge[1], p.hinge[2]);
+  let skinned = null;
+  root.traverse((o) => {
+    if (o.isSkinnedMesh && !skinned) skinned = o;
+    if (!o.isMesh) return;
+    const ms = Array.isArray(o.material) ? o.material : [o.material];
+    const repl = ms.map((m) => {
+      if (!m) return m;
+      if (!seen.has(m)) {
+        const c = m.clone();
+        c.onBeforeCompile = (shader) => {
+          shader.uniforms.uJawOpen = jawUniform;
+          shader.uniforms.uJawHinge = { value: hinge };
+          shader.uniforms.uJawMouth = {
+            value: new THREE.Vector4(p.mouthA, p.mouthB, p.hingeX, p.feather),
+          };
+          shader.uniforms.uJawZ = {
+            value: new THREE.Vector3(p.zc, p.zHalf, p.maxAngle),
+          };
+          shader.vertexShader = shader.vertexShader
+            .replace(
+              '#include <common>',
+              `#include <common>
+              uniform float uJawOpen;
+              uniform vec3 uJawHinge;
+              uniform vec4 uJawMouth;
+              uniform vec3 uJawZ;`
+            )
+            .replace(
+              '#include <begin_vertex>',
+              `#include <begin_vertex>
+              {
+                float mouthY = uJawMouth.x + uJawMouth.y * (transformed.x - uJawMouth.z);
+                float w = smoothstep(uJawHinge.x - uJawMouth.w, uJawHinge.x + uJawMouth.w * 0.5, transformed.x);
+                w *= 1.0 - smoothstep(mouthY - uJawMouth.w * 0.5, mouthY + uJawMouth.w * 0.5, transformed.y);
+                w *= 1.0 - smoothstep(uJawZ.y - uJawMouth.w, uJawZ.y + uJawMouth.w, abs(transformed.z - uJawZ.x));
+                float ang = -uJawOpen * uJawZ.z * w;
+                float jc = cos(ang);
+                float js = sin(ang);
+                vec2 jd = vec2(transformed.x - uJawHinge.x, transformed.y - uJawHinge.y);
+                transformed.x = uJawHinge.x + jd.x * jc - jd.y * js;
+                transformed.y = uJawHinge.y + jd.x * js + jd.y * jc;
+              }`
+            );
+        };
+        c.customProgramCacheKey = () => 'swamp-jaw-hinge';
+        seen.set(m, c);
+      }
+      return seen.get(m);
+    });
+    // eslint-disable-next-line no-param-reassign
+    o.material = Array.isArray(o.material) ? repl : repl[0];
+  });
+  const cavityMat = new THREE.MeshStandardMaterial({
+    color: 0x5a0f0f,
+    emissive: 0x2a0505,
+    roughness: 1,
+    transparent: true,
+    opacity: 0,
+  });
+  const cavity = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), cavityMat);
+  cavity.scale.set(p.cavityScale[0], p.cavityScale[1], p.cavityScale[2]);
+  cavity.position.set(p.cavityPos[0], p.cavityPos[1], p.cavityPos[2]);
+  (skinned || root).add(cavity);
+  return { jawUniform, cavityMat };
+}
+
+// Eases a jaw value toward its target: snaps open fast, eases shut.
+function stepJaw(jaw, target, dt) {
+  const rate = target > jaw.value ? 1 / 0.15 : 1 / 0.6;
+  const d = Math.sign(target - jaw.value) * rate * Math.min(dt, 0.05);
+  jaw.value = THREE.MathUtils.clamp(jaw.value + d, 0, 1);
+  const e = jaw.value * jaw.value * (3 - 2 * jaw.value);
+  return e;
+}
+
+// The procedural crocodile — the GLB-failure fallback ONLY (same
+// contract as Swamp Run's CrocProcedural). Body, eyes, jaw snap and
+// tail sway exactly as before the swap.
+function CrocodileProcedural({ stateRef }) {
   const ref = useRef(null);
   const tailRef = useRef(null);
   const jawRef = useRef(null);
@@ -262,6 +450,75 @@ function Crocodile({ stateRef }) {
       </group>
       <pointLight color="#ffae00" intensity={1.6} distance={4} position={[0, 0.5, 2]} />
     </group>
+  );
+}
+
+// The Batch 8 rigged crocodile (public/models/swamp/
+// crocodile-rigged.glb, 36 joints, no embedded animation clips and
+// no jaw bone — the bite is the vertex-shader jaw hinge above,
+// driven by the hunt state, plus the emissive aggression pulse).
+// Same position / height / heading / scale contract as the
+// procedural crocodile: lurk → charge → circle → hunt, tail sway
+// on the rig's tail bone, jaw snap while hunted.
+function CrocodileGlb({ stateRef, url }) {
+  const { scene } = useGLTF(url);
+  const groupRef = useRef(null);
+  const { wrap, inner, jaw, tailBone } = useMemo(() => {
+    const m = cloneSkinned(scene);
+    const fitted = fitCreature(
+      m,
+      ['tripo::Head_2', 'tripo::Head_1'],
+      ['tripo::Tail_4', 'tripo::Tail_3'],
+      5
+    );
+    const jaw = addJawHinge(m, JAW_PARAMS.crocodile);
+    const tailBone =
+      m.getObjectByName('tripo::Tail_1') || m.getObjectByName('tripo::Tail_2') || null;
+    markSlotLoaded('crocodile');
+    return { ...fitted, jaw, tailBone };
+  }, [scene]);
+  const mats = useMemo(() => emissiveMats(wrap), [wrap]);
+  const jawState = useRef({ value: 0 });
+  useFrame(({ clock }, dt) => {
+    const s = stateRef.current;
+    const g = groupRef.current;
+    if (!s || !g) return;
+    const c = s.croc;
+    const t = clock.elapsedTime;
+    const onLand = isLand(c.x, c.z);
+    const lurking = c.mode === 'lurk';
+    const y = lurking ? -0.28 : onLand ? 0.28 : -0.02;
+    g.position.set(c.x, y + Math.sin(t * 2.2) * 0.03, c.z);
+    g.rotation.y = c.dir;
+    if (tailBone) tailBone.rotation.y = Math.sin(t * (lurking ? 1.5 : 4.5)) * 0.28;
+    // Jaw snap: same hunted-phase rhythm as the procedural jaw,
+    // eased through the shader hinge (fast open, slow shut).
+    const jawTarget = s.phase === 'hunted' ? (Math.sin(t * 3) > 0.72 ? 1 : 0.25) : 0.12;
+    const je = stepJaw(jawState.current, jawTarget, dt);
+    jaw.jawUniform.value = je;
+    jaw.cavityMat.opacity = je * 0.95;
+    inner.rotation.x = 0.02 + Math.sin(t * 0.8) * 0.01;
+    const angry = c.mode === 'hunt' || c.mode === 'charge' || c.mode === 'circle';
+    for (const m of mats) {
+      m.emissive.set(angry ? '#ff2a1a' : '#1a0e00');
+      m.emissiveIntensity = angry ? 0.55 : 0.12;
+    }
+    const d = Math.hypot(s.player.x - c.x, s.player.z - c.z);
+    g.scale.setScalar(d < 9 && s.phase !== 'swim' ? 1.12 : 1);
+  });
+  return <primitive ref={groupRef} object={wrap} />;
+}
+
+function Crocodile({ stateRef }) {
+  const url = useSwampGlb('crocodile');
+  const fallback = <CrocodileProcedural stateRef={stateRef} />;
+  if (!url) return fallback;
+  return (
+    <SwampGlbErrorBoundary fallback={fallback}>
+      <Suspense fallback={fallback}>
+        <CrocodileGlb stateRef={stateRef} url={url} />
+      </Suspense>
+    </SwampGlbErrorBoundary>
   );
 }
 

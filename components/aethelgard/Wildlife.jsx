@@ -1,8 +1,9 @@
 'use client';
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { mulberry32 } from '@/lib/babel/rand';
+import { surfaceMaps } from '@/lib/earth4/creature-textures';
 import { getParticleTexture } from '@/lib/particles/sprites';
 
 // AETHELGARD wildlife — circling birds, fluttering butterflies, night fireflies.
@@ -14,37 +15,110 @@ import { getParticleTexture } from '@/lib/particles/sprites';
 // the butterflies are real two-wing shapes in ONE instanced mesh
 // (was 42 flat single planes); and GNAT swarms drift low over the
 // leaf litter by day.
+//
+// CGI CHARACTER SWAP (Nov 28, 2026): the birds are rebuilt as
+// textured CGI — feather-mapped bodies with shaped, tapered wings
+// on real flap pivots (no more flat triangles); the butterflies
+// wear a painted canvas wing pattern (UV-mapped, instance-tinted).
+// Counts (9 birds, 42 butterflies), flight circles, flap motion,
+// gnats and fireflies are unchanged — visual swap only.
 
 const BIRD_COUNT = 9;
 const FLY_COUNT = 42;
 const FIREFLY_COUNT = 220;
 
-function birdGeometry() {
-  // simple gull: two triangles as wings + small body tri
+// Tapered wing in the XZ plane: spans +X from the body, chord along
+// Z, tip swept back. UVs map the feather texture across the wing.
+// Mirror with scale.x = -1 for the other side.
+function birdWingGeometry() {
   const g = new THREE.BufferGeometry();
   const v = new Float32Array([
-    -1.1, 0, 0,   0, 0.12, 0.25,   0, 0.12, -0.25,
-    1.1, 0, 0,    0, 0.12, -0.25,  0, 0.12, 0.25,
-    0, 0, 0.5,    -0.18, 0, -0.3,  0.18, 0, -0.3,
+    0, 0, 0.35, 0, 0, -0.35, 1.7, 0, 0.14,
+    0, 0, 0.35, 1.7, 0, 0.14, 1.7, 0, -0.14,
   ]);
+  const uv = new Float32Array([0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0]);
   g.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.computeVertexNormals();
   return g;
 }
 
+// Painted butterfly wing pattern (128x128, node-safe DataTexture):
+// a pale ground the instance colour tints, with a dark outer edge
+// band, seeded dark spots, and a dark body stripe down u < 0.06
+// (the body triangle UVs land there). Cached — one texture for all
+// 42 butterflies.
+let butterflyTexCache = null;
+function butterflyWingTexture() {
+  if (butterflyTexCache) return butterflyTexCache;
+  const W = 128;
+  const H = 128;
+  const rand = mulberry32(1977);
+  const spots = Array.from({ length: 9 }, () => ({
+    u: 0.15 + rand() * 0.7, v: 0.15 + rand() * 0.7, r: 0.05 + rand() * 0.07,
+  }));
+  const color = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const u = x / W;
+      const v = y / H;
+      // dark edge band: the wing rim reads as a border
+      const edge = Math.min(u, 1 - u, v, 1 - v);
+      let l = 238;
+      if (edge < 0.07) l = 70 + edge * 900;
+      // a warm central band across the wing
+      const band = Math.exp(-Math.pow((v - 0.5) * 6, 2));
+      l -= band * 26;
+      for (const s of spots) {
+        const d = Math.hypot(u - s.u, v - s.v);
+        if (d < s.r) l = Math.min(l, 80);
+      }
+      // body stripe column
+      if (u < 0.06) l = 42;
+      const i = (y * W + x) * 4;
+      color[i] = l;
+      color[i + 1] = l;
+      color[i + 2] = Math.max(0, l - 8);
+      color[i + 3] = 255;
+    }
+  }
+  const tex = new THREE.DataTexture(color, W, H, THREE.RGBAFormat);
+  tex.needsUpdate = true;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  butterflyTexCache = tex;
+  return tex;
+}
+
 function butterflyGeometry() {
-  // two wings with a slight dihedral + a body tri, in the XZ plane;
-  // the flap is a Y squash of the whole shape (see useFrame).
+  // two tapered wings with a slight dihedral + a body diamond, in
+  // the XZ plane; UVs land the wings on the painted pattern and the
+  // body on the dark stripe. The flap is a Y squash of the whole
+  // shape (see useFrame).
   const g = new THREE.BufferGeometry();
   const v = new Float32Array([
     // left wing
-    -0.55, 0.10, 0.15,   0, 0, 0.30,   0, 0, -0.30,
+    0, 0, 0.30,   0, 0, -0.30,   -0.55, 0.10, 0.15,
+    0, 0, 0.30,   -0.55, 0.10, 0.15,   -0.55, 0.10, -0.30,
     // right wing
-    0.55, 0.10, 0.15,   0, 0, -0.30,   0, 0, 0.30,
+    0, 0, -0.30,   0, 0, 0.30,   0.55, 0.10, -0.15,
+    0, 0, -0.30,   0.55, 0.10, -0.15,   0.55, 0.10, 0.30,
     // body
-    0, 0, 0.35,   -0.06, 0, -0.35,   0.06, 0, -0.35,
+    0, 0.02, 0.35,   -0.06, 0.02, -0.35,   0.06, 0.02, -0.35,
+  ]);
+  const uv = new Float32Array([
+    // left wing: full pattern, mirrored
+    0.5, 0, 0.5, 1, 0, 0.25,
+    0.5, 0, 0, 0.25, 0, 0.75,
+    // right wing: full pattern
+    0.5, 1, 0.5, 0, 1, 0.75,
+    0.5, 1, 1, 0.75, 1, 0.25,
+    // body: the dark stripe column
+    0, 0.5, 0.06, 0.4, 0.06, 0.6,
   ]);
   g.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   g.computeVertexNormals();
   return g;
 }
@@ -54,6 +128,8 @@ const BIRD_COLORS = ['#d23a2a', '#2a6ad2', '#e8b73a', '#3a8a4c', '#1c241c', '#d2
 
 export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
   const birdGroup = useRef();
+  const birdWingL = useRef([]);
+  const birdWingR = useRef([]);
   const flyRef = useRef();
   const gnatRef = useRef();
   const fireflyRef = useRef();
@@ -61,8 +137,12 @@ export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
   const flyObj = useMemo(() => new THREE.Object3D(), []);
   const flyColor = useMemo(() => new THREE.Color(), []);
 
-  const birdGeo = useMemo(birdGeometry, []);
+  const birdWingGeo = useMemo(birdWingGeometry, []);
+  const birdBodyGeo = useMemo(() => new THREE.SphereGeometry(0.5, 10, 8), []);
+  const birdHeadGeo = useMemo(() => new THREE.SphereGeometry(0.28, 8, 6), []);
+  const beakGeo = useMemo(() => new THREE.ConeGeometry(0.09, 0.3, 6), []);
   const flyGeo = useMemo(butterflyGeometry, []);
+  const flyTex = useMemo(() => butterflyWingTexture(), []);
   // Sprite graphic for the fireflies (null outside the browser → plain points).
   const fireflyTex = useMemo(() => getParticleTexture('firefly'), []);
   const gnatTex = useMemo(() => getParticleTexture('glow'), []);
@@ -79,6 +159,25 @@ export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
       color: BIRD_COLORS[Math.floor(rand() * BIRD_COLORS.length)],
     }));
   }, []);
+
+  // One feather-textured material per bird: the house feather maps
+  // (cached per family+seed) over the bird's macaw colour.
+  const birdFeatherMaps = useMemo(() => surfaceMaps('feather', 'aethelgard-bird'), []);
+  const birdMats = useMemo(() => birds.map((b) => new THREE.MeshStandardMaterial({
+    map: birdFeatherMaps.map,
+    bumpMap: birdFeatherMaps.bumpMap,
+    bumpScale: birdFeatherMaps.bumpScale,
+    color: b.color,
+    roughness: 0.5,
+    side: THREE.DoubleSide,
+  })), [birds, birdFeatherMaps]);
+  const beakMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#3a2e22', roughness: 0.6,
+  }), []);
+  useEffect(() => () => {
+    birdMats.forEach((m) => m.dispose());
+    beakMat.dispose();
+  }, [birdMats, beakMat]);
 
   const flies = useMemo(() => {
     const rand = mulberry32(909);
@@ -138,14 +237,19 @@ export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
-    // birds circle + flap (scale y flap illusion on the whole bird)
+    // birds circle + flap (real wing pivots now, not a whole-bird squash)
     if (birdGroup.current) {
       birdGroup.current.children.forEach((b, i) => {
         const d = birds[i];
         const a = t * d.speed + d.phase;
         b.position.set(Math.cos(a) * d.r, d.h + Math.sin(t * 0.7 + d.phase) * 2, Math.sin(a) * d.r);
         b.rotation.y = -a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
-        b.scale.set(d.s, d.s * (0.55 + 0.45 * Math.abs(Math.sin(t * d.flap + d.phase))), d.s);
+        b.scale.set(d.s, d.s, d.s);
+        const f = Math.sin(t * d.flap + d.phase);
+        const wl = birdWingL.current[i];
+        const wr = birdWingR.current[i];
+        if (wl) wl.rotation.z = 0.25 + f * 0.55;
+        if (wr) wr.rotation.z = -0.25 - f * 0.55;
       });
       birdGroup.current.visible = nightFactor < 0.7;
     }
@@ -203,15 +307,23 @@ export default function Wildlife({ nightFactor = 0, flutterMul = 1 }) {
     <group>
       <group ref={birdGroup}>
         {birds.map((b, i) => (
-          <mesh key={i} geometry={birdGeo}>
-            <meshStandardMaterial color={b.color} roughness={1} side={THREE.DoubleSide} />
-          </mesh>
+          <group key={i}>
+            <group ref={(el) => { birdWingL.current[i] = el; }}>
+              <mesh geometry={birdWingGeo} material={birdMats[i]} />
+            </group>
+            <group ref={(el) => { birdWingR.current[i] = el; }}>
+              <mesh geometry={birdWingGeo} material={birdMats[i]} scale={[-1, 1, 1]} />
+            </group>
+            <mesh geometry={birdBodyGeo} material={birdMats[i]} scale={[0.55, 0.45, 1.4]} />
+            <mesh geometry={birdHeadGeo} material={birdMats[i]} position={[0, 0.08, 0.75]} />
+            <mesh geometry={beakGeo} material={beakMat} position={[0, 0.06, 1.05]} rotation={[Math.PI / 2, 0, 0]} />
+          </group>
         ))}
       </group>
-      {/* butterflies — one instanced mesh of two-wing shapes */}
+      {/* butterflies — one instanced mesh of two-wing shapes, patterned wings */}
       <instancedMesh ref={flyRef} args={[undefined, undefined, FLY_COUNT]} frustumCulled={false}
         geometry={flyGeo}>
-        <meshStandardMaterial roughness={0.8} side={THREE.DoubleSide} />
+        <meshStandardMaterial map={flyTex} roughness={0.6} side={THREE.DoubleSide} />
       </instancedMesh>
       {/* gnat swarms low over the leaf litter */}
       <points ref={gnatRef} geometry={gnats} frustumCulled={false}>

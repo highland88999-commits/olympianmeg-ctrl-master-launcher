@@ -11,6 +11,7 @@
  * localized glow, never a texture wash.
  */
 import * as ThreeJS from 'three';
+import { surfaceMaps } from '../../lib/earth4/creature-textures.js';
 
 /* THREE may be passed in (page shell / tests) — fall back to the import. */
 function R3(THREE) { return THREE || ThreeJS; }
@@ -25,10 +26,24 @@ function mulberry32(seed) {
   };
 }
 
-/* Flat-shaded standard material. */
+/* Flat-shaded standard material. opts.tex = { family, seed,
+ * roughness? } paints the house creature-surface maps
+ * (lib/earth4/creature-textures.js: seeded fur / feather / scale /
+ * chitin / skin / keratin / bark DataTextures, cached per
+ * family+seed) over the colour — the map carries the surface
+ * structure, the colour carries the hue. */
 function M(R, color, opts) {
-  return new R.MeshStandardMaterial(Object.assign(
-    { color: color, flatShading: true, roughness: 0.92, metalness: 0.05 }, opts || {}));
+  const o = Object.assign(
+    { color: color, flatShading: true, roughness: 0.92, metalness: 0.05 }, opts || {});
+  if (o.tex) {
+    const maps = surfaceMaps(o.tex.family, o.tex.seed);
+    o.map = maps.map;
+    o.bumpMap = maps.bumpMap;
+    o.bumpScale = maps.bumpScale;
+    if (o.tex.roughness != null) o.roughness = o.tex.roughness;
+    delete o.tex;
+  }
+  return new R.MeshStandardMaterial(o);
 }
 /* Localized "emissive" accent — unlit, cheap. */
 function E(R, color, opts) {
@@ -921,6 +936,17 @@ export function buildLandmark(type, THREE, T) {
 
 /* ------------------------- ambient creatures ------------------------- */
 
+/* CGI CHARACTER SWAP (Merlin, Nov 28, 2026): every ambient kind is
+ * rebuilt as textured CGI on the house creature-surface kit
+ * (lib/earth4/creature-textures.js — seeded fur / feather / scale /
+ * chitin / skin / keratin / bark DataTextures, cached per
+ * family+seed, node-safe). M()'s opts.tex = { family, seed } paints
+ * a kind's map over its colour; the map carries the surface
+ * structure, the colour carries the hue. Counts, sizes, base
+ * positions and every per-kind wander update(t) pattern below are
+ * unchanged — visual swap only. The named GLB characters (Jedi
+ * Knight, Sith Lord) are NOT ambient and are untouched. */
+
 export const AMBIENT_TYPES = [
   'bantha', 'jawa', 'bird', 'wampa', 'tauntaun',
   'ewok', 'porg', 'probe-droid', 'fish', 'tuskan',
@@ -935,16 +961,65 @@ function wanderState(g) {
   return s;
 }
 
+/* Tapered wing in the XZ plane: spans +X from the body, chord along
+ * Z, tip swept back. UVs map the feather texture across the wing.
+ * Mirror with mesh.scale.x = -1 for the other side. */
+function wingGeo(R, span, rootChord, tipChord, sweep) {
+  const g = new R.BufferGeometry();
+  const v = new Float32Array([
+    0, 0, rootChord / 2, 0, 0, -rootChord / 2, span, 0, tipChord / 2 + sweep,
+    0, 0, rootChord / 2, span, 0, tipChord / 2 + sweep, span, 0, -tipChord / 2 + sweep,
+  ]);
+  const uv = new Float32Array([0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0]);
+  g.setAttribute('position', new R.BufferAttribute(v, 3));
+  g.setAttribute('uv', new R.BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+/* One triangle in the XY plane (dorsal fins), from [x, y] triples. */
+function triGeo(R, a, b, c) {
+  const g = new R.BufferGeometry();
+  const v = new Float32Array([a[0], a[1], 0, b[0], b[1], 0, c[0], c[1], 0]);
+  const uv = new Float32Array([0, 0, 1, 0, 0.5, 1]);
+  g.setAttribute('position', new R.BufferAttribute(v, 3));
+  g.setAttribute('uv', new R.BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
+/* Forked tail fin in the XY plane, root at x = 0, tips at -X. */
+function tailFinGeo(R) {
+  const g = new R.BufferGeometry();
+  const v = new Float32Array([
+    0, 0.06, 0, -0.55, 0.34, 0, -0.38, 0, 0,
+    0, -0.06, 0, -0.38, 0, 0, -0.55, -0.34, 0,
+  ]);
+  const uv = new Float32Array([0, 0.5, 1, 1, 0.7, 0.5, 0, 0.5, 0.7, 0.5, 1, 0]);
+  g.setAttribute('position', new R.BufferAttribute(v, 3));
+  g.setAttribute('uv', new R.BufferAttribute(uv, 2));
+  g.computeVertexNormals();
+  return g;
+}
+
 const AMBIENT = {
-  /* Boxy quadruped. */
+  /* Shaggy quadruped: fur-textured barrel body + fringe skirt,
+   * horned head, four legs. */
   'bantha': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const fur = M(R, 0x8a6b4a), dark = M(R, 0x6e5638);
-    const body = mesh(R, new R.BoxGeometry(3.4, 1.9, 1.7), fur, 0, 1.75, 0); g.add(body);
+    const fur = M(R, 0x8a6b4a, { tex: { family: 'fur', seed: 'sw-bantha' } });
+    const dark = M(R, 0x6e5638, { tex: { family: 'fur', seed: 'sw-bantha-dark' } });
+    const horn = M(R, 0xe8dcc0, { tex: { family: 'keratin', seed: 'sw-bantha-horn' } });
+    const body = mesh(R, new R.SphereGeometry(1.35, 12, 9), fur, 0, 1.75, 0);
+    body.scale.set(1.35, 0.75, 0.68); g.add(body);
+    const fringe = mesh(R, new R.ConeGeometry(1.9, 0.8, 10), dark, 0, 0.85, 0);
+    fringe.scale.set(1, 1, 0.5); g.add(fringe);
+    g.add(mesh(R, new R.SphereGeometry(0.85, 10, 8), fur, 0, 2.3, 0));
     g.add(mesh(R, new R.BoxGeometry(1, 1.1, 1.2), fur, 2.05, 1.9, 0));
+    g.add(mesh(R, new R.BoxGeometry(0.5, 0.4, 0.7), dark, 2.55, 1.65, 0));
     for (const [lx, lz] of [[-1.2, -0.55], [1.2, -0.55], [-1.2, 0.55], [1.2, 0.55]])
       g.add(mesh(R, new R.BoxGeometry(0.5, 1.3, 0.5), dark, lx, 0.65, lz));
-    for (const lz of [-0.75, 0.75]) g.add(mesh(R, new R.ConeGeometry(0.16, 1.5, 6), M(R, 0xe8dcc0), 2.3, 2.7, lz));
+    for (const lz of [-0.75, 0.75]) g.add(mesh(R, new R.ConeGeometry(0.16, 1.5, 6), horn, 2.3, 2.7, lz));
     return {
       group: g,
       update: function (t) {
@@ -956,13 +1031,21 @@ const AMBIENT = {
       },
     };
   },
-  /* Small hooded figure with glowing eyes. */
+  /* Small hooded figure: cloth robe + hood over a dark face,
+   * glowing amber eyes, suggested sleeves, belt. */
   'jawa': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const robe = mesh(R, new R.ConeGeometry(0.55, 1.5, 7), M(R, 0x4a3b2c), 0, 0.75, 0); g.add(robe);
-    g.add(mesh(R, new R.SphereGeometry(0.3, 8, 6), M(R, 0x1a1410), 0, 1.35, 0.18));
+    const robeMat = M(R, 0x4a3b2c, { tex: { family: 'skin', seed: 'sw-jawa-robe', roughness: 0.95 } });
+    const robe = mesh(R, new R.ConeGeometry(0.55, 1.5, 7), robeMat, 0, 0.75, 0); g.add(robe);
+    g.add(mesh(R, new R.SphereGeometry(0.34, 10, 8), robeMat, 0, 1.42, 0.05));
+    g.add(mesh(R, new R.SphereGeometry(0.26, 8, 6), M(R, 0x1a1410), 0, 1.35, 0.18));
     g.add(mesh(R, new R.BoxGeometry(0.12, 0.08, 0.05), E(R, 0xffd76a), -0.1, 1.38, 0.44));
     g.add(mesh(R, new R.BoxGeometry(0.12, 0.08, 0.05), E(R, 0xffd76a), 0.1, 1.38, 0.44));
+    for (const sx of [-1, 1]) {
+      const arm = mesh(R, new R.CylinderGeometry(0.09, 0.11, 0.55, 6), robeMat, sx * 0.42, 0.85, 0.1);
+      arm.rotation.z = sx * 0.25; g.add(arm);
+    }
+    g.add(mesh(R, new R.CylinderGeometry(0.33, 0.36, 0.12, 7), M(R, 0x2e241a), 0, 0.62, 0));
     return {
       group: g,
       update: function (t) {
@@ -974,15 +1057,22 @@ const AMBIENT = {
       },
     };
   },
-  /* Flapping V bird. */
+  /* Feather-textured bird: shaped tapered wings on flap pivots,
+   * streamlined body, head + beak, tail. */
   'bird': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const wm = M(R, 0x3a3f4a, { side: R.DoubleSide });
+    const feather = M(R, 0x3a3f4a, { tex: { family: 'feather', seed: 'sw-bird', roughness: 0.55 }, side: R.DoubleSide });
     const wl = new R.Group(), wr = new R.Group();
-    const gl = new R.PlaneGeometry(1.7, 0.7); gl.translate(0.85, 0, 0); wl.add(mesh(R, gl, wm));
-    const gr = new R.PlaneGeometry(1.7, 0.7); gr.translate(-0.85, 0, 0); wr.add(mesh(R, gr, wm));
+    wl.add(mesh(R, wingGeo(R, 1.7, 0.7, 0.28, -0.15), feather));
+    const wrm = mesh(R, wingGeo(R, 1.7, 0.7, 0.28, -0.15), feather);
+    wrm.scale.x = -1; wr.add(wrm);
     g.add(wl, wr);
-    g.add(mesh(R, new R.SphereGeometry(0.24, 8, 6), M(R, 0x22262e), 0, 0, 0.25));
+    const bodyMesh = mesh(R, new R.SphereGeometry(0.24, 10, 8), feather, 0, 0, 0);
+    bodyMesh.scale.set(0.8, 0.7, 2.2); g.add(bodyMesh);
+    g.add(mesh(R, new R.SphereGeometry(0.15, 8, 6), feather, 0, 0.06, 0.55));
+    const beak = mesh(R, new R.ConeGeometry(0.06, 0.22, 6), M(R, 0x3a2e22), 0, 0.05, 0.75);
+    beak.rotation.x = Math.PI / 2; g.add(beak);
+    g.add(mesh(R, new R.BoxGeometry(0.3, 0.05, 0.5), feather, 0, 0.02, -0.6));
     return {
       group: g,
       update: function (t) {
@@ -996,14 +1086,36 @@ const AMBIENT = {
       },
     };
   },
-  /* Tall white brute. */
+  /* Tall white brute: fur-textured torso + shaggy chest and
+   * shoulders, muzzle + brow + fangs + glowing eyes, clawed arms.
+   * The fur is the house procedural fur map (guard-hair strands +
+   * agouti banding over white) — the best textured fur the kit
+   * paints; there is no strand-level hair system in this round. */
   'wampa': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const fur = M(R, 0xe8e4da);
+    const fur = M(R, 0xe8e4da, { tex: { family: 'fur', seed: 'sw-wampa' } });
+    const furDark = M(R, 0xcfc9bb, { tex: { family: 'fur', seed: 'sw-wampa-dark' } });
     const body = mesh(R, new R.BoxGeometry(1.6, 2.6, 1.1), fur, 0, 2, 0); g.add(body);
-    g.add(mesh(R, new R.SphereGeometry(0.55, 8, 6), fur, 0, 3.6, 0.2));
+    const chest = mesh(R, new R.SphereGeometry(0.85, 10, 8), fur, 0, 2.6, 0);
+    chest.scale.set(1.05, 1.1, 0.75); g.add(chest);
+    for (const sx of [-1, 1]) {
+      const tuft = mesh(R, new R.SphereGeometry(0.4, 8, 6), furDark, sx * 0.7, 3.1, 0);
+      tuft.scale.set(1, 0.7, 1); g.add(tuft);
+    }
+    g.add(mesh(R, new R.SphereGeometry(0.55, 10, 8), fur, 0, 3.6, 0.2));
+    g.add(mesh(R, new R.BoxGeometry(0.5, 0.3, 0.35), furDark, 0, 3.45, 0.65));
+    g.add(mesh(R, new R.BoxGeometry(0.6, 0.12, 0.2), furDark, 0, 3.75, 0.68));
+    g.add(mesh(R, new R.SphereGeometry(0.06, 6, 5), E(R, 0xffc46a), -0.2, 3.68, 0.68));
+    g.add(mesh(R, new R.SphereGeometry(0.06, 6, 5), E(R, 0xffc46a), 0.2, 3.68, 0.68));
+    for (const sx of [-1, 1]) {
+      const fang = mesh(R, new R.ConeGeometry(0.05, 0.22, 5), M(R, 0xf2ead8), sx * 0.12, 3.3, 0.7);
+      fang.rotation.x = Math.PI; g.add(fang);
+    }
     for (const lz of [-1, 1]) {
-      g.add(mesh(R, new R.BoxGeometry(0.45, 1.9, 0.45), fur, 0, 2, lz * 0.85));
+      g.add(mesh(R, new R.CylinderGeometry(0.22, 0.2, 1.9, 8), fur, 0, 2, lz * 0.85));
+      g.add(mesh(R, new R.SphereGeometry(0.24, 8, 6), furDark, 0, 1.05, lz * 0.85));
+      const claw = mesh(R, new R.ConeGeometry(0.07, 0.3, 5), M(R, 0xe8dcc0), 0, 0.8, lz * 0.85);
+      claw.rotation.x = Math.PI; g.add(claw);
       g.add(mesh(R, new R.BoxGeometry(0.4, 1.1, 0.4), fur, 0, 0.55, lz * 0.4));
     }
     return {
@@ -1017,15 +1129,23 @@ const AMBIENT = {
       },
     };
   },
-  /* Two-legged mount. */
+  /* Two-legged mount: fur-textured barrel body, striding legs,
+   * horned head + snout, tail. */
   'tauntaun': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const hide = M(R, 0xb9a58a);
-    const body = mesh(R, new R.BoxGeometry(2.4, 1.2, 1), hide, 0, 1.9, 0); g.add(body);
-    const legL = mesh(R, new R.BoxGeometry(0.4, 1.4, 0.4), hide, 0, 0.7, -0.35); g.add(legL);
-    const legR = mesh(R, new R.BoxGeometry(0.4, 1.4, 0.4), hide, 0, 0.7, 0.35); g.add(legR);
+    const hide = M(R, 0xb9a58a, { tex: { family: 'fur', seed: 'sw-tauntaun' } });
+    const horn = M(R, 0xe8dcc0, { tex: { family: 'keratin', seed: 'sw-tauntaun-horn' } });
+    const body = mesh(R, new R.SphereGeometry(0.85, 12, 9), hide, 0, 1.9, 0);
+    body.scale.set(1.5, 0.75, 0.62); g.add(body);
+    const legL = mesh(R, new R.CylinderGeometry(0.18, 0.16, 1.4, 8), hide, 0, 0.7, -0.35); g.add(legL);
+    const legR = mesh(R, new R.CylinderGeometry(0.18, 0.16, 1.4, 8), hide, 0, 0.7, 0.35); g.add(legR);
+    for (const lz of [-0.35, 0.35])
+      g.add(mesh(R, new R.SphereGeometry(0.2, 8, 6), M(R, 0x6e5638), 0, 0.08, lz));
     g.add(mesh(R, new R.BoxGeometry(0.7, 0.8, 0.6), hide, 1.4, 2.6, 0));
-    for (const lz of [-0.3, 0.3]) g.add(mesh(R, new R.ConeGeometry(0.1, 0.9, 5), M(R, 0xe8dcc0), 1.5, 3.2, lz));
+    g.add(mesh(R, new R.BoxGeometry(0.5, 0.4, 0.45), hide, 1.8, 2.5, 0));
+    for (const lz of [-0.3, 0.3]) g.add(mesh(R, new R.ConeGeometry(0.1, 0.9, 5), horn, 1.5, 3.2, lz));
+    g.add(mesh(R, new R.SphereGeometry(0.05, 6, 5), E(R, 0x1a1a1a), 1.76, 2.75, -0.18));
+    g.add(mesh(R, new R.SphereGeometry(0.05, 6, 5), E(R, 0x1a1a1a), 1.76, 2.75, 0.18));
     g.add(mesh(R, new R.BoxGeometry(0.25, 1, 0.25), hide, -1.3, 1.9, 0));
     return {
       group: g,
@@ -1041,13 +1161,25 @@ const AMBIENT = {
       },
     };
   },
-  /* Small furry biped. */
+  /* Small furry biped: fur body + head, ears, lighter face patch
+   * with eyes + nose, suggested arms and legs. */
   'ewok': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const fur = M(R, 0x6e5138);
-    const body = mesh(R, new R.SphereGeometry(0.5, 8, 6), fur, 0, 0.75, 0); g.add(body);
-    g.add(mesh(R, new R.SphereGeometry(0.34, 8, 6), fur, 0, 1.3, 0.1));
+    const fur = M(R, 0x6e5138, { tex: { family: 'fur', seed: 'sw-ewok' } });
+    const faceMat = M(R, 0xc8a878, { tex: { family: 'skin', seed: 'sw-ewok-face' } });
+    const body = mesh(R, new R.SphereGeometry(0.5, 10, 8), fur, 0, 0.75, 0); g.add(body);
+    g.add(mesh(R, new R.SphereGeometry(0.34, 10, 8), fur, 0, 1.3, 0.1));
+    const face = mesh(R, new R.SphereGeometry(0.24, 8, 6), faceMat, 0, 1.28, 0.28);
+    face.scale.set(1, 1, 0.55); g.add(face);
     for (const lz of [-0.28, 0.28]) g.add(mesh(R, new R.ConeGeometry(0.12, 0.35, 5), fur, 0, 1.62, lz));
+    g.add(mesh(R, new R.SphereGeometry(0.04, 6, 5), E(R, 0x1a1a1a), -0.1, 1.35, 0.42));
+    g.add(mesh(R, new R.SphereGeometry(0.04, 6, 5), E(R, 0x1a1a1a), 0.1, 1.35, 0.42));
+    g.add(mesh(R, new R.SphereGeometry(0.05, 6, 5), E(R, 0x1a1a1a), 0, 1.26, 0.45));
+    for (const sx of [-1, 1]) {
+      const arm = mesh(R, new R.CylinderGeometry(0.09, 0.08, 0.45, 6), fur, sx * 0.48, 0.75, 0);
+      arm.rotation.z = sx * -0.3; g.add(arm);
+      g.add(mesh(R, new R.CylinderGeometry(0.1, 0.09, 0.4, 6), fur, sx * 0.2, 0.2, 0));
+    }
     return {
       group: g,
       update: function (t) {
@@ -1059,14 +1191,22 @@ const AMBIENT = {
       },
     };
   },
-  /* Round bird. */
+  /* Round bird: feather-textured ball, orange beak, eyes, two
+   * shaped wings (the old build had only one), orange feet. */
   'porg': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const body = mesh(R, new R.SphereGeometry(0.45, 10, 8), M(R, 0xd8cfc0), 0, 0.7, 0); g.add(body);
-    const beak = mesh(R, new R.ConeGeometry(0.14, 0.35, 6), M(R, 0xe09a3a), 0, 0.75, 0.45);
+    const feather = M(R, 0xd8cfc0, { tex: { family: 'feather', seed: 'sw-porg', roughness: 0.55 } });
+    const wingMat = M(R, 0x8a7a68, { tex: { family: 'feather', seed: 'sw-porg-wing', roughness: 0.55 }, side: R.DoubleSide });
+    const body = mesh(R, new R.SphereGeometry(0.45, 12, 10), feather, 0, 0.7, 0); g.add(body);
+    const beak = mesh(R, new R.ConeGeometry(0.14, 0.35, 6), M(R, 0xe09a3a, { tex: { family: 'keratin', seed: 'sw-porg-beak' } }), 0, 0.75, 0.45);
     beak.rotation.x = Math.PI / 2; g.add(beak);
-    const wgeo = new R.PlaneGeometry(0.7, 0.3); wgeo.translate(0.35, 0, 0);
-    const wl = mesh(R, wgeo, M(R, 0x8a7a68, { side: R.DoubleSide }), 0, 0.8, 0); g.add(wl);
+    g.add(mesh(R, new R.SphereGeometry(0.04, 6, 5), E(R, 0x1a1a1a), -0.16, 0.85, 0.38));
+    g.add(mesh(R, new R.SphereGeometry(0.04, 6, 5), E(R, 0x1a1a1a), 0.16, 0.85, 0.38));
+    const wl = mesh(R, wingGeo(R, 0.55, 0.3, 0.12, -0.05), wingMat, -0.4, 0.8, 0); g.add(wl);
+    const wr = mesh(R, wingGeo(R, 0.55, 0.3, 0.12, -0.05), wingMat, 0.4, 0.8, 0);
+    wr.scale.x = -1; g.add(wr);
+    for (const sx of [-1, 1])
+      g.add(mesh(R, new R.BoxGeometry(0.12, 0.1, 0.2), M(R, 0xe09a3a), sx * 0.15, 0.28, 0.1));
     return {
       group: g,
       update: function (t) {
@@ -1080,17 +1220,28 @@ const AMBIENT = {
       },
     };
   },
-  /* Floating black pod + legs. */
+  /* Floating black pod: panelled chitin armour (sclerite plates
+   * read as hull panelling), equatorial band, three legs, emissive
+   * red eye + sensor, antenna. Hard-surfaced machine look kept. */
   'probe-droid': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const pod = mesh(R, new R.SphereGeometry(0.7, 10, 8), M(R, 0x17181c, { metalness: 0.6, roughness: 0.35 }), 0, 2.4, 0);
+    const panel = M(R, 0x2a2c33, { tex: { family: 'chitin', seed: 'sw-probe', roughness: 0.4 }, metalness: 0.6 });
+    const darkMetal = M(R, 0x2b2d33, { metalness: 0.6, roughness: 0.35 });
+    const pod = mesh(R, new R.SphereGeometry(0.7, 12, 10), panel, 0, 2.4, 0);
     pod.scale.y = 1.25; g.add(pod);
+    const band = mesh(R, new R.TorusGeometry(0.62, 0.06, 6, 16), panel, 0, 2.4, 0);
+    band.rotation.x = Math.PI / 2; g.add(band);
+    const cap = mesh(R, new R.SphereGeometry(0.3, 8, 6), darkMetal, 0, 3.15, 0);
+    cap.scale.y = 0.6; g.add(cap);
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2;
-      const leg = mesh(R, new R.CylinderGeometry(0.07, 0.05, 1.6, 5), M(R, 0x2b2d33), Math.cos(a) * 0.7, 1.5, Math.sin(a) * 0.7);
+      const leg = mesh(R, new R.CylinderGeometry(0.07, 0.05, 1.6, 5), panel, Math.cos(a) * 0.7, 1.5, Math.sin(a) * 0.7);
       leg.rotation.z = Math.cos(a) * 0.5; leg.rotation.x = -Math.sin(a) * 0.5; g.add(leg);
     }
     g.add(mesh(R, new R.SphereGeometry(0.16, 8, 6), E(R, 0xff3b30), 0, 2.5, 0.68));
+    g.add(mesh(R, new R.SphereGeometry(0.07, 6, 5), E(R, 0xff3b30), 0.3, 2.75, 0.6));
+    g.add(mesh(R, new R.CylinderGeometry(0.03, 0.03, 0.7, 5), darkMetal, 0, 3.5, 0));
+    g.add(mesh(R, new R.SphereGeometry(0.06, 6, 5), E(R, 0xff3b30), 0, 3.85, 0));
     return {
       group: g,
       update: function (t) {
@@ -1102,14 +1253,18 @@ const AMBIENT = {
       },
     };
   },
-  /* Simple swimmer. */
+  /* Scaled swimmer: scale-textured streamlined body, dorsal fin,
+   * forked tail fin that wags, eyes. */
   'fish': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const fm = M(R, 0x4a7a9e);
-    const body = mesh(R, new R.ConeGeometry(0.35, 1.6, 6), fm, 0, 0, 0);
-    body.rotation.z = -Math.PI / 2; g.add(body);
-    const tail = mesh(R, new R.PlaneGeometry(0.5, 0.6), M(R, 0x4a7a9e, { side: R.DoubleSide }), -0.95, 0, 0);
+    const fm = M(R, 0x4a7a9e, { tex: { family: 'scale_fish', seed: 'sw-fish', roughness: 0.4 } });
+    const body = mesh(R, new R.SphereGeometry(0.35, 10, 8), fm, 0, 0, 0);
+    body.scale.set(2.3, 0.9, 0.9); g.add(body);
+    g.add(mesh(R, triGeo(R, [0.1, 0.3], [-0.3, 0.3], [-0.1, 0.62]), M(R, 0x3a6284, { tex: { family: 'scale_fish', seed: 'sw-fish-fin', roughness: 0.4 }, side: R.DoubleSide })));
+    const tail = mesh(R, tailFinGeo(R), M(R, 0x4a7a9e, { tex: { family: 'scale_fish', seed: 'sw-fish-tail', roughness: 0.4 }, side: R.DoubleSide }), -0.8, 0, 0);
     g.add(tail);
+    g.add(mesh(R, new R.SphereGeometry(0.05, 6, 5), E(R, 0x1a1a1a), 0.55, 0.1, -0.2));
+    g.add(mesh(R, new R.SphereGeometry(0.05, 6, 5), E(R, 0x1a1a1a), 0.55, 0.1, 0.2));
     return {
       group: g,
       update: function (t) {
@@ -1122,17 +1277,27 @@ const AMBIENT = {
       },
     };
   },
-  /* Robed figure + staff. */
+  /* Robed figure: cloth robe + head wrap with glowing eye slits,
+   * keratin face tusks, bark-textured gaderffii staff. */
   'tuskan': function (R) {
     const g = new R.Group(), s = wanderState(g);
-    const robe = mesh(R, new R.ConeGeometry(0.6, 1.9, 7), M(R, 0x9a8a72), 0, 0.95, 0); g.add(robe);
-    g.add(mesh(R, new R.SphereGeometry(0.32, 8, 6), M(R, 0x7a6a55), 0, 1.95, 0));
+    const robeMat = M(R, 0x9a8a72, { tex: { family: 'skin', seed: 'sw-tuskan-robe', roughness: 0.95 } });
+    const robe = mesh(R, new R.ConeGeometry(0.6, 1.9, 7), robeMat, 0, 0.95, 0); g.add(robe);
+    g.add(mesh(R, new R.SphereGeometry(0.32, 10, 8), M(R, 0x7a6a55, { tex: { family: 'skin', seed: 'sw-tuskan-wrap' } }), 0, 1.95, 0));
+    g.add(mesh(R, new R.BoxGeometry(0.5, 0.12, 0.1), robeMat, 0, 2.08, 0.18));
+    g.add(mesh(R, new R.BoxGeometry(0.09, 0.06, 0.04), E(R, 0xffc46a), -0.09, 1.98, 0.29));
+    g.add(mesh(R, new R.BoxGeometry(0.09, 0.06, 0.04), E(R, 0xffc46a), 0.09, 1.98, 0.29));
     for (const lz of [-0.2, 0.2]) {
-      const tusk = mesh(R, new R.ConeGeometry(0.06, 0.5, 5), M(R, 0xe8dcc0), 0, 1.95, lz);
+      const tusk = mesh(R, new R.ConeGeometry(0.06, 0.5, 5), M(R, 0xe8dcc0, { tex: { family: 'keratin', seed: 'sw-tuskan-tusk' } }), 0, 1.95, lz);
       tusk.rotation.x = lz > 0 ? 0.9 : -0.9; g.add(tusk);
     }
-    const staff = mesh(R, new R.CylinderGeometry(0.06, 0.06, 2.2, 5), M(R, 0x5d4a33), 0.55, 1.1, 0);
+    for (const sx of [-1, 1]) {
+      const arm = mesh(R, new R.CylinderGeometry(0.09, 0.11, 0.6, 6), robeMat, sx * 0.45, 0.9, 0.05);
+      arm.rotation.z = sx * 0.2; g.add(arm);
+    }
+    const staff = mesh(R, new R.CylinderGeometry(0.06, 0.06, 2.2, 5), M(R, 0x5d4a33, { tex: { family: 'bark', seed: 'sw-tuskan-staff' } }), 0.55, 1.1, 0);
     g.add(staff);
+    g.add(mesh(R, new R.BoxGeometry(0.1, 0.5, 0.1), M(R, 0x5d4a33), 0.55, 2.25, 0));
     return {
       group: g,
       update: function (t) {

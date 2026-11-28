@@ -538,7 +538,7 @@ export function garmentFor(kind, record) {
         piece: isKael ? 'Dark leathers + trophy pauldron' : 'Figure as modelled',
         mesh: isKael
           ? 'Procedural stand-in (buildHeroFigure): dark-leather coat 0x2e2620, horned trophy pauldron on the left shoulder; monster-hunter.glb swaps in when it lands'
-          : 'Procedural stand-in (buildHeroFigure): coat 0x3a4a5a; the imported hero’s garb lives in its Middle-earth GLB — no HE GLB seat exists for it',
+          : 'Middle-earth GLB wired in buildHeroFigure (procedural stand-in only if the GLB fails to load): coat 0x3a4a5a; the imported hero’s garb lives in its Middle-earth GLB',
         note: 'The hero’s garb is the stand-in / the baked GLB — no separate cloth mesh in code; damage shows as HP loss, never as torn cloth',
       }],
       condition: 'pristine',

@@ -119,6 +119,185 @@ function groundTexture() {
   return tex;
 }
 
+// --- CGI character textures (procedural canvas, this file only) ----------
+// Bone, worn leather, brushed metal, wisp shroud and robe cloth are all
+// painted on canvas at load and cached per key — no external assets.
+
+const characterTextureCache = new Map();
+
+function canvasTexture(size, paint) {
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  paint(c.getContext('2d'), size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function boneTexture() {
+  if (characterTextureCache.has('bone')) return characterTextureCache.get('bone');
+  const tex = canvasTexture(256, (g, s) => {
+    g.fillStyle = '#e8dcc0';
+    g.fillRect(0, 0, s, s);
+    // Aged-bone mottling: pale patches and darker stains.
+    for (let i = 0; i < 900; i += 1) {
+      const v = 200 + Math.floor(Math.random() * 55);
+      g.fillStyle = `rgba(${v},${Math.floor(v * 0.93)},${Math.floor(v * 0.78)},0.5)`;
+      g.fillRect(Math.random() * s, Math.random() * s, 2 + Math.random() * 4, 2 + Math.random() * 4);
+    }
+    // Hairline cracks.
+    g.strokeStyle = 'rgba(120, 100, 70, 0.55)';
+    g.lineWidth = 1;
+    for (let i = 0; i < 26; i += 1) {
+      let x = Math.random() * s;
+      let y = Math.random() * s;
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let k = 0; k < 4; k += 1) {
+        x += (Math.random() - 0.5) * 40;
+        y += (Math.random() - 0.5) * 40;
+        g.lineTo(x, y);
+      }
+      g.stroke();
+    }
+    // A suture seam across the middle.
+    g.strokeStyle = 'rgba(90, 70, 45, 0.6)';
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(0, s * 0.5);
+    for (let x = 0; x <= s; x += 16) g.lineTo(x, s * 0.5 + Math.sin(x * 0.2) * 3);
+    g.stroke();
+  });
+  characterTextureCache.set('bone', tex);
+  return tex;
+}
+
+function leatherTexture() {
+  if (characterTextureCache.has('leather')) return characterTextureCache.get('leather');
+  const tex = canvasTexture(256, (g, s) => {
+    g.fillStyle = '#1a1210';
+    g.fillRect(0, 0, s, s);
+    // Worn scuffs: pale brown streaks where the coat has rubbed thin.
+    for (let i = 0; i < 260; i += 1) {
+      const v = 60 + Math.floor(Math.random() * 50);
+      g.fillStyle = `rgba(${v},${Math.floor(v * 0.75)},${Math.floor(v * 0.55)},0.35)`;
+      const x = Math.random() * s;
+      const y = Math.random() * s;
+      g.fillRect(x, y, 1 + Math.random() * 2, 6 + Math.random() * 18);
+    }
+    // Creases.
+    g.strokeStyle = 'rgba(0, 0, 0, 0.5)';
+    g.lineWidth = 1;
+    for (let i = 0; i < 18; i += 1) {
+      const y = Math.random() * s;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.bezierCurveTo(s * 0.3, y + (Math.random() - 0.5) * 20, s * 0.7, y + (Math.random() - 0.5) * 20, s, y);
+      g.stroke();
+    }
+    // Stitch lines.
+    g.strokeStyle = 'rgba(160, 120, 70, 0.7)';
+    g.lineWidth = 1;
+    g.setLineDash([5, 5]);
+    for (const y of [s * 0.25, s * 0.75]) {
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(s, y);
+      g.stroke();
+    }
+    g.setLineDash([]);
+  });
+  characterTextureCache.set('leather', tex);
+  return tex;
+}
+
+function metalTexture() {
+  if (characterTextureCache.has('metal')) return characterTextureCache.get('metal');
+  const tex = canvasTexture(128, (g, s) => {
+    g.fillStyle = '#4a4a52';
+    g.fillRect(0, 0, s, s);
+    // Brushed steel: horizontal streaks.
+    for (let i = 0; i < 500; i += 1) {
+      const v = 50 + Math.floor(Math.random() * 90);
+      g.fillStyle = `rgba(${v},${v},${v + 6},0.4)`;
+      g.fillRect(0, Math.random() * s, s, 1);
+    }
+    // Heat tarnish blotches.
+    for (let i = 0; i < 40; i += 1) {
+      g.fillStyle = `rgba(20, 12, 8, ${0.1 + Math.random() * 0.25})`;
+      g.beginPath();
+      g.arc(Math.random() * s, Math.random() * s, 3 + Math.random() * 10, 0, Math.PI * 2);
+      g.fill();
+    }
+  });
+  characterTextureCache.set('metal', tex);
+  return tex;
+}
+
+function shroudTexture() {
+  if (characterTextureCache.has('shroud')) return characterTextureCache.get('shroud');
+  const tex = canvasTexture(256, (g, s) => {
+    // Pale soul-grey at the top (canvas top = the cone's crown),
+    // burning down to ember orange at the hem.
+    const grad = g.createLinearGradient(0, 0, 0, s);
+    grad.addColorStop(0, '#cfcfe0');
+    grad.addColorStop(0.55, '#8a7f9e');
+    grad.addColorStop(0.85, '#c4501e');
+    grad.addColorStop(1, '#ff5a1a');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, s, s);
+    // Rising flame streaks.
+    for (let i = 0; i < 70; i += 1) {
+      const x = Math.random() * s;
+      const y0 = s * 0.4 + Math.random() * s * 0.6;
+      const h = 20 + Math.random() * 60;
+      g.strokeStyle = `rgba(255, ${120 + Math.floor(Math.random() * 80)}, 40, ${0.25 + Math.random() * 0.4})`;
+      g.lineWidth = 1 + Math.random() * 2;
+      g.beginPath();
+      g.moveTo(x, y0);
+      g.lineTo(x + (Math.random() - 0.5) * 8, y0 - h);
+      g.stroke();
+    }
+    // Faint vertical folds.
+    for (let i = 0; i < 24; i += 1) {
+      const x = Math.random() * s;
+      g.fillStyle = 'rgba(20, 16, 30, 0.18)';
+      g.fillRect(x, 0, 2 + Math.random() * 4, s);
+    }
+  });
+  characterTextureCache.set('shroud', tex);
+  return tex;
+}
+
+function robeTexture(color) {
+  const key = `robe:${color}`;
+  if (characterTextureCache.has(key)) return characterTextureCache.get(key);
+  const tex = canvasTexture(256, (g, s) => {
+    g.fillStyle = color;
+    g.fillRect(0, 0, s, s);
+    // Cloth folds: alternating darker and lighter vertical bands.
+    for (let i = 0; i < 14; i += 1) {
+      const x = (i / 14) * s;
+      g.fillStyle = i % 2 === 0 ? 'rgba(0, 0, 0, 0.22)' : 'rgba(255, 255, 255, 0.10)';
+      g.fillRect(x, 0, s / 14, s);
+    }
+    // Woven speckle.
+    for (let i = 0; i < 1200; i += 1) {
+      g.fillStyle = Math.random() > 0.5 ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.08)';
+      g.fillRect(Math.random() * s, Math.random() * s, 1, 1);
+    }
+    // Gold hem at the bottom (canvas bottom = the robe's hem).
+    g.fillStyle = '#d4af37';
+    g.fillRect(0, s - 14, s, 14);
+    g.fillStyle = 'rgba(0,0,0,0.35)';
+    g.fillRect(0, s - 16, s, 2);
+  });
+  characterTextureCache.set(key, tex);
+  return tex;
+}
 // --- labels ----------------------------------------------------------------
 
 const portalLabelStyle = {
@@ -196,14 +375,18 @@ function Ground({ playerRef }) {
   );
 }
 
-// THE RIDER — flaming skull, dark leather torso, a chain across his
-// chest, flame cones that flicker with the clock. No GLB anywhere:
-// every piece is a primitive with emissive fire.
+// THE RIDER — textured CGI flaming-skeleton rider: bone-textured skull
+// with burning eye sockets, worn-leather coat, brushed-metal chain,
+// flame crown. He stands — no bike (none in the code). One real light,
+// riding at the skull; every other flame is emissive.
 function Rider({ reduced }) {
   const flameRefs = useRef([]);
   const lightRef = useRef(null);
   const ringRef = useRef(null);
   const frameRef = useRef(0);
+  const bone = useMemo(() => boneTexture(), []);
+  const leather = useMemo(() => leatherTexture(), []);
+  const metal = useMemo(() => metalTexture(), []);
   const flames = [
     { x: 0, y: 3.6, z: 0, s: 1.4 },
     { x: -0.55, y: 3.2, z: 0.1, s: 1 },
@@ -245,20 +428,35 @@ function Rider({ reduced }) {
       </mesh>
       {/* His own fire: one real light, riding at the skull. */}
       <pointLight ref={lightRef} position={[0, 3.4, 0]} color="#ff7a1a" intensity={26} distance={30} />
-      {/* Leather torso. */}
+      {/* Leather coat: torso, shoulders, flared skirt, standing collar. */}
       <mesh position={[0, 1.5, 0]}>
         <cylinderGeometry args={[0.55, 0.7, 1.6, 10]} />
-        <meshStandardMaterial color="#1a1210" roughness={0.9} />
+        <meshStandardMaterial map={leather} color="#ffffff" roughness={0.9} />
       </mesh>
       <mesh position={[0, 2.35, 0]}>
         <boxGeometry args={[1.5, 0.35, 0.7]} />
-        <meshStandardMaterial color="#1a1210" roughness={0.9} />
+        <meshStandardMaterial map={leather} color="#ffffff" roughness={0.9} />
       </mesh>
-      {/* The chain across his chest. */}
+      <mesh position={[0, 0.45, 0]}>
+        <cylinderGeometry args={[0.68, 0.95, 1.0, 10]} />
+        <meshStandardMaterial map={leather} color="#ffffff" roughness={0.9} />
+      </mesh>
+      <mesh position={[0, 2.42, 0]}>
+        <cylinderGeometry args={[0.42, 0.5, 0.35, 10, 1, true]} />
+        <meshStandardMaterial map={leather} color="#ffffff" roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      {/* Ribcage: bone half-rings wrapping the front of the coat. */}
+      {[-0.18, 0, 0.18].map((y) => (
+        <mesh key={y} position={[0, 1.5 + y, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.66, 0.045, 6, 12, Math.PI]} />
+          <meshStandardMaterial map={bone} color="#ffffff" roughness={0.6} emissive="#ff5a00" emissiveIntensity={0.08} />
+        </mesh>
+      ))}
+      {/* The chain across his chest: brushed metal, same diagonal. */}
       {chestLinks.map((l) => (
         <mesh key={l.key} position={[l.x, l.y, 0.62]} rotation={[0.5, 0.3, 0.9]}>
           <torusGeometry args={[0.11, 0.035, 6, 10]} />
-          <meshStandardMaterial color="#3a3a40" metalness={0.8} roughness={0.4} emissive="#ff5a00" emissiveIntensity={0.25} />
+          <meshStandardMaterial map={metal} color="#ffffff" metalness={0.8} roughness={0.4} emissive="#ff5a00" emissiveIntensity={0.25} />
         </mesh>
       ))}
       {/* Arms, held low, fists of fire. */}
@@ -266,7 +464,7 @@ function Rider({ reduced }) {
         <group key={x}>
           <mesh position={[x, 1.5, 0]} rotation={[0, 0, x > 0 ? -0.25 : 0.25]}>
             <cylinderGeometry args={[0.16, 0.18, 1.4, 8]} />
-            <meshStandardMaterial color="#1a1210" roughness={0.9} />
+            <meshStandardMaterial map={leather} color="#ffffff" roughness={0.9} />
           </mesh>
           <mesh position={[x, 0.75, 0]}>
             <sphereGeometry args={[0.22, 10, 10]} />
@@ -274,21 +472,52 @@ function Rider({ reduced }) {
           </mesh>
         </group>
       ))}
-      {/* The flaming skull: bone sphere, burning eye sockets, jaw. */}
+      {/* The flaming skull: bone cranium, burning eye sockets, jaw. */}
       <mesh position={[0, 2.95, 0]}>
         <sphereGeometry args={[0.55, 16, 16]} />
-        <meshStandardMaterial color="#f5ead0" roughness={0.6} emissive="#ff5a00" emissiveIntensity={0.15} />
+        <meshStandardMaterial map={bone} color="#ffffff" roughness={0.6} emissive="#ff5a00" emissiveIntensity={0.15} />
       </mesh>
+      {/* Brow ridge. */}
+      <mesh position={[0, 3.12, 0.42]} rotation={[0.15, 0, 0]}>
+        <boxGeometry args={[0.52, 0.1, 0.18]} />
+        <meshStandardMaterial map={bone} color="#ffffff" roughness={0.6} emissive="#ff5a00" emissiveIntensity={0.15} />
+      </mesh>
+      {/* Dark sockets ringing the burning eyes. */}
+      {[-0.2, 0.2].map((x) => (
+        <mesh key={`socket-${x}`} position={[x, 3.05, 0.52]}>
+          <circleGeometry args={[0.16, 12]} />
+          <meshBasicMaterial color="#120202" />
+        </mesh>
+      ))}
       {[-0.2, 0.2].map((x) => (
         <mesh key={x} position={[x, 3.05, 0.48]}>
           <sphereGeometry args={[0.11, 8, 8]} />
           <meshBasicMaterial color="#ff3d00" />
         </mesh>
       ))}
+      {/* Nasal cavity. */}
+      <mesh position={[0, 2.88, 0.5]} rotation={[0.3, 0, 0]}>
+        <coneGeometry args={[0.07, 0.14, 6]} />
+        <meshBasicMaterial color="#120202" />
+      </mesh>
+      {/* Cheekbones. */}
+      {[-0.32, 0.32].map((x) => (
+        <mesh key={x} position={[x, 2.82, 0.4]} rotation={[0, 0, x > 0 ? -0.4 : 0.4]}>
+          <boxGeometry args={[0.16, 0.1, 0.12]} />
+          <meshStandardMaterial map={bone} color="#ffffff" roughness={0.6} emissive="#ff5a00" emissiveIntensity={0.15} />
+        </mesh>
+      ))}
+      {/* Jaw, with teeth. */}
       <mesh position={[0, 2.55, 0.15]}>
         <boxGeometry args={[0.4, 0.22, 0.3]} />
-        <meshStandardMaterial color="#e8dcc0" roughness={0.6} />
+        <meshStandardMaterial map={bone} color="#ffffff" roughness={0.6} emissive="#ff5a00" emissiveIntensity={0.15} />
       </mesh>
+      {[-0.12, -0.04, 0.04, 0.12].map((x) => (
+        <mesh key={x} position={[x, 2.68, 0.3]}>
+          <boxGeometry args={[0.06, 0.08, 0.04]} />
+          <meshStandardMaterial color="#f5ead0" roughness={0.5} />
+        </mesh>
+      ))}
       {/* The flames crowning the skull. */}
       {flames.map((f, i) => (
         <group key={i} ref={(g) => { flameRefs.current[i] = g; }} position={[f.x, f.y, f.z]}>
@@ -309,14 +538,44 @@ function Rider({ reduced }) {
   );
 }
 
-// THE DAMNED FIELD — 8 translucent shades, drifting aimlessly. The
-// page owns the list (it removes a burned soul and reforms it after
-// 45 s); the scene only drifts them and fades the one the chain is
-// burning (chainFx.targetId, from 1.4 s into the effect).
+// THE DAMNED FIELD — 8 textured CGI wisp/soul figures: ember-tinged
+// shroud forms with pale bowed heads, hollow eyes and a glowing ember
+// heart, trailing wisps under the hem. Built locally in this file —
+// distinct from the afterlife drift shades, which stay plain cones.
+// The page owns the list (it removes a burned soul and reforms it
+// after 45 s); the scene only drifts them and fades the one the chain
+// is burning (chainFx.targetId, from 1.4 s into the effect).
 function DamnedField({ damned, chainFx, reduced }) {
-  const meshRefs = useRef({});
-  const matRefs = useRef({});
+  const groupRefs = useRef({});
   const startRef = useRef(null);
+  // One shared material set per soul: shroud, face, hollow eyes,
+  // ember heart and trailing wisps all fade together when the chain
+  // burns the soul.
+  const soulMats = useMemo(() => {
+    const shroud = shroudTexture();
+    return (damned || []).map(() => ({
+      shroud: new THREE.MeshStandardMaterial({
+        map: shroud, color: '#ffffff', transparent: true, opacity: 0.5,
+        roughness: 0.6, emissive: '#ff5a1a', emissiveIntensity: 0.25,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+      face: new THREE.MeshStandardMaterial({
+        color: '#e8e4f0', transparent: true, opacity: 0.5,
+        roughness: 0.5, emissive: '#8a7bd8', emissiveIntensity: 0.2, depthWrite: false,
+      }),
+      hollow: new THREE.MeshBasicMaterial({
+        color: '#0a0505', transparent: true, opacity: 0.85, depthWrite: false,
+      }),
+      ember: new THREE.MeshBasicMaterial({
+        color: '#ff7a1a', transparent: true, opacity: 0.85, depthWrite: false,
+      }),
+      wisp: new THREE.MeshStandardMaterial({
+        map: shroud, color: '#ffffff', transparent: true, opacity: 0.35,
+        roughness: 0.6, emissive: '#ff5a1a', emissiveIntensity: 0.35,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+    }));
+  }, [damned]);
   useEffect(() => {
     if (!chainFx) startRef.current = null;
   }, [chainFx]);
@@ -328,8 +587,9 @@ function DamnedField({ damned, chainFx, reduced }) {
       if (startRef.current == null) startRef.current = t;
       burnAge = t - startRef.current;
     }
-    for (const d of damned || []) {
-      const m = meshRefs.current[d.id];
+    for (let i = 0; i < (damned || []).length; i += 1) {
+      const d = damned[i];
+      const m = groupRefs.current[d.id];
       if (!m) continue;
       const drift = 2.2 * Math.sin(t * 0.25 * d.slow + d.id.charCodeAt(7));
       m.position.set(
@@ -337,13 +597,15 @@ function DamnedField({ damned, chainFx, reduced }) {
         1.4 + Math.sin(t * d.slow + d.id.charCodeAt(7) * 1.7) * 0.45,
         d.z + 2.2 * Math.cos(t * 0.22 * d.slow + d.id.charCodeAt(7)),
       );
-      const mat = matRefs.current[d.id];
-      if (mat) {
-        if (chainFx && chainFx.targetId === d.id && burnAge != null && burnAge > 1.4) {
-          mat.opacity = Math.max(0, 0.5 * (1 - (burnAge - 1.4) / 1.2));
-        } else {
-          mat.opacity = 0.5;
-        }
+      const mats = soulMats[i];
+      if (mats) {
+        const burning = chainFx && chainFx.targetId === d.id && burnAge != null && burnAge > 1.4;
+        const fade = burning ? Math.max(0, 1 - (burnAge - 1.4) / 1.2) : 1;
+        mats.shroud.opacity = 0.5 * fade;
+        mats.face.opacity = 0.5 * fade;
+        mats.hollow.opacity = 0.85 * fade;
+        mats.ember.opacity = 0.85 * fade;
+        mats.wisp.opacity = 0.35 * fade;
       }
     }
   });
@@ -353,22 +615,42 @@ function DamnedField({ damned, chainFx, reduced }) {
         <circleGeometry args={[DAMNED_FIELD.r, 40]} />
         <meshStandardMaterial color="#1c0a06" roughness={1} />
       </mesh>
-      {(damned || []).map((d) => (
-        <mesh
-          key={d.id}
-          ref={(m) => { meshRefs.current[d.id] = m; }}
-          position={[d.x, 1.4, d.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial
-            ref={(mt) => { matRefs.current[d.id] = mt; }}
-            color="#cfcfe0"
-            transparent
-            opacity={0.5}
-            roughness={0.6}
-          />
-        </mesh>
-      ))}
+      {(damned || []).map((d, i) => {
+        const mats = soulMats[i];
+        if (!mats) return null;
+        return (
+          <group
+            key={d.id}
+            ref={(g) => { groupRefs.current[d.id] = g; }}
+            position={[d.x, 1.4, d.z]}
+          >
+            {/* Ember-tinged shroud: the soul's body, hem flaring as it drifts. */}
+            <mesh position={[0, -0.1, 0]} material={mats.shroud}>
+              <coneGeometry args={[0.7, 2.2, 8]} />
+            </mesh>
+            {/* Pale head, bowed. */}
+            <mesh position={[0, 1.15, 0]} material={mats.face}>
+              <sphereGeometry args={[0.32, 12, 10]} />
+            </mesh>
+            {/* Hollow dark eyes. */}
+            {[-0.12, 0.12].map((x) => (
+              <mesh key={x} position={[x, 1.2, 0.28]} material={mats.hollow}>
+                <sphereGeometry args={[0.06, 8, 8]} />
+              </mesh>
+            ))}
+            {/* Ember heart glowing through the shroud. */}
+            <mesh position={[0, 0.2, 0.25]} material={mats.ember}>
+              <sphereGeometry args={[0.16, 8, 8]} />
+            </mesh>
+            {/* Trailing wisp tails under the hem. */}
+            {[-0.25, 0.25].map((x) => (
+              <mesh key={x} position={[x, -1.25, 0]} rotation={[0, 0, x > 0 ? 0.25 : -0.25]} material={mats.wisp}>
+                <coneGeometry args={[0.16, 0.9, 6]} />
+              </mesh>
+            ))}
+          </group>
+        );
+      })}
       <FadingLabel position={[DAMNED_FIELD.x, 9, DAMNED_FIELD.z]} world={[DAMNED_FIELD.x, 9, DAMNED_FIELD.z]} style={regionLabelStyle}>
         The Damned Field
       </FadingLabel>
@@ -377,26 +659,63 @@ function DamnedField({ damned, chainFx, reduced }) {
 }
 
 // Presence peers: the other walkers here, so a chain thrown at a
-// user has a figure to wrap. A dark cone, a pale head, their name.
+// user has a figure to wrap. A textured CGI robed avatar: hood, head,
+// shoulders and robe in the walker's own colour, name kept.
 function Foes({ foes }) {
   if (!foes || foes.length === 0) return null;
   return (
     <group>
       {foes.map((f) => (
-        <group key={f.id} position={[f.x, 0, f.z]}>
-          <mesh position={[0, 1.2, 0]}>
-            <coneGeometry args={[0.7, 2.4, 8]} />
-            <meshStandardMaterial color={f.color || '#22d3ee'} transparent opacity={0.75} roughness={0.6} />
-          </mesh>
-          <mesh position={[0, 2.7, 0]}>
-            <sphereGeometry args={[0.3, 10, 10]} />
-            <meshStandardMaterial color="#e8e8ee" roughness={0.6} />
-          </mesh>
-          <FadingLabel position={[0, 3.6, 0]} world={[f.x, 3.6, f.z]} style={regionLabelStyle}>
-            {f.label || 'Traveller'}
-          </FadingLabel>
-        </group>
+        <FoeFigure key={f.id} foe={f} />
       ))}
+    </group>
+  );
+}
+
+function FoeFigure({ foe }) {
+  const color = foe.color || '#22d3ee';
+  const robe = useMemo(() => robeTexture(color), [color]);
+  return (
+    <group position={[foe.x, 0, foe.z]}>
+      {/* Robe: flared, cloth-textured, in the walker's own colour. */}
+      <mesh position={[0, 1.2, 0]}>
+        <cylinderGeometry args={[0.55, 0.85, 2.4, 10]} />
+        <meshStandardMaterial map={robe} color="#ffffff" transparent opacity={0.9} roughness={0.7} />
+      </mesh>
+      {/* Shoulders / cape. */}
+      <mesh position={[0, 2.3, 0]} scale={[1, 0.55, 1]}>
+        <sphereGeometry args={[0.55, 12, 8]} />
+        <meshStandardMaterial map={robe} color="#ffffff" transparent opacity={0.9} roughness={0.7} />
+      </mesh>
+      {/* Hooded head. */}
+      <mesh position={[0, 2.75, 0]}>
+        <sphereGeometry args={[0.3, 12, 10]} />
+        <meshStandardMaterial color="#e8e8ee" roughness={0.6} />
+      </mesh>
+      <mesh position={[0, 2.85, 0]}>
+        <coneGeometry args={[0.38, 0.7, 10]} />
+        <meshStandardMaterial map={robe} color="#ffffff" transparent opacity={0.9} roughness={0.7} />
+      </mesh>
+      {/* Face shadow under the hood. */}
+      <mesh position={[0, 2.72, 0.22]}>
+        <sphereGeometry args={[0.2, 10, 8]} />
+        <meshBasicMaterial color="#0d0d12" />
+      </mesh>
+      {/* Belt cord. */}
+      <mesh position={[0, 1.5, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.62, 0.05, 6, 16]} />
+        <meshStandardMaterial color="#d4af37" metalness={0.6} roughness={0.4} />
+      </mesh>
+      {/* Arms at the sides, sleeves in robe cloth. */}
+      {[-0.62, 0.62].map((x) => (
+        <mesh key={x} position={[x, 1.5, 0]} rotation={[0, 0, x > 0 ? -0.15 : 0.15]}>
+          <cylinderGeometry args={[0.11, 0.13, 1.1, 8]} />
+          <meshStandardMaterial map={robe} color="#ffffff" transparent opacity={0.9} roughness={0.7} />
+        </mesh>
+      ))}
+      <FadingLabel position={[0, 3.6, 0]} world={[foe.x, 3.6, foe.z]} style={regionLabelStyle}>
+        {foe.label || 'Traveller'}
+      </FadingLabel>
     </group>
   );
 }

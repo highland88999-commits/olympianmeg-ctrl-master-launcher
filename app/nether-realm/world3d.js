@@ -60,6 +60,7 @@ import { FLOOR_EMISSIVE_INTENSITY, floorSurface, stoneSurface } from '@/lib/port
 import { floorVideoUrlForRealm, useNetherVideoTexture } from '@/lib/nether-realm/video-wraps';
 import RealmSkyDome from '@/components/RealmSkyDome';
 import StreamingGround from '@/components/afterlife/StreamingGround';
+import ShadeFigure from '@/components/afterlife/ShadeFigure';
 import { LavaGlowDome, LavaPoolGlow } from '@/components/LavaGlow';
 import {
   LAVA_GLOW_CRACK_OPACITY,
@@ -213,6 +214,27 @@ function Bridge() {
 function Cerberus() {
   // Cerberus faces SOUTH (+Z): the user walks up from the bridge and
   // meets the three heads first. Eyes are on the +Z (south) side.
+  // CGI rebuild (Nov 28, 2026): textured brindle hound — same
+  // position, same footprint (~5 m long, skull centres ~5.8 m up),
+  // same ONE red pointLight, same growl trigger (page.jsx). Idle
+  // life only (breathing, head sway, tail wag) — still a static guard.
+  const fur = useMemo(() => brindleFurTexture(), []);
+  const bodyRef = useRef();
+  const headRefs = useRef([]);
+  const tailRef = useRef();
+  const HEAD_TILT = [0.28, 0, -0.28];
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    if (bodyRef.current) {
+      bodyRef.current.scale.set(1, 1 + Math.sin(t * 1.1) * 0.02, 1);
+    }
+    headRefs.current.forEach((h, i) => {
+      if (!h) return;
+      h.rotation.z = HEAD_TILT[i] + Math.sin(t * 0.5 + i * 2.1) * 0.05;
+      h.rotation.x = Math.sin(t * 0.7 + i * 1.3) * 0.03;
+    });
+    if (tailRef.current) tailRef.current.rotation.y = Math.sin(t * 2) * 0.18;
+  });
   const eye = () => (
     <>
       <mesh position={[-0.35, 0.2, 0.8]}>
@@ -225,42 +247,83 @@ function Cerberus() {
       </mesh>
     </>
   );
-  const head = (x, tilt) => (
-    <group key={x} position={[x, 3.6, 1.1]} rotation={[0, 0, tilt]}>
+  const head = (x, i) => (
+    <group
+      key={x}
+      ref={(g) => { headRefs.current[i] = g; }}
+      position={[x, 3.6, 1.1]}
+      rotation={[0, 0, HEAD_TILT[i]]}
+    >
+      {/* neck */}
       <mesh position={[0, 0.9, 0]}>
-        <cylinderGeometry args={[0.5, 0.7, 2.2, 8]} />
-        <meshStandardMaterial color={DARK} roughness={0.9} />
+        <cylinderGeometry args={[0.5, 0.7, 2.2, 10]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
       </mesh>
-      <mesh position={[0, 2.2, 0]}>
+      {/* skull */}
+      <mesh position={[0, 2.2, 0]} scale={[1, 0.9, 1.15]}>
         <sphereGeometry args={[0.95, 16, 12]} />
-        <meshStandardMaterial color={DARK} roughness={0.9} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
       </mesh>
+      {/* snout + jaw */}
+      <mesh position={[0, 2.0, 0.85]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.42, 0.55, 0.9, 10]} />
+        <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+      </mesh>
+      <mesh position={[0, 1.78, 0.75]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.3, 0.4, 0.7, 8]} />
+        <meshStandardMaterial color="#241a12" roughness={0.95} />
+      </mesh>
+      {/* ears */}
+      {[-0.55, 0.55].map((ex) => (
+        <mesh key={ex} position={[ex, 2.95, -0.1]} rotation={[0, 0, ex > 0 ? -0.25 : 0.25]}>
+          <coneGeometry args={[0.28, 0.7, 8]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+        </mesh>
+      ))}
       <group position={[0, 2.2, 0]}>{eye()}</group>
     </group>
   );
   return (
     <group position={[GATES.x, 0, GATES.z - 8]}>
       <pointLight position={[0, 7, -2]} color="#ff2200" intensity={14} distance={34} />
-      {/* body */}
-      <mesh position={[0, 2.1, 0]}>
-        <boxGeometry args={[5, 2.4, 2]} />
-        <meshStandardMaterial color={DARK} roughness={0.9} />
-      </mesh>
-      {/* legs */}
-      {[[-1.8, -0.6], [1.8, -0.6], [-1.8, 0.6], [1.8, 0.6]].map(([x, z]) => (
-        <mesh key={`${x},${z}`} position={[x, 0.8, z]}>
-          <boxGeometry args={[0.7, 1.6, 0.7]} />
-          <meshStandardMaterial color={DARK} roughness={0.9} />
+      {/* body — barrel chest + haunches under one breathing group */}
+      <group ref={bodyRef}>
+        <mesh position={[0, 2.1, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[1.15, 1.15, 4.4, 12]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
         </mesh>
+        <mesh position={[1.6, 2.2, 0]}>
+          <sphereGeometry args={[1.25, 16, 12]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+        </mesh>
+        <mesh position={[-1.6, 2.2, 0]}>
+          <sphereGeometry args={[1.2, 16, 12]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+        </mesh>
+      </group>
+      {/* legs + paws */}
+      {[[-1.8, -0.6], [1.8, -0.6], [-1.8, 0.6], [1.8, 0.6]].map(([x, z]) => (
+        <group key={`${x},${z}`} position={[x, 0, z]}>
+          <mesh position={[0, 0.8, 0]}>
+            <cylinderGeometry args={[0.32, 0.36, 1.6, 10]} />
+            <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+          </mesh>
+          <mesh position={[0, 0.18, 0.05]} scale={[1, 0.6, 1.2]}>
+            <sphereGeometry args={[0.36, 10, 8]} />
+            <meshStandardMaterial color="#241a12" roughness={0.95} />
+          </mesh>
+        </group>
       ))}
-      {/* tail (north side, away from the heads) */}
-      <mesh position={[0, 2.4, -2]} rotation={[-0.5, 0, 0]}>
-        <boxGeometry args={[0.4, 0.4, 2.6]} />
-        <meshStandardMaterial color={DARK} roughness={0.9} />
-      </mesh>
-      {head(-1.9, 0.28)}
-      {head(0, 0)}
-      {head(1.9, -0.28)}
+      {/* tail (north side, away from the heads) — pivot at the rump */}
+      <group ref={tailRef} position={[0, 2.4, -1.2]}>
+        <mesh position={[0, 0, -0.9]} rotation={[Math.PI / 2 - 0.5, 0, 0]}>
+          <cylinderGeometry args={[0.12, 0.22, 2.2, 8]} />
+          <meshStandardMaterial map={fur} color="#ffffff" roughness={0.95} />
+        </mesh>
+      </group>
+      {head(-1.9, 0)}
+      {head(0, 1)}
+      {head(1.9, 2)}
     </group>
   );
 }
@@ -366,14 +429,14 @@ function Asphodel({stones, shades, reduced}) {
         </mesh>
       ))}
       {asphodelShades.map((s, i) => (
-        <mesh
+        <ShadeFigure
           key={s.id}
           ref={(m) => { shadeRefs.current[i] = m; }}
           position={[s.x, 1.4, s.z]}
-        >
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#e8e8ee" transparent opacity={0.45} roughness={0.6} />
-        </mesh>
+          color="#e8e8ee"
+          opacity={0.45}
+          seed={i}
+        />
       ))}
       <Html center distanceFactor={120} position={[-160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Asphodel
@@ -402,11 +465,8 @@ function Elysium({pillars, shades}) {
           <meshStandardMaterial {...stone} color="#d8d2c0" roughness={0.9} />
         </mesh>
       ))}
-      {shades.filter((s) => s.id.startsWith('e')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('e')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[160, 9, -70]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Elysium
@@ -450,11 +510,8 @@ function Tartarus({pits, shades, reduced}) {
           </mesh>
         </group>
       ))}
-      {shades.filter((s) => s.id.startsWith('t')).map((s) => (
-        <mesh key={s.id} position={[s.x, 1.2, s.z]}>
-          <coneGeometry args={[0.7, 2.4, 8]} />
-          <meshStandardMaterial color="#2a2a33" transparent opacity={0.7} roughness={0.9} />
-        </mesh>
+      {shades.filter((s) => s.id.startsWith('t')).map((s, i) => (
+        <ShadeFigure key={s.id} position={[s.x, 1.2, s.z]} color="#2a2a33" opacity={0.7} seed={i} />
       ))}
       <Html center distanceFactor={120} position={[0, 9, -230]} zIndexRange={[20, 0]} style={regionLabelStyle}>
         Tartarus
@@ -765,6 +822,141 @@ function lairFloorTexture() {
   return tex;
 }
 
+// --- CGI creature textures (Nov 28, 2026 — CGI character swap) -----
+// Seeded canvas textures in the lairFloorTexture / stoneSurface
+// idiom: no external assets, no new lights. All four paint on a
+// neutral base where noted so the material `color` tints them.
+
+function brindleFurTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const rand = mulberry32(1337);
+  g.fillStyle = '#1a1512';
+  g.fillRect(0, 0, 256, 256);
+  // Brindle: wavy dark-brown / black streaks along the coat.
+  for (let i = 0; i < 260; i += 1) {
+    const x = rand() * 256;
+    const y = rand() * 256;
+    const len = 12 + rand() * 34;
+    g.strokeStyle = rand() < 0.5
+      ? `rgba(58, 38, 22, ${0.25 + rand() * 0.4})`
+      : `rgba(8, 6, 5, ${0.25 + rand() * 0.4})`;
+    g.lineWidth = 1 + rand() * 3;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.bezierCurveTo(x + (rand() - 0.5) * 10, y + len * 0.33, x + (rand() - 0.5) * 10, y + len * 0.66, x + (rand() - 0.5) * 8, y + len);
+    g.stroke();
+  }
+  // Coarse guard-hair speckle.
+  for (let i = 0; i < 900; i += 1) {
+    g.fillStyle = `rgba(120, 90, 60, ${0.05 + rand() * 0.16})`;
+    g.fillRect(rand() * 256, rand() * 256, 1 + rand() * 2, 1 + rand() * 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function medusaScaleTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const rand = mulberry32(7102);
+  g.fillStyle = '#123524';
+  g.fillRect(0, 0, 256, 256);
+  // Overlapping scale arcs, seeded — the lair floor's own motif.
+  for (let i = 0; i < 700; i += 1) {
+    const x = rand() * 256;
+    const y = rand() * 256;
+    const r = 4 + rand() * 8;
+    g.strokeStyle = `rgba(61, 255, 122, ${0.08 + rand() * 0.18})`;
+    g.lineWidth = 1 + rand();
+    g.beginPath();
+    g.arc(x, y, r, rand() * Math.PI, rand() * Math.PI + Math.PI * 0.8);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Neutral-grey woven cloth: the material `color` carries the hue
+// (Medusa's dark-green robe, each foe's peer colour).
+function clothTexture(seed) {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const rand = mulberry32(seed);
+  g.fillStyle = '#b8b8bc';
+  g.fillRect(0, 0, 128, 128);
+  // Vertical drape folds.
+  for (let i = 0; i < 18; i += 1) {
+    const x = rand() * 128;
+    const w = 2 + rand() * 4;
+    g.fillStyle = `rgba(60,60,70,${0.08 + rand() * 0.14})`;
+    g.fillRect(x - w, 0, w * 2, 128);
+  }
+  // Weave threads.
+  g.strokeStyle = 'rgba(70,70,80,0.12)';
+  g.lineWidth = 1;
+  for (let y = 0; y < 128; y += 4) {
+    g.beginPath();
+    g.moveTo(0, y);
+    g.lineTo(128, y);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function statueStoneTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128;
+  c.height = 128;
+  const g = c.getContext('2d');
+  const rand = mulberry32(5150);
+  g.fillStyle = '#8a8a92';
+  g.fillRect(0, 0, 128, 128);
+  // Stone speckle.
+  for (let i = 0; i < 800; i += 1) {
+    g.fillStyle = rand() < 0.5
+      ? `rgba(40,40,48,${0.06 + rand() * 0.2})`
+      : `rgba(200,200,210,${0.05 + rand() * 0.14})`;
+    g.fillRect(rand() * 128, rand() * 128, 1 + rand() * 2, 1 + rand() * 2);
+  }
+  // Hairline cracks.
+  g.strokeStyle = 'rgba(30,30,36,0.35)';
+  g.lineWidth = 1;
+  for (let i = 0; i < 8; i += 1) {
+    let x = rand() * 128;
+    let y = rand() * 128;
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let k = 0; k < 4; k += 1) {
+      x += (rand() - 0.5) * 40;
+      y += (rand() - 0.5) * 40;
+      g.lineTo(x, y);
+    }
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 const medusaLabelStyle = {
   ...regionLabelStyle,
   fontSize: 13,
@@ -787,15 +979,29 @@ const statueLabelStyle = {
 // local +Y. The render loop turns the pivot from the snake's own
 // agent pose (snakePoseFor via headSnakesPose) — never in lockstep.
 function SnakeSegments({ size }) {
+  // CGI snake: the same three shrinking segments + tip, now scale-
+  // textured with a real head (eyes) on the middle segment. The
+  // pivot/pose code path is untouched — SnakeHair still turns each
+  // pivot from headSnakesPose per snake.
+  const scaleTex = useMemo(() => medusaScaleTexture(), []);
   return (
     <group>
       <mesh position={[0, 0.14 * size, 0]}>
         <sphereGeometry args={[0.11 * size, 8, 8]} />
-        <meshStandardMaterial color="#1d5c33" roughness={0.7} />
+        <meshStandardMaterial map={scaleTex} color="#ffffff" roughness={0.7} />
       </mesh>
       <mesh position={[0, 0.3 * size, 0]}>
         <sphereGeometry args={[0.085 * size, 8, 8]} />
-        <meshStandardMaterial color="#2a7a45" roughness={0.7} />
+        <meshStandardMaterial map={scaleTex} color="#ffffff" roughness={0.7} />
+      </mesh>
+      {/* snake head: eyes on the +Z face, forked tongue tip */}
+      <mesh position={[-0.035 * size, 0.32 * size, 0.07 * size]}>
+        <sphereGeometry args={[0.018 * size, 6, 6]} />
+        <meshBasicMaterial color={LAIR_GREEN} />
+      </mesh>
+      <mesh position={[0.035 * size, 0.32 * size, 0.07 * size]}>
+        <sphereGeometry args={[0.018 * size, 6, 6]} />
+        <meshBasicMaterial color={LAIR_GREEN} />
       </mesh>
       <mesh position={[0, 0.44 * size, 0]}>
         <coneGeometry args={[0.06 * size, 0.2 * size, 8]} />
@@ -912,6 +1118,49 @@ function MedusaLair({ reduced }) {
 }
 
 /**
+ * Medusa's head, shared: the full-size boss wears it at [0, 3.1, 0]
+ * in MedusaFigure, and the held HeadViewModel reuses it at 0.55
+ * scale (rotated PI so the face points forward, -Z local). A real
+ * face — brow, nose, mouth, green eyes — under agent-driven snakes.
+ */
+function MedusaHead({ state = 'idle', reduced = false }) {
+  return (
+    <group>
+      <mesh>
+        <sphereGeometry args={[0.45, 16, 12]} />
+        <meshStandardMaterial color="#d8cfc0" roughness={0.75} />
+      </mesh>
+      {/* brow ridge */}
+      <mesh position={[0, 0.2, 0.4]} scale={[1.4, 0.35, 0.5]}>
+        <sphereGeometry args={[0.16, 10, 8]} />
+        <meshStandardMaterial color="#c9bda8" roughness={0.8} />
+      </mesh>
+      {/* nose */}
+      <mesh position={[0, 0, 0.44]} rotation={[Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[0.06, 0.22, 8]} />
+        <meshStandardMaterial color="#c9bda8" roughness={0.8} />
+      </mesh>
+      {/* mouth */}
+      <mesh position={[0, -0.16, 0.42]}>
+        <boxGeometry args={[0.2, 0.03, 0.03]} />
+        <meshBasicMaterial color="#7a2a33" />
+      </mesh>
+      <mesh position={[-0.16, 0.08, 0.4]}>
+        <sphereGeometry args={[0.07, 8, 8]} />
+        <meshBasicMaterial color={LAIR_GREEN} />
+      </mesh>
+      <mesh position={[0.16, 0.08, 0.4]}>
+        <sphereGeometry args={[0.07, 8, 8]} />
+        <meshBasicMaterial color={LAIR_GREEN} />
+      </mesh>
+      <group position={[0, 0.32, 0]}>
+        <SnakeHair size={1} state={state} reduced={reduced} />
+      </group>
+    </group>
+  );
+}
+
+/**
  * Medusa herself: robed figure with a serpent coil for a lower
  * half, agent-driven snake hair, and a green gaze telegraph that
  * tracks the walker inside 30 m. She patrols a slow circle
@@ -923,6 +1172,8 @@ function MedusaLair({ reduced }) {
  * exists — Merlin's call if he wants one).
  */
 function MedusaFigure({ boss, playerRef, onMedusaMove, reduced }) {
+  const scaleTex = useMemo(() => medusaScaleTexture(), []);
+  const robeTex = useMemo(() => clothTexture(7103), []);
   const groupRef = useRef();
   const telegraphRef = useRef();
   const patrolRef = useRef({ angle: 0, phase: 0, x: MEDUSA_POS.x, z: MEDUSA_POS.z });
@@ -981,45 +1232,37 @@ function MedusaFigure({ boss, playerRef, onMedusaMove, reduced }) {
     <group ref={groupRef} position={[MEDUSA_POS.x, 0, MEDUSA_POS.z]}>
       {/* the one real lair light: green, above Medusa */}
       <pointLight position={[0, 7, 0]} color={LAIR_GREEN} intensity={20} distance={30} />
-      {/* serpent coil — her lower half */}
+      {/* serpent coil — her lower half, scale-textured */}
       <mesh position={[0, 0.4, 0]}>
         <torusGeometry args={[1.2, 0.4, 10, 24]} />
-        <meshStandardMaterial color="#123524" roughness={0.8} />
+        <meshStandardMaterial map={scaleTex} color="#ffffff" roughness={0.8} />
       </mesh>
       <mesh position={[0.9, 0.3, 0.6]} rotation={[0.4, 0, -0.6]}>
         <coneGeometry args={[0.32, 1.6, 8]} />
-        <meshStandardMaterial color="#123524" roughness={0.8} />
+        <meshStandardMaterial map={scaleTex} color="#ffffff" roughness={0.8} />
       </mesh>
-      {/* robe */}
+      {/* robe — woven cloth, dark green */}
       <mesh position={[0, 1.5, 0]}>
         <cylinderGeometry args={[0.55, 1.15, 2.4, 10]} />
-        <meshStandardMaterial color="#0d1f14" roughness={0.85} />
+        <meshStandardMaterial map={robeTex} color="#0d1f14" roughness={0.85} />
       </mesh>
-      {/* arms, reaching */}
+      {/* arms, reaching, with hands */}
       {[-0.7, 0.7].map((x) => (
-        <mesh key={x} position={[x, 2.2, 0.5]} rotation={[0.9, 0, x > 0 ? -0.2 : 0.2]}>
-          <cylinderGeometry args={[0.12, 0.14, 1.2, 8]} />
-          <meshStandardMaterial color="#d8cfc0" roughness={0.8} />
-        </mesh>
+        <group key={x}>
+          <mesh position={[x, 2.2, 0.5]} rotation={[0.9, 0, x > 0 ? -0.2 : 0.2]}>
+            <cylinderGeometry args={[0.12, 0.14, 1.2, 8]} />
+            <meshStandardMaterial color="#d8cfc0" roughness={0.8} />
+          </mesh>
+          <mesh position={[x, 2.58, 0.98]}>
+            <sphereGeometry args={[0.14, 10, 8]} />
+            <meshStandardMaterial color="#d8cfc0" roughness={0.8} />
+          </mesh>
+        </group>
       ))}
       {/* head — gone when beheaded */}
       {alive && (
         <group position={[0, 3.1, 0]}>
-          <mesh>
-            <sphereGeometry args={[0.45, 16, 12]} />
-            <meshStandardMaterial color="#d8cfc0" roughness={0.75} />
-          </mesh>
-          <mesh position={[-0.16, 0.08, 0.4]}>
-            <sphereGeometry args={[0.07, 8, 8]} />
-            <meshBasicMaterial color={LAIR_GREEN} />
-          </mesh>
-          <mesh position={[0.16, 0.08, 0.4]}>
-            <sphereGeometry args={[0.07, 8, 8]} />
-            <meshBasicMaterial color={LAIR_GREEN} />
-          </mesh>
-          <group position={[0, 0.32, 0]}>
-            <SnakeHair size={1} state={snakeState} reduced={reduced} />
-          </group>
+          <MedusaHead state={snakeState} reduced={reduced} />
         </group>
       )}
       {/* gaze telegraph: green cone toward the walker, visual only */}
@@ -1076,23 +1319,10 @@ function HeadViewModel({ headState, firingAtMs, playerRef, reduced }) {
   });
   return (
     <group ref={groupRef}>
-      {/* the head itself: pale skull + agent-driven snakes */}
-      <group>
-        <mesh>
-          <sphereGeometry args={[0.22, 16, 12]} />
-          <meshStandardMaterial color="#d8cfc0" roughness={0.75} />
-        </mesh>
-        <mesh position={[-0.08, 0.04, -0.18]}>
-          <sphereGeometry args={[0.035, 8, 8]} />
-          <meshBasicMaterial color={LAIR_GREEN} />
-        </mesh>
-        <mesh position={[0.08, 0.04, -0.18]}>
-          <sphereGeometry args={[0.035, 8, 8]} />
-          <meshBasicMaterial color={LAIR_GREEN} />
-        </mesh>
-        <group position={[0, 0.16, 0]}>
-          <SnakeHair size={0.55} state={headState === 'sheathed' ? 'sheathed' : headState} reduced={reduced} />
-        </group>
+      {/* the head itself: Medusa's head at 0.55 scale, turned PI so
+          the face points forward (-Z local, where the gaze flash goes) */}
+      <group rotation={[0, Math.PI, 0]} scale={0.55}>
+        <MedusaHead state={headState === 'sheathed' ? 'sheathed' : headState} reduced={reduced} />
       </group>
       {/* gaze flash cone, forward (-Z local) on firing */}
       <mesh ref={flashRef} visible={false} position={[0, 0, -4]} rotation={[Math.PI / 2, 0, 0]}>
@@ -1223,6 +1453,7 @@ function ChainFx({ chainFx, reduced }) {
  * never shuffle sideways. No figure for the local user.
  */
 function FoeFigures({ foes, reduced }) {
+  const cloth = useMemo(() => clothTexture(9101), []);
   const states = useRef(new Map());
   const groups = useRef(new Map());
   useFrame((state, dtRaw) => {
@@ -1256,13 +1487,24 @@ function FoeFigures({ foes, reduced }) {
           }}
           position={[f.x, 0, f.z]}
         >
+          {/* robe in the peer's colour, woven cloth */}
           <mesh position={[0, 1.1, 0]}>
             <coneGeometry args={[0.5, 2.2, 8]} />
-            <meshStandardMaterial color={f.color || '#22d3ee'} transparent opacity={0.85} roughness={0.8} />
+            <meshStandardMaterial map={cloth} color={f.color || '#22d3ee'} transparent opacity={0.85} roughness={0.8} />
           </mesh>
-          <mesh position={[0, 2.4, 0]}>
+          {/* shoulders */}
+          <mesh position={[0, 2.05, 0]} scale={[1.2, 0.55, 0.95]}>
+            <sphereGeometry args={[0.34, 12, 10]} />
+            <meshStandardMaterial map={cloth} color={f.color || '#22d3ee'} transparent opacity={0.85} roughness={0.8} />
+          </mesh>
+          {/* head + hood */}
+          <mesh position={[0, 2.45, 0]}>
             <sphereGeometry args={[0.32, 12, 10]} />
             <meshStandardMaterial color="#e8e8ee" transparent opacity={0.85} roughness={0.7} />
+          </mesh>
+          <mesh position={[0, 2.62, 0]}>
+            <coneGeometry args={[0.36, 0.55, 10]} />
+            <meshStandardMaterial map={cloth} color={f.color || '#22d3ee'} transparent opacity={0.85} roughness={0.8} />
           </mesh>
           {/* Constant screen size — the same rule as the lair
               labels: a foe's name never blows up at close range. */}
@@ -1279,6 +1521,7 @@ function FoeFigures({ foes, reduced }) {
 // monument with the victim's name, who turned them, and when.
 function Statues({ statues }) {
   const stone = useMemo(() => stoneSurface('hades'), []);
+  const stoneTex = useMemo(() => statueStoneTexture(), []);
   return (
     <group>
       {(statues || []).map((s) => (
@@ -1289,11 +1532,11 @@ function Statues({ statues }) {
           </mesh>
           <mesh position={[0, 1.4, 0]}>
             <coneGeometry args={[0.55, 2.4, 8]} />
-            <meshStandardMaterial {...stone} color="#8a8a92" roughness={0.95} />
+            <meshStandardMaterial map={stoneTex} color="#8a8a92" roughness={0.95} />
           </mesh>
           <mesh position={[0, 2.9, 0]}>
             <sphereGeometry args={[0.34, 12, 10]} />
-            <meshStandardMaterial {...stone} color="#8a8a92" roughness={0.95} />
+            <meshStandardMaterial map={stoneTex} color="#8a8a92" roughness={0.95} />
           </mesh>
           {/* Constant screen size, capped width: a statue's story
               is the longest label in the lair, and with
