@@ -27,8 +27,8 @@ import {
   skillByKey,
   hasLineOfSight,
 } from '@/lib/enyo-bots';
-import { MAPS, mapByKey, buildObstacles, buildSpawns, OBSTACLE_STYLE } from '@/lib/enyo/maps';
-import { buildEnyoDressing } from '@/lib/enyo/cgi';
+import { MAPS, mapByKey, buildObstacles, buildSpawns } from '@/lib/enyo/maps';
+import { buildEnyoDressing, botMaterials, weaponMaterials, obstacleMaterial, groundTexture, skyDome, applyBotWalk } from '@/lib/enyo/cgi';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import { fx, unlockFx, setFxEnabled, isFxEnabled } from '@/lib/fx';
 import { supabase } from '@/lib/supabase';
@@ -164,25 +164,8 @@ function createAudio() {
   };
 }
 
-// Ground texture: tinted noise, generated per map.
-function makeGroundTexture(base) {
-  const c = document.createElement('canvas');
-  c.width = 256;
-  c.height = 256;
-  const g = c.getContext('2d');
-  g.fillStyle = base;
-  g.fillRect(0, 0, 256, 256);
-  const rng = mulberry32(99);
-  for (let i = 0; i < 2600; i++) {
-    const v = rng();
-    g.fillStyle = v < 0.5 ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.05)';
-    g.fillRect(rng() * 256, rng() * 256, 1 + rng() * 3, 1 + rng() * 3);
-  }
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(14, 14);
-  return tex;
-}
+// (Ground texture moved to lib/enyo/cgi.js groundTexture — per-map CGI
+// floors, round 2, 2026-11-28.)
 
 
 // ---------------------------------------------------------------------------
@@ -218,29 +201,36 @@ function rayHitBot(origin, dir, bx, bz, radius) {
 
 // Tactical soldier — plate carrier, combat helmet, pack, knee pads.
 // Procedural, team-colored trim preserved, health-bar hook unchanged.
+// Round 2 (2026-11-28): camo cloth, brushed armor, mottled skin from
+// lib/enyo/cgi.js, and hip/shoulder pivots so the walk cycle can swing
+// the limbs (see applyBotWalk in the bot loop). Same boxes, same sizes,
+// same 0.55 r / 2.0 h hit cylinder — the look changes, the hitbox doesn't.
 function makeBotMesh(team) {
   const g = new THREE.Group();
-  const trim = team === 'blue' ? 0x3b82f6 : 0xef4444;
-  const armor = new THREE.MeshStandardMaterial({ color: 0x2b303c, roughness: 0.55, metalness: 0.55 });
-  const cloth = new THREE.MeshStandardMaterial({ color: 0x23262e, roughness: 0.9, metalness: 0.1 });
-  const skin = new THREE.MeshStandardMaterial({ color: 0x8a6f5c, roughness: 0.8, metalness: 0 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: trim, emissive: trim, emissiveIntensity: 1.1, roughness: 0.4 });
+  const { armor, cloth, skin, trim: trimMat, trimHex: trim } = botMaterials(team);
 
-  // Legs: thighs, knee pads, shins, boots.
+  // Legs: thighs, knee pads, shins, boots — hung from hip pivots so
+  // the walk cycle swings them. Pivot at the hip (y 0.84); the parts
+  // keep their old world positions, now relative to the pivot.
+  const limbs = {};
   const thighGeo = new THREE.BoxGeometry(0.22, 0.42, 0.24);
   const kneeGeo = new THREE.BoxGeometry(0.22, 0.16, 0.09);
   const shinGeo = new THREE.BoxGeometry(0.18, 0.4, 0.2);
   const bootGeo = new THREE.BoxGeometry(0.2, 0.14, 0.34);
   for (const s of [-1, 1]) {
+    const hip = new THREE.Group();
+    hip.position.set(s * 0.16, 0.84, 0);
     const thigh = new THREE.Mesh(thighGeo, cloth);
-    thigh.position.set(s * 0.16, 0.62, 0);
+    thigh.position.set(0, -0.22, 0);
     const knee = new THREE.Mesh(kneeGeo, armor);
-    knee.position.set(s * 0.16, 0.42, 0.1);
+    knee.position.set(0, -0.42, 0.1);
     const shin = new THREE.Mesh(shinGeo, cloth);
-    shin.position.set(s * 0.16, 0.22, 0);
+    shin.position.set(0, -0.62, 0);
     const boot = new THREE.Mesh(bootGeo, armor);
-    boot.position.set(s * 0.16, 0.07, 0.06);
-    g.add(thigh, knee, shin, boot);
+    boot.position.set(0, -0.77, 0.06);
+    hip.add(thigh, knee, shin, boot);
+    g.add(hip);
+    limbs[s < 0 ? 'hipL' : 'hipR'] = hip;
   }
 
   // Torso: plate-carrier vest, front plate, trim belt, chest-rig pouches.
@@ -264,19 +254,25 @@ function makeBotMesh(team) {
   packStripe.position.set(0, 1.28, -0.3);
   g.add(pack, packStripe);
 
-  // Arms, shoulder pads with trim caps.
+  // Arms, shoulder pads with trim caps — hung from shoulder pivots
+  // (y 1.3) for the walk cycle. Same world positions as before.
   const armGeo = new THREE.BoxGeometry(0.16, 0.5, 0.18);
   const padGeo = new THREE.SphereGeometry(0.17, 10, 8);
   for (const s of [-1, 1]) {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(s * 0.38, 1.3, 0);
     const arm = new THREE.Mesh(armGeo, cloth);
-    arm.position.set(s * 0.38, 1.05, 0);
+    arm.position.set(0, -0.25, 0);
     const pad = new THREE.Mesh(padGeo, armor);
-    pad.position.set(s * 0.38, 1.32, 0);
+    pad.position.set(0, 0.02, 0);
     pad.scale.y = 0.8;
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.04, 0.2), trimMat);
-    cap.position.set(s * 0.38, 1.44, 0);
-    g.add(arm, pad, cap);
+    cap.position.set(0, 0.14, 0);
+    shoulder.add(arm, pad, cap);
+    g.add(shoulder);
+    limbs[s < 0 ? 'armL' : 'armR'] = shoulder;
   }
+  g.userData.limbs = limbs;
 
   // Head: face, combat helmet, brim, visor goggles, NVG rail.
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 14, 10), skin);
@@ -382,13 +378,12 @@ function omegaDecal(size) {
 
 // First-person weapon viewmodel — detailed military-grade procedural builds.
 // Per-weapon silhouette with rails, grips, mags, sights. Same muzzleZ outputs
-// so ballistics/tracers are untouched.
+// so ballistics/tracers are untouched. Round 2 (2026-11-28): brushed dark
+// metal, stippled polymer, bright brushed steel from lib/enyo/cgi.js —
+// the metal now reads as metal instead of flat grey.
 function makeViewmodel(weaponKey) {
   const g = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1c1f26, roughness: 0.5, metalness: 0.6 });
-  const poly = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.7, metalness: 0.3 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.35, metalness: 0.8 });
-  const gold = new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.3, metalness: 0.9 });
+  const { dark, poly, steel, gold } = weaponMaterials();
   const M = (geo, mat, x, y, z) => {
     const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
@@ -571,6 +566,9 @@ function createEngine(canvas, cfg, cb) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(map.sky);
   scene.fog = new THREE.Fog(map.fog, map.fogNear, map.fogFar);
+  // Gradient sky dome (round 2): the flat background colour stays as a
+  // fallback behind it. No new lights — the dome is unlit.
+  scene.add(skyDome(map));
 
   const camera = new THREE.PerspectiveCamera(75, 1, 0.05, 400);
   camera.rotation.order = 'YXZ';
@@ -588,32 +586,24 @@ function createEngine(canvas, cfg, cb) {
   sun.shadow.camera.bottom = -60;
   scene.add(sun);
 
-  // Ground.
+  // Ground — per-map CGI floor (round 2): flagstones in the plaza,
+  // asphalt with lane paint in the depot, dune sand in the hollow.
+  // Same 240 m plane, same repeat, same roughness.
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(240, 240),
-    new THREE.MeshStandardMaterial({ map: makeGroundTexture(map.ground), roughness: 1 })
+    new THREE.MeshStandardMaterial({ map: groundTexture(map), roughness: 1 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Obstacles: logic AABBs + meshes.
+  // Obstacles: logic AABBs + meshes. Round 2: the flat style colours
+  // now carry a texture that belongs to the style (stone speckle,
+  // corrugated containers, warm canyon rock) — same colours, same
+  // roughness, same geometry, same AABBs.
   const obstacles = buildObstacles(map.key, map.seed);
   const wallMeshes = [];
-  const styleCache = {};
-  const matFor = (c) => {
-    if (!styleCache[c]) {
-      const s = OBSTACLE_STYLE[c] || OBSTACLE_STYLE.crate;
-      styleCache[c] = new THREE.MeshStandardMaterial({
-        color: s.color,
-        roughness: s.rough,
-        metalness: s.metal || 0,
-        emissive: s.emissive || 0x000000,
-        emissiveIntensity: s.emissiveI || 0,
-      });
-    }
-    return styleCache[c];
-  };
+  const matFor = (c) => obstacleMaterial(c);
   for (const o of obstacles) {
     let mesh;
     if (o.c === 'rock') {
@@ -1385,8 +1375,10 @@ function createEngine(canvas, cfg, cb) {
         mesh.userData.healthAlert = alerting;
         paintHealthBar(mesh, b.hp / BOT_HP);
       }
-      // Simple walk bob.
-      mesh.position.y = Math.abs(Math.sin(clock.t * 9)) * 0.05;
+      // Walk cycle (round 2): limbs swing and the body bobs only while
+      // the bot is actually moving; idle bots stand still.
+      const moving = Math.hypot(mvx, mvz) > 0.1;
+      applyBotWalk(mesh, dt, moving);
     }
 
     // --- fx ---------------------------------------------------------------------

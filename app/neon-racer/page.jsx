@@ -39,6 +39,12 @@ export default function NeonRacerPage() {
   const shieldsRef = useRef(null);
   const timeRef = useRef(null);
   const levelRef = useRef(null);
+  const lastShieldsRef = useRef(-1);
+
+  // Shield glyph (inline SVG, cyan) — the HUD shields read as neon
+  // hardware now, not emoji. Matches the NrIcon set below.
+  const SHIELD_SVG =
+    '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="display:inline-block;vertical-align:-4px;margin-right:2px"><path d="M12 2 L20 5 V11 C20 16 16.5 20.5 12 22 C7.5 20.5 4 16 4 11 V5 Z"/></svg>';
 
   const [phase, setPhase] = useState('ready'); // ready | playing | won | lost
   const [finalScore, setFinalScore] = useState(0);
@@ -179,7 +185,12 @@ export default function NeonRacerPage() {
 
         // HUD (direct DOM — no re-render churn).
         if (scoreRef.current) scoreRef.current.textContent = String(game.score);
-        if (shieldsRef.current) shieldsRef.current.textContent = '🛡'.repeat(Math.max(0, game.shields)) || '—';
+        if (shieldsRef.current && lastShieldsRef.current !== game.shields) {
+          lastShieldsRef.current = game.shields;
+          shieldsRef.current.innerHTML = game.shields > 0
+            ? SHIELD_SVG.repeat(game.shields)
+            : '—';
+        }
         if (timeRef.current) timeRef.current.textContent = `${Math.ceil(timeLeft(game))}s`;
         if (levelRef.current) levelRef.current.textContent = `SPEED ${game.level}`;
       }
@@ -284,7 +295,7 @@ export default function NeonRacerPage() {
               </div>
               <div className="text-right">
                 <div className="text-[11px] tracking-widest text-cyan-300/70 uppercase">Shields</div>
-                <div ref={shieldsRef} className="text-2xl leading-8">🛡🛡🛡</div>
+                <div ref={shieldsRef} className="text-2xl leading-8 text-cyan-300" style={{ textShadow: '0 0 12px rgba(0,229,255,.6)' }} dangerouslySetInnerHTML={{ __html: SHIELD_SVG.repeat(3) }} />
               </div>
             </div>
           </div>
@@ -301,9 +312,10 @@ export default function NeonRacerPage() {
           </button>
         )}
 
-        {/* Intro overlay */}
+        {/* Intro overlay — lighter than before so the idling CGI ship
+            and nebula read through behind the title (the redesign). */}
         {phase === 'ready' && (
-          <div className="absolute inset-0 z-30 bg-black/80 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
+          <div className="absolute inset-0 z-30 bg-black/65 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
             {/* Ambient menu backdrop: deep-space drift. Video → Still → Off. Never over gameplay. */}
             <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
               {ambience === 'video' && (
@@ -351,9 +363,9 @@ export default function NeonRacerPage() {
           </div>
         )}
 
-        {/* Win overlay */}
+        {/* Win overlay — lighter so the CGI scene reads behind it. */}
         {phase === 'won' && (
-          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
+          <div className="absolute inset-0 z-30 bg-black/70 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
             {ambience !== 'off' && (
               <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
                 <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url(${ambience === 'video' ? NR_STILL : NR_BG})` }} />
@@ -376,9 +388,9 @@ export default function NeonRacerPage() {
           </div>
         )}
 
-        {/* Lose overlay */}
+        {/* Lose overlay — lighter so the CGI scene reads behind it. */}
         {phase === 'lost' && (
-          <div className="absolute inset-0 z-30 bg-black/85 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
+          <div className="absolute inset-0 z-30 bg-black/70 flex flex-col items-center justify-center text-center px-6 overflow-hidden">
             {ambience !== 'off' && (
               <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
                 <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url(${ambience === 'video' ? NR_STILL : NR_BG})` }} />
