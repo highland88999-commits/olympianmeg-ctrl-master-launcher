@@ -1,7 +1,7 @@
 // app/ares/prison/cgi.jsx — the ARES Prison CGI dressing (Merlin, Nov 15, 2026).
 //
 // ADDITIVE ONLY. This component adds geometry the flat hall never
-// had — light-fixture housings over the existing blue point lights,
+// had — light-fixture housings over the existing red point lights,
 // the Warden's dais at the far end, cold dust in the walkway — and
 // changes nothing that already works. It never touches the cell
 // front frames (bars and rails stay exactly as world3d.jsx builds
@@ -38,8 +38,8 @@ export function PrisonCgiDressing({ hall, lightPositions }) {
   // so the row never stutters in lockstep.
   const diffusers = useMemo(
     () => (lightPositions || []).map(() => new THREE.MeshStandardMaterial({
-      color: '#0a1a33',
-      emissive: new THREE.Color(PRISON_CGI_MOOD.blue),
+      color: '#2E0A07',
+      emissive: new THREE.Color(PRISON_CGI_MOOD.red),
       emissiveIntensity: PRISON_CGI_MOOD.fixtureEmissiveIntensity,
       roughness: 0.4,
       metalness: 0.1,
@@ -47,15 +47,15 @@ export function PrisonCgiDressing({ hall, lightPositions }) {
     [lightPositions],
   );
   const sigilMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: '#0a1a33',
-    emissive: new THREE.Color(PRISON_CGI_MOOD.blue),
+    color: '#2E0A07',
+    emissive: new THREE.Color(PRISON_CGI_MOOD.red),
     emissiveIntensity: PRISON_CGI_MOOD.sigilEmissiveIntensity,
     roughness: 0.4,
     metalness: 0.1,
   }), []);
   const stripMat = useMemo(() => new THREE.MeshStandardMaterial({
-    color: PRISON_CGI_MOOD.blueCss,
-    emissive: new THREE.Color(PRISON_CGI_MOOD.blue),
+    color: PRISON_CGI_MOOD.redCss,
+    emissive: new THREE.Color(PRISON_CGI_MOOD.red),
     emissiveIntensity: 1.4,
     roughness: 0.5,
     metalness: 0.1,
@@ -71,7 +71,7 @@ export function PrisonCgiDressing({ hall, lightPositions }) {
 
   return (
     <group>
-      {/* Light fixtures: a steel housing over each existing blue
+      {/* Light fixtures: a steel housing over each existing red
           point light, with an emissive diffuser facing down. The
           lights themselves are untouched — same positions, same
           budget (8 + 4 per grown level). */}
@@ -105,7 +105,7 @@ export function PrisonCgiDressing({ hall, lightPositions }) {
         >
           <boxGeometry args={[dais.deskDepthM, dais.deskHeightM, dais.deskWidthM]} />
         </mesh>
-        {/* the Warden's sigil: an emissive blue band on the desk's
+        {/* the Warden's sigil: an emissive red band on the desk's
             walkway face, facing the keeper down the hall */}
         <mesh
           position={[dais.centreX + 0.08 - dais.deskDepthM / 2 - 0.01, dais.platformHeightM + dais.sigilY, 0]}
@@ -116,7 +116,7 @@ export function PrisonCgiDressing({ hall, lightPositions }) {
         </mesh>
       </group>
 
-      {/* Cold dust drifting down the walkway. */}
+      {/* Warm dust drifting down the walkway. */}
       <primitive object={dust} />
     </group>
   );

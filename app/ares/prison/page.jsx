@@ -2,7 +2,7 @@
 //
 // A walkable 3D hall where the keeper can see every prisoner ARES
 // captured, in its own sandbox cell, as it appears — stacked in rows,
-// blue lights throughout. Viewing only: there is NO release control
+// red lights throughout. Viewing only: there is NO release control
 // here. Release stays in the console (components/ares/AttackSources),
 // owner-locked, as it is.
 //
@@ -24,11 +24,12 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Canvas } from '@react-three/fiber';
 import { supabase } from '@/lib/supabase';
 import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { PrisonScene, createPrisonWalker } from './world3d';
-import { mergePrisonerRows, PRISON_CAPACITY } from '@/lib/ares/prison';
+import { mergePrisonerRows, PRISON_CAPACITY, PRISON_CELL } from '@/lib/ares/prison';
 import { assignGrownCells } from '@/lib/ares/prison-expansion';
 import PrisonerReport from '@/components/ares/PrisonerReport';
 
@@ -56,15 +57,15 @@ function LockedScreen({ reason }) {
     <main className="flex min-h-dvh w-full items-center justify-center bg-[#050505] px-6 py-10 text-center">
       <div className="flex w-full max-w-sm flex-col items-center gap-5">
         <div>
-          <h1 className="bg-gradient-to-br from-sky-400 to-blue-600 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
+          <h1 className="bg-gradient-to-br from-red-400 to-red-700 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
             The Prison
           </h1>
           <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-zinc-500">
             Ares · where the captured are kept
           </p>
         </div>
-        <div className="w-full rounded-2xl border border-sky-500/25 bg-sky-500/[0.04] px-6 py-6">
-          <p className="text-xs font-bold uppercase tracking-[0.3em] text-sky-300">
+        <div className="w-full rounded-2xl border border-red-500/25 bg-red-500/[0.04] px-6 py-6">
+          <p className="text-xs font-bold uppercase tracking-[0.3em] text-red-300">
             Restricted to the throne
           </p>
           <p className="mt-3 text-sm leading-relaxed text-zinc-400">
@@ -119,14 +120,14 @@ function PinWall({ onUnlock }) {
     <main className="flex min-h-dvh w-full items-center justify-center bg-[#050505] px-6 py-10 text-center">
       <div className="flex w-full max-w-sm flex-col items-center gap-5">
         <div>
-          <h1 className="bg-gradient-to-br from-sky-400 to-blue-600 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
+          <h1 className="bg-gradient-to-br from-red-400 to-red-700 bg-clip-text text-4xl font-black uppercase tracking-[0.2em] text-transparent">
             The Prison
           </h1>
           <p className="mt-2 text-[11px] uppercase tracking-[0.25em] text-zinc-500">
             Ares · where the captured are kept
           </p>
         </div>
-        <div className="w-full rounded-2xl border border-sky-500/25 bg-sky-500/[0.04] px-6 py-6 text-left">
+        <div className="w-full rounded-2xl border border-red-500/25 bg-red-500/[0.04] px-6 py-6 text-left">
           <p className="text-sm text-zinc-400">This hall asks for a passcode before it opens — the same door as the console.</p>
           <form onSubmit={submitGate} className="mt-4 flex flex-col gap-3">
             <label htmlFor="prison-passcode" className="text-xs font-bold uppercase tracking-widest text-zinc-400">Passcode</label>
@@ -141,7 +142,7 @@ function PinWall({ onUnlock }) {
             />
             {gateError && <p className="text-sm text-red-400">{gateError}</p>}
             <button type="submit" disabled={busy || !passcode}
-              className="rounded-xl bg-sky-400 px-4 py-3 text-sm font-bold text-black disabled:opacity-50">
+              className="rounded-xl bg-red-500 px-4 py-3 text-sm font-bold text-white disabled:opacity-50">
               {busy ? 'Checking\u2026' : 'Open the door'}
             </button>
           </form>
@@ -158,6 +159,7 @@ function PinWall({ onUnlock }) {
 }
 
 export default function AresPrison() {
+  const router = useRouter();
   const sceneGuard = useSceneContextGuard({ label: 'ARES-PRISON' });
   const [gate, setGate] = useState('checking');
   const [lockedReason, setLockedReason] = useState('signed-out');
@@ -178,6 +180,19 @@ export default function AresPrison() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportMinimized, setReportMinimized] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
+  // Mute (Merlin, Nov 27): one audio stream (the marvel-christmas
+  // video) — the orb toggles it. Default: sound ON.
+  const [muted, setMuted] = useState(false);
+  // The walk-through door back to the hub (Merlin, Nov 27): walking
+  // into the doorway in the entrance end wall navigates home.
+  const handleExitToHub = useCallback(() => {
+    router.push('/');
+  }, [router]);
+  // The camera far plane grows with the hall: the hall is ever-expanding
+  // (a level at a time), and the far plane must outrun its height.
+  const cameraFar = layout
+    ? Math.max(120, layout.levels * PRISON_CELL.heightM + 80)
+    : 120;
 
   const walkerRef = useRef(null);
   if (!walkerRef.current) walkerRef.current = createPrisonWalker();
@@ -407,7 +422,7 @@ export default function AresPrison() {
     if (gate === 'locked') return <LockedScreen reason={lockedReason} />;
     return (
       <div className="flex h-dvh w-screen flex-col items-center justify-center gap-4 bg-black">
-        <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Approaching the prison\u2026</p>
+        <p className="text-xs uppercase tracking-[0.3em] text-red-300">Approaching the prison\u2026</p>
         <ExitToAres />
       </div>
     );
@@ -416,7 +431,7 @@ export default function AresPrison() {
   if (pinChecking) {
     return (
       <div className="flex h-dvh w-screen flex-col items-center justify-center gap-4 bg-black">
-        <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Approaching the prison\u2026</p>
+        <p className="text-xs uppercase tracking-[0.3em] text-red-300">Approaching the prison\u2026</p>
         <ExitToAres />
       </div>
     );
@@ -437,11 +452,19 @@ export default function AresPrison() {
         <Canvas
           dpr={[1, 2]}
           gl={{ antialias: false, powerPreference: 'high-performance' }}
-          camera={{ fov: 60, near: 0.1, far: 120, position: [-21, 2.4, 0] }}
+          camera={{ fov: 60, near: 0.1, far: cameraFar, position: [-21, 2.4, 0] }}
           onCreated={sceneGuard.onCreated}
           style={{ width: '100%', height: '100%' }}
         >
-          <PrisonScene cells={cells} walkerRef={walkerRef} inputRef={inputRef} layout={layout} onSelectPrisoner={openReport} />
+          <PrisonScene
+            cells={cells}
+            walkerRef={walkerRef}
+            inputRef={inputRef}
+            layout={layout}
+            muted={muted}
+            onExitToHub={handleExitToHub}
+            onSelectPrisoner={openReport}
+          />
         </Canvas>
       </div>
 
@@ -481,10 +504,10 @@ export default function AresPrison() {
 
       {/* HUD — plain English, nothing overlaps anything else */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center px-4 pt-16 text-center">
-        <h1 className="text-2xl font-bold tracking-[0.3em] text-sky-100 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
+        <h1 className="text-2xl font-bold tracking-[0.3em] text-red-100 drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">
           ARES PRISON
         </h1>
-        <p className="mt-1 text-sm text-sky-200/80 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
+        <p className="mt-1 text-sm text-red-200/80 drop-shadow-[0_1px_4px_rgba(0,0,0,0.9)]">
           {loading
             ? 'Counting the prisoners\u2026'
             : `${prisonerCount} prisoner${prisonerCount === 1 ? '' : 's'} · ${layout?.capacity ?? PRISON_CAPACITY} cells${overflow > 0 ? ` · ${overflow} waiting for a cell` : ''}`}
@@ -500,7 +523,7 @@ export default function AresPrison() {
         <button
           type="button"
           onClick={() => setRosterOpen(true)}
-          className="pointer-events-auto mt-3 min-h-11 rounded-full border border-sky-500/50 bg-black/60 px-5 py-2 text-xs font-bold text-sky-100"
+          className="pointer-events-auto mt-3 min-h-11 rounded-full border border-red-500/50 bg-black/60 px-5 py-2 text-xs font-bold text-red-100"
         >
           Prisoners ({prisonerCount}) — tap a name for its report
         </button>
@@ -509,9 +532,9 @@ export default function AresPrison() {
       {/* roster: every prisoner's name, as a button that opens its report */}
       {rosterOpen && (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-4">
-          <div className="pointer-events-auto flex max-h-[75dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-sky-500/40 bg-[#050b18]/95 shadow-2xl">
-            <div className="flex items-start justify-between gap-2 border-b border-sky-500/25 px-4 py-3">
-              <h2 className="text-sm font-bold text-sky-100">Prisoners — tap a name for its report</h2>
+          <div className="pointer-events-auto flex max-h-[75dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-red-500/40 bg-[#180505]/95 shadow-2xl">
+            <div className="flex items-start justify-between gap-2 border-b border-red-500/25 px-4 py-3">
+              <h2 className="text-sm font-bold text-red-100">Prisoners — tap a name for its report</h2>
               <button
                 type="button"
                 onClick={() => setRosterOpen(false)}
@@ -529,7 +552,7 @@ export default function AresPrison() {
                     onClick={() => openReport(c.prisoner)}
                     className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-black/40 px-3 py-2 text-left"
                   >
-                    <span className="font-mono text-xs text-sky-100">{c.prisoner.label} · {c.prisoner.shortId}</span>
+                    <span className="font-mono text-xs text-red-100">{c.prisoner.label} · {c.prisoner.shortId}</span>
                     <span className="text-[11px] text-zinc-500">score {c.prisoner.score}</span>
                   </button>
                 </li>
@@ -568,13 +591,27 @@ export default function AresPrison() {
         />
       )}
       {reportForm && reportLoading && !reportMinimized && (
-        <p className="pointer-events-none absolute inset-x-0 bottom-24 z-40 text-center text-xs text-sky-200/80">Opening the report…</p>
+        <p className="pointer-events-none absolute inset-x-0 bottom-24 z-40 text-center text-xs text-red-200/80">Opening the report…</p>
       )}
 
       <div className="absolute left-4 top-4 z-30">
         <ExitToAres />
       </div>
-      <div className="absolute right-4 top-4 z-30">
+      <div className="absolute right-4 top-4 z-30 flex items-center gap-2">
+        {/* Mute orb (Merlin, Nov 27): one audio stream, on or off.
+            Plain circle orb per the orb law; the state is obvious —
+            🔊 sounding, 🔇 muted with a red ring. Default: sound ON. */}
+        <button
+          type="button"
+          aria-label={muted ? 'Unmute prison sound' : 'Mute prison sound'}
+          title={muted ? 'Unmute prison sound' : 'Mute prison sound'}
+          onClick={() => setMuted((m) => !m)}
+          className={`pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full border bg-black/60 text-lg ${
+            muted ? 'border-red-400 text-red-300 ring-2 ring-red-500/60' : 'border-white/30 text-white'
+          }`}
+        >
+          {muted ? '🔇' : '🔊'}
+        </button>
         <Link
           href="/"
           className="pointer-events-auto inline-block rounded-full border border-white/30 bg-black/60 px-4 py-2 text-sm font-semibold text-white"

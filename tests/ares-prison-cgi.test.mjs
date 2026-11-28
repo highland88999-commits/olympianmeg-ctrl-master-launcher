@@ -24,7 +24,7 @@ import {
   prisonCgiTextureStats,
 } from '../lib/ares/prison-cgi.js';
 import {
-  PRISON_BLUE,
+  PRISON_RED,
   PRISON_HALL,
   PRISON_CAPACITY,
   PRISON_LIGHT_BUDGET,
@@ -112,9 +112,9 @@ describe('prison CGI textures (house idiom: seeded DataTextures)', () => {
 });
 
 describe('prison CGI mood: emissive only, flicker on the real clock', () => {
-  it('mood blue is the prison blue', () => {
-    assert.equal(PRISON_CGI_MOOD.blue, PRISON_BLUE.light);
-    assert.equal(PRISON_CGI_MOOD.blueCss, PRISON_BLUE.flame);
+  it('mood red is the prison red', () => {
+    assert.equal(PRISON_CGI_MOOD.red, PRISON_RED.light);
+    assert.equal(PRISON_CGI_MOOD.redCss, PRISON_RED.flame);
     assert.ok(PRISON_CGI_MOOD.fixtureEmissiveIntensity > 1);
     assert.ok(PRISON_CGI_MOOD.sigilEmissiveIntensity > PRISON_CGI_MOOD.fixtureEmissiveIntensity);
   });
@@ -211,11 +211,15 @@ describe('CGI wired into the scene (source-level)', () => {
 });
 
 describe('mechanics still wired (nothing that worked may break)', () => {
-  it('hall facts unchanged: 48x16 m, 72 cells, far plane 120', () => {
+  it('hall facts unchanged: 48x16 m, 72 cells, far plane grows with the hall (120 at base)', () => {
     assert.equal(PRISON_HALL.lengthM, 48);
     assert.equal(PRISON_HALL.widthM, 16);
     assert.equal(PRISON_CAPACITY, 72);
-    assert.ok(prisonPage.includes('far: 120'), 'camera far plane still 120');
+    // The far plane is no longer a literal 120: it grows with the hall
+    // (Math.max(120, levels * 3.2 + 80)), 120 before the first load.
+    assert.ok(prisonPage.includes('far: cameraFar'), 'camera takes the grown far plane');
+    assert.ok(prisonPage.includes('Math.max(120, layout.levels * PRISON_CELL.heightM + 80)'), 'far outruns the hall height');
+    assert.ok(prisonPage.includes(': 120;'), '120 is the pre-load fallback');
   });
 
   it('light budget unchanged: 8 + 4 per grown level', () => {
@@ -242,7 +246,7 @@ describe('mechanics still wired (nothing that worked may break)', () => {
 
   it('cells still hold prisoners, Warden still grows', () => {
     assert.ok(world3d.includes('cell.prisoner'), 'cells still read their prisoner');
-    assert.ok(world3d.includes('<FigureBody'), 'figures still render');
+    assert.ok(world3d.includes('<PrisonerRobot'), 'the robot still renders');
     assert.ok(prisonPage.includes('assignGrownCells'), 'page still grows via the Warden');
     assert.ok(prisonPage.includes("setInterval(() => { load({ silent: true })"), '15 s live refresh intact');
   });
@@ -259,17 +263,17 @@ describe('mechanics still wired (nothing that worked may break)', () => {
 
   it('cell front frames untouched (the silver-wraps worker owns them)', () => {
     assert.ok(world3d.includes('const barCount = 5'), 'five bars per cell, as built');
-    assert.ok(world3d.includes('emissiveIntensity={1.6}'), 'bars keep their blue emissive');
-    assert.ok(world3d.includes('emissiveIntensity={1.2}'), 'rails keep their blue emissive');
+    assert.ok(world3d.includes('emissiveIntensity={1.6}'), 'bars keep their red emissive');
+    assert.ok(world3d.includes('emissiveIntensity={1.2}'), 'rails keep their red emissive');
     // The bars + rails block itself (front bars comment to the
     // prisoner comment) carries no CGI material and no material prop.
     const barsBlock = world3d.slice(
       world3d.indexOf('front bars:'),
-      world3d.indexOf('the prisoner, standing'),
+      world3d.indexOf('the prisoner: a reflective hovering robot'),
     );
     assert.ok(barsBlock.length > 0, 'bars block found');
     assert.ok(!barsBlock.includes('prisonMaterial'), 'bars never dressed');
-    assert.ok(!barsBlock.includes('material={'), 'bars keep their inline blue material');
+    assert.ok(!barsBlock.includes('material={'), 'bars keep their inline red material');
     assert.ok(!cgiComponent.includes('barCount'), 'dressing never builds bars');
     assert.ok(!cgiComponent.includes('frontZ'), 'dressing never touches the cell front');
   });

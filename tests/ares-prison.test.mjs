@@ -89,14 +89,17 @@ describe('cell block layout — stacked and in rows', () => {
     assert.equal(c.z, -5.2);
   });
 
-  it('cell 71 is the top level, right block, last column', () => {
+  it('cell 71 is level 3, left block, third column — the 1:1 fill reaches the fourth storey', () => {
+    // Fill index 71: j = 65 (odd) -> left, k = 32 -> level 3, column 2.
+    // floorY and x are level * 3.2 / column * 3.4 in floating point
+    // (3 * 3.2 is 9.600000000000001), so compare with a tolerance.
     const c = cellPosition(71);
-    assert.equal(c.level, 2);
-    assert.equal(c.side, 'right');
-    assert.equal(c.column, 11);
-    assert.equal(c.floorY, 6.4);
-    assert.equal(c.x, 18.7);
-    assert.equal(c.z, 5.2);
+    assert.equal(c.level, 3);
+    assert.equal(c.side, 'left');
+    assert.equal(c.column, 2);
+    assert.ok(Math.abs(c.floorY - 9.6) < 1e-9, `floorY=${c.floorY}`);
+    assert.ok(Math.abs(c.x - -11.9) < 1e-9, `x=${c.x}`);
+    assert.equal(c.z, -5.2);
   });
 
   it('all 72 cell positions are unique — no two prisoners share a cell', () => {
@@ -112,13 +115,15 @@ describe('cell block layout — stacked and in rows', () => {
 
   it('the row is centred in the hall and neighbours do not overlap', () => {
     const first = cellPosition(0);
-    const last = cellPosition(11);
+    // The left row's last column is fill index 17 (left L0 c11).
+    const last = cellPosition(17);
     assert.equal(first.x, -last.x); // symmetric about the hall centre
     const pitch = PRISON_CELL.widthM + PRISON_CELL.gapM; // 3.4
     assert.equal(last.x - first.x, 11 * pitch);
     assert.ok(pitch > PRISON_CELL.widthM, 'gap between neighbours');
     // Levels stack without overlap: level floors 3.2 apart.
-    assert.equal(cellPosition(24).floorY - cellPosition(0).floorY, PRISON_CELL.heightM);
+    // Fill index 19 is the first cell of level 1 (left L1 c0).
+    assert.equal(cellPosition(19).floorY - cellPosition(0).floorY, PRISON_CELL.heightM);
     // Cells fit inside the hall walls.
     assert.ok(Math.abs(last.x) + PRISON_CELL.widthM / 2 < PRISON_HALL.lengthM / 2);
     assert.ok(Math.abs(cellPosition(0).z) + PRISON_CELL.depthM / 2 < PRISON_HALL.widthM / 2);
@@ -256,7 +261,7 @@ describe('blue lights — the budget is 8 real lights, the rest emissive', () =>
     assert.equal(count, 1, 'one <pointLight> inside a .map over the layout light positions');
     assert.ok(world3d.includes('lightPositions.map'), 'lights come from the layout list');
     assert.ok(world3d.includes('layout?.lightPositions || PRISON_LIGHT_POSITIONS'), 'the base row is the fallback before the first load');
-    assert.ok(world3d.includes('color={PRISON_BLUE.light}'), 'lights are the prison blue');
+    assert.ok(world3d.includes('color={PRISON_RED.light}'), 'lights are the prison red');
   });
 });
 
@@ -379,12 +384,12 @@ describe('one-way visibility — the keeper sees them, they never see the keeper
     assert.ok(world3d.includes('prisonerFaceYawAt(side, t, form)'), 'figure yaw comes from the law');
     assert.ok(!world3d.includes('form.phase + t * form.turnSpeed'), 'the old full spin is gone');
     assert.ok(!world3d.includes('lookAt'), 'no look-at toward the camera');
-    // The figures themselves never read the camera: scope the check to
-    // FigureBody (the camera rig legitimately sets the keeper's own
+    // The robot itself never reads the camera: scope the check to
+    // PrisonerRobot (the camera rig legitimately sets the keeper's own
     // camera.position at line ~87 — that is the keeper, not a figure).
-    const figureBody = world3d.slice(world3d.indexOf('function FigureBody'), world3d.indexOf('// --- one cell'));
+    const figureBody = world3d.slice(world3d.indexOf('function PrisonerRobot'), world3d.indexOf('// --- one cell'));
     assert.ok(!figureBody.includes('camera'), 'figures never read the camera');
-    assert.ok(world3d.includes('<FigureBody form={form} side={pos.side}'), 'figures know their cell side');
+    assert.ok(world3d.includes('<PrisonerRobot form={form} side={pos.side}'), 'figures know their cell side');
   });
 });
 
@@ -411,9 +416,14 @@ describe('one-way glass — clear from the aisle, a mirror from inside', () => {
     assert.ok(world3d.includes('PRISON_ONE_WAY.inner.metalness'), 'mirror finish from the spec');
     const frontSide = (world3d.match(/THREE\.FrontSide/g) || []).length;
     assert.ok(frontSide >= 2, `both panes are FrontSide only (found ${frontSide})`);
-    // Exactly one transparent material in the scene: the outer glass.
-    const transparent = (world3d.match(/transparent/g) || []).length;
-    assert.equal(transparent, 1, 'only the outer pane is transparent');
+    // Exactly two transparent materials in the scene: the outer glass
+    // pane, and the hub-door glow plane (the walk-through exit, red,
+    // opacity 0.35). No other cell material is transparent.
+    // Count the unquoted JSX `transparent` prop only: the report-name
+    // button (push 4) uses CSS background: 'transparent' — a quoted
+    // string, not a material — so it must not count here.
+    const transparent = (world3d.match(/(?<!')transparent(?!')/g) || []).length;
+    assert.equal(transparent, 2, 'only the outer pane and the door glow are transparent');
     assert.ok(world3d.includes("import * as THREE from 'three'"), 'THREE is imported for FrontSide');
   });
 });

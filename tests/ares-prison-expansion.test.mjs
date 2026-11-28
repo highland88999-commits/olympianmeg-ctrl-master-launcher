@@ -125,13 +125,13 @@ describe('the threshold — capacity is the smallest multiple of 24 above the co
     }
   });
 
-  it('levelsFor tracks the capacity: 3 levels until 72, then one more per block', () => {
-    assert.equal(levelsFor(0), 3);
-    assert.equal(levelsFor(71), 3);
-    assert.equal(levelsFor(72), 4);
-    assert.equal(levelsFor(96), 5);
-    assert.equal(levelsFor(120), 6);
-    assert.equal(levelsFor(1000), 42);
+  it('levelsFor tracks the capacity: 4 levels at base (the 1:1 fill reaches level 3 by index 67), then one more per block', () => {
+    assert.equal(levelsFor(0), 4);
+    assert.equal(levelsFor(71), 4);
+    assert.equal(levelsFor(72), 5);
+    assert.equal(levelsFor(96), 6);
+    assert.equal(levelsFor(120), 7);
+    assert.equal(levelsFor(1000), 43);
   });
 });
 
@@ -139,14 +139,14 @@ describe('assignGrownCells — every prisoner gets a real cell, nobody waits', (
   it('one prisoner still takes cell 0 of a 72-cell hall', () => {
     const grown = assignGrownCells([REAL_PRISONER]);
     assert.equal(grown.capacity, 72);
-    assert.equal(grown.levels, 3);
+    assert.equal(grown.levels, 4); // the 1:1 fill reaches level 3 by index 67
     assert.equal(grown.cells.length, 72);
     assert.equal(grown.overflow, 0);
     assert.equal(grown.cells[0].prisoner.shortId, 'bcf2e9e7f83e');
     assert.equal(grown.cells[71].prisoner, null);
   });
 
-  it('72 prisoners fill every cell of the base hall — and the Warden already grew it to 96', () => {
+  it('72 prisoners fill 72 of the grown 96 cells — the Warden already grew it to 96', () => {
     const rows = Array.from({ length: 72 }, (_, i) => fakeRow(i));
     const grown = assignGrownCells(rows);
     assert.equal(grown.capacity, 96);
@@ -158,18 +158,32 @@ describe('assignGrownCells — every prisoner gets a real cell, nobody waits', (
     assert.equal(grown.cells[95].prisoner, null);
   });
 
-  it('the 73rd prisoner takes a real cell on the new level — level 3, left, column 0', () => {
+  it('the 68th prisoner takes the first cell of level 3 — left, column 0', () => {
+    const rows = Array.from({ length: 68 }, (_, i) => fakeRow(i));
+    const grown = assignGrownCells(rows);
+    assert.equal(grown.capacity, 72); // still the base block — level 3 is inside it
+    assert.equal(grown.levels, 4);
+    assert.equal(grown.overflow, 0);
+    assert.ok(grown.cells[67].prisoner, 'the 68th prisoner has a cell');
+    assert.equal(grown.cells[67].position.level, 3);
+    assert.equal(grown.cells[67].position.side, 'left');
+    assert.equal(grown.cells[67].position.column, 0);
+    // floorY is level * 3.2 in floating point (3 * 3.2 is 9.600000000000001).
+    assert.ok(Math.abs(grown.cells[67].position.floorY - 9.6) < 1e-9, `floorY=${grown.cells[67].position.floorY}`);
+  });
+
+  it('the 73rd prisoner takes a real cell on level 2 — right, column 9', () => {
     const rows = Array.from({ length: 73 }, (_, i) => fakeRow(i));
     const grown = assignGrownCells(rows);
     assert.equal(grown.capacity, 96);
     assert.equal(grown.overflow, 0);
     assert.ok(grown.cells[72].prisoner, 'the 73rd prisoner has a cell');
-    assert.equal(grown.cells[72].position.level, 3);
-    assert.equal(grown.cells[72].position.side, 'left');
-    assert.equal(grown.cells[72].position.column, 0);
-    // floorY is level * 3.2 in floating point (3 * 3.2 is 9.600000000000001),
-    // so compare with a tolerance, not strict equality.
-    assert.ok(Math.abs(grown.cells[72].position.floorY - 9.6) < 1e-9, `floorY=${grown.cells[72].position.floorY}`);
+    assert.equal(grown.cells[72].position.level, 2);
+    assert.equal(grown.cells[72].position.side, 'right');
+    assert.equal(grown.cells[72].position.column, 9);
+    // floorY is level * 3.2 in floating point (2 * 3.2 is 6.4 exactly
+    // here, but compare with a tolerance like the other level checks).
+    assert.ok(Math.abs(grown.cells[72].position.floorY - 6.4) < 1e-9, `floorY=${grown.cells[72].position.floorY}`);
     assert.equal(grown.cells[72].prisoner.shortId, grown.cells[72].prisoner.shortId);
   });
 
@@ -201,10 +215,12 @@ describe('assignGrownCells — every prisoner gets a real cell, nobody waits', (
   it('the layout rides along with the assignment — the page passes one object to the scene', () => {
     const grown = assignGrownCells(Array.from({ length: 73 }, (_, i) => fakeRow(i)));
     assert.equal(grown.layout.capacity, 96);
-    assert.equal(grown.layout.levels, 4);
-    assert.equal(grown.layout.blocksAdded, 1);
-    assert.equal(grown.layout.hall.heightM, 13.7);
-    assert.equal(grown.layout.lightBudget, 12);
+    // 73 prisoners: capacity 96, and the 1:1 fill reaches level 4
+    // (first level-4 cell is fill index 91), so the hall stands 5 levels.
+    assert.equal(grown.layout.levels, 5);
+    assert.equal(grown.layout.blocksAdded, 2);
+    assert.equal(grown.layout.hall.heightM, 16.9);
+    assert.equal(grown.layout.lightBudget, 16);
     assert.equal(grown.layout.overflow, 0);
   });
 });
@@ -242,11 +258,11 @@ describe('the hall grows upward only — footprint, walkway, spawn never move', 
 });
 
 describe('the light budget scales — base row untouched, one 4-light row per added level', () => {
-  it('8 lights at 72 cells, 12 at 96, 16 at 120, 20 at 144', () => {
-    assert.equal(prisonLightBudgetForLevels(3), 8);
+  it('12 lights at 72 cells (4 levels), 16 at 96, 20 at 120, 24 at 144', () => {
     assert.equal(prisonLightBudgetForLevels(4), 12);
     assert.equal(prisonLightBudgetForLevels(5), 16);
     assert.equal(prisonLightBudgetForLevels(6), 20);
+    assert.equal(prisonLightBudgetForLevels(7), 24);
     assert.equal(PRISON_EXPANSION_LIGHTS_PER_LEVEL, 4);
   });
 
@@ -287,7 +303,7 @@ describe('the light budget scales — base row untouched, one 4-light row per ad
     assert.equal(count, 1, 'one <pointLight> inside a .map over the layout positions');
     assert.ok(world3d.includes('lightPositions.map'), 'lights come from the layout list');
     assert.ok(world3d.includes('layout?.lightPositions || PRISON_LIGHT_POSITIONS'), 'base row is the fallback');
-    assert.ok(world3d.includes('color={PRISON_BLUE.light}'), 'every light is the prison blue');
+    assert.ok(world3d.includes('color={PRISON_RED.light}'), 'every light is the prison red');
   });
 });
 
@@ -300,21 +316,28 @@ describe('one-way visibility holds in the grown cells', () => {
   }
   const dot = (a, b) => a.x * b.x + a.z * b.z;
 
-  it('grown cells sit where the layout says: level 3 starts at index 72, level 4 at 96', () => {
-    const c72 = cellPosition(72);
-    assert.equal(c72.level, 3);
-    assert.equal(c72.side, 'left');
-    assert.equal(c72.column, 0);
-    assert.ok(Math.abs(c72.floorY - 9.6) < 1e-9, `floorY=${c72.floorY}`); // level * 3.2 in floats
+  it('grown cells sit where the layout says: level 3 starts at index 67, level 4 at 91', () => {
+    // The 1:1 fill interleaves levels: level L's first cell is fill
+    // index 24L − 5 (left L c0) — so level 3 starts at 67, level 4 at 91.
+    const c67 = cellPosition(67);
+    assert.equal(c67.level, 3);
+    assert.equal(c67.side, 'left');
+    assert.equal(c67.column, 0);
+    assert.ok(Math.abs(c67.floorY - 9.6) < 1e-9, `floorY=${c67.floorY}`); // level * 3.2 in floats
+    const c91 = cellPosition(91);
+    assert.equal(c91.level, 4);
+    assert.equal(c91.side, 'left');
+    assert.equal(c91.column, 0);
+    assert.equal(c91.floorY, 12.8);
     const c95 = cellPosition(95);
-    assert.equal(c95.level, 3);
-    assert.equal(c95.side, 'right');
-    assert.equal(c95.column, 11);
+    assert.equal(c95.level, 4);
+    assert.equal(c95.side, 'left');
+    assert.equal(c95.column, 2);
     const c96 = cellPosition(96);
-    assert.equal(c96.level, 4);
-    assert.equal(c96.side, 'left');
-    assert.equal(c96.column, 0);
-    assert.equal(c96.floorY, 12.8);
+    assert.equal(c96.level, 3);
+    assert.equal(c96.side, 'right');
+    assert.equal(c96.column, 9);
+    assert.ok(Math.abs(c96.floorY - 9.6) < 1e-9, `floorY=${c96.floorY}`);
   });
 
   it('a figure in a grown cell still faces inward — never toward the walkway', () => {
@@ -337,7 +360,7 @@ describe('one-way visibility holds in the grown cells', () => {
     assert.ok(!world3d.includes('slice(0'), 'no slice caps the cell list');
     assert.ok(!world3d.includes('PRISON_CAPACITY'), 'the scene never mentions the base capacity');
     assert.ok(world3d.includes('cells.map((cell)'), 'every assigned cell renders');
-    assert.ok(world3d.includes('<FigureBody form={form} side={pos.side}'), 'grown figures know their side');
+    assert.ok(world3d.includes('<PrisonerRobot form={form} side={pos.side}'), 'grown figures know their side');
   });
 });
 
