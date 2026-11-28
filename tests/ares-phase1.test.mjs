@@ -250,39 +250,42 @@ test('phase1 scaling policy: versioned, auto-scaling OFF, caps and triggers stat
 });
 
 // ---------------------------------------------------------------------------
-// Tarpit unwired (standing law): no live caller, no live serving surface.
+// Tarpit wired (Merlin opt-in, Nov 27, 2026 — "Green light means yes.
+// And turn it on."): live callers, live serving surface.
 // ---------------------------------------------------------------------------
-test('phase1 tarpit: middleware never rewrites into the abyss', () => {
+test('phase1 tarpit: middleware rewrites trapped sources into the abyss', () => {
   const mw = src('../middleware.ts');
-  assert.equal(mw.includes('/api/ares/abyss'), false, 'middleware must not reference the abyss route');
-  assert.equal(mw.includes('isTrapped('), false, 'middleware must not check the trap list');
-  assert.equal(mw.includes('trap-check'), false);
+  assert.equal(mw.includes('/api/ares/abyss'), true, 'middleware rewrites into the abyss route');
+  assert.equal(mw.includes('isTrappedSource'), true, 'middleware checks the trap list');
+  assert.equal(mw.includes('trap-check'), true);
+  assert.equal(mw.includes('trapExtraMalicious'), true, 'middleware traps extra-malicious sources');
   assert.ok(mw.includes('watch_flagged'), 'watch-band events are logged instead');
   assert.ok(mw.includes('killSwitchOn'), 'middleware reads the kill switch');
   assert.equal(mw.includes('Too many requests'), false, 'deny body is the uniform generic one');
 });
 
-test('phase1 tarpit: honeypot never branches into the abyss', () => {
+test('phase1 tarpit: honeypot branches extra-malicious visitors into the abyss', () => {
   const hp = src('../lib/ares/honeypot.js');
-  assert.equal(hp.includes("from './tarpit.js'"), false, 'honeypot must not import the tarpit');
-  assert.equal(hp.includes('abyssResponse'), false);
-  assert.equal(hp.includes('isExtraMalicious'), false);
-  assert.equal(hp.includes('trapAttackSource'), false);
-  assert.ok(hp.includes("return NextResponse.json({ error: 'Not found' }"), 'plain 404 remains');
+  assert.equal(hp.includes("from './tarpit.js'"), true, 'honeypot imports the tarpit');
+  assert.equal(hp.includes('abyssResponse'), true);
+  assert.equal(hp.includes('isExtraMalicious'), true);
+  assert.equal(hp.includes('trapAttackSource'), true);
+  assert.ok(hp.includes("return NextResponse.json({ error: 'Not found' }"), 'plain 404 remains for ordinary trap visitors');
 });
 
-test('phase1 tarpit: abyss routes answer plain 404s, nothing else', () => {
+test('phase1 tarpit: abyss routes serve the maze, with the doll layers on doll-N slugs', () => {
   for (const f of ['../app/api/ares/abyss/route.js', '../app/api/ares/abyss/[...slug]/route.js']) {
     const route = src(f);
-    assert.equal(route.includes('abyssResponse'), false, `${f}: no maze served`);
+    assert.equal(route.includes('abyssResponse'), true, `${f}: maze served`);
     // (The header comment names the tarpit module in prose; the check
     // is for an actual import, not the word.)
-    assert.equal(/\bimport\b[^;]*tarpit/.test(route), false, `${f}: no tarpit import`);
-    assert.equal(route.includes('dollResponse'), false, `${f}: no doll served`);
-    assert.ok(route.includes("status: 404"), `${f}: plain 404`);
+    assert.equal(/\bimport\b[^;]*tarpit/.test(route), true, `${f}: tarpit import`);
+    assert.equal(route.includes('status: 404'), false, `${f}: no plain 404`);
   }
-  // The tarpit module itself still exists (untouched) — only its live
-  // wiring is gone. Its pure helpers keep working under test.
+  const slugRoute = src('../app/api/ares/abyss/[...slug]/route.js');
+  assert.equal(slugRoute.includes('dollResponse'), true, 'doll-N slugs serve the doll layers');
+  // The tarpit module itself still exists (untouched) — now its live
+  // wiring is back too. Its pure helpers keep working under test.
   const tp = src('../lib/ares/tarpit.js');
   assert.ok(tp.includes('export function isExtraMalicious'), 'tarpit.js file kept, helpers intact');
 });

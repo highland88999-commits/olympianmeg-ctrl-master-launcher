@@ -26,11 +26,14 @@
 //     body. No version leaks, no stack traces, no "blocked by ARES"
 //     banners anywhere in this file's responses.
 //
-// TARPIT OFF (standing law — 2026-11-25): the abyss sandbox rewrites
-// (trapped-source rewrite, score>=75 rewrite) are REMOVED. Extra-
-// malicious traffic gets the same plain 403 as any other bot.
-// lib/ares/tarpit.js still exists, untouched, but nothing live calls
-// it. Re-enable only on Merlin's explicit word (Phase 3 opt-in).
+// TARPIT ON (Merlin opt-in, Nov 27, 2026 — "Green light means yes.
+// And turn it on."): the abyss sandbox rewrites are LIVE again. A
+// trapped source is rewritten into /api/ares/abyss on every request
+// until the keeper releases it, and extra-malicious traffic
+// (score >= 75, or 3+ strikes with bot signals) is trapped there
+// instead of getting the plain 403. The trap decision and the trap
+// write go through the internal /api/ares/trap route — the edge
+// runtime never touches the database directly.
 //
 // HONEST LIMITATIONS (documented, not hidden):
 // - The rate-limit window lives in instance memory. On serverless/edge
@@ -143,6 +146,32 @@ async function isBanned(req, ip) {
   return cachedCheck(req, '/api/ares/check', ip, (d) => d?.blocked === true);
 }
 
+// Trapped-source check, cached 60s per IP like the ban check: asks
+// /api/ares/trap-check (internal) whether this visitor is already
+// trapped in the abyss.
+async function isTrappedSource(req, ip) {
+  return cachedCheck(req, '/api/ares/trap-check', ip, (d) => d?.trapped === true);
+}
+
+// Extra-malicious trap: asks the internal /api/ares/trap route to
+// decide (isExtraMalicious, strikes included) and, when the bar is
+// crossed, record + trap the source. Returns true only when the
+// source is now trapped. Any failure reads as "not trapped": the
+// caller falls through to the plain 403, never to a crash.
+async function trapExtraMalicious(req, { ip, score, userAgent, path, reasons }) {
+  try {
+    const res = await fetch(new URL('/api/ares/trap', req.url), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-ares-internal': INTERNAL },
+      body: JSON.stringify({ ip, score, userAgent, path, reasons }),
+    });
+    const data = await res.json();
+    return data?.trapped === true;
+  } catch {
+    return false;
+  }
+}
+
 // Kill-switch state, cached 15s (short on purpose: the switch must take
 // effect within seconds of the keeper flipping it, not a minute). The
 // route answers with ONE boolean and no limit values. Any failure — no
@@ -192,6 +221,12 @@ export async function middleware(req) {
     : { epoch: rotationEpoch(now), botThreshold: BOT_THRESHOLD, rateLimitMax: RATE_MAX, rateLimitWindowMs: RATE_WINDOW_MS, watchLow: WATCH_LOW };
   const clientFp = fingerprintOf(req);
 
+  // 1b. Trapped source? Every later request from a trapped source
+  // lands back in the abyss until the keeper releases it.
+  if (phalanxOn && ip !== 'unknown' && (await isTrappedSource(req, ip))) {
+    return NextResponse.rewrite(new URL('/api/ares/abyss', req.url));
+  }
+
   // 2. Active ban?
   if (phalanxOn && ip !== 'unknown' && (await isBanned(req, ip))) {
     if (sentinelOn) report(req.url, {
@@ -217,7 +252,22 @@ export async function middleware(req) {
         details: { score: verdict.score, reasons: verdict.reasons, client_fp: clientFp },
         ml: mlFingerprint({ userAgent: req.headers.get('user-agent'), path: url.pathname, headers: req.headers }),
       });
-      if (phalanxOn) return new NextResponse('Forbidden', { status: 403 });
+      if (phalanxOn) {
+        // Extra-malicious tier: trap the source in the abyss instead
+        // of the plain 403. The trap route decides the bar
+        // (isExtraMalicious: score >= 75, or 3+ strikes at score >= 40)
+        // and records the source; anything below the bar falls through
+        // to the plain 403 below.
+        const trapped = await trapExtraMalicious(req, {
+          ip,
+          score: verdict.score,
+          userAgent: req.headers.get('user-agent'),
+          path: url.pathname,
+          reasons: verdict.reasons,
+        });
+        if (trapped) return NextResponse.rewrite(new URL('/api/ares/abyss', req.url));
+        return new NextResponse('Forbidden', { status: 403 });
+      }
     } else if (phase1 && verdict.score >= rotation.watchLow) {
       // Watch band: suspicious but undecided. The Hub picks one of
       // three treatments per epoch/visitor/path — silent log, delayed

@@ -1,10 +1,12 @@
 // ARES allowlist: registered users, account bans, attack sources.
 //
-// PHASE 1 CHANGE (2026-11-25, standing law — tarpit OFF): the abyss
-// trap no longer runs live — the middleware never rewrites into it and
-// the honeypot never branches into it. The pure tarpit helpers
-// (isExtraMalicious, abyssPageHtml) still exist in lib/ares/tarpit.js
-// and are still tested below, but nothing live calls them.
+// TARPIT ON (Merlin opt-in, Nov 27, 2026 — "Green light means yes.
+// And turn it on."): the abyss trap runs live again — the middleware
+// rewrites trapped sources into it and traps extra-malicious bots,
+// and the honeypot branches extra-malicious trap visitors into it.
+// The pure tarpit helpers (isExtraMalicious, abyssPageHtml) still
+// exist in lib/ares/tarpit.js and are still tested below, and now
+// live code calls them too.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -48,25 +50,42 @@ test('users route lists registered accounts; user-bans route refuses the keeper'
   assert.match(bans, /isOwnerEmail/);
 });
 
-test('middleware never traps bots in the abyss — and keeps verdicts per IP', () => {
-  // TARPIT OFF (Phase 1, standing law): no trap-check call, no abyss
-  // rewrite, no score>=75 tier. Extra-malicious bots get the same
-  // plain 403 as any other bot.
+test('middleware traps extra-malicious bots in the abyss — and keeps verdicts per IP', () => {
+  // TARPIT ON (Merlin opt-in, Nov 27, 2026): a trapped source is
+  // rewritten into the abyss, and an extra-malicious score traps the
+  // source (via the internal trap route) instead of the plain 403.
   const mw = readFileSync('middleware.ts', 'utf8');
-  assert.doesNotMatch(mw, /trap-check/);
-  assert.doesNotMatch(mw, /api\/ares\/abyss/);
-  assert.doesNotMatch(mw, /score >= 75/);
+  assert.match(mw, /trap-check/);
+  assert.match(mw, /api\/ares\/abyss/);
+  assert.match(mw, /api\/ares\/trap/);
+  assert.match(mw, /isTrappedSource/);
+  assert.match(mw, /trapExtraMalicious/);
+  assert.match(mw, /NextResponse\.rewrite/);
   assert.match(mw, /checkCache/);
   assert.doesNotMatch(mw, /let banCache/);
+  // The trapped check runs before scoring, so a trapped source never
+  // gets a 403 for a score it already earned the sandbox with.
+  assert.ok(mw.indexOf('isTrappedSource(req, ip)') > -1, 'middleware checks the trap list');
+  assert.ok(mw.indexOf('isTrappedSource(req, ip)') < mw.indexOf('scoreRequest('),
+    'trapped check before scoring');
 });
 
-test('honeypot has no extra-malicious tier — every trap visitor gets fake content or a plain 404', () => {
+test('honeypot has an extra-malicious tier — a trap visitor crossing the abyss bar is trapped and served the maze', () => {
   const hp = readFileSync('lib/ares/honeypot.js', 'utf8');
-  assert.doesNotMatch(hp, /isExtraMalicious/);
-  assert.doesNotMatch(hp, /abyssResponse/);
-  assert.doesNotMatch(hp, /trapAttackSource/);
-  assert.doesNotMatch(hp, /recordAttackSource/);
+  assert.match(hp, /isExtraMalicious/);
+  assert.match(hp, /abyssResponse/);
+  assert.match(hp, /trapAttackSource/);
+  assert.match(hp, /recordAttackSource/);
   assert.match(hp, /Not found/);
+  // The tier lives inside the not-friendly branch, after logging and
+  // before the fake content — an extra-malicious visitor never gets
+  // bait or a plain 404, it gets the maze.
+  const friendlyAt = hp.indexOf('if (!friendly)');
+  assert.ok(friendlyAt > -1, 'handleTrap guards on !friendly');
+  assert.ok(hp.indexOf('isExtraMalicious({') > friendlyAt, 'tier inside the not-friendly branch');
+  assert.ok(hp.indexOf('abyssResponse(') > hp.indexOf('await logEvent('), 'logged before trapping');
+  assert.ok(hp.indexOf('abyssResponse(') < hp.indexOf('if (options.fakeContent)'),
+    'maze before fake content');
 });
 
 test('banned accounts are refused by every API route; console shows users + sources', () => {
