@@ -46,9 +46,13 @@ const panel = read('components/ConcoursePortals.jsx');
 const grid = read('components/concourse/PortalFlatGrid.jsx');
 const radio = read('components/concourse/ConcourseRadio.jsx');
 
+// Hub-video-fixes (Nov 27, fix 5) added portals-hero.mp4 — a menu
+// hero asset, not a portal face video, so it is NOT wired to a roster
+// key and is excluded from the portal-video count below.
 const onDiskVideos = readdirSync(join(repo, 'public/videos/portals'))
   .filter((f) => f.endsWith('.mp4'))
   .map((f) => f.replace(/\.mp4$/, ''))
+  .filter((name) => name !== 'portals-hero')
   .sort();
 
 describe('the Concourse action items (lib/concourse-actions.js)', () => {

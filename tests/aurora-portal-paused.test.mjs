@@ -31,10 +31,16 @@ const starforge = read('components/starforge/graphics.jsx');
 const concourse = read('components/Concourse.jsx');
 const hubLoaded = read('lib/hub-loaded.js');
 
-// The Arch strip video block: from its src to the end of its tag.
-function archBlock() {
-  const at = panel.indexOf('src={OMEGA_WRAP_VIDEO}');
-  assert.ok(at !== -1, 'the Arch strip video exists');
+// The Arch strip is GONE (hub-video-fixes, Nov 27, fix 5): the old
+// OMEGA_WRAP_VIDEO strip was replaced by the Portals hero video
+// (PortalsHeroVideo in the panel, lib/portals-hero.js). The hero
+// INTENTIONALLY autoplays unmuted 1 s after the menu opens and loops
+// — that is the ordered fix-5 behaviour, pinned in detail by
+// tests/hub-video-fixes.test.mjs — so the paused-strip assertions
+// below now assert the replacement, not the strip.
+function heroBlock() {
+  const at = panel.indexOf('<PortalsHeroVideo');
+  assert.ok(at !== -1, 'the Portals hero video is the top video');
   return panel.slice(at, panel.indexOf('/>', at));
 }
 
@@ -96,13 +102,17 @@ describe('portal faces load paused, Starforge-style', () => {
   });
 });
 
-describe('the Arch strip is paused too', () => {
-  it('the Arch video shows its first frame, never autoplaying', () => {
-    const block = archBlock();
-    assert.ok(!block.includes('autoPlay'), 'Arch strip never autoplays');
-    assert.ok(!block.includes('loop'), 'Arch strip never loops');
-    assert.ok(block.includes('preload="metadata"'), 'Arch strip loads metadata only');
-    assert.ok(block.includes('muted'), 'Arch strip stays muted');
+describe('the Arch strip is gone — the Portals hero video is the top video', () => {
+  it('no Arch strip video is left in the panel', () => {
+    assert.ok(!panel.includes('OMEGA_WRAP_VIDEO'), 'the old wrap strip is fully removed');
+    assert.ok(!panel.includes('src={OMEGA_WRAP_VIDEO}'), 'no strip video src left');
+  });
+
+  it('the hero video sits at the top of the panel, over the categories', () => {
+    const block = heroBlock();
+    assert.ok(block.length > 0, 'hero video mounts in the panel');
+    assert.ok(panel.indexOf('<PortalsHeroVideo') < panel.indexOf('<PortalFlatGrid'), 'hero is above the grid');
+    assert.ok(panel.includes("from '@/lib/portals-hero'"), 'hero behaviour comes from lib/portals-hero');
   });
 
   it('the only autoPlay left in the panel is the dialog background (user preference — out of scope)', () => {

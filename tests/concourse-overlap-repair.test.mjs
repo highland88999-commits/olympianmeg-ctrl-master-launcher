@@ -46,7 +46,10 @@ describe('Concourse panel: no bleed-through on phones', () => {
 describe('Doomsday strip: no clipping on narrow panels', () => {
   it('strip row wraps instead of overflowing its clipped container', () => {
     const strip = doomsday.slice(doomsday.indexOf('export function DoomsdayStrip'));
-    assert.ok(strip.includes('flex flex-wrap'), 'strip text wraps to a second line when narrow');
+    // Hub-video-fixes (Nov 27, fix 2) added min-w-0 between flex and
+    // flex-wrap, so the literal 'flex flex-wrap' is gone — the wrap
+    // behaviour itself is unchanged.
+    assert.ok(strip.includes('flex-wrap'), 'strip text wraps to a second line when narrow');
   });
 });
 

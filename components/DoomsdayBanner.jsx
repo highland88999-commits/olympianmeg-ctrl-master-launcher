@@ -298,12 +298,20 @@ export function DoomsdayStrip({ onVisibility }) {
   const secs = Math.floor((ms % 60000) / 1000);
   const clock = `${days}d ${pad(hours)}:${pad(mins)}:${pad(secs)}`;
 
+  // PHONE FIT (hub-video-fixes, Nov 27, 2026): the one-line row
+  // (DOOMSDAY + clock + "until Dec 11, 2027") is wider than the
+  // Concourse panel at phone widths — centred with overflow-hidden
+  // it clipped at BOTH ends (Merlin's Nov 27 video: the D of
+  // DOOMSDAY and the 2027 both cut). The "until" line now takes
+  // its own centred line below 640px (sm:basis-auto restores the
+  // one-line row on wider sheets); the countdown value itself is
+  // untouched.
   return (
     <Link
       href="/wallet/how-it-works"
       role="status"
       aria-label={`Financial system releases in ${days} days`}
-      className="ui-element pointer-events-auto relative -mx-3.5 -mt-3.5 mb-3 flex flex-wrap items-center justify-center gap-2.5 overflow-hidden rounded-t-[1.5rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
+      className="ui-element pointer-events-auto relative -mx-3.5 -mt-3.5 mb-3 flex min-w-0 flex-wrap items-center justify-center gap-x-2.5 gap-y-0.5 overflow-hidden rounded-t-[1.5rem] border-b border-amber-300/40 px-3.5 py-2 no-underline shadow-[inset_0_1px_0_rgba(255,215,130,0.35),0_0_24px_rgba(245,197,66,0.15)]"
     >
       {/* The golden graphic (Merlin, 2026-10-21) replaces the flat
           gold gradient: sunburst over Olympus, cropped so the text
@@ -334,12 +342,12 @@ export function DoomsdayStrip({ onVisibility }) {
         Doomsday
       </span>
       <span
-        className="relative text-[13px] font-extrabold tabular-nums text-amber-100 drop-shadow-[0_0_8px_rgba(245,197,66,0.45)]"
+        className="relative shrink-0 whitespace-nowrap text-[13px] font-extrabold tabular-nums text-amber-100 drop-shadow-[0_0_8px_rgba(245,197,66,0.45)]"
         style={{ textShadow: '0 1px 8px rgba(0,0,0,0.55)' }}
       >
         {clock}
       </span>
-      <span className="relative text-[9px] font-semibold tracking-wider uppercase text-amber-200/70">
+      <span className="relative basis-full text-center text-[9px] font-semibold tracking-wider uppercase text-amber-200/70 sm:basis-auto sm:text-left">
         until {info.locked_until_label || 'Dec 11'}
       </span>
     </Link>

@@ -274,7 +274,10 @@ describe('the panel + grid (static)', () => {
     assert.ok(!panel.includes('aria-label="View"'), 'no switch group in the header');
     assert.ok(!panel.includes("mode === 'list'"), 'no list branch');
     assert.ok(panel.includes("useState('ALL')"), 'grid default is ALL — every portal, one page at a time');
-    assert.ok(panel.includes('OMEGA_WRAP_VIDEO'), 'the room\'s top video lives over the categories');
+    // Hub-video-fixes (Nov 27, fix 5): the wrap strip was replaced by
+    // the Portals hero video — still the room's top video, over the categories.
+    assert.ok(panel.includes('<PortalsHeroVideo'), 'the room\'s top video lives over the categories');
+    assert.ok(panel.indexOf('<PortalsHeroVideo') < panel.indexOf('<PortalFlatGrid'), 'hero video sits above the grid');
     assert.ok(panel.includes("`All · ${programs.length}`"), 'the ALL tab carries the whole count');
     assert.ok(panel.includes("wallSection === 'TOOLS'"), 'the Cheat Code feature heads TOOLS');
     assert.ok(panel.includes('<CheatCodeFeatured />'), 'the feature banner is in the sheet');
@@ -339,9 +342,13 @@ describe('the panel + grid (static)', () => {
 });
 
 describe('portal video presence (lib/portal-videos.js — the file-presence list)', () => {
+  // Hub-video-fixes (Nov 27, fix 5): portals-hero.mp4 is a menu hero
+  // asset, not a portal face video — it is not wired to a roster key
+  // and is excluded from the portal-video count below.
   const onDisk = readdirSync(join(repo, 'public/videos/portals'))
     .filter((f) => f.endsWith('.mp4'))
     .map((f) => f.replace(/\.mp4$/, ''))
+    .filter((name) => name !== 'portals-hero')
     .sort();
 
   it('the data source carries exactly the videos on disk — no drift either way', () => {

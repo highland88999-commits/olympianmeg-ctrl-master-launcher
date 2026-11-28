@@ -65,7 +65,14 @@ import { useI18n } from '@/lib/i18n';
 import { supabase } from '@/lib/supabase';
 import { isOwnerEmail } from '@/lib/owner';
 import { hasEarth2Access } from '@/lib/earth2/access';
-import { OMEGA_WRAP_VIDEO } from '@/lib/omega-arch';
+import {
+  PORTALS_HERO_VIDEO,
+  PORTALS_HERO_AUTOPLAY_DELAY_MS,
+  attemptUnmutedPlay,
+  createPortalsHeroState,
+  portalsHeroNext,
+} from '@/lib/portals-hero';
+import { PHONE_VIDEO, warmPortalVideo } from '@/lib/portal-video-preload';
 import { CONCOURSE_BG_ART, resolveConcourseBg } from '@/lib/concourse-bg';
 import CheatCodeFeatured from './CheatCodeFeatured';
 import { FintracExplanationMenuButton } from './FintracExplanation';
@@ -106,6 +113,196 @@ const PIN_MOVE_PX = 12;
 
 // A Concourse card carries a tileId; a portal program does not.
 const isConcourseItem = (program) => Boolean(program && program.tileId);
+
+
+// The Portals hero video (Merlin, Nov 27, 2026 — hub-video-fixes):
+// the big box at the top of the Portals menu plays his Marvel /
+// Olympus hero (lib/portals-hero.js: PORTALS_HERO_VIDEO — the h264
+// web copy of his HEVC original, AAC kept). Exact behaviour:
+//   (1) it starts with the Ω LOGO showing — the video itself has
+//       NO gold-Ω frame (1 fps scan of the whole video + 10 fps
+//       scan of the first 2 s: Deadpool over Olympus, fading in
+//       from black), so the logo-first state is the box's own Ω
+//       over the paused first frame, exactly as the old wrap strip
+//       showed it;
+//   (2) after 1 SECOND it AUTOPLAYS (PORTALS_HERO_AUTOPLAY_DELAY_MS);
+//   (3) it plays UNMUTED (with sound);
+//   (4) tapping the video MUTES it; tapping again unmutes;
+//   (5) when the Portals menu is minimized/closed, the panel flips
+//       to the Concourse tiles, or the tab hides, the video PAUSES
+//       and resets to the logo;
+//   (6) opening again does THE SAME THING: logo first, then
+//       autoplay after 1 second.
+// The video LOOPS (a menu hero, like the old wrap strip). Unmuted
+// autoplay is restricted on phones: the play() is attempted 1 s
+// after the menu opens from a tap (the menu-open gesture), and if
+// the browser rejects it the video does NOT silently fall back to
+// muted — it stays paused on the logo and waits for a tap, which
+// IS a gesture, so tap-to-play starts it with sound. The `muted`
+// flag is set imperatively (never as a JSX prop — React only sets
+// the muted attribute on first mount, which the play() call would
+// then ignore).
+function PortalsHeroVideo({ active }) {
+  const videoRef = useRef(null);
+  const timerRef = useRef(null);
+  const stateRef = useRef(createPortalsHeroState());
+  const [state, setState] = useState(() => createPortalsHeroState());
+
+  const applyState = useCallback((next) => {
+    stateRef.current = next;
+    setState(next);
+  }, []);
+
+  // Schedule the logo-first 1 s, then the unmuted play attempt.
+  const schedule = useCallback(() => {
+    const video = videoRef.current;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    if (video) {
+      try { video.pause(); } catch {}
+      try { video.currentTime = 0; } catch {}
+      try { video.muted = false; } catch {}
+    }
+    applyState(createPortalsHeroState());
+    timerRef.current = setTimeout(async () => {
+      timerRef.current = null;
+      const v = videoRef.current;
+      if (!v) return;
+      const res = await attemptUnmutedPlay(v, { muted: stateRef.current.muted });
+      applyState(portalsHeroNext(stateRef.current, res.ok ? 'play-confirmed' : 'play-rejected'));
+    }, PORTALS_HERO_AUTOPLAY_DELAY_MS);
+  }, [applyState]);
+
+  const stopAndReset = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    const video = videoRef.current;
+    if (video) {
+      try { video.pause(); } catch {}
+      try { video.currentTime = 0; } catch {}
+    }
+    applyState(createPortalsHeroState());
+  }, [applyState]);
+
+  // (5)+(6): active = the Portals panel is showing. Flipping to the
+  // Concourse tiles, or closing the menu (unmount), pauses + resets;
+  // coming back replays logo-first, then autoplay after 1 s. (This
+  // sheet has no minimize affordance of its own — closing is its
+  // minimize; the tab-hide effect below covers the OS minimizing it.)
+  useEffect(() => {
+    if (active) schedule();
+    else stopAndReset();
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+    };
+  }, [active, schedule, stopAndReset]);
+
+  // Tab hidden = the menu minimized by the OS: pause + reset; visible
+  // again replays from the logo, same 1 s delay.
+  useEffect(() => {
+    if (!active) return undefined;
+    const onVis = () => {
+      if (typeof document === 'undefined') return;
+      if (document.hidden) stopAndReset();
+      else schedule();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [active, schedule, stopAndReset]);
+
+  // (4): tap the video — mute toggle while playing; while the logo
+  // is showing (inside the 1 s window) the tap toggles the muted
+  // flag the scheduled autoplay will use AND mutes the element
+  // itself, so a tap that lands after the play() was attempted but
+  // before it resolves still silences the video (the pill would
+  // otherwise claim muted while the video sounds); while blocked
+  // (the browser refused the unmuted play) the tap IS a gesture,
+  // so it retries the unmuted play at once.
+  const onTap = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const s = stateRef.current;
+    if (s.phase === 'playing') {
+      const next = !s.muted;
+      try { video.muted = next; } catch {}
+      applyState(portalsHeroNext(s, 'toggle-mute'));
+      return;
+    }
+    if (s.phase === 'blocked') {
+      const res = await attemptUnmutedPlay(video, { muted: false });
+      applyState(portalsHeroNext(stateRef.current, res.ok ? 'play-confirmed' : 'play-rejected'));
+      return;
+    }
+    // Logo phase: write the element too — the play() may already
+    // be resolving while the pill still shows the logo, and the
+    // state flag alone would leave the video sounding.
+    const next = portalsHeroNext(s, 'toggle-mute');
+    try { video.muted = next.muted; } catch {}
+    applyState(next);
+  }, [applyState]);
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onTap();
+    }
+  };
+
+  const showLogo = state.phase !== 'playing';
+  const soundLabel =
+    state.phase === 'blocked'
+      ? 'Tap for sound'
+      : state.phase === 'playing' && state.muted
+        ? 'Muted — tap for sound'
+        : state.phase === 'playing'
+          ? '♪ Sound on — tap to mute'
+          : '♪ Sound on';
+
+  return (
+    <div className="mx-5 mt-3 overflow-hidden rounded-2xl border border-amber-300/30 shadow-[0_0_24px_rgba(255,180,60,0.15)]">
+      <div
+        className="relative h-[92px] w-full cursor-pointer"
+        role="button"
+        tabIndex={0}
+        aria-label={
+          state.phase === 'playing'
+            ? state.muted
+              ? 'Hero video, muted. Activate to unmute.'
+              : 'Hero video, playing with sound. Activate to mute.'
+            : 'Hero video. Activate to play with sound.'
+        }
+        onClick={onTap}
+        onKeyDown={onKeyDown}
+      >
+        <video
+          ref={videoRef}
+          className="absolute inset-0 h-full w-full object-cover"
+          src={PORTALS_HERO_VIDEO}
+          loop
+          playsInline
+          preload="auto"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
+        {showLogo && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span
+              aria-hidden="true"
+              className="text-2xl font-bold tracking-[0.3em] text-amber-200 drop-shadow-[0_0_14px_rgba(255,190,80,0.8)]"
+            >
+              Ω
+            </span>
+          </div>
+        )}
+        <div className="absolute bottom-1.5 right-2">
+          <span className="rounded-full border border-white/20 bg-black/55 px-2 py-0.5 text-[9px] font-bold tracking-wider text-zinc-200">
+            {soundLabel}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ConcoursePortals({
   open,
@@ -224,6 +421,33 @@ export default function ConcoursePortals({
       cancelled = true;
     };
   }, [open ]);
+
+  // FIX 4 (hub-video-fixes, Nov 27, 2026): the Phone tile's black
+  // flash. Tapping Phone opens the suck-in overlay, which mounts a
+  // FRESH <video> for phone.mp4 (14.2 MB, 10 s) — the grid face
+  // only preloads metadata (its first frame), so the overlay's
+  // element fetches + decodes from cold and the fullscreen overlay
+  // (bg-black) sits black for ~2 s (Merlin's Nov 27 video, f040–
+  // f041). Warm the file while the menu is open — the element is
+  // kept referenced until the menu closes, so the overlay's video
+  // starts from cache with its first frame ready. Only the Phone
+  // video is warmed: preloading all 14 tile videos would be ~90 MB.
+  // NOTE: the tile's key is 'phone' (lib/concourse-actions.js), so
+  // its video is phone.mp4 — cloud-phone.mp4 is a different program
+  // (the "Cloud Phone" portal) and warming it does nothing here.
+  const phonePreloadRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    phonePreloadRef.current = warmPortalVideo(
+      typeof document !== 'undefined' ? document : null,
+      PHONE_VIDEO
+    );
+    return () => {
+      const el = phonePreloadRef.current;
+      phonePreloadRef.current = null;
+      try { el?.pause?.(); } catch {}
+    };
+  }, [open]);
 
   // The roster: the registry + live i18n lookups (the SatelliteMenu
   // pattern). t() echoes the key itself for a missing string, so a
@@ -627,33 +851,14 @@ export default function ConcoursePortals({
         >
         {/* PANEL 1 — the portal menu. */}
         <section aria-label="Portal menu" className="flex min-h-0 w-full shrink-0 flex-col">
-        {/* The Arch itself, wearing its wrap video — the merged
-            menu's front door (the 2D Portal Room's top video, kept
-            here now that the room is gone). A compact strip so the
-            grid keeps its room on a phone. Paused on its first frame
-            like the grid faces (Starforge tile pattern, Nov 24,
-            2026): it used to autoplay alongside the 42 grid videos
-            on every Concourse open. */}
-        <div className="mx-5 mt-3 overflow-hidden rounded-2xl border border-amber-300/30 shadow-[0_0_24px_rgba(255,180,60,0.15)]">
-          <div className="relative h-[92px] w-full">
-            <video
-              className="absolute inset-0 h-full w-full object-cover"
-              src={OMEGA_WRAP_VIDEO}
-              muted
-              playsInline
-              preload="metadata"
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span
-                aria-hidden="true"
-                className="text-2xl font-bold tracking-[0.3em] text-amber-200 drop-shadow-[0_0_14px_rgba(255,190,80,0.8)]"
-              >
-                Ω
-              </span>
-            </div>
-          </div>
-        </div>
+        {/* The Portals hero — the merged menu's front door (the 2D
+            Portal Room's top video slot, kept here now that the
+            room is gone). A compact strip so the grid keeps its
+            room on a phone. It plays Merlin's Marvel/Olympus hero
+            (PortalsHeroVideo above): Ω logo first, autoplay with
+            sound after 1 s, tap to mute/unmute, pauses + resets
+            to the logo when the menu closes or the panel flips. */}
+        <PortalsHeroVideo active={panel === 'portals'} />
 
         {/* Find a realm. */}
         <div className="px-5 pt-3">
@@ -768,7 +973,8 @@ export default function ConcoursePortals({
             tiles as video cards in the SAME shared grid (one page —
             14 cards on the hub, 10 off it). The Doomsday strip
             crowns it; the season badge, the radio mini-player and
-            the docked backpack ride its chrome row. */}
+            the docked backpack ride the chrome row BELOW the track
+            (outside it — the fix-3 note there says why). */}
         <section aria-label="Concourse tiles" className="flex min-h-0 w-full shrink-0 flex-col">
         <div className="px-5 pt-3">
           <DoomsdayStrip />
@@ -783,14 +989,30 @@ export default function ConcoursePortals({
             paused={Boolean(sucking)}
           />
         </div>
-        {/* Bottom chrome row (Merlin, 2026-10-20 + round 3,
-            2026-10-23): the season badge — hub-only, like its old
-            floating form; renders nothing out of season — now a
-            GUIDE button, beside the radio mini-player, the radio's
-            living face in the menu, and the backpack, docked in
-            this row next to the hub's main controls. One flex row
-            with gaps and wrapping: nothing overlaps, nothing is
-            positioned over anything. */}
+        </section>
+        </div>
+
+        {/* Bottom chrome row — MOVED OUT of the sliding track
+            (hub-video-fixes, Nov 27, 2026 — fix 3, the half-cut
+            "99+" badge): this row used to ride inside the
+            Concourse tile panel, inside the track that slides
+            translateX(-100%) to show the tiles. The backpack
+            circle is position:fixed, and a transformed ancestor
+            becomes its containing block — so the track's -100%
+            shift threw a parked backpack a full panel-width to
+            the panel's left edge, landing its "99+" badge half
+            cut off by the panel edge (Merlin's Nov 27 video:
+            the badge sits at the same viewport spot while the
+            grid scrolls, and mirrors to the right edge on the
+            Portals panel). Out here the row has no transformed
+            ancestor: the circle renders at its true parked spot,
+            viewport-relative, and the dialog's overflow-hidden
+            can no longer clip it. The row shows only on the tile
+            panel, exactly as before, in the same place (below
+            the grid); it simply no longer slides with the panel
+            flip — which also stops a backpack drag from tripping
+            the track's panel-flip gesture. */}
+        {panel === 'tiles' && (
         <div className="flex flex-wrap items-center justify-center gap-2 px-5 pb-1 pt-2">
           {onHub && <SeasonBadge inline onGuide={handleSeasonGuide} />}
           <ConcourseRadio />
@@ -801,8 +1023,7 @@ export default function ConcoursePortals({
           <BackpackHud realm="hub" realmLabel="the hub" docked
             displayNote="The hub keeps its own arms — the pack rides along." />
         </div>
-        </section>
-        </div>
+        )}
 
         {/* Panel dots — tap to switch panels. */}
         <div className="flex items-center justify-center gap-4 pb-1 pt-2">
