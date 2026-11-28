@@ -10,12 +10,14 @@
 //   2. Tier scroll: the StorageTiers overlay must NOT center its content
 //      (flex items-center + overflow-y-auto clips the TOP of a taller
 //      panel where no scroll can reach it). It starts at the top.
-//   3. Floor motion restored (2026-10-27, Merlin: "how we had the
-//      motion before"): the Oct 27 video-QA change added a floor drag
+//   3. Floor motion (2026-10-27, then SUPERSEDED 2026-11-28 by Merlin's
+//      Pluto order): the Oct 27 video-QA change added a floor drag
 //      that parked OrbitControls and translated the whole platform.
-//      That is gone — all drags orbit the camera again, as before,
-//      and the floor disc never translates. The floor group still
-//      holds the disc + the crystal ring together, structurally.
+//      That is gone — and so is the orbit camera itself. The Fortress
+//      is now a walkable 3D space on Pluto: drags turn the walker's
+//      view (drag-look, universal controls), the camera is the walker,
+//      and the floor disc still never translates. The floor group
+//      still holds the disc + the crystal ring together, structurally.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -39,9 +41,12 @@ test('tier overlay starts at the top instead of centering (top-clip bug)', () =>
   assert.doesNotMatch(tiers, /fixed inset-0 z-40 flex items-center justify-center/);
 });
 
-test('floor never translates; all drags orbit the camera (motion restored)', () => {
+test('floor never translates; drags turn the walker\'s view (Pluto walk mode)', () => {
   assert.match(page, /floorGroup\.add\(carouselGroup\)/);
-  assert.match(page, /floorGroup\.add\(floorMesh\)/);
+  // The crystal floor top still rides the engine ref (Set Floor
+  // retextures it), and the Pluto world builder owns it now.
+  assert.match(page, /floorMesh, floorGroup, pluto/);
+  assert.match(page, /buildPlutoWorld\(THREE, scene\)/);
   // The Oct 27 floor drag is gone: no drag ref, no ground-plane point,
   // no platform translate, no parking the camera controls, no tip.
   assert.doesNotMatch(page, /floorDragRef/);
@@ -49,9 +54,12 @@ test('floor never translates; all drags orbit the camera (motion restored)', () 
   assert.doesNotMatch(page, /floorGroup\.position\.set\(/);
   assert.doesNotMatch(page, /controls\.enabled = false/);
   assert.doesNotMatch(page, /drag the floor disc/);
-  // Camera orbit is still the only motion: damped OrbitControls.
-  assert.match(page, /controls\.enableDamping = true/);
-  assert.match(page, /controls\.dampingFactor = 0\.05/);
+  // Walk mode is the only motion now: no orbit camera at all — drags
+  // turn the walker's view, the walker steps, the camera is the walker.
+  assert.doesNotMatch(page, /OrbitControls/);
+  assert.match(page, /applyLook\(walkerRef\.current, dx, dy\)/);
+  assert.match(page, /stepWalker\(walker, \{ fwd, strafe/);
+  assert.match(page, /plutoState\.y \+ WALK_EYE/);
 });
 
 test('tap math uses the canvas rect, not the window', () => {

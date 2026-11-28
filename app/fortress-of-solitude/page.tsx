@@ -3,7 +3,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Plus, Download, Eye, Upload, Palette, MonitorPlay, Grid, ArrowUpCircle, Trash2, Link2, Copy, XCircle, Crosshair } from "lucide-react";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
@@ -20,6 +19,12 @@ import { SHARE_PASSPHRASE_NOTE } from '@/lib/fortress/shares';
 import HoloframeViewer from "@/components/fortress/HoloframeViewer";
 import StorageTiers from "@/components/fortress/StorageTiers";
 import TempUpload from "@/components/fortress/TempUpload";
+import ControlsCore from "@/components/world/ControlsCore";
+import OrbButton, { OrbLabel } from "@/components/world/OrbButton";
+import { createWalker, stepWalker, applyLook, WALK_EYE } from "@/lib/world/walk-controls";
+import { createKeyInput } from "@/lib/world/walk-input";
+import { buildPlutoWorld } from "@/components/fortress/PlutoWorld";
+import { createPlutoState, stepPluto, crystalColliders, speedForMode, distanceToDisc, plutoGroundHeight } from "@/lib/fortress/pluto";
 
 export default function FortressApp() {
   const router = useRouter();
@@ -160,7 +165,33 @@ export default function FortressApp() {
     }
   };
   
-  const engineRef = useRef<any>({}); 
+  const engineRef = useRef<any>({});
+  // Pluto walk mode (Merlin, Nov 28): the Fortress is a walkable 3D
+  // space on Pluto. You land on the crystal floor; walk off the edge
+  // and you levitate; the gravity orb lets you rise and come back down.
+  const walkerRef = useRef<any>(null);
+  const plutoRef = useRef<any>(null);
+  const joyRef = useRef({ x: 0, y: 0 });
+  const keysRef = useRef<any>(null);
+  const collidersRef = useRef<any[]>([]);
+  const lookDownRef = useRef(false);
+  const lastLookPos = useRef({ x: 0, y: 0 });
+  const [gravityOn, setGravityOn] = useState(true);
+  const gravityOnRef = useRef(true);
+  const [airState, setAirState] = useState<{ mode: string, heightM: number, distM: number }>({ mode: 'grounded', heightM: 0, distM: 0 });
+  const airStateRef = useRef(airState);
+  // Any overlay open freezes walking (keyboard + stick), so you never
+  // walk away while reading a crystal panel or a tier sheet.
+  const uiOpenRef = useRef(false);
+
+  // The gravity switch: tap to turn gravity off and rise, tap again
+  // to turn it back on and come back down. The orb always shows what
+  // the tap will do (UP while gravity is on, DOWN while it is off).
+  const toggleGravity = () => {
+    const next = !gravityOnRef.current;
+    gravityOnRef.current = next;
+    setGravityOn(next);
+  }; 
   const selectedMeshRef = useRef<THREE.Mesh | null>(null);
   const pointerTimerRef = useRef<any>(null);
   const pointerDownPos = useRef({ x: 0, y: 0 });
@@ -269,6 +300,29 @@ export default function FortressApp() {
     }
   }, [router]);
 
+  // Keyboard: WASD/arrows move (universal controls), G toggles
+  // gravity — the keyboard twin of the gravity orb.
+  useEffect(() => {
+    if (!keysRef.current) keysRef.current = createKeyInput();
+    const keys = keysRef.current;
+    keys.attach();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'g' || e.key === 'G') toggleGravity();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      keys.detach();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Any overlay open freezes walking, so you never walk away while
+  // reading a crystal panel, a tier sheet, or the temp lane.
+  useEffect(() => {
+    uiOpenRef.current = !!(selectedNodeData || tiersOpen || tempOpen || activeFileData || isMenuOpen || longPressedNode);
+  }, [selectedNodeData, tiersOpen, tempOpen, activeFileData, isMenuOpen, longPressedNode]);
+
   const syncDatabase = async (newMatrix: any[]) => {
       setMatrixData(newMatrix);
       if(!user) return;
@@ -277,13 +331,27 @@ export default function FortressApp() {
       setStorageUsed(used);
   };
 
+  // Pluto walk mode (Merlin, Nov 28): the Fortress is a walkable 3D
+  // space on the frozen world Pluto. You LAND on the floor that holds
+  // the crystals; walk off its edge and you levitate — you hover, you
+  // never fall. The gravity orb rises you up and brings you back down.
+  // The old orbit camera is gone: the camera is the walker now
+  // (first-person, universal controls — joystick + drag-look + keys).
+  //
+  // LANDING: the ring holds 12 crystals at 30° intervals, so the gaps
+  // sit at 15° + 30°k. You land in a gap — r=12 at 15° (11.59, 3.11),
+  // facing the centre (yaw 1.309) — so the nearest crystals frame the
+  // view instead of filling it. Landing dead on a crystal's angle
+  // (0, 12) put a solid crystal 1 m in front of the camera and the
+  // whole screen went cyan. Recenter returns here too.
+  const LANDING = { x: 11.59, z: 3.11, yaw: 1.309 };
   const initThreeJSEngine = (matrix: any[]) => {
     if (engineRef.current.initialized || !canvasContainerRef.current) return;
     engineRef.current.initialized = true;
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
-    camera.position.set(0, 15, 35);
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 600);
+    camera.rotation.order = 'YXZ';
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -301,25 +369,13 @@ export default function FortressApp() {
     floorGroup.add(carouselGroup);
 
     const loader = new THREE.TextureLoader();
-    
-    const outerDome = new THREE.Mesh(
-      new THREE.SphereGeometry(60, 40, 40), 
-      new THREE.MeshBasicMaterial({ map: loader.load('/IMG_2875.png'), side: THREE.BackSide, transparent: true, opacity: 0.2 })
-    );
-    scene.add(outerDome);
 
-    const innerDome = new THREE.Mesh(
-      new THREE.SphereGeometry(59, 40, 40), 
-      new THREE.MeshBasicMaterial({ map: loader.load('/IMG_2876.png'), side: THREE.BackSide, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending })
-    );
-    scene.add(innerDome);
-    
-    const floorMesh = new THREE.Mesh(
-      new THREE.CircleGeometry(15, 128), 
-      new THREE.MeshBasicMaterial({ color: 0x555555, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
-    );
-    floorMesh.rotation.x = -Math.PI / 2;
-    floorGroup.add(floorMesh);
+    // Pluto: the frozen world, the ice plain, the crystal floor, the
+    // sky domes, the spires, the beacon home. The returned floorMesh
+    // is the crystal-floor top (Set Floor retextures it) and the
+    // outerDome is the sky (Set Walls retextures it) — exactly as before.
+    const pluto = buildPlutoWorld(THREE, scene);
+    const { floorMesh, outerDome, innerDome } = pluto;
 
     const renderScene = new RenderPass(scene, camera);
     const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.8, 0.5, 0.85);
@@ -327,10 +383,15 @@ export default function FortressApp() {
     composer.addPass(renderScene);
     composer.addPass(bloomPass);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true; 
-    controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI * 0.48;
+    // The walker: you land on the crystal floor in the LANDING gap,
+    // facing the ring and the beacon at its centre. The crystals are
+    // solid — you walk around them, never through them.
+    const walker = createWalker({ x: LANDING.x, z: LANDING.z, yaw: LANDING.yaw, pitch: 0 });
+    const plutoState = createPlutoState({ x: LANDING.x, z: LANDING.z });
+    walkerRef.current = walker;
+    plutoRef.current = plutoState;
+    collidersRef.current = crystalColliders(matrix);
+    if (!keysRef.current) keysRef.current = createKeyInput();
 
     matrix.forEach((nodeData, i) => {
         const angle = (i / matrix.length) * Math.PI * 2;
@@ -340,12 +401,9 @@ export default function FortressApp() {
               map: loader.load('/IMG_2876.png'), 
               color: nodeData.color,
               emissive: nodeData.color, 
-              emissiveIntensity: 0.4, 
-              metalness: 0.9, 
-              roughness: 0.1,
-              transparent: true,
-              opacity: 0.85,
-              blending: THREE.AdditiveBlending
+              emissiveIntensity: 0.85, 
+              metalness: 0.25, 
+              roughness: 0.15,
             })
         );
         node.position.set(Math.cos(angle) * 11, nodeData.height / 2, Math.sin(angle) * 11);
@@ -353,14 +411,47 @@ export default function FortressApp() {
         carouselGroup.add(node);
     });
 
-    engineRef.current = { scene, camera, renderer, composer, controls, carouselGroup, outerDome, floorMesh, floorGroup };
+    engineRef.current = { scene, camera, renderer, composer, carouselGroup, outerDome, innerDome, floorMesh, floorGroup, pluto };
 
     let rafId = 0;
+    let lastT = performance.now();
+    let lastAirKey = '';
     const animate = () => {
       rafId = requestAnimationFrame(animate);
       if (contextGuard.isLost()) return; // frozen while the context is gone
-      controls.update();
-      carouselGroup.rotation.y += 0.0015;
+      const now = performance.now();
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
+      lastT = now;
+
+      // Walk input: joystick + WASD/arrows, frozen while any panel is open.
+      const keys = keysRef.current;
+      const frozen = uiOpenRef.current;
+      const fwd = frozen ? 0 : (keys ? keys.state.fwd : 0) + joyRef.current.y;
+      const strafe = frozen ? 0 : (keys ? keys.state.strafe : 0) + joyRef.current.x;
+      stepWalker(walker, { fwd, strafe, sprint: keys ? keys.state.sprint : false, jump: false }, dt, {
+        speed: speedForMode(plutoState.mode),
+        groundHeight: () => 0,
+        colliders: collidersRef.current,
+      });
+      stepPluto(plutoState, { x: walker.pos.x, z: walker.pos.z, gravityOn: gravityOnRef.current, dt });
+
+      // First-person camera: eye above the walker's feet, looking
+      // where the walker looks. A gentle bob while levitating so the
+      // hover reads in the view, not just in the pill.
+      const bob = plutoState.mode === 'levitating' ? Math.sin(now / 350) * 0.12 : 0;
+      camera.position.set(walker.pos.x, plutoState.y + WALK_EYE + bob, walker.pos.z);
+      camera.rotation.set(walker.pitch, walker.yaw, 0);
+
+      // Air state for the pill + gravity orb (React state, only on change).
+      const heightM = Math.max(0, plutoState.y - plutoGroundHeight(walker.pos.x, walker.pos.z));
+      const distM = distanceToDisc(walker.pos.x, walker.pos.z);
+      const airKey = `${plutoState.mode}|${Math.round(heightM)}|${Math.round(distM)}`;
+      if (airKey !== lastAirKey) {
+        lastAirKey = airKey;
+        airStateRef.current = { mode: plutoState.mode, heightM: Math.round(heightM), distM: Math.round(distM) };
+        setAirState(airStateRef.current);
+      }
+
       composer.render();
     };
     animate();
@@ -378,14 +469,14 @@ export default function FortressApp() {
       contextGuard.dispose();
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleEngineResize);
+      try { pluto.dispose(); } catch { /* noop */ }
     };
   };
 
-  // Motion restored (Merlin, 2026-10-27): all drags orbit the camera
-  // through OrbitControls, exactly as before the Oct 27 video-QA change
-  // added a floor drag — the floor disc never translates. The floor
-  // group still holds the disc + the crystal ring together (one
-  // platform, structurally), but its position never moves.
+  // Pluto walk mode (Merlin, Nov 28): drags turn the walker's view
+  // (drag-look, universal controls) — the floor disc never translates.
+  // The floor group still holds the disc + the crystal ring together
+  // (one platform, structurally), but its position never moves.
 
   // Tap math from the CANVAS rect, not the window: when the browser chrome
   // shows or hides, window size drifts from the drawing surface and taps
@@ -403,6 +494,8 @@ export default function FortressApp() {
 
   const handlePointerDown = (e: React.PointerEvent) => {
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
+    lookDownRef.current = true;
+    lastLookPos.current = { x: e.clientX, y: e.clientY };
     const { camera, carouselGroup } = engineRef.current;
     if(!camera || !carouselGroup) return;
 
@@ -424,9 +517,18 @@ export default function FortressApp() {
       clearTimeout(pointerTimerRef.current);
       pointerTimerRef.current = null;
     }
+    // Drag-look (Pluto walk mode): a drag turns the walker's view.
+    // Short, still taps still reach the crystal select below.
+    if (lookDownRef.current && walkerRef.current && !uiOpenRef.current) {
+      const dx = e.clientX - lastLookPos.current.x;
+      const dy = e.clientY - lastLookPos.current.y;
+      lastLookPos.current = { x: e.clientX, y: e.clientY };
+      if (Math.abs(dx) + Math.abs(dy) > 0) applyLook(walkerRef.current, dx, dy);
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    lookDownRef.current = false;
     if (pointerTimerRef.current) clearTimeout(pointerTimerRef.current);
 
     if (longPressedNode) {
@@ -782,9 +884,24 @@ export default function FortressApp() {
   };
 
   const handleRecenter = () => {
-      if(!engineRef.current.camera) return;
-      gsap.to(engineRef.current.camera.position, { x: 0, y: 15, z: 35, duration: 1, ease: "power2.out" });
-      gsap.to(engineRef.current.controls.target, { x: 0, y: 0, z: 0, duration: 1, ease: "power2.out" });
+      // Walk mode: back to the landing point on the crystal floor,
+      // facing the ring, gravity back on — the place you land when
+      // you arrive.
+      const walker = walkerRef.current;
+      const plutoState = plutoRef.current;
+      if (!walker || !plutoState) return;
+      walker.pos.x = LANDING.x;
+      walker.pos.z = LANDING.z;
+      walker.yaw = LANDING.yaw;
+      walker.pitch = 0;
+      walker.jumpY = 0;
+      walker.jumpV = 0;
+      walker.grounded = true;
+      plutoState.mode = 'grounded';
+      plutoState.y = plutoGroundHeight(LANDING.x, LANDING.z);
+      plutoState.onDisc = true;
+      gravityOnRef.current = true;
+      setGravityOn(true);
   };
   
   const handleColorChange = async (color: string) => {
@@ -844,7 +961,8 @@ export default function FortressApp() {
       node.position.set(Math.cos(angle) * 11, newHeight / 2, Math.sin(angle) * 11);
       node.userData = newNodeData;
       group.add(node);
-      
+      collidersRef.current = crystalColliders(newMatrix);
+
       await syncDatabase(newMatrix);
   }
 
@@ -875,6 +993,67 @@ export default function FortressApp() {
         onPointerLeave={handlePointerUp}
       />
       <input type="file" ref={fileInputRef} className="hidden" accept="*/*" onChange={processMediaUpload} />
+
+      {/* Pluto walk controls (universal controls core): joystick to
+          walk, drag to look, gravity orb to rise and come back down.
+          The hint sits below the search bar (topOffsetPx 76) so it
+          never covers it; there is no fullscreen orb here — the page
+          is already full-viewport. */}
+      <ControlsCore
+        world="fortress-of-solitude"
+        accent="#00f2ff"
+        onMove={(x, y) => { joyRef.current = { x, y }; }}
+        hint="Joystick to walk · drag to look · walk off the floor to levitate"
+        topOffsetPx={76}
+        onJump={undefined}
+        onFire={undefined}
+        onOpenBackpack={undefined}
+        onOpenMerchant={undefined}
+        hp={undefined}
+        orbs={undefined}
+        fullscreen={undefined}
+        onToggleFullscreen={undefined}
+        columnBottom={undefined}
+      >
+        {/* Gravity orb — the switch Merlin ordered: tap to turn
+            gravity off and rise, tap again to come back down. It
+            always shows what the tap will do: RISE while gravity is
+            on, DOWN while you are rising or levitating. Plain
+            circle orb, bottom-right, fixed so it is always findable.
+            It sits at bottom 168 — NOT the usual 80 px floor: the
+            site-wide Concourse orb (fixed, z-58, draggable, default
+            home bottom 96 right ~17) covers the bottom-right slot
+            and swallowed every tap meant for this orb (its face sat
+            on top of the gravity orb, so the tap never reached it).
+            Bottom 168 clears the Concourse orb's home by 16 px and
+            sits far above the radio bar too. It fires on pointerdown,
+            not click — the press-action pattern JUMP and FIRE use in
+            this core, so it answers the instant the finger lands. */}
+        <OrbButton
+          fn={gravityOn ? 'ascend' : 'descend'}
+          accent="#00f2ff"
+          size={56}
+          ariaLabel={gravityOn ? 'Gravity on — tap to turn gravity off and rise' : 'Gravity off — tap to turn gravity on and come back down'}
+          title={gravityOn ? 'Gravity off — rise' : 'Gravity on — come back down'}
+          active={!gravityOn}
+          art={undefined}
+          bg={undefined}
+          href={undefined}
+          onPointerDown={toggleGravity}
+          style={{ position: 'absolute', right: 14, bottom: 'calc(168px + env(safe-area-inset-bottom))', zIndex: 7, pointerEvents: 'auto' }}
+        >
+          <OrbLabel>{gravityOn ? 'RISE' : 'DOWN'}</OrbLabel>
+        </OrbButton>
+      </ControlsCore>
+
+      {/* Airborne pill — only while levitating, rising or descending. */}
+      {airState.mode !== 'grounded' && (
+        <div role="status" style={{ position: 'absolute', left: '50%', top: 132, transform: 'translateX(-50%)', zIndex: 8, maxWidth: 'calc(100% - 32px)', textAlign: 'center', background: 'rgba(0,0,0,0.65)', border: '1px solid #00f2ff', borderRadius: 999, padding: '7px 14px', fontSize: 12, letterSpacing: 0.5, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pointerEvents: 'none' }}>
+          {airState.mode === 'levitating' && `LEVITATING — tap the gravity orb to rise${airState.distM > 0 ? ` · ${airState.distM} m from the floor` : ''}`}
+          {airState.mode === 'rising' && `RISING — ${airState.heightM} m up · tap the orb to come back down`}
+          {airState.mode === 'descending' && `COMING DOWN — ${airState.heightM} m up`}
+        </div>
+      )}
 
       <div className="fixed top-6 left-0 w-full z-10 flex justify-center pointer-events-none">
         <input 
