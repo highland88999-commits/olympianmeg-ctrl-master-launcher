@@ -41,6 +41,7 @@ import BackpackSection from '@/components/profile/BackpackSection';
 import MyCharacters from '@/components/profile/MyCharacters';
 import MyStorefront from '@/components/profile/MyStorefront';
 import Achievements from '@/components/profile/Achievements';
+import ConnectMuseButton from '@/components/muse-connector/ConnectMuseButton';
 
 const SUIT_COLORS = [
   '#00f2ff', '#ff2fd6', '#ffd166', '#06d6a0', '#8b5cf6',
@@ -545,6 +546,14 @@ export default function ProfilePage() {
         {/* My Creations — server-backed forge items (the one section that
             talks to the network: your creations live on your account). */}
         <MyCreations />
+
+        {/* Connect Muse — the one in-Olympus step of the connector
+            setup (Merlin, Nov 27, 2026): register the account here
+            with the live session, then copy the setup prompt below
+            and paste it to Muse. No key anywhere — Supabase is the
+            gatekeeper (key placement dropped Nov 27 ~04:15); the
+            prompt is copyable in-app (Nov 27 ~04:16). */}
+        <ConnectMuseButton />
 
         {/* Characters — the platform roster from the Olympus 3D
             generator. Pick one as your profile character; the pick is

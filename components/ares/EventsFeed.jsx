@@ -8,6 +8,8 @@ const LABELS = {
   rate_limited: 'Rate limited',
   blocked_ip_hit: 'Banned visitor retry',
   agent_self_terminate: 'Agent self-terminated',
+  connector_egress: 'Connector egress',
+  connector_legal_threat: 'Connector legal report',
 };
 
 const COLORS = {
@@ -17,6 +19,8 @@ const COLORS = {
   rate_limited: 'border-yellow-500/40 text-yellow-200',
   blocked_ip_hit: 'border-zinc-500/40 text-zinc-300',
   agent_self_terminate: 'border-rose-500/40 text-rose-300',
+  connector_egress: 'border-sky-500/40 text-sky-300',
+  connector_legal_threat: 'border-amber-500/40 text-amber-300',
 };
 
 function timeAgo(iso) {

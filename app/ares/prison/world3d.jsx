@@ -293,7 +293,7 @@ function FigureBody({ form, side }) {
 // wall wears stained concrete. The cell FRONT is never dressed here —
 // bars, rails and one-way glass stay exactly as built (the
 // silver-wraps worker owns the frames).
-function PrisonCell({ cell, floorMat, backMat }) {
+function PrisonCell({ cell, floorMat, backMat, onSelectPrisoner }) {
   const pos = cell.position;
   const form = cell.prisoner;
   const frontZ = pos.side === 'left'
@@ -404,12 +404,20 @@ function PrisonCell({ cell, floorMat, backMat }) {
           <FigureBody form={form} side={pos.side} />
         </group>
       )}
-      {/* cell label: short id + score, constant screen size (no distanceFactor) */}
+      {/* cell label: short id + score, constant screen size (no distanceFactor).
+          The name is a button: tapping it opens the prisoner's report
+          (click the name → report). Only the button takes pointer
+          events, so drag-to-look still works across the label. */}
       {form && (
         <Html center position={[pos.x, pos.floorY + PRISON_CELL.heightM + 0.35, frontZ]} zIndexRange={[20, 0]} style={labelStyle}>
-          <div>
+          <button
+            type="button"
+            onClick={() => { if (onSelectPrisoner) onSelectPrisoner(form); }}
+            aria-label={`Open report for prisoner ${form.shortId}`}
+            style={{ pointerEvents: 'auto', cursor: 'pointer', background: 'transparent', border: 'none', color: 'inherit', font: 'inherit', padding: 0 }}
+          >
             {form.shortId} · score {form.score}
-          </div>
+          </button>
         </Html>
       )}
     </group>
@@ -421,7 +429,7 @@ function PrisonCell({ cell, floorMat, backMat }) {
 // from lib/ares/prison-expansion.js — null before the first load, in
 // which case the base hall renders. The hall grows upward only: the
 // walkway and the walker clamp never move.
-export function PrisonScene({ cells, walkerRef, inputRef, layout }) {
+export function PrisonScene({ cells, walkerRef, inputRef, layout, onSelectPrisoner }) {
   const hall = layout?.hall || PRISON_HALL;
   const levels = layout?.levels || PRISON_CELL.levels;
   const lightPositions = layout?.lightPositions || PRISON_LIGHT_POSITIONS;
@@ -506,7 +514,7 @@ export function PrisonScene({ cells, walkerRef, inputRef, layout }) {
 
       {/* the cells */}
       {cells.map((cell) => (
-        <PrisonCell key={cell.position.index} cell={cell} floorMat={shellMats.cellFloor} backMat={shellMats.cellBack} />
+        <PrisonCell key={cell.position.index} cell={cell} floorMat={shellMats.cellFloor} backMat={shellMats.cellBack} onSelectPrisoner={onSelectPrisoner} />
       ))}
 
       {/* entrance sign, constant size */}

@@ -199,6 +199,7 @@ export default function AresConsole() {
   const [regUsers, setRegUsers] = useState([]);
   const [trapped, setTrapped] = useState([]);
   const [sources, setSources] = useState([]);
+  const [releaseCutoff, setReleaseCutoff] = useState(false);
   const [settings, setSettings] = useState({ sentinelEnabled: true, phalanxEnabled: true, killSwitch: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -275,6 +276,7 @@ export default function AresConsole() {
       if (Array.isArray(us.users)) setRegUsers(us.users);
       setTrapped(tr.trapped || []);
       setSources(tr.sources || []);
+      setReleaseCutoff(tr.cutoff === true);
       if (st.settings) setSettings(st.settings);
     } catch { /* keep whatever loaded */ }
     if (!silent) setLoading(false);
@@ -415,7 +417,7 @@ export default function AresConsole() {
             <div className="ares-panel"><LearningPanel events={events} authedFetch={authedFetch} /></div>
             <div className="ares-panel"><ListsManager authedFetch={authedFetch} whitelist={whitelist} blocks={blocks} onRefresh={load} /></div>
             <div className="ares-panel"><UsersManager authedFetch={authedFetch} users={regUsers} onRefresh={load} /></div>
-            <div className="ares-panel"><AttackSources authedFetch={authedFetch} trapped={trapped} sources={sources} onRefresh={load} /></div>
+            <div className="ares-panel"><AttackSources authedFetch={authedFetch} trapped={trapped} sources={sources} cutoff={releaseCutoff} onRefresh={load} /></div>
             <div className="ares-panel"><MollyPanel /></div>
             <div className="ares-panel"><DuoMathPanel /></div>
             <footer className="pb-8 pt-2 text-center text-[11px] text-zinc-600">

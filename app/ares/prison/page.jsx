@@ -30,6 +30,7 @@ import { useSceneContextGuard } from '@/components/SceneContextGuard';
 import { PrisonScene, createPrisonWalker } from './world3d';
 import { mergePrisonerRows, PRISON_CAPACITY } from '@/lib/ares/prison';
 import { assignGrownCells } from '@/lib/ares/prison-expansion';
+import PrisonerReport from '@/components/ares/PrisonerReport';
 
 const STICK_RADIUS = 44;
 
@@ -170,6 +171,13 @@ export default function AresPrison() {
   const [overflow, setOverflow] = useState(0);
   const [loading, setLoading] = useState(true);
   const [touchUI, setTouchUI] = useState(false);
+  // The prisoner report: opens when the keeper clicks a prisoner's
+  // NAME — its cell label in the hall, or its row in the roster.
+  const [reportForm, setReportForm] = useState(null);
+  const [report, setReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportMinimized, setReportMinimized] = useState(false);
+  const [rosterOpen, setRosterOpen] = useState(false);
 
   const walkerRef = useRef(null);
   if (!walkerRef.current) walkerRef.current = createPrisonWalker();
@@ -260,6 +268,26 @@ export default function AresPrison() {
     const id = setInterval(() => { load({ silent: true }).catch(() => {}); }, 15000);
     return () => clearInterval(id);
   }, [token, load]);
+
+  // Open one prisoner's report: the name (cell label or roster row)
+  // carries the full prisoner id, and the owner-locked report route
+  // returns the merged record. A failed fetch still opens the panel
+  // with what the cell already knows, so the keeper is never left
+  // tapping a dead name.
+  const openReport = useCallback(async (form) => {
+    if (!form) return;
+    setReportForm(form);
+    setReport(null);
+    setReportMinimized(false);
+    setRosterOpen(false);
+    if (!token || !form.ipHash) return;
+    setReportLoading(true);
+    try {
+      const data = await authedFetch(`/api/ares/prisoner-report?ip_hash=${encodeURIComponent(form.ipHash)}`).then((r) => r.json()).catch(() => ({}));
+      if (data && data.report) setReport(data.report);
+    } catch { /* panel falls back to the cell's own facts */ }
+    setReportLoading(false);
+  }, [token, authedFetch]);
 
   // --- keyboard: WASD / arrows walk, Shift runs (realm pattern) ---------
   const applyKeys = useCallback(() => {
@@ -413,7 +441,7 @@ export default function AresPrison() {
           onCreated={sceneGuard.onCreated}
           style={{ width: '100%', height: '100%' }}
         >
-          <PrisonScene cells={cells} walkerRef={walkerRef} inputRef={inputRef} layout={layout} />
+          <PrisonScene cells={cells} walkerRef={walkerRef} inputRef={inputRef} layout={layout} onSelectPrisoner={openReport} />
         </Canvas>
       </div>
 
@@ -469,7 +497,79 @@ export default function AresPrison() {
         <p className="mt-2 text-[11px] text-zinc-500">
           Viewing only — release happens in the console.
         </p>
+        <button
+          type="button"
+          onClick={() => setRosterOpen(true)}
+          className="pointer-events-auto mt-3 min-h-11 rounded-full border border-sky-500/50 bg-black/60 px-5 py-2 text-xs font-bold text-sky-100"
+        >
+          Prisoners ({prisonerCount}) — tap a name for its report
+        </button>
       </div>
+
+      {/* roster: every prisoner's name, as a button that opens its report */}
+      {rosterOpen && (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-4">
+          <div className="pointer-events-auto flex max-h-[75dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-sky-500/40 bg-[#050b18]/95 shadow-2xl">
+            <div className="flex items-start justify-between gap-2 border-b border-sky-500/25 px-4 py-3">
+              <h2 className="text-sm font-bold text-sky-100">Prisoners — tap a name for its report</h2>
+              <button
+                type="button"
+                onClick={() => setRosterOpen(false)}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/25 bg-black/60 text-lg font-bold text-white"
+                aria-label="Close prisoner list"
+              >
+                ×
+              </button>
+            </div>
+            <ul className="flex flex-col gap-2 overflow-y-auto px-4 py-4">
+              {cells.filter((c) => c.prisoner).map((c) => (
+                <li key={c.prisoner.shortId}>
+                  <button
+                    type="button"
+                    onClick={() => openReport(c.prisoner)}
+                    className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-black/40 px-3 py-2 text-left"
+                  >
+                    <span className="font-mono text-xs text-sky-100">{c.prisoner.label} · {c.prisoner.shortId}</span>
+                    <span className="text-[11px] text-zinc-500">score {c.prisoner.score}</span>
+                  </button>
+                </li>
+              ))}
+              {cells.filter((c) => c.prisoner).length === 0 && (
+                <li className="text-sm text-zinc-500">No prisoners right now.</li>
+              )}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* prisoner report: opens from a name, minimizable */}
+      {reportForm && (
+        <PrisonerReport
+          report={report || {
+            kind: 'prisoner',
+            short_id: reportForm.shortId,
+            name: `${reportForm.label} · ${reportForm.shortId}`,
+            what_sandboxed: { reason: reportForm.reason, score: reportForm.score, hits: reportForm.hits },
+            why_sandboxed: reportForm.reason,
+            why_not_recorded: false,
+            why_not_sandboxed: null,
+            sandboxed_at: reportForm.firstSeen,
+            last_seen: reportForm.lastSeen,
+            sender_ip_hash: reportForm.ipHash || '',
+            sender_ip_fingerprint: reportForm.shortId,
+            legal_reports: [],
+            self_terminate_reports: [],
+            event_count: 0,
+          }}
+          minimized={reportMinimized}
+          onMinimize={() => setReportMinimized(true)}
+          onRestore={() => setReportMinimized(false)}
+          onClose={() => { setReportForm(null); setReport(null); setReportMinimized(false); }}
+        />
+      )}
+      {reportForm && reportLoading && !reportMinimized && (
+        <p className="pointer-events-none absolute inset-x-0 bottom-24 z-40 text-center text-xs text-sky-200/80">Opening the report…</p>
+      )}
 
       <div className="absolute left-4 top-4 z-30">
         <ExitToAres />
