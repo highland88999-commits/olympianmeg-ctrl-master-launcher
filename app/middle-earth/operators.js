@@ -31,9 +31,15 @@
 //   * Saruman dies by COMBAT ONLY (600 HP via damageBoss);
 //     death completes the campaign (completeSaruman) and is
 //     PERMANENT — no respawn in code.
-//   * placed creatures have NO death in code: they are ambient,
-//     untargetable figures (strike() only takes orcs / the
-//     boss). They never die — flagged, not invented.
+//   * placed creatures have NO death in code — EXCEPT the two
+//     dragon-class creatures (Merlin, Nov 26: "Make the dragons
+//     hunt and be billable"): the Dragon of the Wastes (400 HP)
+//     and the Fell Beast (300 HP) hunt the player, die by
+//     COMBAT ONLY (blade / bow via damageDragon), drop Dragon
+//     Scales or Fire Orbs, and refill on the pod respawn clock
+//     like orcs. The Eagle, Horse and Warg stay ambient —
+//     untargetable, never die (strike() only takes orcs, the
+//     boss, and dragons).
 //   * companion dinos NEVER die (ally law, breeding.js).
 //
 // BEHAVIOUR LOGIC (Merlin, Nov 14 ~22:59) — per-realm check:
@@ -54,8 +60,11 @@
 //     No diet field exists for orcs in code.
 //   * diet-driven feeding: orcs have no diet in code; their
 //     feeding IS the hunt (the campaign spine: "hunt orcs —
-//     kill Saruman"). Placed creatures have no diet either —
-//     they are ambient, flagged.
+//     kill Saruman"). Dragons hunt the PLAYER (dragons.js:
+//     roam / chase / fire-breath / bite — prey is the player
+//     only, never orcs, so a dragon cannot farm campaign kills).
+//     The other placed creatures have no diet — they are
+//     ambient, flagged.
 //   * water-seeking: DOES NOT APPLY. No creature drinks in
 //     Middle-earth code (the Bruinen gorge is terrain, not a
 //     drink source; no thirst law exists here).
@@ -86,6 +95,11 @@ import {
   POD_ORDER,
   SARUMAN_GATE_KILLS,
 } from './data.js';
+import {
+  DRAGON_KINDS,
+  isDragonModel,
+  isDragonKind,
+} from './dragons.js';
 import {
   bossPhase,
   BOSS_MAX_HP,
@@ -242,6 +256,63 @@ export function bossLifeFor(boss, now = Date.now(), opts = {}) {
   return life;
 }
 
+// ── Dragons ──────────────────────────────────────────────────
+/**
+ * Life of a dragon (createDragon() record). `opts` carries
+ * { deadAt, respawnS } — a dead dragon refills on its pod's
+ * respawn clock once the player is > 65 m away, the orc rule.
+ * Alive: roam (patrolling its ground) / chase / windup (about
+ * to breathe fire or bite) — the hunt, honestly reported.
+ */
+export function dragonLifeFor(dragon, now = Date.now(), opts = {}) {
+  const t = now instanceof Date ? now.getTime() : Number(now);
+  const kind = dragon && dragon.kind === 'fell-beast' ? 'fell-beast' : 'dragon';
+  const stats = DRAGON_KINDS[kind];
+  const respawnS = opts.respawnS != null ? opts.respawnS : 40;
+  const dead = !dragon || dragon.state === 'dead';
+  const hunting = !dead && (dragon.state === 'chase' || dragon.state === 'windup');
+  const life = {
+    realm: 'middle-earth',
+    kind: 'placed',
+    isDragon: true,
+    dragonKind: kind,
+    name: (dragon && dragon.name) || (kind === 'fell-beast' ? 'A Fell Beast' : 'A Dragon of the Wastes'),
+    model: kind,
+    pod: (dragon && dragon.pod) || 'mordor',
+    state: dead ? 'dead' : dragon.state,
+    activity: dead ? 'dead' : hunting ? 'hunt' : 'roam',
+    moving: hunting,
+    hp: dragon ? dragon.hp : 0,
+    maxHp: stats.hp,
+    feeding: dead ? 'none' : hunting ? 'hunt-user' : 'roam',
+    feedingNote: dead
+      ? 'Dead — does not hunt'
+      : hunting
+        ? 'Hunting the user — fire breath at range, bite up close'
+        : 'Roaming its ground — sights the user and gives chase',
+    territory: 'wastes',
+    territoryNote: 'A dragon-class hunter — it roams Mordor and chases what it sees',
+    duel: null,
+    water: 'none',
+    waterNote: 'No drink law in Middle-earth code',
+    breeding: false,
+    breedingNote: `No breeding — refills ${respawnS} s after death, once the player is ${RESPAWN_MIN_DIST} m away`,
+    groupSize: 1,
+    deathCause: dead ? 'combat' : null,
+    respawnAt: null,
+    respawnNeedsDistanceM: null,
+    hour: Math.round(localHour(new Date(t)) * 10) / 10,
+    night: isNightAt(new Date(t)),
+  };
+  if (dead) {
+    const deadAt = Number(opts.deadAt) || 0;
+    life.respawnAt = deadAt + respawnS;
+    life.respawnNeedsDistanceM = RESPAWN_MIN_DIST;
+  }
+  life.line = lifeLine(life);
+  return life;
+}
+
 // ── Placed creatures ─────────────────────────────────────────
 /** The placed creature defs (data.js characters, creature: true). */
 export function placedCreatures(podId) {
@@ -253,32 +324,49 @@ export function placedCreatures(podId) {
 }
 
 /**
- * Life of a placed creature: ambient, never dies, no diet in
- * code. The life line says so plainly rather than inventing
- * a hunt or a death.
+ * Life of a placed creature. Dragon-class defs (dragon /
+ * fell-beast) are HUNTERS now (Merlin, Nov 26): the life line
+ * says they hunt, carry HP, and drop scales or fire orbs. The
+ * Eagle, Horse and Warg stay ambient, never die, no diet in
+ * code — the life line says so plainly rather than inventing
+ * a hunt or a death for them.
+ *
+ * NOTE on the figure tag's second line (video 2, f_86): the
+ * small subtitle under "A Dragon of the Wastes" IS this life
+ * line — it now reads "Hunts · 400 HP · drops Dragon Scales
+ * or Fire Orbs" instead of "Ambient · no hunt, no death".
  */
 export function placedCreatureLifeFor(def, now = Date.now()) {
   const t = now instanceof Date ? now.getTime() : Number(now);
+  const dragon = isDragonModel(def && def.model);
+  const stats = dragon ? DRAGON_KINDS[def.model] : null;
   const life = {
     realm: 'middle-earth',
     kind: 'placed',
+    isDragon: dragon,
     name: (def && def.name) || 'Creature',
     model: (def && def.model) || null,
     pod: (def && def.pod) || null,
     state: 'alive',
-    activity: 'ambient',
+    activity: dragon ? 'roam' : 'ambient',
     moving: false,
-    hp: null,
-    maxHp: null,
-    feeding: 'none',
-    feedingNote: 'Ambient figure — no diet or hunt in code',
-    territory: 'peace',
-    territoryNote: 'No territory law in code for placed creatures',
+    hp: dragon ? stats.hp : null,
+    maxHp: dragon ? stats.hp : null,
+    feeding: dragon ? 'hunt-user' : 'none',
+    feedingNote: dragon
+      ? 'Hunts the user — fire breath at range, bite up close'
+      : 'Ambient figure — no diet or hunt in code',
+    territory: dragon ? 'wastes' : 'peace',
+    territoryNote: dragon
+      ? 'A dragon-class hunter — it roams Mordor and chases what it sees'
+      : 'No territory law in code for placed creatures',
     duel: null,
     water: 'none',
     waterNote: 'No drink law in Middle-earth code',
     breeding: false,
-    breedingNote: 'Placed once — no breeding, no death in code',
+    breedingNote: dragon
+      ? 'No breeding — refills on the pod respawn clock, once the player is 65 m away'
+      : 'Placed once — no breeding, no death in code',
     groupSize: 1,
     deathCause: null,
     hour: Math.round(localHour(new Date(t)) * 10) / 10,
@@ -339,6 +427,9 @@ export function lifeFor(creature, now = Date.now(), opts = {}) {
   if (creature.kind === 'boss' || creature.isBoss === true) {
     return bossLifeFor(creature, now, opts);
   }
+  if (creature.isDragon === true || isDragonKind(creature.kind)) {
+    return dragonLifeFor(creature, now, opts);
+  }
   if (creature.kind === 'placed' || creature.creature === true) {
     return placedCreatureLifeFor(creature, now);
   }
@@ -359,7 +450,19 @@ export function lifeLine(life) {
     if (life.state === 'ready') return 'Saruman · Waiting · approach within 26 m to wake him';
     return `Saruman · Combat · phase ${life.phase} · ${life.hp}/${life.maxHp} HP`;
   }
-  if (life.kind === 'placed') return `${life.name} · Ambient · no hunt, no death in code`;
+  if (life.kind === 'placed') {
+    if (life.isDragon) {
+      if (life.state === 'dead') return `Remains — ${life.name} — returns on the respawn clock`;
+      if (life.activity === 'hunt') {
+        return `${life.name} · Hunting you · ${life.hp}/${life.maxHp} HP`;
+      }
+      if (life.hp != null && life.maxHp != null && life.hp < life.maxHp) {
+        return `${life.name} · Roaming · ${life.hp}/${life.maxHp} HP`;
+      }
+      return `${life.name} · Hunts · ${life.maxHp} HP · drops Dragon Scales or Fire Orbs`;
+    }
+    return `${life.name} · Ambient · no hunt, no death in code`;
+  }
   if (life.isAlly) return `${life.stageName || 'Adult'} · Following you · Ally`;
   const parts = [life.name || 'Orc', life.activity === 'chase' ? 'Hunting you' : 'Patrolling'];
   if (life.orcKind === 'captain') parts.push('Captain');

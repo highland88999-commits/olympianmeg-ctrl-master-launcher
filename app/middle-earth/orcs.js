@@ -466,6 +466,39 @@ export function damageOrc(orc, dmg, rng) {
   return rollLoot(orc.kind, rng);
 }
 
+/* ---------------- dragon loot (Merlin, Nov 26: "Make the dragons
+ * hunt and be billable. They drop dragon scales or fire orbs.")
+ * "Billable" reads as killable — hunt them, kill them, they drop
+ * loot. The roll lives here beside rollLoot so a dragon kill
+ * feeds the SAME backpack path (campaign.js applyLootToRecord)
+ * and the same toast as an orc kill; the dragon AI itself lives
+ * in dragons.js and only calls this roll. Scales are guaranteed
+ * (every dragon leaves scales); Fire Orbs are the rare drop. */
+export const DRAGON_SCALE_ITEM_ID = 'dragon-scale';
+export const DRAGON_SCALE_ITEM_NAME = 'Dragon Scale';
+export const FIRE_ORB_ITEM_ID = 'fire-orb';
+export const FIRE_ORB_ITEM_NAME = 'Fire Orb';
+
+export function rollDragonLoot(kind, rng) {
+  const loot = [];
+  const dragon = kind === 'dragon';
+  loot.push({
+    id: DRAGON_SCALE_ITEM_ID,
+    name: DRAGON_SCALE_ITEM_NAME,
+    qty: dragon ? 3 + Math.floor(rng() * 3) : 2 + Math.floor(rng() * 2),
+  });
+  const orbChance = dragon ? 0.6 : 0.4;
+  if (rng() < orbChance) {
+    loot.push({
+      id: FIRE_ORB_ITEM_ID,
+      name: FIRE_ORB_ITEM_NAME,
+      qty: dragon ? 1 + Math.floor(rng() * 2) : 1,
+    });
+  }
+  loot.push({ id: 'crude-iron', name: 'Crude Iron', qty: dragon ? 2 : 1 + Math.floor(rng() * 2) });
+  return loot;
+}
+
 export function rollLoot(kind, rng) {
   const loot = [];
   const r = rng();

@@ -193,7 +193,13 @@ describe('MIDDLE-EARTH endless — every pod', () => {
     assert.ok(keys.has(centre), `ring centred on the observer (${centre})`);
     const sun = findNamed(z, 'me-sun');
     assert.ok(sun, 'sun group present');
-    assert.deepEqual([sun.position.x, sun.position.z], [5000, -3000], 'sun over the observer');
+    // Re-pinned Nov 26 (CGI sky refactor): the sun now rides inside the
+    // 'me-sky' group, which update() keeps over the observer — so the
+    // sun's LOCAL position is [0, 0] and its WORLD position is what must
+    // sit over the observer. The rendered result is unchanged.
+    const wp = new THREE.Vector3();
+    sun.getWorldPosition(wp);
+    assert.deepEqual([wp.x, wp.z], [5000, -3000], 'sun over the observer');
     // ground under the far observer is real: a vertex matches analytic
     let checked = 0;
     z.group.traverse((o) => {

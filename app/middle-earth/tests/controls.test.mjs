@@ -57,9 +57,11 @@ test('follow camera: pitch moves the look target, never the height', () => {
   assert.equal(level.lookZ, 95 - 4, 'look target sits 4 m ahead');
 });
 
-test('follow camera: a hill under the camera still lifts it', () => {
+test('follow camera: a hill under the camera lifts it — at most 1 m (2026-11-26 cap)', () => {
   const pose = followCameraPose({ x: 0, z: 95, yaw: 0, pitch: 0.8, headY: 1.7, groundHeight: () => 100 });
-  assert.equal(pose.cy, 100.6, 'terrain clamp beats the pitch-free height');
+  assert.equal(pose.cy, 1.7 + 1.7 + 1.0, 'terrain lift stops at the 1 m cap, however high the hill');
+  const small = followCameraPose({ x: 0, z: 95, yaw: 0, pitch: 0.8, headY: 1.7, groundHeight: () => 3 });
+  assert.equal(small.cy, 3.6, 'a modest hill still lifts the camera exactly as before');
 });
 
 /* ---- fix 9: the orc hunt marker ---- */

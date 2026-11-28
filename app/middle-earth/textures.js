@@ -227,6 +227,32 @@ export function waterTexture() {
   });
 }
 
+/* Scorched ground — the volcano's lava-crack language, cooled:
+ * near-black ash with ember flecks, for the flat discs that break
+ * up Mordor's plain dark ground. The cracks are drawn by the
+ * zone's ribbon geometry, not this texture. */
+export function scorchTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(115);
+    ctx.fillStyle = '#17130f'; ctx.fillRect(0, 0, size, size);
+    speckle(ctx, size, 700, ['#241d16', '#0d0a08', '#33291f', '#1c1512'], rand, 1, 5);
+    speckle(ctx, size, 40, ['#ff5a1a', '#ff8a2a', '#c93a08'], rand, 1, 2);
+    cracks(ctx, size, 5, 'rgba(8,6,5,0.7)', rand, 2.5);
+  });
+}
+
+/* Sun-bleached variation for the green pods: the same disc idea
+ * as scorch, but a darker meadow patch so the ground reads at
+ * phone distance without changing the pod's look. */
+export function meadowShadeTexture() {
+  return makeCanvasTexture(256, (ctx, size) => {
+    const rand = mulberry32(116);
+    ctx.fillStyle = '#6d8f4a'; ctx.fillRect(0, 0, size, size);
+    speckle(ctx, size, 700, ['#5d7d3e', '#7da256', '#54703a', '#86ad5e'], rand, 1, 4);
+    strands(ctx, size, 350, ['#5d7d3e', '#86ad5e', '#6d8f4a'], rand, 12, false);
+  });
+}
+
 /* --- sprites (transparent backgrounds, soft flat-circle falloff) --- */
 
 export function leafSprite() {
@@ -267,5 +293,20 @@ export function fireflySprite() {
     blob(ctx, c, c, c * 0.95, '216,255,122', 0.5, 6);
     blob(ctx, c, c, c * 0.5, '240,255,170', 0.85, 5);
     blob(ctx, c, c, c * 0.24, '255,255,240', 1, 4);
+  });
+}
+
+/* A soft smoke-brown puff for the drifting cloud layer and the
+ * ground mist — one texture, tinted per sprite by its material
+ * color, so Mordor's clouds read as ash-smoke and the Shire's
+ * as pale cloud. */
+export function cloudSprite() {
+  return spriteTexture(128, (ctx, size) => {
+    const rand = mulberry32(117);
+    const c = size / 2;
+    for (let i = 0; i < 11; i++) {
+      blob(ctx, c + (rand() - 0.5) * 52, c + (rand() - 0.5) * 30,
+        16 + rand() * 26, '200,190,175', 0.32, 4);
+    }
   });
 }

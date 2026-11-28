@@ -31,17 +31,20 @@ import {
   mulberry32, PLAYER_MAX_HP, BLADE,
 } from './orcs';
 import { damageBoss, bossSlowFactor, bossPhase } from './boss';
-import { orcLifeFor, bossLifeFor } from './operators.js';
+import { damageDragon } from './dragons';
+import { orcLifeFor, bossLifeFor, dragonLifeFor } from './operators.js';
 import { RETICLE_BY_CLASS, equippedDamageForSlot, equippedReticleForSlot, equippedWeaponEntry, weaponHand } from '../../lib/backpack/backpack.js';
 import {
   cgiForWeapon, rangedFiringFor, meleeFiringFor,
   spawnProjectile, stepProjectile,
   buildProjectileMesh, buildSwingArc, buildMuzzleFlash,
+  buildBreathCone, dragonWindupOutcome,
   loadWeaponGroup, mountWeaponInHand, mountWeaponSheathed,
 } from '../../lib/weapons/cgi.js';
 import { getBackpackRecord, updateBackpack, useBackpack } from '../../lib/backpack/store.js';
 import { spawnCompanion, updateCompanions, removeCompanion, hasCompanion } from '../../lib/dino-companion.js';
 import { isDinoItem, dinoIdOf, dinoDisplayName, DINO_STATE_OUT, DINO_STATE_PACK, setDinoItemState } from '../../lib/earth2/breeding.js';
+import { levelOf, xpOf, setDinoXp, xpForKill, XP_PER_HIT, XP_ASSIST } from '../../lib/dino-xp.js';
 import BackpackHud from '@/components/backpack/BackpackHud';
 import OrbButton, { OrbLabel } from '@/components/world/OrbButton';
 import { useOrbDock } from '@/components/world/useOrbDock';
@@ -65,6 +68,15 @@ const BANNER_CLEAR = 'max(3.5rem, calc(env(safe-area-inset-top) + 3rem))';
 const BOTTOM_CLEAR = 'max(1.5rem, calc(env(safe-area-inset-bottom) + 1rem))';
 const CARD_CLEAR = 'max(7.5rem, calc(env(safe-area-inset-bottom) + 6.5rem))';
 const GOLD = '#d8b25c';
+// Menu background video (Merlin, Nov 26): the Misty Mountains valley
+// from the house Middle-earth art, animated into a slow 10 s drift
+// loop — muted, looped, inline, autoplay. It plays behind the menu
+// and map screens only (never in a zone, where the 3D canvas owns
+// the screen), full-bleed under the menu scrims; the static valley
+// art is the poster/fallback if the video cannot play. The file is
+// a binary: it ships by git push, never the contents-API push.
+const MENU_BG_VIDEO = '/videos/middle-earth/menu-bg.mp4';
+const MENU_BG_POSTER = '/art/middle-earth/middle-earth.jpg';
 // Orb sizes for the shared dock (lib/world/orb-dock.js): the weapon
 // orbs are the plain 56 px OrbButton circles.
 const ME_ORB_SIZES = { melee: 56, ranged: 56 };
@@ -369,6 +381,20 @@ export default function MiddleEarthPage() {
       }
     };
 
+    /* A dragon kill: loot to the backpack + the Remains toast,
+     * through the SAME path as an orc kill — but it is NOT a
+     * campaign kill (no recordKill, no Saruman-gate progress,
+     * no mission hunt count): dragons are a hunt of their own. */
+    const onDragonKilled = (dragon, loot, lifeLine) => {
+      if (Array.isArray(loot) && loot.length) {
+        try { updateBackpack((rec) => applyLootToRecord(rec, loot)); } catch { /* pack unavailable */ }
+        const names = loot.map((l) => (l.weapon ? l.weapon.name : `${l.name} ×${l.qty}`)).join(', ');
+        showToast(`Loot: ${names}` + (lifeLine ? ` · ${lifeLine}` : ''));
+      } else if (lifeLine) {
+        showToast(lifeLine);
+      }
+    };
+
     const onPlayerHit = (dmg) => {
       if (!hunter.alive) return;
       const died = hurtHunter(hunter, dmg);
@@ -621,6 +647,47 @@ export default function MiddleEarthPage() {
     // dinoApiRef. The record is the truth — the zone only renders
     // it, so a dino follows its user across realms.
     const companions = companionsRef.current;
+    // COMPANION HUNT (Merlin, 2026-11-26): the dino agent reports
+    // dinoHit events — this is the engine side that applies them.
+    // Damage lands through the same choke points as the player's
+    // own strikes (damageOrc / damageBoss), so loot, the hunt
+    // meter, the mission kill count and the Land of the Dead all
+    // fire exactly once per kill, whoever struck it. XP lands on
+    // the backpack record through the handle's awardXp.
+    // dinoDamaged: recordId -> dinoId for targets the dino hurt
+    // but did not finish — when one dies to the player, the dino
+    // banks assist XP (the frame loop sweeps this map).
+    const dinoDamaged = new Map();
+    const applyDinoHit = (ev) => {
+      if (!ev || !ev.target || !ev.target.ref) return;
+      const handle = companions.find((h) => h && h.dinoId === ev.dinoId);
+      const target = ev.target.ref;
+      const targetId = ev.target.id;
+      if (ev.target.isBoss) {
+        const events = damageBoss(target, ev.dmg);
+        for (const e of events) onBossEvent(e);
+        const died = events.some((e) => e.type === 'died');
+        if (handle) handle.awardXp(died ? xpForKill('boss') : XP_PER_HIT);
+        return;
+      }
+      if (target.state === 'dead') return;
+      const loot = damageOrc(target, ev.dmg, lootRngRef.current);
+      alertBand(zone.hunt.orcs, target);
+      if (loot) {
+        dinoDamaged.delete(targetId);
+        zone.hunt.noteKill(walker.pos.x, walker.pos.z);
+        zone.hunt.markDead(target);
+        const respawnS = (pod.orcs && pod.orcs.respawnS) || 45;
+        const rec = zone.hunt.records.find((r) => r.id === target.recordId);
+        onOrcKilled(target, loot, orcLifeFor(target, Date.now(), {
+          deadAt: rec ? rec.deadAt : -1, respawnS,
+        }).line);
+        if (handle) handle.awardXp(xpForKill(target.kind));
+      } else {
+        dinoDamaged.set(targetId, ev.dinoId);
+        if (handle) handle.awardXp(XP_PER_HIT);
+      }
+    };
     const summonDino = async (dinoItem) => {
       const species = dinoItem && dinoItem.meta ? dinoItem.meta.species : null;
       if (!species) return;
@@ -629,6 +696,11 @@ export default function MiddleEarthPage() {
       const handle = await spawnCompanion({
         scene, walker, groundHeight: zone.groundHeight,
         species, bornAt: dinoItem.meta.bornAt || Date.now(), dinoId,
+        level: levelOf(dinoItem), xp: xpOf(dinoItem),
+        onXp: (id, xp, level, leveledUp) => {
+          updateBackpack((r) => ({ ...r, items: setDinoXp(r.items || [], id, xp, level) }));
+          if (leveledUp) showToast(`🦖 ${dinoDisplayName(species)} reached level ${level} — more savage!`);
+        },
       }).catch(() => null);
       if (!handle || cancelled) return;
       companions.push(handle);
@@ -686,7 +758,9 @@ export default function MiddleEarthPage() {
     /* Visible shots: every strike flies a real projectile record
      * (lib/weapons/cgi.js) — a revolver bullet with muzzle flash
      * and tracer when a firearm arms the ranged hand, an arrow
-     * for a bow, a blast for a staff; melee draws a swing arc.
+     * for a bow, a thrown spear when a spear arms the ranged
+     * hand, an energy bolt for the Portal Gun, a blast for a
+     * staff; melee draws a swing arc (a thrust arc for a spear).
      * Cosmetic only — damage already landed (or missed) in
      * strike(); the shot never decides anything. The frame loop
      * steps the records and fades them; the effect cleanup
@@ -716,7 +790,10 @@ export default function MiddleEarthPage() {
       const built = buildProjectileMesh(THREE, record);
       scene.add(built.group);
       shots.push({ record, built, life: (rangeM || firing.rangeM) / firing.speedMps + 0.1 });
-      if (firing.kind === 'bullet') {
+      if (firing.kind === 'bullet' || firing.kind === 'bolt') {
+        // Muzzle flash for the guns: the revolver's powder flash,
+        // the Portal Gun's cyan discharge. Arrows, spears and
+        // staff blasts leave the hand without one.
         const flash = buildMuzzleFlash(THREE, o.origin, firing.tracerColor);
         scene.add(flash.sprite);
         flashes.push({ built: flash, life: flash.life });
@@ -735,6 +812,192 @@ export default function MiddleEarthPage() {
       arcs.push({ built, life: built.life });
     };
 
+    /* Dragon breath + bite visuals (Merlin, Nov 26 — Part 2's
+     * numbers, this visual): the dragon agent's wind-up is the
+     * telegraph and its hitPlayer is the strike, but the zone
+     * hands the page neither event — so the frame loop polls
+     * zone.hunt.dragons each frame and renders from the live
+     * record. BREATH: a lava-crack ember cone (lib/weapons/
+     * cgi.js buildBreathCone) that grows out of the dragon's
+     * mouth as the wind-up builds and fires full-bright on the
+     * hit; step out of range mid-wind-up and the cone dies with
+     * the wind-up, exactly as the attack cancels. BITE: a fire
+     * snap-arc at the head that lunges toward the player as the
+     * wind-up builds, plus the figure pitching forward — the
+     * zone only owns rotation.y on a live figure, so rotation.x
+     * is safe to borrow and is restored the moment the bite
+     * ends (never touched once the dragon is dead — the fall
+     * owns rotation.x then). Cosmetic only: the agent already
+     * decided the hit; this only shows it. */
+    const dragonVisuals = new Map(); // dragon record -> visual state
+    const dragonMouth = (d) => {
+      const gy = zone.groundHeight(d.x, d.z);
+      const h = (d.stats && d.stats.height) || 4;
+      const fx = Math.sin(d.yaw), fz = Math.cos(d.yaw);
+      return [d.x + fx * 1.8, gy + h * 0.72, d.z + fz * 1.8];
+    };
+    const aimBreathCone = (cone, mouth, p) => {
+      const g = cone.group;
+      g.visible = true;
+      g.position.set(mouth[0], mouth[1], mouth[2]);
+      const tx = walker.pos.x, tz = walker.pos.z;
+      const ty = zone.groundHeight(tx, tz) + 1.3;
+      const dir = new THREE.Vector3(tx - mouth[0], ty - mouth[1], tz - mouth[2]).normalize();
+      g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+      g.scale.set(1, 1, Math.max(0.05, p));
+      cone.outer.material.opacity = 0.18 + p * 0.4;
+      cone.core.material.opacity = 0.25 + p * 0.55;
+      cone.glow.material.opacity = 0.35 + p * 0.6;
+      const gs = 1.5 + p * 2.5;
+      cone.glow.scale.set(gs, gs, 1);
+    };
+    const fireBreathCone = (cone, mouth) => {
+      aimBreathCone(cone, mouth, 1);
+      cone.outer.material.opacity = 0.95;
+      cone.core.material.opacity = 1;
+      cone.glow.material.opacity = 1;
+      cone.glow.scale.set(4, 4, 1);
+    };
+    const aimBiteArc = (bite, d, mouth, p) => {
+      const m = bite.mesh;
+      m.visible = true;
+      const dx = walker.pos.x - d.x, dz = walker.pos.z - d.z;
+      const dl = Math.hypot(dx, dz) || 1;
+      const ux = dx / dl, uz = dz / dl;
+      // The arc lunges toward the player as the wind-up builds.
+      m.position.set(mouth[0] + ux * (0.5 + p * 1.2), mouth[1], mouth[2] + uz * (0.5 + p * 1.2));
+      m.rotation.z = Math.atan2(dx, dz) - Math.PI / 2 - 1.1 / 2;
+      m.scale.setScalar(1.6 + p * 0.6);
+      m.material.opacity = 0.25 + p * 0.45;
+    };
+    const pitchDragonFigure = (d, pitch, v) => {
+      if (d.state === 'dead') { v.pitched = false; return; }
+      const fig = scene.getObjectByName('figure:' + d.id);
+      if (!fig) { v.pitched = false; return; }
+      fig.rotation.x = pitch;
+      v.pitched = pitch > 0;
+    };
+    const getDragonVisual = (d) => {
+      let v = dragonVisuals.get(d);
+      if (v) return v;
+      const range = d.stats && d.stats.breath ? d.stats.breath.range : 14;
+      const cone = buildBreathCone(THREE, range);
+      cone.group.visible = false;
+      scene.add(cone.group);
+      const bite = buildSwingArc(THREE, {
+        origin: [0, 0, 0], yaw: 0, kind: 'thrust', color: '#ff7a1f',
+      });
+      bite.mesh.visible = false;
+      bite.mesh.scale.setScalar(1.6);
+      scene.add(bite.mesh);
+      v = {
+        cone, bite, prevKind: null, active: null,
+        mode: 'idle', burstT: 0, burstDur: 0.6, fadeT: 0, pitched: false,
+      };
+      dragonVisuals.set(d, v);
+      return v;
+    };
+    const hideDragonVisual = (v) => {
+      v.cone.group.visible = false;
+      v.bite.mesh.visible = false;
+      v.active = null;
+      v.mode = 'idle';
+    };
+    const stepDragonVisuals = (dt) => {
+      const dragons = (zone.hunt && zone.hunt.dragons) || [];
+      const seen = new Set();
+      for (const d of dragons) {
+        seen.add(d);
+        const v = getDragonVisual(d);
+        const mouth = dragonMouth(d);
+        const dist = Math.hypot(walker.pos.x - d.x, walker.pos.z - d.z);
+        if (d.state === 'dead') {
+          hideDragonVisual(v);
+          v.prevKind = null;
+          continue;
+        }
+        if (d.state === 'windup' && d.windupKind) {
+          const atk = d.stats[d.windupKind];
+          const p = atk && atk.windup > 0
+            ? Math.max(0, Math.min(1, 1 - d.windupT / atk.windup)) : 1;
+          if (d.windupKind === 'breath') {
+            aimBreathCone(v.cone, mouth, p);
+            v.bite.mesh.visible = false;
+            v.active = 'breath';
+            if (v.pitched) pitchDragonFigure(d, 0, v);
+          } else {
+            v.cone.group.visible = false;
+            aimBiteArc(v.bite, d, mouth, p);
+            v.active = 'bite';
+            pitchDragonFigure(d, 0.3 * p, v);
+          }
+          v.prevKind = d.windupKind;
+          v.mode = 'tele';
+          continue;
+        }
+        /* The wind-up resolved (or never started): a hit fires
+         * the full burst, a step-out cancels the telegraph. */
+        if (v.prevKind) {
+          const outcome = dragonWindupOutcome({
+            prevKind: v.prevKind, stats: d.stats, dist,
+            alive: hunter.alive, dead: d.state === 'dead',
+          });
+          if (outcome === 'hit') {
+            if (v.prevKind === 'breath') {
+              fireBreathCone(v.cone, mouth);
+              v.burstDur = 0.6;
+            } else {
+              v.bite.mesh.visible = true;
+              v.bite.mesh.material.opacity = 1;
+              v.bite.mesh.scale.setScalar(2.6);
+              v.burstDur = 0.35;
+            }
+            v.active = v.prevKind;
+            v.mode = 'burst';
+            v.burstT = v.burstDur;
+          } else {
+            v.mode = 'fade';
+            v.fadeT = 0.18;
+          }
+          v.prevKind = null;
+        }
+        if (v.pitched && !(d.state === 'windup' && d.windupKind === 'bite')) {
+          pitchDragonFigure(d, 0, v);
+        }
+        if (v.mode === 'burst') {
+          v.burstT -= dt;
+          const k = Math.max(0, v.burstT / v.burstDur);
+          if (v.active === 'breath') {
+            v.cone.outer.material.opacity = 0.95 * k;
+            v.cone.core.material.opacity = 1 * k;
+            v.cone.glow.material.opacity = 1 * k;
+          } else if (v.active === 'bite') {
+            v.bite.mesh.material.opacity = Math.max(0, k);
+          }
+          if (v.burstT <= 0) hideDragonVisual(v);
+        } else if (v.mode === 'fade') {
+          v.fadeT -= dt;
+          const k = Math.max(0, v.fadeT / 0.18);
+          if (v.active === 'breath') {
+            v.cone.outer.material.opacity *= k;
+            v.cone.core.material.opacity *= k;
+            v.cone.glow.material.opacity *= k;
+          } else if (v.active === 'bite') {
+            v.bite.mesh.material.opacity *= k;
+          }
+          if (v.fadeT <= 0) hideDragonVisual(v);
+        }
+      }
+      for (const [d, v] of [...dragonVisuals]) {
+        if (seen.has(d)) continue;
+        scene.remove(v.cone.group);
+        try { v.cone.dispose(); } catch (e) { /* noop */ }
+        scene.remove(v.bite.mesh);
+        try { v.bite.dispose(); } catch (e) { /* noop */ }
+        dragonVisuals.delete(d);
+      }
+    };
+
     /* Combat input: a tap strikes with the hand in use — on TAP
      * RELEASE, through drag-look's own onTap (quick tap, small
      * movement, short time). A press that turns into a drag is a
@@ -747,7 +1010,7 @@ export default function MiddleEarthPage() {
       setShowStrikeHint(false);
       const h = heroRef.current;
       const aim = aimYawFromWalker(walker.yaw);
-      const targets = [...zone.hunt.orcs];
+      const targets = [...zone.hunt.orcs, ...zone.hunt.dragons];
       const boss = zone.hunt.boss;
       if (boss && boss.state === 'combat') targets.push(boss);
       const ranged = weaponRef.current === 'ranged';
@@ -807,6 +1070,17 @@ export default function MiddleEarthPage() {
         for (const ev of events) onBossEvent(ev);
         if (hit.state !== 'dead') {
           showToast(bossLifeFor(hit, Date.now(), { totalKills: campaignRef.current.totalKills }).line);
+        }
+      } else if (hit.isDragon) {
+        const loot = damageDragon(hit, dmg, lootRngRef.current);
+        if (loot) {
+          zone.hunt.noteKill(walker.pos.x, walker.pos.z);
+          zone.hunt.markDragonDead(hit);
+          onDragonKilled(hit, loot, dragonLifeFor(hit, Date.now(), {
+            deadAt: hit.deadAt, respawnS,
+          }).line);
+        } else {
+          showToast(dragonLifeFor(hit, Date.now(), { respawnS }).line);
         }
       } else {
         const loot = damageOrc(hit, dmg, lootRngRef.current);
@@ -1179,9 +1453,56 @@ export default function MiddleEarthPage() {
         f.built.sprite.scale.set(sc, sc, 1);
       }
 
-      // Dino companions follow the walker (their own step).
-      updateCompanions(companions, dt);
+      // Dino companions hunt beside the walker (their own step):
+      // the agent gets the live hostiles, the fight the player is
+      // already in (the nearest orc chasing the walker, or
+      // Saruman in combat, is the owner's target), and whatever
+      // is close enough to be swinging at the owner — and reports
+      // dinoHit events back through applyDinoHit. No hostiles in
+      // this realm, no hunt context: the dino heels, as before.
+      {
+        const hostiles = [];
+        for (const o of zone.hunt.orcs) {
+          if (o.state === 'dead') continue;
+          hostiles.push({ id: `orc-${o.recordId}`, x: o.x, z: o.z, alive: true, state: o.state, kind: o.kind, recordId: o.recordId, ref: o });
+        }
+        const boss = zone.hunt.boss;
+        if (boss && boss.state === 'combat') {
+          hostiles.push({ id: 'saruman', x: boss.x, z: boss.z, alive: true, state: boss.state, kind: 'boss', isBoss: true, ref: boss });
+        }
+        let ownerTarget = null;
+        let ownerTargetD = Infinity;
+        for (const h of hostiles) {
+          const d = Math.hypot(h.x - walker.pos.x, h.z - walker.pos.z);
+          const fighting = h.isBoss || h.state === 'chase';
+          if (fighting && d < ownerTargetD) { ownerTarget = h; ownerTargetD = d; }
+        }
+        let attacker = null;
+        let attackerD = Infinity;
+        for (const h of hostiles) {
+          const d = Math.hypot(h.x - walker.pos.x, h.z - walker.pos.z);
+          if (d <= 3 && d < attackerD) { attacker = h; attackerD = d; }
+        }
+        updateCompanions(companions, dt, {
+          hostiles, ownerTarget, attacker, ownerId: 'player', onEvent: applyDinoHit,
+        });
+        // Assist XP: a target the dino hurt that has since died
+        // to the player's hand pays the dino its assist share.
+        if (dinoDamaged.size) {
+          for (const [targetId, dinoId] of [...dinoDamaged.entries()]) {
+            const orc = zone.hunt.orcs.find((o) => `orc-${o.recordId}` === targetId);
+            if (orc && orc.state === 'dead') {
+              dinoDamaged.delete(targetId);
+              const h = companions.find((x) => x && x.dinoId === dinoId);
+              if (h) h.awardXp(XP_ASSIST);
+            }
+          }
+        }
+      }
       zone.update(t, dt);
+      /* Dragon breath/bite visuals step AFTER the zone (the poll
+       * reads the wind-up state the zone just stepped). */
+      stepDragonVisuals(dt);
       /* GALLOP: the ridden horse's body rocks AFTER the zone's own
        * figure update (which owns body y/rotation absolutely) —
        * the same add-on-top pattern as the hero pose. Standing
@@ -1243,6 +1564,13 @@ export default function MiddleEarthPage() {
         scene.remove(f.built.sprite);
         try { f.built.dispose(); } catch (e) { /* noop */ }
       }
+      for (const v of dragonVisuals.values()) {
+        scene.remove(v.cone.group);
+        try { v.cone.dispose(); } catch (e) { /* noop */ }
+        scene.remove(v.bite.mesh);
+        try { v.bite.dispose(); } catch (e) { /* noop */ }
+      }
+      dragonVisuals.clear();
       handWeaponRef.current = null;
       if (handWeapon.group) {
         if (playerBody) playerBody.remove(handWeapon.group);
@@ -1268,6 +1596,39 @@ export default function MiddleEarthPage() {
     ? (equippedReticleForSlot(equippedEntry, 'ranged') || RETICLE_BY_CLASS[hero.ranged.kind] || 'dot')
     : (equippedReticleForSlot(equippedEntry, 'melee') || 'dot');
 
+  /* Weapon orbs show what the hand actually fires (the V1/V2
+   * video bug: equipping the Revolver left the ranged orb on
+   * the bow icon + 34 — the orbs read only the hero's numbers).
+   * A weapon that arms a hand lends that hand its glyph and its
+   * damage: a spear lends the ranged hand its thrown-spear
+   * glyph, the melee hand its thrust one. The Portal Gun's pack
+   * damage is 0 by design, so its orb keeps the hero's number
+   * — the glyph still changes to the gun. */
+  const ORB_GLYPH_BY_CLASS = {
+    firearm: '🔫', bow: '🏹', spear: '🔱', blade: '🗡',
+    blunt: '🔨', cane: '🦯', staff: '🔮', portal: '🔫',
+  };
+  const orbFor = (hand) => {
+    const heroLabel = hand === 'ranged' ? hero.rangedLabel : hero.meleeLabel;
+    const heroDmg = hand === 'ranged' ? hero.ranged.dmg : hero.meleeDmg;
+    const fallback = { glyph: heroLabel.split(' ')[0], dmg: heroDmg, name: heroLabel };
+    const eq = equippedEntry;
+    if (!eq || !eq.meta) return fallback;
+    const cls = eq.meta.weaponClass;
+    const arms = hand === 'ranged'
+      ? (cls === 'bow' || cls === 'firearm' || cls === 'spear')
+      : (cls === 'blade' || cls === 'blunt' || cls === 'spear' || cls === 'cane' || cls === 'staff');
+    if (!arms) return fallback;
+    const d = Math.floor(Number(eq.meta.damage));
+    return {
+      glyph: ORB_GLYPH_BY_CLASS[cls] || fallback.glyph,
+      dmg: Number.isFinite(d) && d > 0 ? d : heroDmg,
+      name: (typeof eq.name === 'string' && eq.name) || heroLabel,
+    };
+  };
+  const meleeOrb = orbFor('melee');
+  const rangedOrb = orbFor('ranged');
+
   /* mission state line, shared by the full card and the tucked chip:
    * kills or gates, the par clock, and the goal compass */
   const missionStateLine = activeMission && (
@@ -1283,6 +1644,16 @@ export default function MiddleEarthPage() {
     <div style={styles.root}>
       <style>{'@keyframes meFade { from { opacity: 0; } to { opacity: 1; } } @keyframes mePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }'}</style>
       <canvas ref={canvasRef} style={styles.canvas} />
+
+      {/* Menu background video: behind the menu + map screens only —
+          the zone keeps the 3D canvas alone. Full-bleed under the
+          menu scrims; the overlay (zIndex 30) and map (zIndex 20)
+          sit above it, so the menu content never moves. */}
+      {(mode === 'menu' || mode === 'map') && (
+        <video data-testid="menu-bg-video" src={MENU_BG_VIDEO} poster={MENU_BG_POSTER}
+          muted loop playsInline autoPlay preload="auto" aria-hidden="true"
+          style={styles.menuBgVideo} />
+      )}
 
       {webglFail && (
         <div style={styles.overlay}>
@@ -1548,17 +1919,17 @@ export default function MiddleEarthPage() {
             {...dock.bind('melee')}
             style={dock.styleFor('melee', { right: 'calc(0.8rem + 112px + 0.9rem)', bottom: BOTTOM_CLEAR })}
             onClick={() => setWeapon('melee')}
-            ariaLabel={`${hero.meleeLabel} ${hero.meleeDmg} — tap to switch to melee`}>
-            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.meleeLabel.split(' ')[0]}</span>
-            <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.meleeDmg}</span>
+            ariaLabel={`${meleeOrb.name} ${meleeOrb.dmg} — tap to switch to melee`}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{meleeOrb.glyph}</span>
+            <span style={{ fontSize: 9, lineHeight: 1 }}>{meleeOrb.dmg}</span>
           </OrbButton>
           <OrbButton accent={GOLD} active={weapon === 'ranged'}
             {...dock.bind('ranged')}
             style={dock.styleFor('ranged', { right: 'calc(0.8rem + 56px + 0.45rem)', bottom: BOTTOM_CLEAR })}
             onClick={() => setWeapon('ranged')}
-            ariaLabel={`${hero.rangedLabel} ${hero.ranged.dmg} — tap to switch to ranged`}>
-            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{hero.rangedLabel.split(' ')[0]}</span>
-            <span style={{ fontSize: 9, lineHeight: 1 }}>{hero.ranged.dmg}</span>
+            ariaLabel={`${rangedOrb.name} ${rangedOrb.dmg} — tap to switch to ranged`}>
+            <span aria-hidden="true" style={{ fontSize: 16, lineHeight: 1 }}>{rangedOrb.glyph}</span>
+            <span style={{ fontSize: 9, lineHeight: 1 }}>{rangedOrb.dmg}</span>
           </OrbButton>
           <div style={styles.backpackHome}>
             <BackpackHud realm="middle-earth" realmLabel="Middle-earth" combatApplies docked
@@ -1664,6 +2035,10 @@ export default function MiddleEarthPage() {
 const styles = {
   root: { position: 'fixed', inset: 0, overflow: 'hidden', background: '#10130c', fontFamily: 'Georgia, serif', color: '#f0e6c8' },
   canvas: { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', touchAction: 'none' },
+  /* menu background video: full-bleed above the canvas (no z-index),
+   * below the map (20), the overlays (30) and the HUD (10) — the
+   * video never covers a control, and it never shows in a zone. */
+  menuBgVideo: { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 1, pointerEvents: 'none' },
   overlay: { position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(6,8,5,0.55)', padding: '1rem', zIndex: 30 },
   panel: { maxWidth: 520, width: '100%', background: 'rgba(16,20,12,0.92)', border: `1px solid ${GOLD}`, borderRadius: 16, padding: '1.4rem', textAlign: 'center', animation: 'meFade 0.4s ease' },
   menuPanel: { maxWidth: 560, width: '100%', background: 'rgba(16,20,12,0.9)', border: `1px solid ${GOLD}`, borderRadius: 18, padding: '2rem 1.6rem', textAlign: 'center', animation: 'meFade 0.5s ease' },
@@ -1676,7 +2051,11 @@ const styles = {
   primaryBtn: { background: GOLD, color: '#221a08', border: 'none', borderRadius: 10, padding: '0.7rem 1.5rem', fontSize: '1rem', fontFamily: 'Georgia, serif', cursor: 'pointer', marginTop: '0.6rem' },
   ghostBtn: { background: 'rgba(16,20,12,0.75)', color: '#f0e6c8', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '0.4rem 0.8rem', cursor: 'pointer', fontFamily: 'Georgia, serif', flexShrink: 0, whiteSpace: 'nowrap' },
   ghostBtnBlock: { display: 'block', margin: '0.7rem auto 0', background: 'none', border: 'none', color: '#cfc49c', cursor: 'pointer', fontFamily: 'Georgia, serif', textDecoration: 'underline' },
-  mapWrap: { position: 'absolute', inset: 0, overflowY: 'auto', padding: `calc(${BANNER_CLEAR}) 1rem calc(${CARD_CLEAR})`, background: 'radial-gradient(ellipse at 50% 30%, #243118 0%, #10130c 70%)', zIndex: 20 },
+  /* map background: the same green radial wash as before, now
+   * translucent so the menu video shows through it — the cards
+   * above keep their own near-opaque fills, so nothing loses
+   * readability. Layout (position, inset, padding, zIndex) untouched. */
+  mapWrap: { position: 'absolute', inset: 0, overflowY: 'auto', padding: `calc(${BANNER_CLEAR}) 1rem calc(${CARD_CLEAR})`, background: 'radial-gradient(ellipse at 50% 30%, rgba(36,49,24,0.62) 0%, rgba(16,19,12,0.88) 70%)', zIndex: 20 },
   mapHead: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', maxWidth: 880, margin: '0 auto 1rem' },
   mapTitle: { flex: '1 1 auto', minWidth: 0, textAlign: 'center', fontSize: '1.15rem', color: '#f5ecc9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   campaignCard: { maxWidth: 880, margin: '0 auto 1rem', background: 'rgba(22,28,16,0.92)', border: `1px solid ${GOLD}`, borderRadius: 14, padding: '1rem 1.2rem' },

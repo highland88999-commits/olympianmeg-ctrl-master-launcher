@@ -64,6 +64,7 @@ import {
   noteLoudHeat, heatLevel, losClear,
 } from './hunt.js';
 import { createSaruman, stepBoss, buildSarumanFigure, BOSS_POS } from './boss.js';
+import { createDragon, stepDragon, isDragonModel } from './dragons.js';
 import { placedCreatureExtras, placedCreatureLifeFor } from './operators.js';
 
 function R3(THREE) { return THREE || ThreeJS; }
@@ -276,6 +277,14 @@ function buildHorizon(R, def, heightAt) {
     : style === 'peaks' ? new R.ConeGeometry(1, 1, 5)
     : new R.SphereGeometry(1, 8, 6);
   const dummy = new R.Object3D();
+  /* CGI (Merlin, Nov 26): the horizon spires read as identical
+   * flat triangles on camera, so the 'spires' ring is dressed —
+   * a glowing ember tip on every spire (the video's red dot,
+   * made deliberate), an ember seam up every second spire's
+   * flank, and a leaning secondary spike at every third spire's
+   * foot, so no two silhouettes match. The tips pulse through
+   * the zone's own userData.pulse traverse. */
+  const spireSpots = [];
   const ring1 = new R.InstancedMesh(geo, mat, count);
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2 + rand() * 0.24;
@@ -290,10 +299,67 @@ function buildHorizon(R, def, heightAt) {
     dummy.scale.set(w, h, w * (0.7 + rand() * 0.5));
     dummy.updateMatrix();
     ring1.setMatrixAt(i, dummy.matrix);
+    if (style === 'spires') spireSpots.push({ x, z, baseY: heightAt(x, z) + h / 2 - 3, h, w, a });
   }
   ring1.instanceMatrix.needsUpdate = true;
   ring1.castShadow = false; ring1.receiveShadow = false;
   group.add(ring1);
+  if (style === 'spires' && spireSpots.length) {
+    const tipMat = new R.MeshBasicMaterial({ color: 0xff2a00, transparent: true, opacity: 0.9, fog: false });
+    const tips = new R.InstancedMesh(new R.SphereGeometry(1, 6, 5), tipMat, spireSpots.length);
+    tips.name = 'me-spire-tips';
+    tips.userData.pulse = true;
+    spireSpots.forEach((s, i) => {
+      const tr = s.w * 0.14;
+      dummy.position.set(s.x, s.baseY + s.h / 2 + 0.5, s.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(tr, tr, tr);
+      dummy.updateMatrix();
+      tips.setMatrixAt(i, dummy.matrix);
+    });
+    tips.instanceMatrix.needsUpdate = true;
+    group.add(tips);
+    const seamSpots = spireSpots.filter((s, i) => i % 2 === 0);
+    const seams = new R.InstancedMesh(
+      new R.BoxGeometry(1, 1, 1),
+      new R.MeshBasicMaterial({ color: 0xff5a1a, transparent: true, opacity: 0.85, fog: false }),
+      seamSpots.length,
+    );
+    seams.name = 'me-spire-seams';
+    seamSpots.forEach((s, i) => {
+      dummy.position.set(
+        s.x + Math.cos(s.a) * s.w * 0.54,
+        s.baseY - s.h * 0.1,
+        s.z + Math.sin(s.a) * s.w * 0.54,
+      );
+      dummy.rotation.set(0, -s.a, 0);
+      dummy.scale.set(0.8, s.h * 0.5, 0.8);
+      dummy.updateMatrix();
+      seams.setMatrixAt(i, dummy.matrix);
+    });
+    seams.instanceMatrix.needsUpdate = true;
+    group.add(seams);
+    const crownSpots = spireSpots.filter((s, i) => i % 3 === 0);
+    const crowns = new R.InstancedMesh(new R.ConeGeometry(1, 1, 4), mat, crownSpots.length);
+    crowns.name = 'me-spire-crowns';
+    crownSpots.forEach((s, i) => {
+      dummy.position.set(
+        s.x + Math.cos(s.a) * s.w * 0.55,
+        s.baseY - s.h / 2 + s.h * 0.25,
+        s.z + Math.sin(s.a) * s.w * 0.55,
+      );
+      dummy.rotation.set(Math.sin(s.a) * 0.25, 0, Math.cos(s.a) * 0.25);
+      dummy.scale.set(s.w * 0.4, s.h * 0.5, s.w * 0.4);
+      dummy.updateMatrix();
+      crowns.setMatrixAt(i, dummy.matrix);
+    });
+    crowns.instanceMatrix.needsUpdate = true;
+    crowns.castShadow = false; crowns.receiveShadow = false;
+    group.add(crowns);
+    group.userData.spireTips = spireSpots.length;
+    group.userData.spireSeams = seamSpots.length;
+    group.userData.spireCrowns = crownSpots.length;
+  }
   const ring2 = new R.InstancedMesh(geo, mat, count);
   for (let i = 0; i < count; i++) {
     const a = ((i + 0.5) / count) * Math.PI * 2 + rand() * 0.2;
@@ -310,6 +376,345 @@ function buildHorizon(R, def, heightAt) {
   ring2.castShadow = false; ring2.receiveShadow = false;
   group.add(ring2);
   return group;
+}
+
+/* ── CGI ENHANCEMENT (Merlin, Nov 26) ───────────────────────────
+ * The video evidence (197 frames, Mordor only): the sky is half
+ * the screen and flat brown; the ground is a featureless black
+ * plane; the horizon spires are identical flat triangles. The
+ * volcano is the best-looking piece — dark cone, glowing
+ * lava cracks — so the enhancement extends THAT language, it
+ * never invents a new one. Seeded procedural Three.js only
+ * (primitives, sprites, vertex colours), deterministic: the
+ * same pod def builds the same sky, ground and spires.
+ *
+ *   buildMESkyDome — 3-stop gradient dome (top/horizon/bottom),
+ *     BackSide, fog off, drawn behind everything.
+ *   buildMESkyLayers — drifting cloud sprites + (ash pods) a
+ *     rising ember field; the dome's weather, animated.
+ *   buildMEGroundDressing — ash pods: glowing lava-crack ribbons
+ *     hugging the terrain + scorch discs + ground mist; green
+ *     pods: shaded meadow discs for ground variation.
+ *   buildHorizon spires — glow tips, ember seams, crowning
+ *     secondary spikes (see below).
+ * The dome + layers ride in the 'me-sky' group, which update()
+ * keeps over the observer — the ENDLESS rule: a sky that stayed
+ * at the origin would slide away as the walker roams. */
+
+export const ME_SKY_DOME_RADIUS = 1200;
+export const ME_SKY_CLOUDS_ASH = 16;
+export const ME_SKY_CLOUDS_GREEN = 12;
+export const ME_SKY_EMBERS = 48;
+export const ME_GROUND_CRACKS = 24;
+export const ME_GROUND_SCORCH = 12;
+export const ME_GROUND_MIST = 10;
+export const ME_GROUND_SHADE = 10;
+
+function isAshPod(def) {
+  return (def && (def.biome === 'ash' || def.id === 'mordor')) || false;
+}
+
+/* The dome's three stops for a pod: Mordor smoulders (dark top,
+ * dusty-rose horizon from the pod's own sky, near-black bottom);
+ * green pods grade from their own sky down to darkened ground. */
+function skyStopsFor(R, def) {
+  const sky = new R.Color(def.sky != null ? def.sky : 0x9fd3e8);
+  const ground = new R.Color(def.ground != null ? def.ground : 0x6a7a4d);
+  if (isAshPod(def)) {
+    return {
+      top: new R.Color(0x2e1f1a),
+      horizon: sky.clone(),
+      bottom: new R.Color(0x191210),
+    };
+  }
+  return {
+    top: sky.clone().lerp(new R.Color(0x0a1420), 0.55),
+    horizon: sky.clone(),
+    bottom: ground.clone().lerp(new R.Color(0x000000), 0.45),
+  };
+}
+
+export function buildMESkyDome(R, def) {
+  const stops = skyStopsFor(R, def || {});
+  const geo = new R.SphereGeometry(ME_SKY_DOME_RADIUS, 28, 16);
+  const pos = geo.getAttribute('position');
+  const colors = new Float32Array(pos.count * 3);
+  const c = new R.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y01 = (pos.getY(i) / ME_SKY_DOME_RADIUS + 1) / 2;
+    if (y01 < 0.5) c.copy(stops.bottom).lerp(stops.horizon, y01 * 2);
+    else c.copy(stops.horizon).lerp(stops.top, (y01 - 0.5) * 2);
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new R.BufferAttribute(colors, 3));
+  const mat = new R.MeshBasicMaterial({
+    vertexColors: true, side: R.BackSide, fog: false, depthWrite: false,
+  });
+  const dome = new R.Mesh(geo, mat);
+  dome.name = 'me-sky-dome';
+  dome.frustumCulled = false;
+  dome.renderOrder = -1;
+  dome.userData.skyRadius = ME_SKY_DOME_RADIUS;
+  return dome;
+}
+
+export function buildMESkyLayers(R, def, T) {
+  const group = new R.Group();
+  group.name = 'me-sky-layers';
+  const updaters = [];
+  const textures = [];
+  const ash = isAshPod(def);
+  const seed = ((def && def.seed) >>> 0) || 1337;
+  const rand = mulberry32(seed ^ 0xc10d);
+  /* Drifting clouds: soft brown-grey puffs, low and brooding
+   * over Mordor, higher and paler over the green pods. Each
+   * sprite keeps its orbit (angle/radius/height) and drifts
+   * around the pod centre — the group rides the observer, so
+   * the clouds travel with the walker, never slide away. */
+  let cloudTex = null;
+  try {
+    if (T && typeof T.cloudSprite === 'function') cloudTex = T.cloudSprite();
+  } catch (e) { cloudTex = null; }
+  if (cloudTex) textures.push(cloudTex);
+  const cloudCount = ash ? ME_SKY_CLOUDS_ASH : ME_SKY_CLOUDS_GREEN;
+  let clouds = 0;
+  if (cloudTex) {
+    for (let i = 0; i < cloudCount; i++) {
+      const sp = new R.Sprite(new R.SpriteMaterial({
+        map: cloudTex, color: ash ? 0x9a7a68 : 0xffffff,
+        transparent: true, opacity: ash ? 0.5 : 0.42,
+        depthWrite: false, fog: false,
+      }));
+      const a = rand() * Math.PI * 2;
+      const r = 650 + rand() * 400;
+      const y = ash ? 100 + rand() * 140 : 160 + rand() * 180;
+      sp.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+      sp.scale.set(200 + rand() * 220, 60 + rand() * 70, 1);
+      sp.name = 'me-cloud';
+      sp.userData.orbit = { a, r, y, speed: (0.004 + rand() * 0.006) * (rand() < 0.5 ? 1 : -1) };
+      group.add(sp);
+      clouds += 1;
+    }
+    updaters.push(function (t, dt) {
+      for (const sp of group.children) {
+        if (!sp.userData.orbit) continue;
+        const o = sp.userData.orbit;
+        o.a += o.speed * (dt || 0);
+        sp.position.set(Math.cos(o.a) * o.r, o.y, Math.sin(o.a) * o.r);
+      }
+    });
+  }
+  /* Rising embers over Mordor: 48 additive points in a wide
+   * cylinder around the walker, climbing slowly and recycling
+   * at the top — the air itself smoulders. Green pods get none. */
+  let embers = 0;
+  if (ash) {
+    const positions = new Float32Array(ME_SKY_EMBERS * 3);
+    const speeds = new Float32Array(ME_SKY_EMBERS);
+    for (let i = 0; i < ME_SKY_EMBERS; i++) {
+      const a = rand() * Math.PI * 2;
+      const r = 60 + rand() * 440;
+      positions[i * 3] = Math.cos(a) * r;
+      positions[i * 3 + 1] = 2 + rand() * 68;
+      positions[i * 3 + 2] = Math.sin(a) * r;
+      speeds[i] = 0.5 + rand() * 1.1;
+    }
+    const geo = new R.BufferGeometry();
+    geo.setAttribute('position', new R.BufferAttribute(positions, 3));
+    const pts = new R.Points(geo, new R.PointsMaterial({
+      color: 0xff7a1f, size: 3, sizeAttenuation: false,
+      transparent: true, opacity: 0.85, blending: R.AdditiveBlending,
+      depthWrite: false, fog: false,
+    }));
+    pts.name = 'me-embers';
+    pts.frustumCulled = false;
+    pts.userData.speeds = speeds;
+    group.add(pts);
+    embers = ME_SKY_EMBERS;
+    updaters.push(function (t, dt) {
+      const p = pts.geometry.getAttribute('position');
+      const step = dt || 0;
+      for (let i = 0; i < ME_SKY_EMBERS; i++) {
+        let y = p.getY(i) + speeds[i] * step;
+        if (y > 72) y = 2;
+        p.setY(i, y);
+      }
+      p.needsUpdate = true;
+    });
+  }
+  group.userData.clouds = clouds;
+  group.userData.embers = embers;
+  return { group, updaters, textures };
+}
+
+/* A lava-crack ribbon: a flat strip of quads hugging the analytic
+ * terrain (sampled every ~2 m, +0.12 m clear), glowing unlit
+ * orange — the volcano's crack language, laid on the ground. */
+function buildCrackRibbon(R, heightAt, rand) {
+  const a = rand() * Math.PI * 2;
+  const r = 25 + rand() * 275;
+  const cx = Math.cos(a) * r;
+  const cz = Math.sin(a) * r;
+  const heading = rand() * Math.PI * 2;
+  const len = 6 + rand() * 8;
+  const steps = 6;
+  const dx = Math.cos(heading);
+  const dz = Math.sin(heading);
+  const px = -dz;
+  const pz = dx;
+  const halfW = 0.18;
+  const positions = new Float32Array((steps + 1) * 2 * 3);
+  const uvs = new Float32Array((steps + 1) * 2 * 2);
+  const index = [];
+  for (let i = 0; i <= steps; i++) {
+    const k = i / steps - 0.5;
+    const x = cx + dx * k * len;
+    const z = cz + dz * k * len;
+    const y = heightAt(x, z) + 0.12;
+    const o = i * 6;
+    positions[o] = x + px * halfW; positions[o + 1] = y; positions[o + 2] = z + pz * halfW;
+    positions[o + 3] = x - px * halfW; positions[o + 4] = y; positions[o + 5] = z - pz * halfW;
+    const uo = i * 4;
+    uvs[uo] = i / steps; uvs[uo + 1] = 0;
+    uvs[uo + 2] = i / steps; uvs[uo + 3] = 1;
+    if (i < steps) {
+      const b = i * 2;
+      index.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+    }
+  }
+  const geo = new R.BufferGeometry();
+  geo.setAttribute('position', new R.BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new R.BufferAttribute(uvs, 2));
+  geo.setIndex(index);
+  return geo;
+}
+
+export function buildMEGroundDressing(R, def, heightAt, T) {
+  const group = new R.Group();
+  group.name = 'me-ground-dressing';
+  const updaters = [];
+  const textures = [];
+  const ash = isAshPod(def);
+  const seed = ((def && def.seed) >>> 0) || 1337;
+  const rand = mulberry32(seed ^ 0x9a7a);
+  const crackColors = [0xff5a1a, 0xffc23d, 0xff7a1f];
+  const crackMats = crackColors.map((c) => new R.MeshBasicMaterial({ color: c, fog: true }));
+  let cracks = 0;
+  let scorch = 0;
+  let shade = 0;
+  let mist = 0;
+  /* Flat ground discs: sample the terrain at centre + 4 edge
+   * points and sit on the highest + 0.15, so a disc never sinks
+   * into a bump on the 2 m-vertex ground. */
+  function discY(x, z, r) {
+    let y = heightAt(x, z);
+    for (const [ox, oz] of [[r, 0], [-r, 0], [0, r], [0, -r]]) {
+      y = Math.max(y, heightAt(x + ox, z + oz));
+    }
+    return y + 0.15;
+  }
+  function scatterPos(minR, maxR) {
+    for (let tries = 0; tries < 12; tries++) {
+      const a = rand() * Math.PI * 2;
+      const r = minR + rand() * (maxR - minR);
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      if (Math.hypot(x - 0, z - 95) > 12) return { x, z };
+    }
+    return null;
+  }
+  if (ash) {
+    for (let i = 0; i < ME_GROUND_CRACKS; i++) {
+      const ribbon = new R.Mesh(buildCrackRibbon(R, heightAt, rand), crackMats[i % crackMats.length]);
+      ribbon.name = 'me-crack-ribbon';
+      group.add(ribbon);
+      cracks += 1;
+    }
+    let scorchTex = null;
+    try {
+      if (T && typeof T.scorchTexture === 'function') scorchTex = T.scorchTexture();
+    } catch (e) { scorchTex = null; }
+    if (scorchTex) textures.push(scorchTex);
+    for (let i = 0; i < ME_GROUND_SCORCH; i++) {
+      const p = scatterPos(20, 300);
+      if (!p) continue;
+      const r = 3 + rand() * 4;
+      const disc = new R.Mesh(
+        new R.CircleGeometry(r, 20),
+        new R.MeshBasicMaterial({
+          map: scorchTex || undefined, color: scorchTex ? 0xffffff : 0x17130f,
+          transparent: true, opacity: 0.88, depthWrite: false, fog: true,
+        }),
+      );
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(p.x, discY(p.x, p.z, r), p.z);
+      disc.renderOrder = 1;
+      disc.name = 'me-scorch-disc';
+      group.add(disc);
+      scorch += 1;
+    }
+    /* Ground mist: low smoke sprites hugging the ash, drifting
+     * slowly sideways — the atmosphere the video found missing. */
+    let smokeTex = null;
+    try {
+      if (T && typeof T.smokeSprite === 'function') smokeTex = T.smokeSprite();
+    } catch (e) { smokeTex = null; }
+    if (smokeTex) {
+      textures.push(smokeTex);
+      for (let i = 0; i < ME_GROUND_MIST; i++) {
+        const p = scatterPos(15, 280);
+        if (!p) continue;
+        const sp = new R.Sprite(new R.SpriteMaterial({
+          map: smokeTex, color: 0x8a7a6a, transparent: true,
+          opacity: 0.1 + rand() * 0.05, depthWrite: false, fog: false,
+        }));
+        sp.position.set(p.x, heightAt(p.x, p.z) + 1.5 + rand() * 1.5, p.z);
+        sp.scale.set(30 + rand() * 30, 8 + rand() * 8, 1);
+        sp.name = 'me-mist';
+        sp.userData.drift = (rand() < 0.5 ? -1 : 1) * (0.4 + rand() * 0.6);
+        sp.userData.homeX = p.x;
+        group.add(sp);
+        mist += 1;
+      }
+      updaters.push(function (t, dt) {
+        for (const sp of group.children) {
+          if (sp.name !== 'me-mist') continue;
+          let x = sp.position.x + sp.userData.drift * (dt || 0);
+          if (Math.abs(x - sp.userData.homeX) > 40) sp.userData.drift *= -1;
+          sp.position.x = x;
+        }
+      });
+    }
+  } else {
+    let shadeTex = null;
+    try {
+      if (T && typeof T.meadowShadeTexture === 'function') shadeTex = T.meadowShadeTexture();
+    } catch (e) { shadeTex = null; }
+    if (shadeTex) textures.push(shadeTex);
+    for (let i = 0; i < ME_GROUND_SHADE; i++) {
+      const p = scatterPos(20, 300);
+      if (!p) continue;
+      const r = 5 + rand() * 5;
+      const disc = new R.Mesh(
+        new R.CircleGeometry(r, 20),
+        new R.MeshBasicMaterial({
+          map: shadeTex || undefined, color: shadeTex ? 0xffffff : 0x5d7d3e,
+          transparent: true, opacity: 0.8, depthWrite: false, fog: true,
+        }),
+      );
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(p.x, discY(p.x, p.z, r), p.z);
+      disc.renderOrder = 1;
+      disc.name = 'me-shade-disc';
+      group.add(disc);
+      shade += 1;
+    }
+  }
+  group.userData.cracks = cracks;
+  group.userData.scorch = scorch;
+  group.userData.shade = shade;
+  group.userData.mist = mist;
+  return { group, updaters, textures };
 }
 
 export function buildZone(THREE, podDef, T, opts) {
@@ -351,9 +756,17 @@ export function buildZone(THREE, podDef, T, opts) {
    * at the origin would slide across the sky and sink as the
    * walker roamed away from home. The DirectionalLight stays put:
    * its direction is all that shades, and it never moves. */
+  /* The sky rides with the walker (ENDLESS): dome, sun, clouds
+   * and embers live in 'me-sky', and update() keeps the whole
+   * group over the observer — a sky that stayed at the origin
+   * would slide away as the walker roams. See the CGI builders
+   * above (buildMESkyDome / buildMESkyLayers). */
+  const skyGroup = new R.Group();
+  skyGroup.name = 'me-sky';
+  group.add(skyGroup);
   const sunGroup = new R.Group();
   sunGroup.name = 'me-sun';
-  group.add(sunGroup);
+  skyGroup.add(sunGroup);
   const sunDir = new R.Vector3(60, 110, 35).normalize();
   const sunPos = sunDir.clone().multiplyScalar(300);
   const sunCore = new R.Mesh(
@@ -386,6 +799,21 @@ export function buildZone(THREE, podDef, T, opts) {
     sunGlow.name = 'me-sun-glow';
     sunGroup.add(sunGlow);
   }
+  /* Mordor's sun is a sullen ember behind the smoke, not the
+   * Shire's bright disc: orange core, wide ember halo. */
+  if (isAshPod(def)) {
+    const core = sunGroup.getObjectByName('me-sun-core');
+    if (core && core.material) core.material.color.set(0xffb347);
+    const glow = sunGroup.getObjectByName('me-sun-glow');
+    if (glow) { glow.material.color.set(0xff8a3d); glow.scale.set(170, 170, 1); }
+  }
+  /* The CGI sky: gradient dome + drifting clouds (+ rising
+   * embers over Mordor), riding in 'me-sky' with the sun. */
+  skyGroup.add(buildMESkyDome(R, def));
+  const skyLayers = buildMESkyLayers(R, def, T);
+  skyGroup.add(skyLayers.group);
+  for (const u of skyLayers.updaters) updaters.push(u);
+  for (const t of skyLayers.textures) extraTextures.push(t);
 
   /* terrain — ENDLESS (Merlin, Nov 18, 2026): the ground streams
    * in chunks around the observer (lib/world/streaming.js,
@@ -465,7 +893,15 @@ export function buildZone(THREE, podDef, T, opts) {
     for (const c of want) buildTerrainChunk(c.cx, c.cz);
     terrainKeys = want.map((c) => c.key);
   }
-  group.add(buildHorizon(R, def, heightAt));
+  const horizonGroup = buildHorizon(R, def, heightAt);
+  group.add(horizonGroup);
+  /* Ground dressing (CGI, Merlin Nov 26): lava-crack ribbons,
+   * scorch discs and ground mist on the ash pods, shaded meadow
+   * discs elsewhere — the plain dark ground, broken up. */
+  const groundDressing = buildMEGroundDressing(R, def, heightAt, T);
+  group.add(groundDressing.group);
+  for (const u of groundDressing.updaters) updaters.push(u);
+  for (const t of groundDressing.textures) extraTextures.push(t);
 
   /* landmarks — span seating, GLB registry colliders + swap */
   const landmarkDefs = Array.isArray(def.landmarks) ? def.landmarks : [];
@@ -509,6 +945,30 @@ export function buildZone(THREE, podDef, T, opts) {
    * that hero's NPC seat in its home pod stands empty — no
    * second wizard in the Shire. The seat's collider goes with it. */
   const characters = [];
+  /* DRAGONS (Merlin, Nov 26): dragon-class placed creatures get
+   * a LIVE record (createDragon) + their figure handle, so the
+   * update loop can step their hunt, move them, and fall/fade
+   * them on death. Every other placed creature keeps the static
+   * figure + updater below. A dragon's collider MOVES with it
+   * (its entry keeps the collider object); its figure is rebuilt
+   * on respawn from the stored figDef. */
+  const dragonEntries = [];
+  function registerDragon(cd, fig, col) {
+    const dragon = createDragon({
+      id: cd.id || cd.model, kind: cd.model,
+      x: cd.at ? cd.at[0] : cd.x, z: cd.at ? cd.at[1] : cd.z,
+      faceYaw: cd.faceYaw || 0,
+    });
+    dragon.pod = def.id;
+    dragon.name = cd.name || dragon.name;
+    const figDef = {
+      id: cd.id || cd.model, model: cd.model, name: cd.name || '',
+      at: [dragon.home.x, dragon.home.z], height: cd.height || dragon.stats.height,
+      creature: true, lifeLine: placedCreatureLifeFor(cd).line,
+    };
+    dragonEntries.push({ dragon, fig, figDef, collider: col });
+    return dragon;
+  }
   /* HORSES RIDEABLE (Merlin, Nov 15 ~00:57): the page needs the
    * horse FIGURE groups (not just the plain {id,name,x,z} in
    * `characters`) so it can mount the rider on the saddle and
@@ -525,7 +985,10 @@ export function buildZone(THREE, podDef, T, opts) {
         /* Placed creatures carry their life line on the tag's
          * second line (characters.js) — static, because they
          * never die and never hunt. Heroes and folk keep the
-         * single-line tag. */
+         * single-line tag. DRAGONS are the exception (Merlin,
+         * Nov 26): their tag line is the hunt line ("Hunts ·
+         * 400 HP · drops Dragon Scales or Fire Orbs") and the
+         * figure is driven by the dragon tick, not this updater. */
         const figDef = cd.creature
           ? { ...cd, lifeLine: placedCreatureLifeFor(cd).line }
           : cd;
@@ -534,7 +997,9 @@ export function buildZone(THREE, podDef, T, opts) {
         const col = { x: cd.at[0], z: cd.at[1], r: cd.creature ? Math.max(0.8, cd.height * 0.3) : 0.45 };
         colliders.push(col);
         characters.push({ id: cd.id || cd.model, name: cd.name || '', x: cd.at[0], z: cd.at[1] });
-        if (cd.model === 'horse') {
+        if (cd.creature && isDragonModel(cd.model)) {
+          registerDragon(cd, fig, col);
+        } else if (cd.model === 'horse') {
           const horse = {
             id: cd.id || 'horse', model: 'horse', name: cd.name || '',
             x: cd.at[0], z: cd.at[1], height: cd.height || 2.2,
@@ -571,7 +1036,9 @@ export function buildZone(THREE, podDef, T, opts) {
       const col = { x: ex.x, z: ex.z, r: Math.max(0.8, ex.height * 0.3) };
       colliders.push(col);
       characters.push({ id: ex.id, name: ex.name, x: ex.x, z: ex.z, operatorExtra: true });
-      if (ex.model === 'horse') {
+      if (isDragonModel(ex.model)) {
+        registerDragon({ ...ex, at: [ex.x, ex.z] }, fig, col);
+      } else if (ex.model === 'horse') {
         const horse = {
           id: ex.id, model: 'horse', name: ex.name,
           x: ex.x, z: ex.z, height: ex.height || 2.2,
@@ -886,9 +1353,9 @@ export function buildZone(THREE, podDef, T, opts) {
 
   function update(t, dt) {
     clock += dt;
-    /* ENDLESS: the sun stays over the observer and the ground
+    /* ENDLESS: the sky stays over the observer and the ground
      * streams under them — the two things that must travel. */
-    sunGroup.position.set(observer.x, 0, observer.z);
+    skyGroup.position.set(observer.x, 0, observer.z);
     updateStreamingTerrain();
     for (const u of updaters) u(t, dt);
     /* hunt: stream the field, then step live orcs against the
@@ -936,6 +1403,64 @@ export function buildZone(THREE, podDef, T, opts) {
       }
     }
     for (const orc of deadToRemove) despawnLive(orc);
+    /* dragons: step the shared-agent hunt, move the figure with
+     * it, fall + fade on death, refill on the pod clock once the
+     * player is out of the area (the orc rule, mirrored). */
+    for (const entry of dragonEntries) {
+      const d = entry.dragon;
+      const events = stepDragon(d, dt, player, huntRng, senses);
+      for (const ev of events) {
+        if (ev.type === 'hitPlayer' && typeof options.onPlayerHit === 'function') {
+          options.onPlayerHit(ev.dmg, d);
+        } else if (ev.type === 'sighted') {
+          seen = true;
+          noteSightHeat(huntState, player.x, player.z, huntScale);
+        }
+        /* windup: the figure carries no breath/bite pose yet —
+         * the telegraph visual is open work (see report). */
+      }
+      if (d.state !== 'dead') {
+        pushOutOfColliders(d, 1.0);
+        if (entry.collider) { entry.collider.x = d.x; entry.collider.z = d.z; }
+        const fig = entry.fig;
+        if (fig) {
+          fig.group.position.x = d.x;
+          fig.group.position.z = d.z;
+          fig.group.position.y = heightAt(d.x, d.z);
+          fig.group.userData.groundY = fig.group.position.y;
+          fig.group.rotation.y = d.yaw;
+          fig.update(t, dt, Math.hypot(d.x - player.x, d.z - player.z));
+        }
+      } else if (entry.fig) {
+        // dead: fall + fade, then lift the figure; the record
+        // refills below on the pod clock.
+        const fig = entry.fig;
+        const k = Math.min(1, d.deathT / 0.7);
+        fig.group.rotation.x = -k * (Math.PI / 2) * 0.92;
+        const fade = d.deathT > 1.6 ? Math.max(0, 1 - (d.deathT - 1.6) / 0.9) : 1;
+        fig.group.position.y = (fig.group.userData.groundY || 0) - (d.deathT > 1.6 ? (d.deathT - 1.6) * 0.35 : 0);
+        fig.group.traverse((o) => {
+          if (o.isMesh && o.material) { o.material.transparent = fade < 1; o.material.opacity = fade; }
+        });
+        if (d.deathT > 2.6) {
+          group.remove(fig.group);
+          entry.fig = null;
+        }
+      }
+      if (d.state === 'dead' && d.deadAt >= 0) {
+        const pd = Math.hypot(player.x - d.x, player.z - d.z);
+        if (clock - d.deadAt >= respawnS && pd > RESPAWN_MIN_DIST) {
+          d.hp = d.maxHp; d.state = 'roam'; d.deathT = 0; d.deadAt = -1;
+          d.x = d.home.x; d.z = d.home.z; d.heading = 0; d.yaw = 0;
+          try {
+            const fig = buildFigure(R, entry.figDef, heightAt);
+            group.add(fig.group);
+            entry.fig = fig;
+            if (entry.collider) { entry.collider.x = d.x; entry.collider.z = d.z; }
+          } catch (e) { /* the dragon still hunts, invisible */ }
+        }
+      }
+    }
     /* the meter: decay, trail cold, party dispatch */
     for (const ev of stepHunt(huntState, dt, seen)) {
       if (ev.type === 'dispatch') fulfilDispatch(ev.size, ev.partyId, ev.x, ev.z);
@@ -995,6 +1520,7 @@ export function buildZone(THREE, podDef, T, opts) {
     horses,
     hunt: {
       get orcs() { return orcs; },
+      get dragons() { return dragonEntries.map((e) => e.dragon); },
       boss,
       get heat() { return huntState.heat; },
       get level() { return heatLevel(huntState.heat); },
@@ -1018,6 +1544,12 @@ export function buildZone(THREE, podDef, T, opts) {
         const rec = records.find((r) => r.id === orc.recordId);
         if (rec) { rec.alive = false; rec.deadAt = clock; }
       },
+      /* a dragon kill starts its respawn clock (zone clock,
+       * like the orc records above); the page calls this after
+       * damageDragon returns loot. */
+      markDragonDead: function (dragon) {
+        if (dragon) dragon.deadAt = clock;
+      },
       setHeat: function (v) { huntState.heat = Math.max(0, Math.min(100, v)); },
       resetHunt,
       figureOf: function (orc) { return orcFigures.get(orc); },
@@ -1027,6 +1559,20 @@ export function buildZone(THREE, podDef, T, opts) {
     update,
     dispose,
     kind: 'walk',
+    /* CGI enhancement counts (Merlin, Nov 26): what the sky,
+     * ground and spire dressing actually built for this pod. */
+    cgi: {
+      domeRadius: ME_SKY_DOME_RADIUS,
+      clouds: skyLayers.group.userData.clouds || 0,
+      embers: skyLayers.group.userData.embers || 0,
+      cracks: groundDressing.group.userData.cracks || 0,
+      scorch: groundDressing.group.userData.scorch || 0,
+      shade: groundDressing.group.userData.shade || 0,
+      mist: groundDressing.group.userData.mist || 0,
+      spireTips: horizonGroup.userData.spireTips || 0,
+      spireSeams: horizonGroup.userData.spireSeams || 0,
+      spireCrowns: horizonGroup.userData.spireCrowns || 0,
+    },
     sky: skyHex,
     fog: { color: fogHex, density: fogDensity },
   };

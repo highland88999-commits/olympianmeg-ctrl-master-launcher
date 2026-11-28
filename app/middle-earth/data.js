@@ -444,6 +444,14 @@ export const PODS = {
     ],
     characters: [
       { id: 'dark-lord', model: 'dark-lord', name: 'The Dark Lord', at: [-158, -128], faceYaw: 0.8, height: 2.3 },
+      /* DRAGON-CLASS (Merlin, Nov 26: "Make the dragons hunt and
+       * be billable"): the Fell Beast + the Dragon of the Wastes
+       * HUNT the player, take damage, die, and drop Dragon Scales
+       * or Fire Orbs (dragons.js: 300 / 400 HP, fire breath +
+       * bite; respawn on the pod clock like orcs). Stats live in
+       * dragons.js DRAGON_KINDS, keyed by model — the defs stay
+       * placement-only. The model is untouched: video 2 called
+       * it "the best creature model in the footage". */
       { id: 'fell-beast', model: 'fell-beast', name: 'A Fell Beast', at: [60, -190], faceYaw: 2.2, height: 3.4, creature: true },
       { id: 'dragon', model: 'dragon', name: 'A Dragon of the Wastes', at: [-90, 150], faceYaw: -0.9, height: 4.2, creature: true },
     ],

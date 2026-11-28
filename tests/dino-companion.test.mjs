@@ -102,7 +102,7 @@ describe('realms wire summon + recall through the backpack', () => {
     const me = read('app/middle-earth/page.jsx');
     assert.ok(me.includes('onDinoSummon='), 'Middle-earth summons from the pack');
     assert.ok(me.includes('onDinoRecall='), 'Middle-earth sends back to the pack');
-    assert.ok(me.includes('updateCompanions(companions, dt)'), 'companions step every frame');
+    assert.ok(me.includes('updateCompanions(companions, dt, {'), 'companions step every frame with the hunt context');
     assert.ok(me.includes('dinoApiRef'), 'the HUD reaches the zone through a ref');
     assert.ok(me.includes('DINO_STATE_OUT'), 'out dinos restore on entry');
   });
